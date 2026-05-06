@@ -5,6 +5,9 @@ import Dashboard from './Dashboard'
 import Suppliers from './Suppliers'
 import Invoices from './Invoices'
 import Payments from '../pages/Payments'
+import SupplierLedger from './SupplierLedger'
+import DeliveryNotes from './DeliveryNotes'
+import StatementReconciliation from './StatementReconciliation'
 
 function getGreeting(): string {
   const hour = new Date().getHours()
@@ -32,12 +35,13 @@ interface LayoutProps {
 }
 
 const pageLabels: Record<string, string> = {
-  dashboard: 'דשבורד',
-  suppliers: 'ספקים',
-  invoices: 'חשבוניות',
-  payments: 'תשלומים',
-  deliveries: 'תעודות משלוח',
-  returns: 'חזרות',
+  dashboard:     'דשבורד',
+  suppliers:     'ספקים',
+  ledger:        'כרטסת ספק',
+  invoices:      'חשבוניות',
+  payments:      'תשלומים',
+  deliveries:    'תעודות משלוח',
+  returns:       'חזרות',
   reconciliation: 'התאמת כרטסות',
 }
 
@@ -66,15 +70,18 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const sidebarWidth = isTablet ? 200 : isCollapsed ? 72 : 256
 
   const renderPage = () => {
-    if (activePage === 'dashboard') return <Dashboard />
-    if (activePage === 'suppliers') return <Suppliers />
-    if (activePage === 'invoices') return <Invoices />
-    if (activePage === 'payments') return <Payments />
+    if (activePage === 'dashboard')      return <Dashboard onPageChange={setActivePage} />
+    if (activePage === 'suppliers')      return <Suppliers />
+    if (activePage === 'ledger')         return <SupplierLedger />
+    if (activePage === 'invoices')       return <Invoices />
+    if (activePage === 'payments')       return <Payments />
+    if (activePage === 'deliveries')     return <DeliveryNotes />
+    if (activePage === 'reconciliation') return <StatementReconciliation />
     return <ComingSoon page={activePage} />
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#FFF8F7', direction: 'rtl' }}>
+    <div className="min-h-screen" style={{ backgroundColor: '#F4F5F7', direction: 'rtl' }}>
       <Sidebar
         isCollapsed={isCollapsed}
         onToggle={() => setIsCollapsed(!isCollapsed)}
@@ -93,10 +100,10 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         <header
           className="bg-white border-b sticky top-0 z-40 flex items-center justify-between"
           style={{
-            borderColor: '#F0E8E7',
+            borderColor: '#E2E4E9',
             height: '68px',
-            paddingLeft: isTablet ? '16px' : '24px',
-            paddingRight: isTablet ? '16px' : '24px',
+            paddingLeft: isTablet ? '24px' : '32px',
+            paddingRight: isTablet ? '24px' : '32px',
           }}
         >
           {/* Left: search */}
@@ -104,13 +111,13 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
             <button
               className="flex items-center gap-2 rounded-xl text-gray-400 border transition-all"
               style={{
-                borderColor: '#F0E8E7',
+                borderColor: '#E2E4E9',
                 minHeight: '44px',
                 padding: '0 14px',
                 fontSize: isTablet ? '16px' : '14px',
               }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#E8645A')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#F0E8E7')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#E2E4E9')}
             >
               <span className="hidden sm:inline">חיפוש...</span>
               <Search className="w-4 h-4 flex-shrink-0" />
@@ -165,7 +172,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         {/* Page content */}
         <main
           className="flex-1"
-          style={{ padding: isTablet ? '16px' : '24px' }}
+          style={{ padding: isTablet ? '24px' : '32px' }}
         >
           {renderPage()}
         </main>

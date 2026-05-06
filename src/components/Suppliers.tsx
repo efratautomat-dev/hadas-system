@@ -73,13 +73,13 @@ const emptyForm: EditFormState = {
 
 const inputBase: React.CSSProperties = {
   height: '44px', padding: '0 14px', fontSize: '16px',
-  outline: 'none', border: '1px solid #F0E8E7', borderRadius: '12px',
+  outline: 'none', border: '1px solid #E2E4E9', borderRadius: '12px',
   background: 'white', width: '100%', color: '#1F2937', boxSizing: 'border-box',
 }
 
 const textareaBase: React.CSSProperties = {
   padding: '12px 14px', fontSize: '16px',
-  outline: 'none', border: '1px solid #F0E8E7', borderRadius: '12px',
+  outline: 'none', border: '1px solid #E2E4E9', borderRadius: '12px',
   background: 'white', width: '100%', color: '#1F2937',
   resize: 'vertical', minHeight: '80px', boxSizing: 'border-box',
 }
@@ -88,7 +88,7 @@ function focusBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | 
   (e.target as HTMLElement).style.borderColor = '#E8645A'
 }
 function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = '#F0E8E7'
+  (e.target as HTMLElement).style.borderColor = '#E2E4E9'
 }
 
 function FormField({
@@ -108,7 +108,7 @@ function FormField({
 function GroupHeader({ title }: { title: string }) {
   return (
     <div className="flex items-center gap-3 mb-3">
-      <div className="flex-1 h-px" style={{ background: '#F0E8E7' }} />
+      <div className="flex-1 h-px" style={{ background: '#E2E4E9' }} />
       <span style={{ fontSize: '12px', fontWeight: 700, color: '#8B1A3A', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
         {title}
       </span>
@@ -290,7 +290,7 @@ function SupplierFormCard({
           className="flex-1 rounded-xl font-semibold transition-all"
           style={{
             minHeight: '44px', fontSize: '15px',
-            background: canSave ? 'linear-gradient(135deg, #8B1A3A, #E8645A)' : '#E5E7EB',
+            background: canSave ? '#7C3AED' : '#E5E7EB',
             color: canSave ? 'white' : '#9CA3AF',
           }}
         >
@@ -353,6 +353,10 @@ export default function Suppliers() {
           setViewId(null)
           setEditingId(sup.id)
           setEditForm(supplierToForm(sup))
+        }}
+        onDelete={() => {
+          setSuppliers((prev) => prev.filter((s) => s.id !== sup.id))
+          setViewId(null)
         }}
       />
     )
@@ -436,13 +440,13 @@ export default function Suppliers() {
           onClick={() => { setShowAdd(true); setAddForm({ ...emptyForm }) }}
           className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all flex-shrink-0"
           style={{
-            background: 'linear-gradient(135deg, #8B1A3A, #E8645A)',
+            background: '#7C3AED',
             padding: isTablet ? '12px 20px' : '10px 18px',
             minHeight: '44px',
             fontSize: isTablet ? '16px' : '14px',
           }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.opacity = '1')}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
         >
           <Plus className="w-4 h-4 flex-shrink-0" />
           הוסף ספק
@@ -465,7 +469,7 @@ export default function Suppliers() {
           <div
             key={label}
             className="bg-white rounded-2xl p-4 shadow-sm border text-center"
-            style={{ borderColor: '#F0E8E7' }}
+            style={{ borderColor: '#E2E4E9' }}
           >
             <p className="text-2xl font-black" style={{ color }}>{value}</p>
             <p className="text-gray-500 mt-1" style={{ fontSize: isTablet ? '15px' : '13px' }}>{label}</p>
@@ -475,7 +479,7 @@ export default function Suppliers() {
 
       {/* Filters */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#F0E8E7' }}>
+        <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#E2E4E9' }}>
           {(['all', 'פעיל', 'לא פעיל'] as StatusFilter[]).map((f) => (
             <button
               key={f}
@@ -494,7 +498,7 @@ export default function Suppliers() {
         </div>
         <div
           className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4"
-          style={{ borderColor: '#F0E8E7', minHeight: '44px' }}
+          style={{ borderColor: '#E2E4E9', minHeight: '44px' }}
         >
           <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <input
@@ -550,14 +554,14 @@ export default function Suppliers() {
               <div
                 key={sup.id}
                 className="bg-white rounded-2xl shadow-sm border flex flex-col"
-                style={{ borderColor: '#F0E8E7' }}
+                style={{ borderColor: '#E2E4E9' }}
               >
                 <div className="p-5 flex-1 flex flex-col gap-4">
 
                   {/* Status | Category */}
                   <div className="flex items-center justify-between">
                     <span
-                      className="rounded-lg font-semibold"
+                      className="rounded-lg font-bold"
                       style={{
                         fontSize: '12px', padding: '4px 12px',
                         background: isActive ? '#DCFCE7' : '#F3F4F6',
@@ -588,7 +592,7 @@ export default function Suppliers() {
                   </div>
 
                   {/* Balance box */}
-                  <div className="rounded-xl p-3 text-right" style={{ background: '#FFF8F7' }}>
+                  <div className="rounded-xl p-3 text-right" style={{ background: '#F8F9FA' }}>
                     <p style={{ fontSize: '11px', color: '#9CA3AF' }}>
                       יתרת פתיחה{sup.openingBalanceDate ? ` · ${sup.openingBalanceDate}` : ''}
                     </p>
@@ -607,7 +611,7 @@ export default function Suppliers() {
                     style={{
                       minHeight: '44px',
                       fontSize: isTablet ? '15px' : '14px',
-                      background: 'linear-gradient(135deg, #8B1A3A, #E8645A)',
+                      background: '#7C3AED',
                       color: 'white',
                     }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}

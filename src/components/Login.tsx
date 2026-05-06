@@ -96,9 +96,13 @@ export default function Login({ onLogin }: LoginProps) {
                 disabled={loading || !email.trim()}
                 className="w-full py-3.5 rounded-xl font-bold text-white text-base transition-all flex items-center justify-center gap-2 shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
                 style={{
-                  background: loading || !email.trim()
-                    ? '#ccc'
-                    : 'linear-gradient(135deg, #8B1A3A, #E8645A)',
+                  background: loading || !email.trim() ? '#ccc' : '#7C3AED',
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading && email.trim()) (e.currentTarget as HTMLElement).style.background = '#6D28D9'
+                }}
+                onMouseLeave={(e) => {
+                  if (!loading && email.trim()) (e.currentTarget as HTMLElement).style.background = '#7C3AED'
                 }}
               >
                 {loading ? (

@@ -7,6 +7,7 @@ import {
   Truck,
   RotateCcw,
   BookOpen,
+  Receipt,
   LogOut,
   ChevronLeft,
 } from 'lucide-react'
@@ -35,7 +36,8 @@ interface SidebarProps {
 const navItems = [
   { id: 'dashboard', label: 'דשבורד', Icon: LayoutDashboard },
   { id: 'suppliers', label: 'ספקים', Icon: Users },
-  { id: 'invoices', label: 'חשבוניות', Icon: FileText },
+  { id: 'ledger',    label: 'כרטסת ספק', Icon: Receipt },
+  { id: 'invoices',  label: 'חשבוניות', Icon: FileText },
   { id: 'payments', label: 'תשלומים', Icon: CreditCard },
   { id: 'deliveries', label: 'תעודות משלוח', Icon: Truck },
   { id: 'returns', label: 'חזרות', Icon: RotateCcw },

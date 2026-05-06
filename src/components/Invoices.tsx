@@ -180,8 +180,8 @@ function TLink({ label, value, onChange }: { label: string; value: string; onCha
 
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #F0E8E7', overflow: 'hidden' }}>
-      <div style={{ padding: '12px 18px', borderBottom: '1px solid #F0E8E7', background: '#FFF8F7' }}>
+    <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #E2E4E9', overflow: 'hidden' }}>
+      <div style={{ padding: '12px 18px', borderBottom: '1px solid #E2E4E9', background: '#F8F9FA' }}>
         <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#8B1A3A', textAlign: 'right' }}>{title}</h3>
       </div>
       <div style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -237,10 +237,12 @@ function InvoiceDetail({
         <button
           onClick={() => onSave(form)}
           style={{
-            background: '#8B1A3A', color: 'white', border: 'none', borderRadius: '12px',
+            background: '#7C3AED', color: 'white', border: 'none', borderRadius: '12px',
             padding: '10px 22px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: '7px',
           }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
         >
           <Save size={16} />
           שמור
@@ -301,7 +303,7 @@ function InvoiceDetail({
             <TInput label='מע"מ (₪)' value={String(form.vat || '')} onChange={set('vat')} type="number" />
           </Row2>
           <div style={{
-            background: '#FFF8F7', border: '1.5px solid #F0D4DA', borderRadius: '12px',
+            background: '#F8F9FA', border: '1.5px solid #F0D4DA', borderRadius: '12px',
             padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           }}>
             <span style={{ fontSize: '24px', fontWeight: 800, color: '#8B1A3A' }}>{formatILS(total)}</span>
@@ -413,7 +415,7 @@ export default function Invoices() {
           <div
             key={label}
             className="bg-white rounded-2xl p-4 shadow-sm border text-center"
-            style={{ borderColor: '#F0E8E7' }}
+            style={{ borderColor: '#E2E4E9' }}
           >
             <p className="text-2xl font-black" style={{ color }}>{value}</p>
             <p className="text-gray-500 mt-1" style={{ fontSize: '13px' }}>{label}</p>
@@ -425,7 +427,7 @@ export default function Invoices() {
       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
         <div
           className="bg-white rounded-xl border p-1 flex-shrink-0"
-          style={{ borderColor: '#F0E8E7', display: 'flex', gap: '2px' }}
+          style={{ borderColor: '#E2E4E9', display: 'flex', gap: '2px' }}
         >
           {(['all', 'ממתין', 'בטיפול', 'הושלם', 'שגיאה'] as Filter[]).map(f => (
             <button
@@ -444,7 +446,7 @@ export default function Invoices() {
         </div>
         <div
           className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4"
-          style={{ borderColor: '#F0E8E7', minHeight: '44px' }}
+          style={{ borderColor: '#E2E4E9', minHeight: '44px' }}
         >
           <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <input
@@ -459,7 +461,7 @@ export default function Invoices() {
       </div>
 
       {/* List */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#F0E8E7' }}>
+      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
         {filtered.length === 0 ? (
           <div className="py-16 text-center text-gray-400">
             <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -481,7 +483,7 @@ export default function Invoices() {
                   onClick={() => setSelected(inv)}
                   style={{
                     padding: '14px 20px',
-                    borderTop: i > 0 ? '1px solid #F5EEEE' : undefined,
+                    borderTop: i > 0 ? '1px solid #E2E4E9' : undefined,
                     cursor: 'pointer',
                     transition: 'background 0.12s',
                     display: 'flex',
@@ -489,13 +491,13 @@ export default function Invoices() {
                     justifyContent: 'space-between',
                     gap: '12px',
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#FFF8F7')}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#F8F9FA')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
                   {/* Left: status + amount + flags */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                     <span
-                      style={{ ...st, fontSize: '13px', fontWeight: 600, padding: '4px 12px', borderRadius: '8px', flexShrink: 0 }}
+                      style={{ ...st, fontSize: '13px', fontWeight: 700, padding: '4px 12px', borderRadius: '8px', flexShrink: 0 }}
                     >
                       {inv.status}
                     </span>

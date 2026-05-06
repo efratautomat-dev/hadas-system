@@ -1,5 +1,5 @@
-import { Users, FileText, TrendingUp, AlertCircle, Package } from 'lucide-react'
-import { mockStats, mockInvoices, mockPayments, mockDeliveries } from '../data/mockData'
+import { Users, FileText, TrendingUp, AlertCircle, Package, AlertTriangle } from 'lucide-react'
+import { mockStats, mockInvoices, mockPayments, mockDeliveries, mockDeliveryNotes, mockVendorStatements } from '../data/mockData'
 
 const statusStyle: Record<string, { bg: string; color: string }> = {
   'ממתין':  { bg: '#FEF9C3', color: '#A16207' },
@@ -27,7 +27,7 @@ interface StatCardProps {
 
 function StatCard({ title, value, sub, icon, iconBg, iconColor, subColor }: StatCardProps) {
   return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm border flex flex-col gap-3" style={{ borderColor: '#F0E8E7' }}>
+    <div className="bg-white rounded-2xl p-5 shadow-sm border flex flex-col gap-3" style={{ borderColor: '#E2E4E9' }}>
       <div className="flex items-start justify-between">
         <div
           className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -53,7 +53,14 @@ function getGreeting(): string {
   return 'לילה טוב הדס'
 }
 
-export default function Dashboard() {
+interface DashboardProps {
+  onPageChange?: (page: string) => void
+}
+
+export default function Dashboard({ onPageChange }: DashboardProps) {
+  const mismatchCount        = mockVendorStatements.filter((s) => s.status === 'mismatch').length
+  const pendingDeliveryCount = mockDeliveryNotes.filter((d) => d.status === 'pending').length
+
   return (
     <div className="space-y-6">
       <div>
@@ -61,8 +68,38 @@ export default function Dashboard() {
         <p className="text-gray-500 text-sm mt-0.5">סקירה כללית של פעילות הספקים · {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
       </div>
 
+      {/* Mismatch alert */}
+      {mismatchCount > 0 && (
+        <div
+          className="rounded-2xl p-4 shadow-sm border flex items-center justify-between cursor-pointer transition-opacity hover:opacity-90"
+          style={{ borderColor: '#FECDD3', background: '#FFF1F2' }}
+          onClick={() => onPageChange?.('reconciliation')}
+        >
+          <button
+            className="px-4 py-2 rounded-xl text-sm font-bold text-white flex-shrink-0"
+            style={{ background: '#BE123C' }}
+          >
+            לפירוט ←
+          </button>
+          <div className="flex items-center gap-3 text-right">
+            <div>
+              <p className="font-bold text-sm" style={{ color: '#BE123C' }}>
+                {mismatchCount} אי-התאמות בכרטסות ספקים
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולפתור לפני סגירת חודש</p>
+            </div>
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: '#FEE2E2', color: '#DC2626' }}
+            >
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="ספקים פעילים"
           value={String(mockStats.activeSuppliers)}
@@ -104,8 +141,8 @@ export default function Dashboard() {
       {/* Lists grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Invoices - 2/3 width */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#F0E8E7' }}>
-          <div className="px-6 py-4 flex items-center justify-between border-b" style={{ borderColor: '#F5EEEE' }}>
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+          <div className="px-6 py-4 flex items-center justify-between border-b" style={{ borderColor: '#E2E4E9' }}>
             <button
               className="text-sm font-semibold transition-colors"
               style={{ color: '#E8645A' }}
@@ -127,13 +164,13 @@ export default function Dashboard() {
                 <div
                   key={inv.id}
                   className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FFF8F7')}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
                   onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 >
                   {/* Left side */}
                   <div className="flex items-center gap-3">
                     <span
-                      className="px-3 py-1 rounded-lg text-xs font-semibold"
+                      className="px-3 py-1 rounded-lg text-xs font-bold"
                       style={{ backgroundColor: st.bg, color: st.color }}
                     >
                       {inv.status}
@@ -155,8 +192,8 @@ export default function Dashboard() {
         {/* Right column */}
         <div className="flex flex-col gap-6">
           {/* Upcoming Payments */}
-          <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#F0E8E7' }}>
-            <div className="px-5 py-4 border-b" style={{ borderColor: '#F5EEEE' }}>
+          <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+            <div className="px-5 py-4 border-b" style={{ borderColor: '#E2E4E9' }}>
               <div className="flex items-center justify-end gap-2">
                 <h2 className="font-bold text-gray-800 text-sm">תשלומים קרובים</h2>
                 <TrendingUp className="w-4 h-4 text-gray-400" />
@@ -179,11 +216,25 @@ export default function Dashboard() {
           </div>
 
           {/* Recent Deliveries */}
-          <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#F0E8E7' }}>
-            <div className="px-5 py-4 border-b" style={{ borderColor: '#F5EEEE' }}>
-              <div className="flex items-center justify-end gap-2">
-                <h2 className="font-bold text-gray-800 text-sm">תעודות משלוח</h2>
-                <Package className="w-4 h-4 text-gray-400" />
+          <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+            <div className="px-5 py-4 border-b" style={{ borderColor: '#E2E4E9' }}>
+              <div className="flex items-center justify-between">
+                {pendingDeliveryCount > 0 && (
+                  <button
+                    onClick={() => onPageChange?.('deliveries')}
+                    className="flex items-center gap-1.5 rounded-lg font-semibold transition-all"
+                    style={{ fontSize: '12px', padding: '4px 10px', background: '#FEF9C3', color: '#A16207' }}
+                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#FDE68A')}
+                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FEF9C3')}
+                  >
+                    <AlertTriangle className="w-3 h-3" />
+                    {pendingDeliveryCount} ממתינות לשיוך ←
+                  </button>
+                )}
+                <div className="flex items-center gap-2">
+                  <h2 className="font-bold text-gray-800 text-sm">תעודות משלוח</h2>
+                  <Package className="w-4 h-4 text-gray-400" />
+                </div>
               </div>
             </div>
             <div className="divide-y" style={{}}>
@@ -193,7 +244,7 @@ export default function Dashboard() {
                   <div key={del.id} className="px-5 py-3.5">
                     <div className="flex items-center justify-between mb-1">
                       <span
-                        className="text-xs px-2 py-0.5 rounded-md font-semibold"
+                        className="text-xs px-2 py-0.5 rounded-md font-bold"
                         style={{ backgroundColor: st.bg, color: st.color }}
                       >
                         {del.status}
