@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FileText, CreditCard, Pencil } from 'lucide-react'
+import { FileText, CreditCard, Pencil, User, Phone, Mail, Hash, Tag, MessageSquare } from 'lucide-react'
 import { mockInvoices, mockPayments } from '../data/mockData'
 
 function useIsTablet() {
@@ -24,6 +24,11 @@ export interface Supplier {
   paymentTerms: string
   lastOrderDate: string
   balance: number
+  hp?: string
+  email?: string
+  openingBalance?: number
+  openingBalanceDate?: string
+  notes?: string
 }
 
 interface Props {
@@ -131,6 +136,93 @@ export default function SupplierDetail({ supplier, onBack, onEdit }: Props) {
           >
             חזרה לרשימה
           </button>
+        </div>
+      </div>
+
+      {/* ── פרטי קשר ── */}
+      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#F0E8E7' }}>
+        <div
+          className="px-5 py-3.5 flex items-center justify-end gap-2 border-b"
+          style={{ borderColor: '#F5EEEE', background: '#FDFAFA' }}
+        >
+          <h2 className="font-bold text-gray-800" style={{ fontSize: fs('16px', '15px') }}>פרטי קשר</h2>
+          <User className="w-4 h-4 text-gray-400" />
+        </div>
+
+        {/* Field rows */}
+        {[
+          { Icon: User,         label: 'שם איש קשר', value: supplier.contact,       ltr: false },
+          { Icon: Phone,        label: 'טלפון',       value: supplier.phone,         ltr: true  },
+          { Icon: Mail,         label: 'מייל',         value: supplier.email ?? '',   ltr: true  },
+          { Icon: Hash,         label: 'ח.פ / ע.מ',  value: supplier.hp ?? '',       ltr: true  },
+          { Icon: Tag,          label: 'קטגוריה',     value: supplier.category,      ltr: false },
+        ].map(({ Icon, label, value }, i) => (
+          <div
+            key={label}
+            className="flex items-center justify-between px-5"
+            style={{ minHeight: '52px', borderTop: i > 0 ? '1px solid #F5EEEE' : undefined }}
+          >
+            {/* Value — LEFT (end in RTL) */}
+            <span
+              style={{
+                fontSize: fs('15px', '14px'),
+                color: value ? '#1F2937' : '#9CA3AF',
+                fontWeight: value ? 500 : 400,
+              }}
+            >
+              {value || '—'}
+            </span>
+
+            {/* Icon + Label — RIGHT (start in RTL) */}
+            <div className="flex items-center gap-2.5 flex-shrink-0">
+              <span className="text-gray-400" style={{ fontSize: '13px' }}>{label}</span>
+              <div
+                className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ background: '#FFF8F7' }}
+              >
+                <Icon className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {/* הערות — full-width block */}
+        <div style={{ borderTop: '1px solid #F5EEEE' }}>
+          {supplier.notes ? (
+            <div className="px-5 py-4">
+              <div className="flex items-center justify-end gap-2.5 mb-2">
+                <span className="text-gray-400" style={{ fontSize: '13px' }}>הערות</span>
+                <div
+                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: '#FFF8F7' }}
+                >
+                  <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
+                </div>
+              </div>
+              <p
+                className="text-right leading-relaxed"
+                style={{ fontSize: fs('15px', '14px'), color: '#374151' }}
+              >
+                {supplier.notes}
+              </p>
+            </div>
+          ) : (
+            <div
+              className="flex items-center justify-between px-5"
+              style={{ minHeight: '52px' }}
+            >
+              <span style={{ fontSize: fs('15px', '14px'), color: '#9CA3AF' }}>—</span>
+              <div className="flex items-center gap-2.5 flex-shrink-0">
+                <span className="text-gray-400" style={{ fontSize: '13px' }}>הערות</span>
+                <div
+                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: '#FFF8F7' }}
+                >
+                  <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

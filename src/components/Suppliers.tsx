@@ -15,55 +15,105 @@ function useIsTablet() {
   return v
 }
 
+const CATEGORIES = [
+  'ספקים ביגוד',
+  'ספקים כיסויי ראש',
+  'ספקים בגדי ים',
+  'ספקים שונות',
+  'הוצאות ניהול',
+  'הוצאות משרד',
+  'תשלומי מס הכנסה',
+  'משכורות',
+  'שונות',
+]
+
 const categoryColors: Record<string, { bg: string; color: string }> = {
-  'מוצרי חלב': { bg: '#EFF6FF', color: '#1D4ED8' },
-  'משקאות':    { bg: '#F0FDF4', color: '#16A34A' },
-  'מזון יבש':  { bg: '#FFF7ED', color: '#C2410C' },
-  'ממתקים':    { bg: '#FDF4FF', color: '#9333EA' },
-  'שתייה חמה': { bg: '#FEF3C7', color: '#92400E' },
-  'מאפים':     { bg: '#FFF1F2', color: '#BE123C' },
+  'ספקים ביגוד':       { bg: '#EFF6FF', color: '#1D4ED8' },
+  'ספקים כיסויי ראש':  { bg: '#FDF4FF', color: '#9333EA' },
+  'ספקים בגדי ים':     { bg: '#F0FDFA', color: '#0F766E' },
+  'ספקים שונות':       { bg: '#F3F4F6', color: '#4B5563' },
+  'הוצאות ניהול':      { bg: '#FFF7ED', color: '#C2410C' },
+  'הוצאות משרד':       { bg: '#FEF9C3', color: '#92400E' },
+  'תשלומי מס הכנסה':   { bg: '#FFF1F2', color: '#BE123C' },
+  'משכורות':           { bg: '#F0FDF4', color: '#16A34A' },
+  'שונות':             { bg: '#F3F4F6', color: '#6B7280' },
+  // legacy mock categories
+  'מוצרי חלב':         { bg: '#EFF6FF', color: '#1D4ED8' },
+  'משקאות':            { bg: '#F0FDF4', color: '#16A34A' },
+  'מזון יבש':          { bg: '#FFF7ED', color: '#C2410C' },
+  'ממתקים':            { bg: '#FDF4FF', color: '#9333EA' },
+  'שתייה חמה':         { bg: '#FEF3C7', color: '#92400E' },
+  'מאפים':             { bg: '#FFF1F2', color: '#BE123C' },
 }
 
 function formatILS(n: number) {
   return '₪' + n.toLocaleString('he-IL')
 }
 
-// ─── Form types ────────────────────────────────────────────────────────────
+// ─── Form types ─────────────────────────────────────────────────────────────
 
 type EditFormState = {
   name: string
-  contact: string
-  phone: string
+  hp: string
   category: string
-  paymentTerms: string
-  status: 'פעיל' | 'לא פעיל'
+  contact: string
+  email: string
+  phone: string
+  openingBalance: string
+  openingBalanceDate: string
+  notes: string
 }
 
 const emptyForm: EditFormState = {
-  name: '', contact: '', phone: '',
-  category: 'מוצרי חלב', paymentTerms: 'שוטף+30', status: 'פעיל',
+  name: '', hp: '', category: CATEGORIES[0],
+  contact: '', email: '', phone: '',
+  openingBalance: '', openingBalanceDate: '',
+  notes: '',
 }
 
 const inputBase: React.CSSProperties = {
   height: '44px', padding: '0 14px', fontSize: '16px',
   outline: 'none', border: '1px solid #F0E8E7', borderRadius: '12px',
-  background: 'white', width: '100%', color: '#1F2937',
+  background: 'white', width: '100%', color: '#1F2937', boxSizing: 'border-box',
 }
 
-function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+const textareaBase: React.CSSProperties = {
+  padding: '12px 14px', fontSize: '16px',
+  outline: 'none', border: '1px solid #F0E8E7', borderRadius: '12px',
+  background: 'white', width: '100%', color: '#1F2937',
+  resize: 'vertical', minHeight: '80px', boxSizing: 'border-box',
+}
+
+function focusBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
+  (e.target as HTMLElement).style.borderColor = '#E8645A'
+}
+function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
+  (e.target as HTMLElement).style.borderColor = '#F0E8E7'
+}
+
+function FormField({
+  label, required, children,
+}: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div>
-      <p className="text-right text-gray-400 mb-1" style={{ fontSize: '12px' }}>{label}</p>
+      <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>
+        {label}
+        {required && <span style={{ color: '#E8645A' }}> *</span>}
+      </p>
       {children}
     </div>
   )
 }
 
-function focusBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) {
-  (e.target as HTMLElement).style.borderColor = '#E8645A'
-}
-function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) {
-  (e.target as HTMLElement).style.borderColor = '#F0E8E7'
+function GroupHeader({ title }: { title: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-3">
+      <div className="flex-1 h-px" style={{ background: '#F0E8E7' }} />
+      <span style={{ fontSize: '12px', fontWeight: 700, color: '#8B1A3A', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
+        {title}
+      </span>
+    </div>
+  )
 }
 
 function SupplierFormCard({
@@ -75,110 +125,160 @@ function SupplierFormCard({
   onSave: () => void
   onCancel: () => void
 }) {
-  const categories = Object.keys(categoryColors)
   const canSave = form.name.trim().length > 0
 
   return (
     <div className="bg-white rounded-2xl flex flex-col" style={{ border: '2px solid #E8645A' }}>
-      <div className="p-5 flex flex-col gap-3">
-        {/* Card header */}
+      <div className="p-5 flex flex-col gap-5">
+
+        {/* Header */}
         <div className="flex items-center justify-between">
-          <button onClick={onCancel} className="text-gray-400 transition-colors rounded-lg p-1"
+          <button
+            onClick={onCancel}
+            className="text-gray-400 transition-colors rounded-lg p-1"
             onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#6B7280')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}>
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
+          >
             <X className="w-4 h-4" />
           </button>
           <h3 className="font-black text-gray-800 text-right" style={{ fontSize: '16px' }}>{title}</h3>
         </div>
 
-        {/* שם ספק */}
-        <FormField label="שם ספק *">
-          <input
-            value={form.name}
-            onChange={(e) => onChange({ ...form, name: e.target.value })}
-            placeholder="שם הספק"
-            className="text-right placeholder-gray-300"
-            style={inputBase}
-            onFocus={focusBorder}
-            onBlur={blurBorder}
-          />
-        </FormField>
+        {/* ── קבוצה 1: פרטי זיהוי ── */}
+        <div>
+          <GroupHeader title="פרטי זיהוי" />
+          <div className="flex flex-col gap-3">
+            <FormField label="שם ספק" required>
+              <input
+                value={form.name}
+                onChange={(e) => onChange({ ...form, name: e.target.value })}
+                placeholder="שם הספק"
+                className="text-right placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
 
-        {/* איש קשר + טלפון */}
-        <div className="grid grid-cols-2 gap-2">
-          <FormField label="טלפון">
-            <input
-              value={form.phone}
-              onChange={(e) => onChange({ ...form, phone: e.target.value })}
-              placeholder="0X-XXXXXXX"
-              dir="ltr"
-              className="text-left placeholder-gray-300"
-              style={inputBase}
-              onFocus={focusBorder}
-              onBlur={blurBorder}
-            />
-          </FormField>
-          <FormField label="איש קשר">
-            <input
-              value={form.contact}
-              onChange={(e) => onChange({ ...form, contact: e.target.value })}
-              placeholder="שם"
-              className="text-right placeholder-gray-300"
-              style={inputBase}
-              onFocus={focusBorder}
-              onBlur={blurBorder}
-            />
-          </FormField>
-        </div>
+            <FormField label="ח.פ / ע.מ">
+              <input
+                value={form.hp}
+                onChange={(e) => onChange({ ...form, hp: e.target.value })}
+                placeholder="000000000"
+                dir="ltr"
+                className="text-left placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
 
-        {/* קטגוריה + תנאי תשלום */}
-        <div className="grid grid-cols-2 gap-2">
-          <FormField label="תנאי תשלום">
-            <input
-              value={form.paymentTerms}
-              onChange={(e) => onChange({ ...form, paymentTerms: e.target.value })}
-              placeholder="שוטף+30"
-              className="text-right placeholder-gray-300"
-              style={inputBase}
-              onFocus={focusBorder}
-              onBlur={blurBorder}
-            />
-          </FormField>
-          <FormField label="קטגוריה">
-            <select
-              value={form.category}
-              onChange={(e) => onChange({ ...form, category: e.target.value })}
-              style={{ ...inputBase, direction: 'rtl' }}
-              onFocus={focusBorder}
-              onBlur={blurBorder}
-            >
-              {categories.map((cat) => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </FormField>
-        </div>
-
-        {/* סטטוס */}
-        <FormField label="סטטוס">
-          <div className="flex gap-2">
-            {(['פעיל', 'לא פעיל'] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => onChange({ ...form, status: s })}
-                className="flex-1 rounded-xl font-medium transition-all"
-                style={{
-                  minHeight: '40px', fontSize: '14px',
-                  background: form.status === s ? '#8B1A3A' : '#F3F4F6',
-                  color: form.status === s ? 'white' : '#6B7280',
-                }}
+            <FormField label="קטגוריה">
+              <select
+                value={form.category}
+                onChange={(e) => onChange({ ...form, category: e.target.value })}
+                style={{ ...inputBase, direction: 'rtl', cursor: 'pointer' }}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
               >
-                {s}
-              </button>
-            ))}
+                {CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </FormField>
           </div>
-        </FormField>
+        </div>
+
+        {/* ── קבוצה 2: פרטי קשר ── */}
+        <div>
+          <GroupHeader title="פרטי קשר" />
+          <div className="flex flex-col gap-3">
+            <FormField label="שם איש קשר">
+              <input
+                value={form.contact}
+                onChange={(e) => onChange({ ...form, contact: e.target.value })}
+                placeholder="שם מלא"
+                className="text-right placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+
+            <FormField label="מייל">
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => onChange({ ...form, email: e.target.value })}
+                placeholder="name@company.co.il"
+                dir="ltr"
+                className="text-left placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+
+            <FormField label="טלפון">
+              <input
+                value={form.phone}
+                onChange={(e) => onChange({ ...form, phone: e.target.value })}
+                placeholder="0X-XXXXXXX"
+                dir="ltr"
+                className="text-left placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+          </div>
+        </div>
+
+        {/* ── קבוצה 3: כספי ── */}
+        <div>
+          <GroupHeader title="כספי" />
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="יתרת פתיחה">
+              <input
+                type="number"
+                value={form.openingBalance}
+                onChange={(e) => onChange({ ...form, openingBalance: e.target.value })}
+                placeholder="0"
+                dir="ltr"
+                className="text-left placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+            <FormField label="תאריך יתרת פתיחה">
+              <input
+                type="date"
+                value={form.openingBalanceDate}
+                onChange={(e) => onChange({ ...form, openingBalanceDate: e.target.value })}
+                style={{ ...inputBase, direction: 'ltr' }}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+          </div>
+        </div>
+
+        {/* ── קבוצה 4: כללי ── */}
+        <div>
+          <GroupHeader title="כללי" />
+          <FormField label="הערות">
+            <textarea
+              value={form.notes}
+              onChange={(e) => onChange({ ...form, notes: e.target.value })}
+              placeholder="הערות נוספות..."
+              className="text-right placeholder-gray-300"
+              style={textareaBase}
+              onFocus={focusBorder}
+              onBlur={blurBorder}
+            />
+          </FormField>
+        </div>
       </div>
 
       {/* Save / Cancel */}
@@ -211,23 +311,37 @@ function SupplierFormCard({
   )
 }
 
-// ─── Main component ─────────────────────────────────────────────────────────
+// ─── Main component ──────────────────────────────────────────────────────────
 
 type StatusFilter = 'all' | 'פעיל' | 'לא פעיל'
+
+function supplierToForm(sup: Supplier): EditFormState {
+  return {
+    name: sup.name,
+    hp: sup.hp ?? '',
+    category: CATEGORIES.includes(sup.category) ? sup.category : CATEGORIES[0],
+    contact: sup.contact,
+    email: sup.email ?? '',
+    phone: sup.phone,
+    openingBalance: sup.openingBalance !== undefined ? String(sup.openingBalance) : '',
+    openingBalanceDate: sup.openingBalanceDate ?? '',
+    notes: sup.notes ?? '',
+  }
+}
 
 export default function Suppliers() {
   const isTablet = useIsTablet()
 
-  const [suppliers, setSuppliers]   = useState<Supplier[]>(() => [...mockSuppliers] as Supplier[])
-  const [viewId,     setViewId]      = useState<string | null>(null)
-  const [editingId,  setEditingId]   = useState<string | null>(null)
-  const [editForm,   setEditForm]    = useState<EditFormState | null>(null)
-  const [showAdd,    setShowAdd]     = useState(false)
-  const [addForm,    setAddForm]     = useState<EditFormState>({ ...emptyForm })
-  const [search,     setSearch]      = useState('')
+  const [suppliers, setSuppliers]     = useState<Supplier[]>(() => [...mockSuppliers] as Supplier[])
+  const [viewId,     setViewId]        = useState<string | null>(null)
+  const [editingId,  setEditingId]     = useState<string | null>(null)
+  const [editForm,   setEditForm]      = useState<EditFormState | null>(null)
+  const [showAdd,    setShowAdd]       = useState(false)
+  const [addForm,    setAddForm]       = useState<EditFormState>({ ...emptyForm })
+  const [search,     setSearch]        = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
-  // ── Detail view ──────────────────────────────────────────────────────────
+  // ── Detail view ───────────────────────────────────────────────────────────
   if (viewId) {
     const sup = suppliers.find((s) => s.id === viewId)
     if (!sup) return null
@@ -238,29 +352,38 @@ export default function Suppliers() {
         onEdit={() => {
           setViewId(null)
           setEditingId(sup.id)
-          setEditForm({
-            name: sup.name, contact: sup.contact, phone: sup.phone,
-            category: sup.category, paymentTerms: sup.paymentTerms,
-            status: sup.status as 'פעיל' | 'לא פעיל',
-          })
+          setEditForm(supplierToForm(sup))
         }}
       />
     )
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
   const startEdit = (sup: Supplier) => {
     setEditingId(sup.id)
-    setEditForm({
-      name: sup.name, contact: sup.contact, phone: sup.phone,
-      category: sup.category, paymentTerms: sup.paymentTerms,
-      status: sup.status as 'פעיל' | 'לא פעיל',
-    })
+    setEditForm(supplierToForm(sup))
   }
 
   const saveEdit = () => {
     if (!editForm || !editingId) return
-    setSuppliers((prev) => prev.map((s) => (s.id === editingId ? { ...s, ...editForm } : s)))
+    const balance = editForm.openingBalance ? Number(editForm.openingBalance) : 0
+    setSuppliers((prev) => prev.map((s) =>
+      s.id === editingId
+        ? {
+            ...s,
+            name: editForm.name,
+            hp: editForm.hp,
+            category: editForm.category,
+            contact: editForm.contact,
+            email: editForm.email,
+            phone: editForm.phone,
+            openingBalance: balance,
+            openingBalanceDate: editForm.openingBalanceDate,
+            notes: editForm.notes,
+            balance,
+          }
+        : s
+    ))
     setEditingId(null)
     setEditForm(null)
   }
@@ -268,12 +391,31 @@ export default function Suppliers() {
   const saveAdd = () => {
     if (!addForm.name.trim()) return
     const newId = `SUP-${String(suppliers.length + 1).padStart(3, '0')}`
-    setSuppliers((prev) => [...prev, { id: newId, ...addForm, lastOrderDate: '', balance: 0 }])
+    const balance = addForm.openingBalance ? Number(addForm.openingBalance) : 0
+    setSuppliers((prev) => [
+      ...prev,
+      {
+        id: newId,
+        name: addForm.name,
+        hp: addForm.hp,
+        category: addForm.category,
+        contact: addForm.contact,
+        email: addForm.email,
+        phone: addForm.phone,
+        openingBalance: balance,
+        openingBalanceDate: addForm.openingBalanceDate,
+        notes: addForm.notes,
+        status: 'פעיל',
+        paymentTerms: '',
+        lastOrderDate: '',
+        balance,
+      },
+    ])
     setShowAdd(false)
     setAddForm({ ...emptyForm })
   }
 
-  // ── Derived state ─────────────────────────────────────────────────────────
+  // ── Derived state ──────────────────────────────────────────────────────────
   const filtered = suppliers.filter((s) => {
     const matchSearch =
       s.name.includes(search) || s.contact.includes(search) || s.category.includes(search)
@@ -284,13 +426,12 @@ export default function Suppliers() {
   const activeCount  = suppliers.filter((s) => s.status === 'פעיל').length
   const totalBalance = suppliers.reduce((sum, s) => sum + s.balance, 0)
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
 
       {/* Header */}
       <div className="flex items-center justify-between">
-        {/* RIGHT in RTL = first in DOM = "הוסף ספק" button */}
         <button
           onClick={() => { setShowAdd(true); setAddForm({ ...emptyForm }) }}
           className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all flex-shrink-0"
@@ -321,7 +462,11 @@ export default function Suppliers() {
           { label: 'ספקים פעילים', value: String(activeCount),       color: '#16A34A' },
           { label: 'יתרה כוללת',   value: formatILS(totalBalance),   color: '#1F2937' },
         ].map(({ label, value, color }) => (
-          <div key={label} className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#F0E8E7' }}>
+          <div
+            key={label}
+            className="bg-white rounded-2xl p-4 shadow-sm border text-center"
+            style={{ borderColor: '#F0E8E7' }}
+          >
             <p className="text-2xl font-black" style={{ color }}>{value}</p>
             <p className="text-gray-500 mt-1" style={{ fontSize: isTablet ? '15px' : '13px' }}>{label}</p>
           </div>
@@ -332,7 +477,9 @@ export default function Suppliers() {
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#F0E8E7' }}>
           {(['all', 'פעיל', 'לא פעיל'] as StatusFilter[]).map((f) => (
-            <button key={f} onClick={() => setStatusFilter(f)}
+            <button
+              key={f}
+              onClick={() => setStatusFilter(f)}
               className="rounded-lg px-3 font-medium transition-all"
               style={{
                 minHeight: isTablet ? '40px' : '34px',
@@ -345,7 +492,10 @@ export default function Suppliers() {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4" style={{ borderColor: '#F0E8E7', minHeight: '44px' }}>
+        <div
+          className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4"
+          style={{ borderColor: '#F0E8E7', minHeight: '44px' }}
+        >
           <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <input
             type="text"
@@ -367,7 +517,7 @@ export default function Suppliers() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
-          {/* ── Add form card ── */}
+          {/* Add form card */}
           {showAdd && (
             <SupplierFormCard
               title="ספק חדש"
@@ -378,9 +528,8 @@ export default function Suppliers() {
             />
           )}
 
-          {/* ── Supplier cards ── */}
+          {/* Supplier cards */}
           {filtered.map((sup) => {
-            // Editing state → show form card instead
             if (editingId === sup.id && editForm) {
               return (
                 <SupplierFormCard
@@ -405,14 +554,25 @@ export default function Suppliers() {
               >
                 <div className="p-5 flex-1 flex flex-col gap-4">
 
-                  {/* Top: status (right) | category (left) */}
+                  {/* Status | Category */}
                   <div className="flex items-center justify-between">
-                    <span className="rounded-lg font-semibold"
-                      style={{ fontSize: '12px', padding: '4px 12px', background: isActive ? '#DCFCE7' : '#F3F4F6', color: isActive ? '#16A34A' : '#6B7280' }}>
+                    <span
+                      className="rounded-lg font-semibold"
+                      style={{
+                        fontSize: '12px', padding: '4px 12px',
+                        background: isActive ? '#DCFCE7' : '#F3F4F6',
+                        color: isActive ? '#16A34A' : '#6B7280',
+                      }}
+                    >
                       {sup.status}
                     </span>
-                    <span className="rounded-lg font-medium"
-                      style={{ fontSize: '12px', padding: '4px 10px', backgroundColor: catStyle.bg, color: catStyle.color }}>
+                    <span
+                      className="rounded-lg font-medium"
+                      style={{
+                        fontSize: '12px', padding: '4px 10px',
+                        backgroundColor: catStyle.bg, color: catStyle.color,
+                      }}
+                    >
                       {sup.category}
                     </span>
                   </div>
@@ -423,13 +583,15 @@ export default function Suppliers() {
                       {sup.name}
                     </h3>
                     <p className="text-gray-500 mt-1" style={{ fontSize: isTablet ? '15px' : '13px' }}>
-                      {sup.contact} · {sup.phone}
+                      {[sup.contact, sup.phone].filter(Boolean).join(' · ')}
                     </p>
                   </div>
 
                   {/* Balance box */}
                   <div className="rounded-xl p-3 text-right" style={{ background: '#FFF8F7' }}>
-                    <p style={{ fontSize: '11px', color: '#9CA3AF' }}>יתרה פתוחה · {sup.paymentTerms}</p>
+                    <p style={{ fontSize: '11px', color: '#9CA3AF' }}>
+                      יתרת פתיחה{sup.openingBalanceDate ? ` · ${sup.openingBalanceDate}` : ''}
+                    </p>
                     <p className="font-black text-gray-800 mt-0.5" style={{ fontSize: isTablet ? '24px' : '22px' }}>
                       {formatILS(sup.balance)}
                     </p>
@@ -442,7 +604,12 @@ export default function Suppliers() {
                   <button
                     onClick={() => setViewId(sup.id)}
                     className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '44px', fontSize: isTablet ? '15px' : '14px', background: 'linear-gradient(135deg, #8B1A3A, #E8645A)', color: 'white' }}
+                    style={{
+                      minHeight: '44px',
+                      fontSize: isTablet ? '15px' : '14px',
+                      background: 'linear-gradient(135deg, #8B1A3A, #E8645A)',
+                      color: 'white',
+                    }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.opacity = '1')}
                   >
@@ -452,7 +619,12 @@ export default function Suppliers() {
                   <button
                     onClick={() => startEdit(sup)}
                     className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '44px', fontSize: isTablet ? '15px' : '14px', background: '#FFF0EF', color: '#E8645A' }}
+                    style={{
+                      minHeight: '44px',
+                      fontSize: isTablet ? '15px' : '14px',
+                      background: '#FFF0EF',
+                      color: '#E8645A',
+                    }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FFF0EF')}
                   >

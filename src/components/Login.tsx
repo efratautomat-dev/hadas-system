@@ -48,12 +48,7 @@ export default function Login({ onLogin }: LoginProps) {
           >
             {/* Logo mark */}
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-white shadow-lg mb-5 mx-auto">
-              <span
-                className="text-4xl font-black leading-none select-none"
-                style={{ color: '#8B1A3A', fontFamily: 'Heebo, sans-serif' }}
-              >
-                ה
-              </span>
+              <img src="/logo.png" alt="הדס לוגו" className="w-14 h-14 object-contain" />
             </div>
 
             <h1

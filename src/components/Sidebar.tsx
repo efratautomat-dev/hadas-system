@@ -77,7 +77,7 @@ export default function Sidebar({
               className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
               style={{ background: 'rgba(255,255,255,0.15)' }}
             >
-              <span className="text-white font-black text-lg leading-none">ה</span>
+              <img src="/logo.png" alt="הדס לוגו" className="w-7 h-7 object-contain" />
             </div>
             <div>
               <h1 className="text-white font-black text-lg leading-tight tracking-wide">
@@ -95,7 +95,7 @@ export default function Sidebar({
             className="w-9 h-9 rounded-xl flex items-center justify-center"
             style={{ background: 'rgba(255,255,255,0.15)' }}
           >
-            <span className="text-white font-black text-lg leading-none">ה</span>
+            <img src="/logo.png" alt="הדס לוגו" className="w-7 h-7 object-contain" />
           </div>
         )}
 

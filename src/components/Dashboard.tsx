@@ -4,7 +4,9 @@ import { mockStats, mockInvoices, mockPayments, mockDeliveries } from '../data/m
 const statusStyle: Record<string, { bg: string; color: string }> = {
   'ממתין':  { bg: '#FEF9C3', color: '#A16207' },
   'שולם':   { bg: '#DCFCE7', color: '#166534' },
+  'הושלם':  { bg: '#DCFCE7', color: '#166534' },
   'בטיפול': { bg: '#DBEAFE', color: '#1E40AF' },
+  'שגיאה':  { bg: '#FEE2E2', color: '#DC2626' },
   'נתקבל':  { bg: '#DCFCE7', color: '#166534' },
   'בדרך':   { bg: '#EDE9FE', color: '#5B21B6' },
 }
@@ -118,7 +120,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="divide-y" style={{ divideColor: '#F9F5F5' }}>
+          <div className="divide-y" style={{}}>
             {mockInvoices.map((inv) => {
               const st = statusStyle[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
               return (
@@ -160,7 +162,7 @@ export default function Dashboard() {
                 <TrendingUp className="w-4 h-4 text-gray-400" />
               </div>
             </div>
-            <div className="divide-y" style={{ divideColor: '#F9F5F5' }}>
+            <div className="divide-y" style={{}}>
               {mockPayments.map((pay) => (
                 <div key={pay.id} className="px-5 py-3.5">
                   <div className="flex items-center justify-between mb-1">
@@ -184,7 +186,7 @@ export default function Dashboard() {
                 <Package className="w-4 h-4 text-gray-400" />
               </div>
             </div>
-            <div className="divide-y" style={{ divideColor: '#F9F5F5' }}>
+            <div className="divide-y" style={{}}>
               {mockDeliveries.map((del) => {
                 const st = statusStyle[del.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
                 return (

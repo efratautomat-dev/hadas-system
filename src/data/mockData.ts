@@ -5,17 +5,145 @@ export const mockStats = {
   openReturns: 3,
 }
 
-export const mockInvoices = [
-  { id: 'INV-2026-001', supplier: 'תבורי בע"מ',    amount: 12500, date: '01/05/2026', status: 'ממתין' },
-  { id: 'INV-2026-002', supplier: 'מקורות מים',    amount:  8300, date: '28/04/2026', status: 'שולם'  },
-  { id: 'INV-2026-003', supplier: 'תנובה',          amount: 45200, date: '25/04/2026', status: 'ממתין' },
-  { id: 'INV-2026-004', supplier: 'אסם השקעות',    amount:  6800, date: '20/04/2026', status: 'בטיפול'},
-  { id: 'INV-2026-005', supplier: 'עלית',           amount:  3200, date: '18/04/2026', status: 'שולם'  },
-  { id: 'INV-2026-006', supplier: 'נסטלה ישראל',   amount: 23100, date: '15/04/2026', status: 'שולם'  },
-  { id: 'INV-2026-007', supplier: 'שטראוס גרופ',   amount:  9750, date: '10/04/2026', status: 'ממתין' },
-  { id: 'INV-2026-008', supplier: 'תנובה',          amount: 18400, date: '05/04/2026', status: 'שולם'  },
-  { id: 'INV-2026-009', supplier: 'אסם השקעות',    amount:  4200, date: '01/04/2026', status: 'בטיפול'},
-  { id: 'INV-2026-010', supplier: 'תבורי בע"מ',    amount:  7600, date: '28/03/2026', status: 'שולם'  },
+export interface Invoice {
+  id: string
+  invoiceDate: string
+  supplierId: string
+  supplier: string
+  category: string
+  isPartialReturn: boolean
+  lineDetails: string
+  amountBeforeVat: number
+  vat: number
+  amount: number
+  senderName: string
+  senderEmail: string
+  driveFileLink: string
+  monthFolderLink: string
+  originalEmailLink: string
+  emailReceivedAt: string
+  emailId: string
+  uploadDate: string
+  status: string
+  isDuplicate: boolean
+  hasError: boolean
+  n8nErrorLink: string
+  decodeQuality: string
+  sentToAccountant: boolean
+  date: string
+}
+
+export const mockInvoices: Invoice[] = [
+  {
+    id: 'INV-2026-001', supplier: 'תבורי בע"מ', supplierId: 'SUP-002',
+    date: '01/05/2026', invoiceDate: '2026-05-01',
+    amount: 12500, amountBeforeVat: 10684, vat: 1816,
+    status: 'ממתין', category: 'ספקים ביגוד',
+    isPartialReturn: false, lineDetails: '',
+    senderName: 'רחל לוי', senderEmail: 'rachel@tavorim.co.il',
+    driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
+    emailReceivedAt: '2026-05-01T09:00', emailId: 'MSG-001', uploadDate: '2026-05-01',
+    isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: false,
+  },
+  {
+    id: 'INV-2026-002', supplier: 'מקורות מים', supplierId: 'SUP-006',
+    date: '28/04/2026', invoiceDate: '2026-04-28',
+    amount: 8300, amountBeforeVat: 7094, vat: 1206,
+    status: 'הושלם', category: 'הוצאות ניהול',
+    isPartialReturn: false, lineDetails: '',
+    senderName: 'אסתר מזרחי', senderEmail: 'esther@makorot.co.il',
+    driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
+    emailReceivedAt: '2026-04-28T11:30', emailId: 'MSG-002', uploadDate: '2026-04-28',
+    isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: true,
+  },
+  {
+    id: 'INV-2026-003', supplier: 'תנובה', supplierId: 'SUP-001',
+    date: '25/04/2026', invoiceDate: '2026-04-25',
+    amount: 45200, amountBeforeVat: 38632, vat: 6568,
+    status: 'ממתין', category: 'ספקים כיסויי ראש',
+    isPartialReturn: false, lineDetails: 'כיסויי ראש קיץ - 120 יח׳\nמטפחות - 60 יח׳',
+    senderName: 'משה כהן', senderEmail: 'moshe@tnuva.co.il',
+    driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
+    emailReceivedAt: '2026-04-25T08:15', emailId: 'MSG-003', uploadDate: '2026-04-25',
+    isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'בינונית', sentToAccountant: false,
+  },
+  {
+    id: 'INV-2026-004', supplier: 'אסם השקעות', supplierId: 'SUP-003',
+    date: '20/04/2026', invoiceDate: '2026-04-20',
+    amount: 6800, amountBeforeVat: 5812, vat: 988,
+    status: 'בטיפול', category: 'הוצאות משרד',
+    isPartialReturn: true, lineDetails: '',
+    senderName: 'יוסף אברהם', senderEmail: 'yosef@osem.co.il',
+    driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
+    emailReceivedAt: '2026-04-20T14:00', emailId: 'MSG-004', uploadDate: '2026-04-20',
+    isDuplicate: false, hasError: true, n8nErrorLink: '', decodeQuality: 'נמוכה', sentToAccountant: false,
+  },
+  {
+    id: 'INV-2026-005', supplier: 'עלית', supplierId: 'SUP-004',
+    date: '18/04/2026', invoiceDate: '2026-04-18',
+    amount: 3200, amountBeforeVat: 2735, vat: 465,
+    status: 'הושלם', category: 'שונות',
+    isPartialReturn: false, lineDetails: '',
+    senderName: 'שרה גרין', senderEmail: 'sarah@elite.co.il',
+    driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
+    emailReceivedAt: '2026-04-18T10:45', emailId: 'MSG-005', uploadDate: '2026-04-18',
+    isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: true,
+  },
+  {
+    id: 'INV-2026-006', supplier: 'נסטלה ישראל', supplierId: 'SUP-005',
+    date: '15/04/2026', invoiceDate: '2026-04-15',
+    amount: 23100, amountBeforeVat: 19744, vat: 3356,
+    status: 'הושלם', category: 'ספקים בגדי ים',
+    isPartialReturn: false, lineDetails: '',
+    senderName: 'דוד רוזן', senderEmail: 'david@nestle.co.il',
+    driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
+    emailReceivedAt: '2026-04-15T09:30', emailId: 'MSG-006', uploadDate: '2026-04-15',
+    isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: true,
+  },
+  {
+    id: 'INV-2026-007', supplier: 'שטראוס גרופ', supplierId: 'SUP-007',
+    date: '10/04/2026', invoiceDate: '2026-04-10',
+    amount: 9750, amountBeforeVat: 8333, vat: 1417,
+    status: 'ממתין', category: 'ספקים ביגוד',
+    isPartialReturn: false, lineDetails: '',
+    senderName: 'נתן שפירא', senderEmail: 'natan@strauss.co.il',
+    driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
+    emailReceivedAt: '2026-04-10T13:00', emailId: 'MSG-007', uploadDate: '2026-04-10',
+    isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'בינונית', sentToAccountant: false,
+  },
+  {
+    id: 'INV-2026-008', supplier: 'תנובה', supplierId: 'SUP-001',
+    date: '05/04/2026', invoiceDate: '2026-04-05',
+    amount: 18400, amountBeforeVat: 15726, vat: 2674,
+    status: 'הושלם', category: 'ספקים שונות',
+    isPartialReturn: false, lineDetails: '',
+    senderName: 'משה כהן', senderEmail: 'moshe@tnuva.co.il',
+    driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
+    emailReceivedAt: '2026-04-05T11:00', emailId: 'MSG-008', uploadDate: '2026-04-05',
+    isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: true,
+  },
+  {
+    id: 'INV-2026-009', supplier: 'אסם השקעות', supplierId: 'SUP-003',
+    date: '01/04/2026', invoiceDate: '2026-04-01',
+    amount: 4200, amountBeforeVat: 3590, vat: 610,
+    status: 'בטיפול', category: 'הוצאות משרד',
+    isPartialReturn: false, lineDetails: '',
+    senderName: 'יוסף אברהם', senderEmail: 'yosef@osem.co.il',
+    driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
+    emailReceivedAt: '2026-04-01T09:00', emailId: 'MSG-009', uploadDate: '2026-04-01',
+    isDuplicate: true, hasError: false, n8nErrorLink: '', decodeQuality: 'נמוכה', sentToAccountant: false,
+  },
+  {
+    id: 'INV-2026-010', supplier: 'תבורי בע"מ', supplierId: 'SUP-002',
+    date: '28/03/2026', invoiceDate: '2026-03-28',
+    amount: 7600, amountBeforeVat: 6496, vat: 1104,
+    status: 'הושלם', category: 'שונות',
+    isPartialReturn: false, lineDetails: '',
+    senderName: 'רחל לוי', senderEmail: 'rachel@tavorim.co.il',
+    driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
+    emailReceivedAt: '2026-03-28T10:00', emailId: 'MSG-010', uploadDate: '2026-03-28',
+    isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: true,
+  },
 ]
 
 export const mockPayments = [
