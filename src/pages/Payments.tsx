@@ -4,7 +4,7 @@ import { mockSuppliers } from '../data/mockData'
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
-type PaymentType = 'transfer' | 'check' | 'cash' | 'credit'
+type PaymentType = string
 type PaymentStatus = 'paid' | 'pending' | 'cancelled'
 
 interface Payment {
@@ -22,7 +22,7 @@ interface Payment {
 interface FormState {
   supplier: string
   amount: string
-  type: PaymentType | ''
+  type: string
   date: string
   ref: string
   valueDate: string
@@ -32,7 +32,7 @@ interface FormState {
 interface EditForm {
   supplier: string
   amount: string
-  type: PaymentType
+  type: string
   date: string
   ref: string
   valueDate: string
@@ -87,27 +87,66 @@ function useIsTablet() {
   return v
 }
 
+function useIsMobile() {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < 640)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return v
+}
+
 // ─── constants ────────────────────────────────────────────────────────────────
 
-const TYPE_LABELS: Record<PaymentType, string> = {
-  transfer: 'העברה',
-  check: "צ'ק",
-  cash: 'מזומן',
-  credit: 'אשראי',
+const BIZBOX_TYPES = [
+  "צ'ק",
+  'עמלה',
+  'סליקה',
+  'מזומן',
+  'כרטיס אשראי',
+  'הרשאה לחיוב חשבון',
+  'העברה בנקאית',
+  'הלוואה',
+  'אחר',
+] as const
+
+const LEGACY_TYPE_MAP: Record<string, string> = {
+  transfer: 'העברה בנקאית',
+  check:    "צ'ק",
+  cash:     'מזומן',
+  credit:   'כרטיס אשראי',
+  'העברה':  'העברה בנקאית',
+  'אשראי':  'כרטיס אשראי',
 }
 
-const TYPE_EMOJI: Record<PaymentType, string> = {
-  transfer: '🏦',
-  check: '📄',
-  cash: '💵',
-  credit: '💳',
+function normalizeBizboxType(type: string): string {
+  if ((BIZBOX_TYPES as readonly string[]).includes(type)) return type
+  return LEGACY_TYPE_MAP[type] ?? 'אחר'
 }
 
-const TYPE_COLORS: Record<PaymentType, { bg: string; color: string; accent: string }> = {
-  transfer: { bg: '#EFF6FF', color: '#1D4ED8', accent: '#1D4ED8' },
-  check:    { bg: '#FEF3C7', color: '#92400E', accent: '#D97706' },
-  cash:     { bg: '#F0FDF4', color: '#16A34A', accent: '#16A34A' },
-  credit:   { bg: '#F5F3FF', color: '#7C3AED', accent: '#7C3AED' },
+const TYPE_EMOJI: Record<string, string> = {
+  "צ'ק":                    '📄',
+  'עמלה':                   '💸',
+  'סליקה':                  '🔄',
+  'מזומן':                  '💵',
+  'כרטיס אשראי':            '💳',
+  'הרשאה לחיוב חשבון':      '📋',
+  'העברה בנקאית':           '🏦',
+  'הלוואה':                 '💰',
+  'אחר':                    '📌',
+}
+
+const TYPE_COLORS: Record<string, { bg: string; color: string; accent: string }> = {
+  "צ'ק":                    { bg: '#FEF3C7', color: '#92400E', accent: '#D97706' },
+  'עמלה':                   { bg: '#FDF2F8', color: '#9D174D', accent: '#BE185D' },
+  'סליקה':                  { bg: '#EEF2FF', color: '#3730A3', accent: '#4338CA' },
+  'מזומן':                  { bg: '#F0FDF4', color: '#16A34A', accent: '#16A34A' },
+  'כרטיס אשראי':            { bg: '#F5F3FF', color: '#7C3AED', accent: '#7C3AED' },
+  'הרשאה לחיוב חשבון':      { bg: '#FFF7ED', color: '#C2410C', accent: '#EA580C' },
+  'העברה בנקאית':           { bg: '#EFF6FF', color: '#1D4ED8', accent: '#1D4ED8' },
+  'הלוואה':                 { bg: '#FFF1F2', color: '#9F1239', accent: '#E11D48' },
+  'אחר':                    { bg: '#F9FAFB', color: '#374151', accent: '#6B7280' },
 }
 
 const STATUS_LABELS: Record<PaymentStatus, string> = {
@@ -139,7 +178,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     id: 1,
     supplier: 'תנובה',
     amount: 45200,
-    type: 'transfer',
+    type: 'העברה בנקאית',
     date: '2026-04-24',
     ref: 'TRF-2026-001',
     valueDate: null,
@@ -150,7 +189,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     id: 2,
     supplier: 'תבורי בע"מ',
     amount: 12500,
-    type: 'check',
+    type: "צ'ק",
     date: '2026-04-29',
     ref: 'CHK-1042',
     valueDate: '2026-05-08',
@@ -161,7 +200,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     id: 3,
     supplier: 'מקורות מים',
     amount: 8300,
-    type: 'cash',
+    type: 'מזומן',
     date: '2026-05-01',
     ref: 'קבלה 0088',
     valueDate: null,
@@ -172,7 +211,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     id: 4,
     supplier: 'נסטלה ישראל',
     amount: 23100,
-    type: 'credit',
+    type: 'כרטיס אשראי',
     date: '2026-05-02',
     ref: 'CC-5544',
     valueDate: '2026-05-26',
@@ -183,7 +222,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     id: 5,
     supplier: 'אסם השקעות',
     amount: 6800,
-    type: 'transfer',
+    type: 'העברה בנקאית',
     date: '2026-04-20',
     ref: 'TRF-2026-005',
     valueDate: null,
@@ -194,7 +233,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     id: 6,
     supplier: 'עלית',
     amount: 3200,
-    type: 'check',
+    type: "צ'ק",
     date: '2026-05-03',
     ref: 'CHK-1043',
     valueDate: '2026-05-07',
@@ -205,7 +244,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     id: 7,
     supplier: 'שטראוס גרופ',
     amount: 9750,
-    type: 'check',
+    type: "צ'ק",
     date: '2026-05-05',
     ref: 'CHK-1044',
     valueDate: '2026-06-15',
@@ -216,7 +255,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     id: 8,
     supplier: 'נסטלה ישראל',
     amount: 14300,
-    type: 'transfer',
+    type: 'העברה בנקאית',
     date: '2026-04-10',
     ref: 'TRF-2026-008',
     valueDate: null,
@@ -227,7 +266,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     id: 9,
     supplier: 'תנובה',
     amount: 31600,
-    type: 'credit',
+    type: 'כרטיס אשראי',
     date: '2026-05-04',
     ref: 'CC-5560',
     valueDate: '2026-07-20',
@@ -238,7 +277,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     id: 10,
     supplier: 'אסם השקעות',
     amount: 4100,
-    type: 'cash',
+    type: 'מזומן',
     date: '2026-03-15',
     ref: 'קבלה 0071',
     valueDate: null,
@@ -249,14 +288,14 @@ const INITIAL_PAYMENTS: Payment[] = [
 
 // ─── sub-components ───────────────────────────────────────────────────────────
 
-function TypeBadge({ type }: { type: PaymentType }) {
-  const c = TYPE_COLORS[type]
+function TypeBadge({ type }: { type: string }) {
+  const c = TYPE_COLORS[type] ?? { bg: '#F9FAFB', color: '#374151', accent: '#6B7280' }
   return (
     <span
       className="inline-flex items-center gap-1 rounded-lg font-bold"
       style={{ background: c.bg, color: c.color, fontSize: '12px', padding: '3px 9px' }}
     >
-      {TYPE_EMOJI[type]} {TYPE_LABELS[type]}
+      {TYPE_EMOJI[type] ?? '📌'} {type}
     </span>
   )
 }
@@ -380,6 +419,7 @@ function SupplierSelect({
 
 export default function Payments() {
   const isTablet = useIsTablet()
+  const isMobile = useIsMobile()
   const nextIdRef = useRef(INITIAL_PAYMENTS.length + 1)
   const toastIdRef = useRef(0)
 
@@ -429,13 +469,6 @@ export default function Payments() {
     setShowBizbox(true)
   }
 
-  const TYPE_BIZBOX: Record<PaymentType, string> = {
-    transfer: 'העברה בנקאית',
-    check: "צ'ק",
-    cash: 'מזומן',
-    credit: 'כרטיס אשראי',
-  }
-
   function getMissingFields(p: Payment): string[] {
     const missing: string[] = []
     if (!p.type)              missing.push('סוג_תשלום')
@@ -467,7 +500,7 @@ export default function Payments() {
   function doExportBizbox(rows: Payment[]) {
     const data = rows.map(p => ({
       'סוג_פעולה': 'חיוב',
-      'סוג_תשלום': TYPE_BIZBOX[p.type] ?? 'אחר',
+      'סוג_תשלום': normalizeBizboxType(p.type),
       'תאריך': fmtDate(p.date),
       'אסמכתא': p.ref,
       'סכום': p.amount,
@@ -520,8 +553,9 @@ export default function Payments() {
 
   const monthOptions = [...new Set(payments.map((p) => p.date.slice(0, 7)))].sort().reverse()
 
-  const needsValueDate = form.type === 'check' || form.type === 'credit'
-  const needsEditValueDate = editForm?.type === 'check' || editForm?.type === 'credit'
+  const VALUE_DATE_TYPES = ["צ'ק", 'כרטיס אשראי', 'הרשאה לחיוב חשבון']
+  const needsValueDate = VALUE_DATE_TYPES.includes(form.type)
+  const needsEditValueDate = !!editForm && VALUE_DATE_TYPES.includes(editForm.type)
 
   // ── handlers ─────────────────────────────────────────────────────────────
 
@@ -538,7 +572,7 @@ export default function Payments() {
       id: nextIdRef.current++,
       supplier: form.supplier.trim(),
       amount: parseFloat(form.amount),
-      type: form.type as PaymentType,
+      type: form.type,
       date: form.date,
       ref: form.ref.trim(),
       valueDate: needsValueDate ? form.valueDate || null : null,
@@ -914,37 +948,39 @@ export default function Payments() {
     <div className="space-y-5" style={{ direction: 'rtl' }}>
 
       {/* ── Page header ─────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
-        <div
-          className="flex gap-3 flex-wrap"
-          style={{ fontSize: isTablet ? '14px' : '13px' }}
-        >
-          <div
-            className="rounded-xl px-4 py-2 font-semibold"
-            style={{ background: '#EFF6FF', color: '#1D4ED8' }}
-          >
-            סה"כ פעיל: {fmtILS(activeTotal)}
-          </div>
-          <div
-            className="rounded-xl px-4 py-2 font-semibold"
-            style={{ background: '#FEF3C7', color: '#92400E' }}
-          >
-            עתידי: {fmtILS(futureTotal)}
-          </div>
-          <div
-            className="rounded-xl px-4 py-2 font-semibold"
-            style={{ background: '#FFF0EF', color: '#8B1A3A' }}
-          >
-            {futurePayments.length} תשלומים ממתינים
-          </div>
-        </div>
-        <div className="text-right flex flex-col items-end gap-2">
+      <div className="flex items-center justify-between gap-4">
+        <div className="text-right">
           <h1 className="font-black text-gray-800" style={{ fontSize: isTablet ? '24px' : '22px' }}>
             תשלומים
           </h1>
           <p className="text-gray-400 mt-0.5" style={{ fontSize: isTablet ? '15px' : '13px' }}>
             {payments.length} תשלומים במערכת
           </p>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div
+            className="flex gap-3 flex-wrap"
+            style={{ fontSize: isTablet ? '14px' : '13px' }}
+          >
+            <div
+              className="rounded-xl px-4 py-2 font-semibold"
+              style={{ background: '#EFF6FF', color: '#1D4ED8' }}
+            >
+              סה"כ פעיל: {fmtILS(activeTotal)}
+            </div>
+            <div
+              className="rounded-xl px-4 py-2 font-semibold"
+              style={{ background: '#FEF3C7', color: '#92400E' }}
+            >
+              עתידי: {fmtILS(futureTotal)}
+            </div>
+            <div
+              className="rounded-xl px-4 py-2 font-semibold"
+              style={{ background: '#FFF0EF', color: '#8B1A3A' }}
+            >
+              {futurePayments.length} תשלומים ממתינים
+            </div>
+          </div>
           <button
             onClick={openBizbox}
             style={{
@@ -955,8 +991,8 @@ export default function Payments() {
               fontSize: isTablet ? '14px' : '13px', fontWeight: 700,
               cursor: 'pointer', boxShadow: '0 2px 8px rgba(29,78,216,0.25)',
             }}
-            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#1E40AF')}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'linear-gradient(135deg, #1D4ED8, #2563EB)')}
           >
             <Download size={15} />
             ייצא לביזיבוקס
@@ -1092,10 +1128,7 @@ export default function Payments() {
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     >
                       <option value="">— בחר סוג —</option>
-                      <option value="transfer">העברה</option>
-                      <option value="check">צ'ק</option>
-                      <option value="cash">מזומן</option>
-                      <option value="credit">אשראי</option>
+                      {BIZBOX_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
 
@@ -1249,10 +1282,7 @@ export default function Payments() {
                   onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                 >
                   <option value="">הכל</option>
-                  <option value="transfer">העברה</option>
-                  <option value="check">צ'ק</option>
-                  <option value="cash">מזומן</option>
-                  <option value="credit">אשראי</option>
+                  {BIZBOX_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
 
@@ -1380,27 +1410,37 @@ export default function Payments() {
                 לא נמצאו תשלומים
               </p>
             </div>
-          ) : viewMode === 'table' ? (
-            <div
-              className="bg-white rounded-2xl shadow-sm border overflow-hidden"
-              style={{ borderColor: '#E2E4E9' }}
-            >
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', direction: 'rtl' }}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>תאריך</th>
-                      <th style={thStyle}>ספק</th>
-                      <th style={thStyle}>סכום</th>
-                      <th style={thStyle}>סוג</th>
-                      <th style={thStyle}>אסמכתא</th>
-                      <th style={thStyle}>תאריך ערך</th>
-                      <th style={thStyle}>סטטוס</th>
-                      <th style={{ ...thStyle, textAlign: 'center' }}>פעולות</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((p, i) => {
+          ) : viewMode === 'table' ? (() => {
+              const pCOL = isMobile
+                ? '85px 1fr 110px 80px 80px 80px'
+                : '85px 1fr 110px 80px 100px 90px 80px 80px'
+              const pMIN = isMobile ? '480px' : '720px'
+              const activeTotal = filtered.filter(p => p.status !== 'cancelled').reduce((s, p) => s + p.amount, 0)
+              const activeCount = filtered.filter(p => p.status !== 'cancelled').length
+              return (
+                <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    {/* Column headers */}
+                    <div
+                      className="grid font-bold text-gray-500 border-b"
+                      style={{
+                        gridTemplateColumns: pCOL, minWidth: pMIN,
+                        padding: '10px 16px', fontSize: '12px',
+                        background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right',
+                      }}
+                    >
+                      <span>תאריך</span>
+                      <span>ספק</span>
+                      <span>סכום</span>
+                      <span>סוג</span>
+                      {!isMobile && <span>אסמכתא</span>}
+                      {!isMobile && <span>תאריך ערך</span>}
+                      <span>סטטוס</span>
+                      <span className="text-center">פעולות</span>
+                    </div>
+
+                    {/* Data rows */}
+                    {filtered.map((p) => {
                       const isCancelled = p.status === 'cancelled'
                       const isBad = highlightedBadIds.has(p.id)
                       const valueDays = p.valueDate ? daysFromToday(p.valueDate) : null
@@ -1409,122 +1449,116 @@ export default function Payments() {
                         : valueDays !== null && valueDays <= 7 ? '#D97706'
                         : '#374151'
                       return (
-                        <tr
+                        <div
                           key={p.id}
+                          className="grid items-center"
                           style={{
-                            borderTop: i > 0 ? `1px solid ${isBad ? '#FECACA' : '#F5EEEE'}` : undefined,
+                            gridTemplateColumns: pCOL,
+                            borderBottom: `1px solid ${isBad ? '#FECACA' : '#E2E4E9'}`,
                             background: isBad ? '#FFF5F5' : undefined,
                             outline: isBad ? '2px solid #DC2626' : undefined,
                             outlineOffset: isBad ? '-2px' : undefined,
                             opacity: isCancelled ? 0.6 : 1,
                             cursor: 'pointer',
                             transition: 'background 0.1s',
+                            minHeight: '56px',
+                            padding: '12px 16px',
+                            minWidth: pMIN,
+                            textAlign: 'right',
                           }}
                           onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = isBad ? '#FEE2E2' : '#F8F9FA')}
-                          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+                          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = isBad ? '#FFF5F5' : 'transparent')}
                           onClick={() => openEdit(p.id)}
                         >
-                          <td style={tdStyle}>{fmtDate(p.date)}</td>
-                          <td style={{ ...tdStyle, fontWeight: 700, color: '#1F2937' }}>{p.supplier}</td>
-                          <td style={{ ...tdStyle, fontWeight: 800, color: '#1F2937', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: isTablet ? '14px' : '13px', color: '#374151' }}>{fmtDate(p.date)}</span>
+                          <span style={{ fontSize: isTablet ? '14px' : '13px', fontWeight: 700, color: '#1F2937' }}>{p.supplier}</span>
+                          <span style={{ fontSize: isTablet ? '14px' : '13px', fontWeight: 800, color: '#1F2937', whiteSpace: 'nowrap' }}>
                             {fmtILS(p.amount)}
-                          </td>
-                          <td style={tdStyle}><TypeBadge type={p.type} /></td>
-                          <td style={{ ...tdStyle, color: '#6B7280', fontSize: '12px' }}>
-                            {p.ref || <span style={{ color: '#D1D5DB' }}>—</span>}
-                          </td>
-                          <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-                            {p.valueDate ? (
-                              <span style={{ color: valueDateColor, fontWeight: valueDays !== null && valueDays <= 7 ? 700 : 400 }}>
-                                {fmtDate(p.valueDate)}
-                                {valueDays !== null && valueDays > 0 && valueDays <= 7 && (
-                                  <span
-                                    style={{
-                                      marginRight: '6px', fontSize: '11px',
-                                      background: '#FEF2F2', color: '#DC2626',
-                                      padding: '1px 6px', borderRadius: '5px', fontWeight: 700,
-                                    }}
-                                  >
-                                    {valueDays === 1 ? 'מחר' : `${valueDays}י׳`}
-                                  </span>
-                                )}
-                              </span>
-                            ) : (
-                              <span style={{ color: '#D1D5DB' }}>—</span>
-                            )}
-                          </td>
-                          <td style={tdStyle}><StatusBadge status={p.status} /></td>
-                          <td
-                            style={{ ...tdStyle, textAlign: 'center' }}
+                          </span>
+                          <span><TypeBadge type={p.type} /></span>
+                          {!isMobile && (
+                            <span style={{ fontSize: '12px', color: '#6B7280' }}>
+                              {p.ref || <span style={{ color: '#D1D5DB' }}>—</span>}
+                            </span>
+                          )}
+                          {!isMobile && (
+                            <span style={{ whiteSpace: 'nowrap' }}>
+                              {p.valueDate ? (
+                                <span style={{ color: valueDateColor, fontWeight: valueDays !== null && valueDays <= 7 ? 700 : 400, fontSize: isTablet ? '14px' : '13px' }}>
+                                  {fmtDate(p.valueDate)}
+                                  {valueDays !== null && valueDays > 0 && valueDays <= 7 && (
+                                    <span style={{ marginRight: '6px', fontSize: '11px', background: '#FEF2F2', color: '#DC2626', padding: '1px 6px', borderRadius: '5px', fontWeight: 700 }}>
+                                      {valueDays === 1 ? 'מחר' : `${valueDays}י׳`}
+                                    </span>
+                                  )}
+                                </span>
+                              ) : (
+                                <span style={{ color: '#D1D5DB' }}>—</span>
+                              )}
+                            </span>
+                          )}
+                          <span><StatusBadge status={p.status} /></span>
+                          <div
+                            style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}
                             onClick={e => e.stopPropagation()}
                           >
-                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                            <button
+                              style={{ background: '#FFF0EF', border: 'none', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF' }}
+                              onClick={() => openEdit(p.id)}
+                              title="עריכה"
+                              onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#E8645A')}
+                              onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            {isCancelled ? (
                               <button
-                                style={{
-                                  background: '#FFF0EF', border: 'none', borderRadius: '8px',
-                                  width: '32px', height: '32px', cursor: 'pointer',
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  color: '#9CA3AF',
-                                }}
-                                onClick={() => openEdit(p.id)}
-                                title="עריכה"
-                                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#E8645A')}
+                                style={{ background: '#F0FDF4', border: 'none', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF' }}
+                                onClick={() => handleRestore(p.id)}
+                                title="שחזור"
+                                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#16A34A')}
                                 onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
                               >
-                                <Pencil className="w-3.5 h-3.5" />
+                                <RotateCcw className="w-3.5 h-3.5" />
                               </button>
-                              {isCancelled ? (
-                                <button
-                                  style={{
-                                    background: '#F0FDF4', border: 'none', borderRadius: '8px',
-                                    width: '32px', height: '32px', cursor: 'pointer',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    color: '#9CA3AF',
-                                  }}
-                                  onClick={() => handleRestore(p.id)}
-                                  title="שחזור"
-                                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#16A34A')}
-                                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
-                                >
-                                  <RotateCcw className="w-3.5 h-3.5" />
-                                </button>
-                              ) : (
-                                <button
-                                  style={{
-                                    background: '#FEF2F2', border: 'none', borderRadius: '8px',
-                                    width: '32px', height: '32px', cursor: 'pointer',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    color: '#9CA3AF',
-                                  }}
-                                  onClick={() => setConfirmId(p.id)}
-                                  title="ביטול"
-                                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#DC2626')}
-                                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
+                            ) : (
+                              <button
+                                style={{ background: '#FEF2F2', border: 'none', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF' }}
+                                onClick={() => setConfirmId(p.id)}
+                                title="ביטול"
+                                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#DC2626')}
+                                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       )
                     })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ borderTop: '2px solid #E2E4E9', background: '#F8F9FA' }}>
-                      <td colSpan={2} style={{ ...tdStyle, fontWeight: 700, color: '#6B7280' }}>
-                        סה"כ ({filtered.filter(p => p.status !== 'cancelled').length} פעילים)
-                      </td>
-                      <td style={{ ...tdStyle, fontWeight: 900, fontSize: isTablet ? '16px' : '14px', color: '#8B1A3A' }}>
-                        {fmtILS(filtered.filter(p => p.status !== 'cancelled').reduce((s, p) => s + p.amount, 0))}
-                      </td>
-                      <td colSpan={5} />
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
-          ) : (
+
+                    {/* Summary row */}
+                    <div
+                      className="grid items-center"
+                      style={{
+                        gridTemplateColumns: pCOL, minWidth: pMIN,
+                        borderTop: '2px solid #E2E4E9', background: '#F8F9FA',
+                        padding: isTablet ? '13px 16px' : '11px 16px',
+                        textAlign: 'right',
+                      }}
+                    >
+                      <span style={{ gridColumn: 'span 2', fontWeight: 700, color: '#6B7280', fontSize: isTablet ? '14px' : '13px' }}>
+                        סה"כ ({activeCount} פעילים)
+                      </span>
+                      <span style={{ fontWeight: 900, fontSize: isTablet ? '16px' : '14px', color: '#8B1A3A' }}>
+                        {fmtILS(activeTotal)}
+                      </span>
+                      <span style={{ gridColumn: isMobile ? 'span 3' : 'span 5' }} />
+                    </div>
+                  </div>
+                </div>
+              )
+            })() : (
             <div className="space-y-2.5">
               {filtered.map((p) => (
                 <PaymentRow key={p.id} p={p} />
@@ -1699,10 +1733,7 @@ export default function Payments() {
                     onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   >
-                    <option value="transfer">🏦 העברה בנקאית</option>
-                    <option value="check">📄 צ'ק</option>
-                    <option value="cash">💵 מזומן</option>
-                    <option value="credit">💳 אשראי</option>
+                    {BIZBOX_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>

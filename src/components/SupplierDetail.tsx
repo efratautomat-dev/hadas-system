@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FileText, CreditCard, Pencil, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle } from 'lucide-react'
+import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle } from 'lucide-react'
 import { mockInvoices, mockPayments } from '../data/mockData'
 
 function useIsTablet() {
@@ -8,6 +8,16 @@ function useIsTablet() {
   )
   useEffect(() => {
     const h = () => setV(window.innerWidth >= 768 && window.innerWidth <= 1024)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return v
+}
+
+function useIsMobile() {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < 640)
     window.addEventListener('resize', h)
     return () => window.removeEventListener('resize', h)
   }, [])
@@ -36,6 +46,7 @@ interface Props {
   onBack: () => void
   onEdit: () => void
   onDelete: () => void
+  onViewLedger?: () => void
 }
 
 const invoiceStatusStyle: Record<string, { bg: string; color: string }> = {
@@ -53,8 +64,9 @@ function parseDate(d: string) {
   return new Date(year, month - 1, day).getTime()
 }
 
-export default function SupplierDetail({ supplier, onBack, onEdit, onDelete }: Props) {
+export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger }: Props) {
   const isTablet = useIsTablet()
+  const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
 
   const invoices = mockInvoices.filter((inv) => inv.supplier === supplier.name)
@@ -102,7 +114,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete }: P
     <div className="space-y-5">
 
       {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-4">
+      <div className={isMobile ? 'flex flex-col gap-3' : 'flex items-center justify-between gap-4'}>
         {/* RIGHT (first in RTL): name + status */}
         <div className="flex items-center gap-3 min-w-0">
           <span
@@ -126,7 +138,19 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete }: P
         </div>
 
         {/* LEFT (last in RTL): action buttons */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className={isMobile ? 'flex items-center gap-2 overflow-x-auto pb-1' : 'flex items-center gap-2 flex-shrink-0'}>
+          {onViewLedger && (
+            <button
+              onClick={onViewLedger}
+              className="flex items-center gap-2 rounded-xl font-semibold transition-all"
+              style={{ minHeight: '44px', padding: '0 18px', background: '#F3E8FF', color: '#7C3AED', fontSize: fs('16px', '14px') }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#EDE9FE')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3E8FF')}
+            >
+              <BookOpen className="w-4 h-4" />
+              כרטסת ספק
+            </button>
+          )}
           <button
             onClick={onEdit}
             className="flex items-center gap-2 rounded-xl font-semibold transition-all"
@@ -276,8 +300,8 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete }: P
           {/* Table header */}
           <div style={{ overflowX: 'auto' }}>
           <div
-            className="grid px-5 py-2 border-b font-semibold text-gray-400 uppercase tracking-wider"
-            style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', borderColor: '#E2E4E9', fontSize: '11px', minWidth: '480px' }}
+            className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
+            style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', borderColor: '#E2E4E9', fontSize: '11px', minWidth: '480px', padding: '10px 16px' }}
           >
             <span className="text-right">יתרה</span>
             <span className="text-right">תיאור</span>
@@ -288,8 +312,8 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete }: P
           {ledger.map((entry, i) => (
             <div
               key={entry.id}
-              className="grid px-5 py-3 items-center"
-              style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', borderTop: i > 0 ? '1px solid #E2E4E9' : undefined }}
+              className="grid items-center"
+              style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', minHeight: '56px', padding: '12px 16px', borderBottom: '1px solid #E2E4E9' }}
             >
               <span className="font-bold text-gray-800 text-right" style={{ fontSize: fs('15px', '13px') }}>
                 {formatILS(entry.balance)}
@@ -320,25 +344,31 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete }: P
           <p className="text-center text-gray-400 py-8" style={{ fontSize: '15px' }}>אין חשבוניות עבור ספק זה</p>
         ) : (
           <div>
-            {invoices.map((inv, i) => {
+            <div
+              className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
+              style={{ gridTemplateColumns: '1fr 80px 120px', borderColor: '#E2E4E9', fontSize: '11px', padding: '10px 16px' }}
+            >
+              <span className="text-right">תאריך · מספר</span>
+              <span className="text-center">סטטוס</span>
+              <span className="text-left">סכום</span>
+            </div>
+            {invoices.map((inv) => {
               const st = invoiceStatusStyle[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
               return (
                 <div
                   key={inv.id}
-                  className="flex items-center justify-between"
-                  style={{ padding: fs('16px 20px', '13px 20px'), borderTop: i > 0 ? '1px solid #E2E4E9' : undefined }}
+                  className="grid items-center"
+                  style={{ gridTemplateColumns: '1fr 80px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
                 >
-                  <div className="flex items-center gap-3">
+                  <p className="text-right text-gray-400" style={{ fontSize: '12px' }}>{inv.id} · {inv.date}</p>
+                  <div className="flex justify-center">
                     <span className="rounded-lg font-bold" style={{ ...st, fontSize: '12px', padding: '4px 10px' }}>
                       {inv.status}
                     </span>
-                    <span className="font-black text-gray-800" style={{ fontSize: fs('17px', '15px') }}>
-                      {formatILS(inv.amount)}
-                    </span>
                   </div>
-                  <div className="text-right">
-                    <p className="text-gray-400" style={{ fontSize: '12px' }}>{inv.id} · {inv.date}</p>
-                  </div>
+                  <span className="text-left font-black text-gray-800" style={{ fontSize: fs('15px', '14px') }}>
+                    {formatILS(inv.amount)}
+                  </span>
                 </div>
               )
             })}
@@ -356,22 +386,28 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete }: P
           <p className="text-center text-gray-400 py-8" style={{ fontSize: '15px' }}>אין תשלומים עבור ספק זה</p>
         ) : (
           <div>
-            {payments.map((pay, i) => (
+            <div
+              className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
+              style={{ gridTemplateColumns: '1fr 80px 120px', borderColor: '#E2E4E9', fontSize: '11px', padding: '10px 16px' }}
+            >
+              <span className="text-right">שיטה · פירעון</span>
+              <span className="text-center">מזהה</span>
+              <span className="text-left">סכום</span>
+            </div>
+            {payments.map((pay) => (
               <div
                 key={pay.id}
-                className="flex items-center justify-between"
-                style={{ padding: fs('16px 20px', '13px 20px'), borderTop: i > 0 ? '1px solid #E2E4E9' : undefined }}
+                className="grid items-center"
+                style={{ gridTemplateColumns: '1fr 80px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
               >
-                <div>
+                <div className="text-right">
                   <p className="text-gray-600 font-medium" style={{ fontSize: '13px' }}>{pay.method}</p>
                   <p className="text-gray-400" style={{ fontSize: '12px' }}>פירעון: {pay.dueDate}</p>
                 </div>
-                <div className="text-right">
-                  <p className="font-black text-gray-800" style={{ fontSize: fs('17px', '15px') }}>
-                    {formatILS(pay.amount)}
-                  </p>
-                  <p className="text-gray-400" style={{ fontSize: '12px' }}>{pay.id}</p>
-                </div>
+                <p className="text-center text-gray-400" style={{ fontSize: '12px' }}>{pay.id}</p>
+                <span className="text-left font-black text-gray-800" style={{ fontSize: fs('15px', '14px') }}>
+                  {formatILS(pay.amount)}
+                </span>
               </div>
             ))}
           </div>

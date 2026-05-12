@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Printer, BookOpen } from 'lucide-react'
 import { mockSuppliers, mockLedgerEntries, supplierOpeningBalances } from '../data/mockData'
 
@@ -32,10 +32,25 @@ const typeBadge: Record<string, { bg: string; color: string }> = {
 
 const COL = '90px 1fr 80px 110px 110px 130px'
 
-export default function SupplierLedger() {
-  const [selectedSupplierId, setSelectedSupplierId] = useState(mockSuppliers[0].id)
+function useIsMobile() {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < 640)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return v
+}
+
+const COL_D = COL
+const COL_M = '80px 1fr 110px'
+
+export default function SupplierLedger({ initialSupplierId }: { initialSupplierId?: string }) {
+  const [selectedSupplierId, setSelectedSupplierId] = useState(initialSupplierId ?? mockSuppliers[0].id)
   const [fromDate, setFromDate] = useState('2026-01-01')
   const [toDate,   setToDate]   = useState('2026-05-31')
+  const isMobile = useIsMobile()
+  const activeCOL = isMobile ? COL_M : COL_D
 
   const supplier      = mockSuppliers.find(s => s.id === selectedSupplierId)!
   const baseOpening   = supplierOpeningBalances[selectedSupplierId] ?? 0
@@ -165,6 +180,10 @@ export default function SupplierLedger() {
 
       {/* Header */}
       <div className="flex items-center justify-between">
+        <div className="text-right">
+          <h1 className="text-2xl font-black text-gray-800">כרטסת ספק</h1>
+          <p className="text-gray-500 mt-0.5" style={{ fontSize: '15px' }}>כרטסת עסקאות מפורטת לפי ספק ותקופה</p>
+        </div>
         <button
           onClick={handlePrint}
           className="flex items-center gap-2 rounded-xl font-semibold transition-all"
@@ -175,10 +194,6 @@ export default function SupplierLedger() {
           <Printer className="w-4 h-4" />
           הדפסה
         </button>
-        <div className="text-right">
-          <h1 className="text-2xl font-black text-gray-800">כרטסת ספק</h1>
-          <p className="text-gray-500 mt-0.5" style={{ fontSize: '15px' }}>כרטסת עסקאות מפורטת לפי ספק ותקופה</p>
-        </div>
       </div>
 
       {/* Filters */}
@@ -263,30 +278,32 @@ export default function SupplierLedger() {
 
           {/* Column headers */}
           <div
-            className="grid px-5 py-3 border-b font-semibold text-gray-400 uppercase tracking-wider"
-            style={{ gridTemplateColumns: COL, borderColor: '#F5EEEE', fontSize: '11px', minWidth: '660px' }}
+            className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
+            style={{ gridTemplateColumns: activeCOL, borderColor: '#E2E4E9', fontSize: '11px', minWidth: isMobile ? '300px' : '660px', padding: '10px 16px' }}
           >
             <span className="text-right">תאריך</span>
             <span className="text-right">תיאור</span>
-            <span className="text-center">סוג</span>
-            <span className="text-left">חובה</span>
-            <span className="text-left">זכות</span>
-            <span className="text-left">יתרה מצטברת</span>
+            {!isMobile && <span className="text-center">סוג</span>}
+            {!isMobile && <span className="text-left">חובה</span>}
+            {!isMobile && <span className="text-left">זכות</span>}
+            <span className="text-left">יתרה</span>
           </div>
 
           {/* Rows */}
-          {rows.map((row, i) => {
+          {rows.map((row) => {
             const badge     = typeBadge[row.type] ?? typeBadge['פתיחה']
             const isOpening = row.type === 'פתיחה'
             return (
               <div
                 key={row.id}
-                className="grid px-5 py-3 items-center"
+                className="grid items-center"
                 style={{
-                  gridTemplateColumns: COL,
-                  borderTop: i > 0 ? '1px solid #F5EEEE' : undefined,
+                  gridTemplateColumns: activeCOL,
+                  borderBottom: '1px solid #E2E4E9',
                   background: isOpening ? '#FFF8F7' : undefined,
-                  minWidth: '660px',
+                  minWidth: isMobile ? '300px' : '660px',
+                  minHeight: '56px',
+                  padding: '12px 16px',
                 }}
               >
                 <span className="text-right text-gray-400" style={{ fontSize: '13px' }}>
@@ -295,20 +312,26 @@ export default function SupplierLedger() {
                 <span className="text-right text-gray-700" style={{ fontSize: '14px' }}>
                   {row.description}
                 </span>
-                <span className="flex justify-center">
-                  <span
-                    className="rounded-lg font-medium"
-                    style={{ fontSize: '11px', padding: '3px 8px', background: badge.bg, color: badge.color }}
-                  >
-                    {row.type}
+                {!isMobile && (
+                  <span className="flex justify-center">
+                    <span
+                      className="rounded-lg font-medium"
+                      style={{ fontSize: '11px', padding: '3px 8px', background: badge.bg, color: badge.color }}
+                    >
+                      {row.type}
+                    </span>
                   </span>
-                </span>
-                <span className="text-left font-medium" style={{ color: '#A16207', fontSize: '14px' }}>
-                  {row.debit > 0 ? formatILS(row.debit) : '—'}
-                </span>
-                <span className="text-left font-medium" style={{ color: '#166534', fontSize: '14px' }}>
-                  {row.credit > 0 ? formatILS(row.credit) : '—'}
-                </span>
+                )}
+                {!isMobile && (
+                  <span className="text-left font-medium" style={{ color: '#A16207', fontSize: '14px' }}>
+                    {row.debit > 0 ? formatILS(row.debit) : '—'}
+                  </span>
+                )}
+                {!isMobile && (
+                  <span className="text-left font-medium" style={{ color: '#166534', fontSize: '14px' }}>
+                    {row.credit > 0 ? formatILS(row.credit) : '—'}
+                  </span>
+                )}
                 <span className="text-left font-black" style={{ fontSize: '15px', color: isOpening ? '#6B7280' : '#1F2937' }}>
                   {formatILS(row.runningBalance)}
                 </span>
@@ -318,18 +341,22 @@ export default function SupplierLedger() {
 
           {/* Summary row */}
           <div
-            className="grid px-5 py-4 items-center"
-            style={{ gridTemplateColumns: COL, borderTop: '2px solid #8B1A3A', background: '#FFF8F7', minWidth: '660px' }}
+            className="grid items-center"
+            style={{ gridTemplateColumns: activeCOL, borderTop: '2px solid #8B1A3A', background: '#FFF8F7', minWidth: isMobile ? '300px' : '660px', padding: '12px 16px' }}
           >
-            <div style={{ gridColumn: 'span 3', textAlign: 'right' }}>
+            <div style={{ gridColumn: isMobile ? 'span 1' : 'span 3', textAlign: 'right' }}>
               <span className="font-bold" style={{ fontSize: '13px', color: '#6B7280' }}>סיכום תקופה</span>
             </div>
-            <span className="text-left font-black" style={{ color: '#A16207', fontSize: '15px' }}>
-              {formatILS(totalDebit)}
-            </span>
-            <span className="text-left font-black" style={{ color: '#166534', fontSize: '15px' }}>
-              {formatILS(totalCredit)}
-            </span>
+            {!isMobile && (
+              <span className="text-left font-black" style={{ color: '#A16207', fontSize: '15px' }}>
+                {formatILS(totalDebit)}
+              </span>
+            )}
+            {!isMobile && (
+              <span className="text-left font-black" style={{ color: '#166534', fontSize: '15px' }}>
+                {formatILS(totalCredit)}
+              </span>
+            )}
             <span className="text-left font-black" style={{ color: '#8B1A3A', fontSize: '16px' }}>
               {formatILS(finalBalance)}
             </span>

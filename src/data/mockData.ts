@@ -31,6 +31,9 @@ export interface Invoice {
   decodeQuality: string
   sentToAccountant: boolean
   date: string
+  invoiceNumber: string
+  duplicateFlag: 'כפילות אפשרית' | null
+  duplicateNote: string
 }
 
 export const mockInvoices: Invoice[] = [
@@ -44,6 +47,7 @@ export const mockInvoices: Invoice[] = [
     driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
     emailReceivedAt: '2026-05-01T09:00', emailId: 'MSG-001', uploadDate: '2026-05-01',
     isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: false,
+    invoiceNumber: 'TAB-5501', duplicateFlag: 'כפילות אפשרית', duplicateNote: '',
   },
   {
     id: 'INV-2026-002', supplier: 'מקורות מים', supplierId: 'SUP-006',
@@ -55,6 +59,7 @@ export const mockInvoices: Invoice[] = [
     driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
     emailReceivedAt: '2026-04-28T11:30', emailId: 'MSG-002', uploadDate: '2026-04-28',
     isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: true,
+    invoiceNumber: 'MAK-6601', duplicateFlag: null, duplicateNote: '',
   },
   {
     id: 'INV-2026-003', supplier: 'תנובה', supplierId: 'SUP-001',
@@ -66,6 +71,7 @@ export const mockInvoices: Invoice[] = [
     driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
     emailReceivedAt: '2026-04-25T08:15', emailId: 'MSG-003', uploadDate: '2026-04-25',
     isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'בינונית', sentToAccountant: false,
+    invoiceNumber: 'TNV-10082', duplicateFlag: 'כפילות אפשרית', duplicateNote: '',
   },
   {
     id: 'INV-2026-004', supplier: 'אסם השקעות', supplierId: 'SUP-003',
@@ -77,6 +83,7 @@ export const mockInvoices: Invoice[] = [
     driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
     emailReceivedAt: '2026-04-20T14:00', emailId: 'MSG-004', uploadDate: '2026-04-20',
     isDuplicate: false, hasError: true, n8nErrorLink: '', decodeQuality: 'נמוכה', sentToAccountant: false,
+    invoiceNumber: 'OSM-7701', duplicateFlag: null, duplicateNote: '',
   },
   {
     id: 'INV-2026-005', supplier: 'עלית', supplierId: 'SUP-004',
@@ -88,6 +95,7 @@ export const mockInvoices: Invoice[] = [
     driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
     emailReceivedAt: '2026-04-18T10:45', emailId: 'MSG-005', uploadDate: '2026-04-18',
     isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: true,
+    invoiceNumber: 'ELT-3301', duplicateFlag: null, duplicateNote: '',
   },
   {
     id: 'INV-2026-006', supplier: 'נסטלה ישראל', supplierId: 'SUP-005',
@@ -99,6 +107,7 @@ export const mockInvoices: Invoice[] = [
     driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
     emailReceivedAt: '2026-04-15T09:30', emailId: 'MSG-006', uploadDate: '2026-04-15',
     isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: true,
+    invoiceNumber: 'NST-9901', duplicateFlag: null, duplicateNote: '',
   },
   {
     id: 'INV-2026-007', supplier: 'שטראוס גרופ', supplierId: 'SUP-007',
@@ -110,6 +119,7 @@ export const mockInvoices: Invoice[] = [
     driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
     emailReceivedAt: '2026-04-10T13:00', emailId: 'MSG-007', uploadDate: '2026-04-10',
     isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'בינונית', sentToAccountant: false,
+    invoiceNumber: 'STR-7801', duplicateFlag: null, duplicateNote: '',
   },
   {
     id: 'INV-2026-008', supplier: 'תנובה', supplierId: 'SUP-001',
@@ -121,6 +131,7 @@ export const mockInvoices: Invoice[] = [
     driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
     emailReceivedAt: '2026-04-05T11:00', emailId: 'MSG-008', uploadDate: '2026-04-05',
     isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: true,
+    invoiceNumber: 'TNV-10082', duplicateFlag: 'כפילות אפשרית', duplicateNote: '',
   },
   {
     id: 'INV-2026-009', supplier: 'אסם השקעות', supplierId: 'SUP-003',
@@ -132,6 +143,7 @@ export const mockInvoices: Invoice[] = [
     driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
     emailReceivedAt: '2026-04-01T09:00', emailId: 'MSG-009', uploadDate: '2026-04-01',
     isDuplicate: true, hasError: false, n8nErrorLink: '', decodeQuality: 'נמוכה', sentToAccountant: false,
+    invoiceNumber: 'OSM-7702', duplicateFlag: null, duplicateNote: '',
   },
   {
     id: 'INV-2026-010', supplier: 'תבורי בע"מ', supplierId: 'SUP-002',
@@ -143,6 +155,7 @@ export const mockInvoices: Invoice[] = [
     driveFileLink: '', monthFolderLink: '', originalEmailLink: '',
     emailReceivedAt: '2026-03-28T10:00', emailId: 'MSG-010', uploadDate: '2026-03-28',
     isDuplicate: false, hasError: false, n8nErrorLink: '', decodeQuality: 'גבוהה', sentToAccountant: true,
+    invoiceNumber: 'TAB-5501', duplicateFlag: 'כפילות אפשרית', duplicateNote: '',
   },
 ]
 

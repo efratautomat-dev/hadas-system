@@ -329,7 +329,11 @@ function supplierToForm(sup: Supplier): EditFormState {
   }
 }
 
-export default function Suppliers() {
+interface SuppliersProps {
+  onViewLedger?: (supplierId: string) => void
+}
+
+export default function Suppliers({ onViewLedger }: SuppliersProps) {
   const isTablet = useIsTablet()
 
   const [suppliers, setSuppliers]     = useState<Supplier[]>(() => [...mockSuppliers] as Supplier[])
@@ -358,6 +362,7 @@ export default function Suppliers() {
           setSuppliers((prev) => prev.filter((s) => s.id !== sup.id))
           setViewId(null)
         }}
+        onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
       />
     )
   }
@@ -436,6 +441,12 @@ export default function Suppliers() {
 
       {/* Header */}
       <div className="flex items-center justify-between">
+        <div className="text-right">
+          <h1 className="text-2xl font-black text-gray-800">ספקים</h1>
+          <p className="text-gray-500 mt-0.5" style={{ fontSize: isTablet ? '16px' : '14px' }}>
+            {suppliers.length} ספקים במערכת
+          </p>
+        </div>
         <button
           onClick={() => { setShowAdd(true); setAddForm({ ...emptyForm }) }}
           className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all flex-shrink-0"
@@ -451,12 +462,6 @@ export default function Suppliers() {
           <Plus className="w-4 h-4 flex-shrink-0" />
           הוסף ספק
         </button>
-        <div className="text-right">
-          <h1 className="text-2xl font-black text-gray-800">ספקים</h1>
-          <p className="text-gray-500 mt-0.5" style={{ fontSize: isTablet ? '16px' : '14px' }}>
-            {suppliers.length} ספקים במערכת
-          </p>
-        </div>
       </div>
 
       {/* Stats */}
@@ -478,7 +483,7 @@ export default function Suppliers() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#E2E4E9' }}>
           {(['all', 'פעיל', 'לא פעיל'] as StatusFilter[]).map((f) => (
             <button
@@ -519,7 +524,7 @@ export default function Suppliers() {
           <p style={{ fontSize: '16px' }}>לא נמצאו ספקים</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
           {/* Add form card */}
           {showAdd && (

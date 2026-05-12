@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { FileText, Search, ChevronRight, ExternalLink, Save } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { FileText, Search, ChevronRight, ExternalLink, Save, AlertTriangle, X } from 'lucide-react'
 import { mockInvoices, mockSuppliers, type Invoice } from '../data/mockData'
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -42,6 +42,26 @@ const BASE: React.CSSProperties = {
 function useFocus() {
   const [on, set] = useState(false)
   return { on, onFocus: () => set(true), onBlur: () => set(false) }
+}
+
+function useIsMobile() {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < 640)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return v
+}
+
+function useIsTablet() {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 640 && window.innerWidth <= 1024)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth >= 640 && window.innerWidth <= 1024)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return v
 }
 
 function Lbl({ t }: { t: string }) {
@@ -358,13 +378,56 @@ function InvoiceDetail({
 
 // ── Invoice List ────────────────────────────────────────────────────────────
 
-type Filter = 'all' | 'ממתין' | 'בטיפול' | 'הושלם' | 'שגיאה'
+type Filter = 'all' | 'ממתין' | 'בטיפול' | 'הושלם' | 'שגיאה' | 'כפילויות'
 
-export default function Invoices() {
+interface DupModal { invoice: Invoice; pair: Invoice }
+
+export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Filter }) {
   const [invoices, setInvoices] = useState<Invoice[]>(mockInvoices)
   const [selected, setSelected] = useState<Invoice | null>(null)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useState<Filter>(initialFilter)
+  const [dupModal, setDupModal] = useState<DupModal | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // ── duplicate helpers ────────────────────────────────────────────────────
+  const dupCount = invoices.filter(i => i.duplicateFlag === 'כפילות אפשרית').length
+
+  const getDupPair = (inv: Invoice): Invoice | undefined =>
+    invoices.find(i => i.id !== inv.id &&
+      i.invoiceNumber === inv.invoiceNumber && i.supplierId === inv.supplierId)
+
+  const openDupModal = (inv: Invoice, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const pair = getDupPair(inv)
+    if (!pair) return
+    setDupModal({ invoice: inv, pair })
+    setConfirmDelete(false)
+  }
+
+  const handleSetPrimary = () => {
+    if (!dupModal) return
+    setInvoices(prev => prev.map(i =>
+      i.id === dupModal.invoice.id ? { ...i, duplicateFlag: null } : i
+    ))
+    setDupModal(null)
+  }
+
+  const handleDeleteDuplicate = () => {
+    if (!dupModal) return
+    setInvoices(prev => prev.filter(i => i.id !== dupModal.invoice.id))
+    setDupModal(null)
+  }
+
+  const handleApproveAll = () => {
+    if (!dupModal) return
+    setInvoices(prev => prev.map(i =>
+      (i.id === dupModal.invoice.id || i.id === dupModal.pair.id)
+        ? { ...i, duplicateFlag: null, duplicateNote: 'אושר ידנית' }
+        : i
+    ))
+    setDupModal(null)
+  }
 
   if (selected) {
     return (
@@ -372,7 +435,19 @@ export default function Invoices() {
         invoice={selected}
         onBack={() => setSelected(null)}
         onSave={(updated) => {
-          setInvoices(prev => prev.map(inv => inv.id === updated.id ? updated : inv))
+          setInvoices(prev => {
+            const next = prev.map(i => i.id === updated.id ? updated : i)
+            if (!updated.invoiceNumber) return next
+            const dups = next.filter(i =>
+              i.invoiceNumber === updated.invoiceNumber && i.supplierId === updated.supplierId
+            )
+            if (dups.length > 1) {
+              return next.map(i =>
+                dups.some(d => d.id === i.id) ? { ...i, duplicateFlag: 'כפילות אפשרית' as const } : i
+              )
+            }
+            return next
+          })
           setSelected(null)
         }}
       />
@@ -380,10 +455,19 @@ export default function Invoices() {
   }
 
   const filtered = invoices.filter(inv => {
-    const matchSearch = inv.supplier.includes(search) || inv.id.includes(search)
-    const matchFilter = filter === 'all' || inv.status === filter
+    const matchSearch = inv.supplier.includes(search) || inv.id.includes(search) ||
+      inv.invoiceNumber.includes(search)
+    const matchFilter = filter === 'all'
+      ? true
+      : filter === 'כפילויות'
+        ? inv.duplicateFlag === 'כפילות אפשרית'
+        : inv.status === filter
     return matchSearch && matchFilter
   })
+
+  const isMobile = useIsMobile()
+  const isTablet = useIsTablet()
+  const COL = isMobile ? '1fr 110px 75px' : isTablet ? '1fr 130px 110px 80px' : '1fr 145px 130px 110px 80px'
 
   const counts = {
     ממתין: invoices.filter(i => i.status === 'ממתין').length,
@@ -424,23 +508,34 @@ export default function Invoices() {
       </div>
 
       {/* Filters + Search */}
-      <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div
           className="bg-white rounded-xl border p-1 flex-shrink-0"
           style={{ borderColor: '#E2E4E9', display: 'flex', gap: '2px' }}
         >
-          {(['all', 'ממתין', 'בטיפול', 'הושלם', 'שגיאה'] as Filter[]).map(f => (
+          {(['all', 'ממתין', 'בטיפול', 'הושלם', 'שגיאה', 'כפילויות'] as Filter[]).map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
               style={{
                 borderRadius: '8px', padding: '7px 12px', fontSize: '14px', fontWeight: 600,
                 border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                background: filter === f ? '#8B1A3A' : 'transparent',
-                color: filter === f ? 'white' : '#6B7280',
+                background: filter === f ? (f === 'כפילויות' ? '#D97706' : '#8B1A3A') : 'transparent',
+                color: filter === f ? 'white' : f === 'כפילויות' ? '#D97706' : '#6B7280',
+                display: 'flex', alignItems: 'center', gap: '5px',
               }}
             >
               {f === 'all' ? 'הכל' : f}
+              {f === 'כפילויות' && dupCount > 0 && (
+                <span style={{
+                  fontSize: '10px', fontWeight: 700,
+                  background: filter === 'כפילויות' ? 'rgba(255,255,255,0.3)' : '#FEF9C3',
+                  color: filter === 'כפילויות' ? 'white' : '#92400E',
+                  borderRadius: '10px', padding: '1px 6px', lineHeight: 1.4,
+                }}>
+                  {dupCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -460,6 +555,34 @@ export default function Invoices() {
         </div>
       </div>
 
+      {/* Duplicate warning banner */}
+      {dupCount > 0 && filter !== 'כפילויות' && (
+        <div
+          className="rounded-2xl p-4 border flex items-center justify-between cursor-pointer"
+          style={{ background: '#FFFBEB', borderColor: '#FDE68A' }}
+          onClick={() => setFilter('כפילויות')}
+        >
+          <button
+            className="px-4 py-2 rounded-xl text-sm font-bold text-white flex-shrink-0"
+            style={{ background: '#D97706' }}
+          >
+            לבדיקה ←
+          </button>
+          <div className="flex items-center gap-3 text-right">
+            <div>
+              <p className="font-bold text-sm" style={{ color: '#92400E' }}>
+                נמצאו {dupCount} חשבוניות עם מספר כפול אפשרי
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולאשר או למחוק לפני סגירת חודש</p>
+            </div>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: '#FEF3C7', color: '#D97706' }}>
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* List */}
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
         {filtered.length === 0 ? (
@@ -469,58 +592,103 @@ export default function Invoices() {
           </div>
         ) : (
           <div>
-            {filtered.map((inv, i) => {
+            {/* Column headers */}
+            <div
+              className="grid font-semibold text-gray-400 uppercase tracking-wider border-b"
+              style={{ gridTemplateColumns: COL, borderColor: '#E2E4E9', fontSize: '11px', padding: '10px 16px' }}
+            >
+              <span className="text-right">ספק</span>
+              {!isMobile && <span className="text-right">מסמך · תאריך</span>}
+              {!isMobile && !isTablet && <span className="text-right">קטגוריה</span>}
+              <span className="text-left">סכום</span>
+              <span className="text-center">סטטוס</span>
+            </div>
+
+            {/* Data rows */}
+            {filtered.map((inv) => {
               const st = STATUS_STYLE[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
               const flags = [
-                inv.isDuplicate && { label: 'כפילות', bg: '#FEF3C7', color: '#92400E' },
-                inv.hasError    && { label: 'שגיאה',  bg: '#FEE2E2', color: '#DC2626' },
+                inv.isDuplicate      && { label: 'כפילות',       bg: '#FEF3C7', color: '#92400E' },
+                inv.hasError         && { label: 'שגיאה',         bg: '#FEE2E2', color: '#DC2626' },
                 inv.sentToAccountant && { label: 'הועבר לרוה"ח', bg: '#F0FDF4', color: '#166534' },
               ].filter(Boolean) as { label: string; bg: string; color: string }[]
 
               return (
                 <div
                   key={inv.id}
-                  onClick={() => setSelected(inv)}
+                  className="grid items-center cursor-pointer"
                   style={{
-                    padding: '14px 20px',
-                    borderTop: i > 0 ? '1px solid #E2E4E9' : undefined,
-                    cursor: 'pointer',
+                    gridTemplateColumns: COL,
+                    borderBottom: '1px solid #E2E4E9',
+                    minHeight: '56px',
+                    padding: '12px 16px',
                     transition: 'background 0.12s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px',
                   }}
+                  onClick={() => setSelected(inv)}
                   onMouseEnter={e => (e.currentTarget.style.background = '#F8F9FA')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
-                  {/* Left: status + amount + flags */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                    <span
-                      style={{ ...st, fontSize: '13px', fontWeight: 700, padding: '4px 12px', borderRadius: '8px', flexShrink: 0 }}
-                    >
-                      {inv.status}
-                    </span>
-                    <span style={{ fontSize: '17px', fontWeight: 800, color: '#1F2937' }}>
-                      {formatILS(inv.amount)}
-                    </span>
-                    {flags.map(fl => (
-                      <span
-                        key={fl.label}
-                        style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '6px', background: fl.bg, color: fl.color }}
-                      >
-                        {fl.label}
-                      </span>
-                    ))}
+                  {/* Col 1: ספק + flags */}
+                  <div className="text-right">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                      {inv.duplicateFlag === 'כפילות אפשרית' && isMobile && (
+                        <button
+                          onClick={e => openDupModal(inv, e)}
+                          title="קיימת חשבונית נוספת עם אותו מספר לספק זה"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#D97706', display: 'flex', flexShrink: 0 }}
+                        >
+                          <AlertTriangle className="w-4 h-4" />
+                        </button>
+                      )}
+                      <p style={{ fontSize: '14px', fontWeight: 700, color: '#1F2937', margin: 0 }}>{inv.supplier}</p>
+                    </div>
+                    {flags.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                        {flags.map(fl => (
+                          <span key={fl.label} style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '5px', background: fl.bg, color: fl.color }}>
+                            {fl.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Right: supplier + id + date + category */}
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <p style={{ fontSize: '15px', fontWeight: 700, color: '#1F2937', margin: 0 }}>{inv.supplier}</p>
-                    <p style={{ fontSize: '12px', color: '#9CA3AF', margin: '3px 0 0' }}>
-                      {inv.id} · {inv.date}
-                      {inv.category && <span> · {inv.category}</span>}
-                    </p>
+                  {/* Col 2: מסמך + תאריך (desktop only) */}
+                  {!isMobile && (
+                    <div className="text-right">
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px' }}>
+                        {inv.duplicateFlag === 'כפילות אפשרית' && (
+                          <button
+                            onClick={e => openDupModal(inv, e)}
+                            title="קיימת חשבונית נוספת עם אותו מספר לספק זה"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#D97706', display: 'flex', flexShrink: 0 }}
+                          >
+                            <AlertTriangle className="w-4 h-4" />
+                          </button>
+                        )}
+                        <p style={{ fontSize: '13px', color: '#374151', margin: 0 }}>{inv.invoiceNumber || inv.id}</p>
+                      </div>
+                      <p style={{ fontSize: '12px', color: '#9CA3AF', margin: '2px 0 0' }}>{inv.date}</p>
+                    </div>
+                  )}
+
+                  {/* Col 3: קטגוריה (desktop only) */}
+                  {!isMobile && !isTablet && (
+                    <span className="text-right" style={{ fontSize: '12px', color: '#6B7280' }}>
+                      {inv.category || '—'}
+                    </span>
+                  )}
+
+                  {/* Col 4: סכום */}
+                  <span className="text-left font-bold" style={{ fontSize: '15px', color: '#1F2937' }}>
+                    {formatILS(inv.amount)}
+                  </span>
+
+                  {/* Col 5: סטטוס */}
+                  <div className="flex justify-center">
+                    <span style={{ ...st, fontSize: '12px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px' }}>
+                      {inv.status}
+                    </span>
                   </div>
                 </div>
               )
@@ -528,6 +696,108 @@ export default function Invoices() {
           </div>
         )}
       </div>
+
+      {/* Duplicate comparison modal */}
+      {dupModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          onClick={() => { setDupModal(null); setConfirmDelete(false) }}
+        >
+          <div
+            style={{ background: 'white', borderRadius: '20px', width: '100%', maxWidth: '540px', maxHeight: '90vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #E2E4E9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <button
+                onClick={() => { setDupModal(null); setConfirmDelete(false) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: '4px', borderRadius: '8px' }}
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h2 style={{ fontSize: '17px', fontWeight: 800, color: '#1F2937', margin: 0 }}>השוואת חשבוניות כפולות</h2>
+                <AlertTriangle className="w-5 h-5" style={{ color: '#D97706' }} />
+              </div>
+            </div>
+
+            {/* Column sub-headers */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', padding: '14px 24px 8px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#6B7280', textAlign: 'right' }}>שדה</span>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#8B1A3A', textAlign: 'center' }}>חשבונית זו</span>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#9CA3AF', textAlign: 'center' }}>כפילות אפשרית</span>
+            </div>
+
+            {/* Comparison rows */}
+            <div style={{ padding: '0 24px 16px' }}>
+              {([
+                { label: 'מס׳ חשבונית ספק', a: dupModal.invoice.invoiceNumber, b: dupModal.pair.invoiceNumber },
+                { label: 'מס׳ פנימי',        a: dupModal.invoice.id,            b: dupModal.pair.id },
+                { label: 'תאריך',             a: dupModal.invoice.date,          b: dupModal.pair.date },
+                { label: 'סכום',              a: formatILS(dupModal.invoice.amount), b: formatILS(dupModal.pair.amount) },
+                { label: 'סטטוס',             a: dupModal.invoice.status,        b: dupModal.pair.status },
+                { label: 'שולח',              a: dupModal.invoice.senderName,    b: dupModal.pair.senderName },
+                { label: 'תאריך העלאה',       a: dupModal.invoice.uploadDate,    b: dupModal.pair.uploadDate },
+              ] as { label: string; a: string; b: string }[]).map(({ label, a, b }) => {
+                const diff = a !== b
+                return (
+                  <div
+                    key={label}
+                    style={{
+                      display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px',
+                      padding: '9px 10px', borderRadius: '8px', marginBottom: '3px',
+                      background: diff ? '#FFFBEB' : '#F9FAFB',
+                    }}
+                  >
+                    <span style={{ fontSize: '12px', color: '#6B7280', textAlign: 'right' }}>{label}</span>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: diff ? '#D97706' : '#1F2937', textAlign: 'center' }}>{a || '—'}</span>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: diff ? '#9CA3AF' : '#374151', textAlign: 'center' }}>{b || '—'}</span>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Delete confirmation */}
+            {confirmDelete && (
+              <div style={{ margin: '0 24px 16px', padding: '16px', borderRadius: '12px', background: '#FEF2F2', border: '1px solid #FECACA' }}>
+                <p style={{ fontSize: '14px', fontWeight: 600, color: '#991B1B', textAlign: 'right', margin: '0 0 12px' }}>
+                  האם למחוק חשבונית זו? פעולה זו בלתי הפיכה.
+                </p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={handleDeleteDuplicate}
+                    style={{ flex: 1, height: '40px', borderRadius: '10px', background: '#DC2626', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '14px', fontFamily: 'inherit' }}>
+                    כן, מחק
+                  </button>
+                  <button onClick={() => setConfirmDelete(false)}
+                    style={{ flex: 1, height: '40px', borderRadius: '10px', background: '#F3F4F6', color: '#6B7280', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit' }}>
+                    ביטול
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            {!confirmDelete && (
+              <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button onClick={handleSetPrimary}
+                  style={{ width: '100%', height: '46px', borderRadius: '12px', background: 'linear-gradient(135deg,#8B1A3A,#E8645A)', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '15px', fontFamily: 'inherit' }}>
+                  סמן כחשבונית ראשית
+                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => setConfirmDelete(true)}
+                    style={{ flex: 1, height: '42px', borderRadius: '12px', background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', cursor: 'pointer', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit' }}>
+                    מחק כפילות
+                  </button>
+                  <button onClick={handleApproveAll}
+                    style={{ flex: 1, height: '42px', borderRadius: '12px', background: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0', cursor: 'pointer', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit' }}>
+                    התעלם – שתיהן תקינות
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

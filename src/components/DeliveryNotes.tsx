@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Package, X, ChevronLeft, AlertCircle } from 'lucide-react'
 import { mockSuppliers, mockInvoices, mockDeliveryNotes, type DeliveryNote } from '../data/mockData'
 
@@ -36,6 +36,16 @@ function FieldLabel({ text, required }: { text: string; required?: boolean }) {
   )
 }
 
+function useIsMobile() {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < 640)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return v
+}
+
 // ── types ─────────────────────────────────────────────────────────────────────
 
 type ModalType   = null | 'detail' | 'add'
@@ -43,7 +53,8 @@ type StatusFilter = 'all' | 'pending' | 'archived'
 
 const emptyForm = { supplierId: '', noteId: '', isoDate: '', amount: '', notes: '' }
 
-const COL   = '110px 1fr 88px 100px 78px 110px 48px'
+const COL_D = '110px 1fr 88px 100px 78px 110px 48px'
+const COL_M = '1fr 85px 68px 32px'
 const MIN_W = '680px'
 
 // ── component ─────────────────────────────────────────────────────────────────
@@ -60,6 +71,9 @@ export default function DeliveryNotes() {
   const [selectedInvId, setSelectedInvId] = useState('')
   const [confirmUnlink, setConfirmUnlink] = useState(false)
   const [form, setForm]                   = useState({ ...emptyForm })
+
+  const isMobile = useIsMobile()
+  const COL = isMobile ? COL_M : COL_D
 
   // ── derived ──────────────────────────────────────────────────────────────
   const displayed = notes
@@ -141,6 +155,12 @@ export default function DeliveryNotes() {
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
+        <div className="text-right">
+          <h1 className="text-2xl font-black text-gray-800">תעודות משלוח</h1>
+          <p className="text-gray-500 mt-0.5" style={{ fontSize: '15px' }}>
+            {pendingCount} ממתינות לשיוך · {archivedCount} בארכיון
+          </p>
+        </div>
         <button
           onClick={() => { setForm({ ...emptyForm }); setModalType('add') }}
           className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
@@ -151,12 +171,6 @@ export default function DeliveryNotes() {
           <Plus className="w-4 h-4" />
           הוסף תעודה
         </button>
-        <div className="text-right">
-          <h1 className="text-2xl font-black text-gray-800">תעודות משלוח</h1>
-          <p className="text-gray-500 mt-0.5" style={{ fontSize: '15px' }}>
-            {pendingCount} ממתינות לשיוך · {archivedCount} בארכיון
-          </p>
-        </div>
       </div>
 
       {/* ── Stats ── */}
@@ -260,15 +274,15 @@ export default function DeliveryNotes() {
 
           {/* Column headers */}
           <div
-            className="grid px-5 py-3 border-b font-semibold text-gray-400 uppercase tracking-wider"
-            style={{ gridTemplateColumns: COL, borderColor: '#F5EEEE', fontSize: '11px', minWidth: MIN_W }}
+            className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
+            style={{ gridTemplateColumns: COL, borderColor: '#E2E4E9', fontSize: '11px', minWidth: isMobile ? '300px' : MIN_W, padding: '10px 16px' }}
           >
-            <span className="text-right">מספר תעודה</span>
+            {!isMobile && <span className="text-right">מספר תעודה</span>}
             <span className="text-right">ספק</span>
-            <span className="text-right">תאריך</span>
+            {!isMobile && <span className="text-right">תאריך</span>}
             <span className="text-left">סכום</span>
             <span className="text-center">סטטוס</span>
-            <span className="text-right">חשבונית</span>
+            {!isMobile && <span className="text-right">חשבונית</span>}
             <span />
           </div>
 
@@ -279,32 +293,38 @@ export default function DeliveryNotes() {
               <p style={{ fontSize: '15px' }}>לא נמצאו תעודות</p>
             </div>
           ) : (
-            displayed.map((note, i) => {
+            displayed.map((note) => {
               const isArchived = note.status === 'archived'
               const badge = statusBadge[note.status]
               return (
                 <div
                   key={note.id}
-                  className="grid px-5 py-4 items-center cursor-pointer transition-colors"
+                  className="grid items-center cursor-pointer transition-colors"
                   style={{
                     gridTemplateColumns: COL,
-                    borderTop: i > 0 ? '1px solid #F5EEEE' : undefined,
+                    borderBottom: '1px solid #E2E4E9',
                     background: isArchived ? '#FAFAFA' : 'white',
-                    minWidth: MIN_W,
+                    minWidth: isMobile ? '300px' : MIN_W,
+                    minHeight: '56px',
+                    padding: '12px 16px',
                   }}
                   onClick={() => openNote(note)}
                   onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = isArchived ? '#F4F4F5' : '#FFF8F7')}
                   onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = isArchived ? '#FAFAFA' : 'white')}
                 >
-                  <span className="text-right font-bold" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#1F2937' }}>
-                    {note.id}
-                  </span>
+                  {!isMobile && (
+                    <span className="text-right font-bold" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#1F2937' }}>
+                      {note.id}
+                    </span>
+                  )}
                   <span className="text-right font-medium" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#374151' }}>
                     {note.supplierName}
                   </span>
-                  <span className="text-right" style={{ fontSize: '13px', color: '#9CA3AF' }}>
-                    {note.date}
-                  </span>
+                  {!isMobile && (
+                    <span className="text-right" style={{ fontSize: '13px', color: '#9CA3AF' }}>
+                      {note.date}
+                    </span>
+                  )}
                   <span className="text-left font-bold" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#1F2937' }}>
                     {formatILS(note.amount)}
                   </span>
@@ -316,9 +336,11 @@ export default function DeliveryNotes() {
                       {statusLabel[note.status]}
                     </span>
                   </span>
-                  <span className="text-right" style={{ fontSize: '13px', color: '#6B7280' }}>
-                    {note.linkedInvoiceId ?? '—'}
-                  </span>
+                  {!isMobile && (
+                    <span className="text-right" style={{ fontSize: '13px', color: '#6B7280' }}>
+                      {note.linkedInvoiceId ?? '—'}
+                    </span>
+                  )}
                   <span className="flex justify-center">
                     <ChevronLeft className="w-4 h-4 text-gray-300" />
                   </span>

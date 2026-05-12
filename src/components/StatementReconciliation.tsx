@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CheckCircle2, AlertTriangle, Clock, Search as SearchIcon, X, ArrowLeftRight, Eye } from 'lucide-react'
 import type { VendorStatementStatus } from '../data/mockData'
 
@@ -322,11 +322,26 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
   )
 }
 
+function useIsMobile() {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth < 640)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return v
+}
+
 export default function StatementReconciliation() {
   const [statements, setStatements] = useState<VendorStatement[]>(initStatements)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<VendorStatementStatus | 'all'>('all')
   const [search, setSearch] = useState('')
+  const isMobile = useIsMobile()
+  const gridCOL = isMobile
+    ? '1.5fr 1.2fr 1fr 0.7fr'
+    : '0.8fr 1.5fr 0.9fr 1.2fr 1.2fr 1fr 1.1fr 0.9fr'
+  const gridMin = isMobile ? '320px' : '720px'
 
   const counts = {
     matched:       statements.filter((s) => s.status === 'matched').length,
@@ -452,16 +467,16 @@ export default function StatementReconciliation() {
             style={{
               borderColor: '#E2E4E9',
               background: '#F8F9FA',
-              gridTemplateColumns: '0.8fr 1.5fr 0.9fr 1.2fr 1.2fr 1fr 1.1fr 0.9fr',
-              minWidth: '720px',
+              gridTemplateColumns: gridCOL,
+              minWidth: gridMin,
               textAlign: 'right',
             }}
           >
-            <span>מזהה</span>
+            {!isMobile && <span>מזהה</span>}
             <span>ספק</span>
-            <span>חודש</span>
-            <span>יתרה שלנו</span>
-            <span>יתרת ספק</span>
+            {!isMobile && <span>חודש</span>}
+            {!isMobile && <span>יתרה שלנו</span>}
+            {!isMobile && <span>יתרת ספק</span>}
             <span>הפרש</span>
             <span>סטטוס</span>
             <span>פעולות</span>
@@ -474,25 +489,29 @@ export default function StatementReconciliation() {
             filtered.map((stmt) => (
               <div
                 key={stmt.id}
-                className="grid items-center px-4 py-4 border-b transition-colors"
+                className="grid items-center border-b transition-colors"
                 style={{
                   borderColor: '#E2E4E9',
-                  gridTemplateColumns: '0.8fr 1.5fr 0.9fr 1.2fr 1.2fr 1fr 1.1fr 0.9fr',
-                  minWidth: '720px',
+                  gridTemplateColumns: gridCOL,
+                  minWidth: gridMin,
                   textAlign: 'right',
+                  minHeight: '56px',
+                  padding: '12px 16px',
                 }}
                 onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
               >
-                <span className="text-xs text-gray-400 font-mono">{stmt.id}</span>
+                {!isMobile && <span className="text-xs text-gray-400 font-mono">{stmt.id}</span>}
                 <span className="text-sm font-semibold text-gray-800">{stmt.supplier_name}</span>
-                <span className="text-sm text-gray-600">{stmt.month}</span>
-                <span className="text-sm font-semibold text-gray-800">{formatILS(stmt.our_balance)}</span>
-                <span className="text-sm font-semibold text-gray-800">
-                  {stmt.vendor_balance != null ? formatILS(stmt.vendor_balance) : (
-                    <span className="text-gray-400">—</span>
-                  )}
-                </span>
+                {!isMobile && <span className="text-sm text-gray-600">{stmt.month}</span>}
+                {!isMobile && <span className="text-sm font-semibold text-gray-800">{formatILS(stmt.our_balance)}</span>}
+                {!isMobile && (
+                  <span className="text-sm font-semibold text-gray-800">
+                    {stmt.vendor_balance != null ? formatILS(stmt.vendor_balance) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </span>
+                )}
                 <span
                   className="text-sm font-bold"
                   style={{

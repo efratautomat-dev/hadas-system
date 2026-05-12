@@ -1,5 +1,6 @@
 import { Users, FileText, TrendingUp, AlertCircle, Package, AlertTriangle } from 'lucide-react'
 import { mockStats, mockInvoices, mockPayments, mockDeliveries, mockDeliveryNotes, mockVendorStatements } from '../data/mockData'
+const dupInvoiceCount = mockInvoices.filter(i => i.duplicateFlag === 'כפילות אפשרית').length
 
 const statusStyle: Record<string, { bg: string; color: string }> = {
   'ממתין':  { bg: '#FEF9C3', color: '#A16207' },
@@ -68,6 +69,36 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
         <p className="text-gray-500 text-sm mt-0.5">סקירה כללית של פעילות הספקים · {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
       </div>
 
+      {/* Duplicate invoice alert */}
+      {dupInvoiceCount > 0 && (
+        <div
+          className="rounded-2xl p-4 shadow-sm border flex items-center justify-between cursor-pointer transition-opacity hover:opacity-90"
+          style={{ borderColor: '#FDE68A', background: '#FFFBEB' }}
+          onClick={() => onPageChange?.('invoices-duplicates')}
+        >
+          <button
+            className="px-4 py-2 rounded-xl text-sm font-bold text-white flex-shrink-0"
+            style={{ background: '#D97706' }}
+          >
+            לבדיקה ←
+          </button>
+          <div className="flex items-center gap-3 text-right">
+            <div>
+              <p className="font-bold text-sm" style={{ color: '#92400E' }}>
+                נמצאו {dupInvoiceCount} חשבוניות עם מספר כפול אפשרי
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולאשר לפני סגירת חודש</p>
+            </div>
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: '#FEF3C7', color: '#D97706' }}
+            >
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mismatch alert */}
       {mismatchCount > 0 && (
         <div
@@ -99,7 +130,7 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="ספקים פעילים"
           value={String(mockStats.activeSuppliers)}

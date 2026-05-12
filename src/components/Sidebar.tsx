@@ -10,14 +10,15 @@ import {
   Receipt,
   LogOut,
   ChevronLeft,
+  Settings,
 } from 'lucide-react'
 
 function useIsTablet() {
   const [v, setV] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth >= 768 && window.innerWidth <= 1024
+    () => typeof window !== 'undefined' && window.innerWidth >= 640 && window.innerWidth <= 1024
   )
   useEffect(() => {
-    const h = () => setV(window.innerWidth >= 768 && window.innerWidth <= 1024)
+    const h = () => setV(window.innerWidth >= 640 && window.innerWidth <= 1024)
     window.addEventListener('resize', h)
     return () => window.removeEventListener('resize', h)
   }, [])
@@ -31,6 +32,7 @@ interface SidebarProps {
   onPageChange: (page: string) => void
   onLogout: () => void
   userEmail: string
+  mobileStyle?: React.CSSProperties
 }
 
 const navItems = [
@@ -42,6 +44,7 @@ const navItems = [
   { id: 'deliveries', label: 'תעודות משלוח', Icon: Truck },
   { id: 'returns', label: 'חזרות', Icon: RotateCcw },
   { id: 'reconciliation', label: 'התאמת כרטסות', Icon: BookOpen },
+  { id: 'settings',       label: 'הגדרות',        Icon: Settings },
 ]
 
 export default function Sidebar({
@@ -51,6 +54,7 @@ export default function Sidebar({
   onPageChange,
   onLogout,
   userEmail,
+  mobileStyle,
 }: SidebarProps) {
   const isTablet = useIsTablet()
   const collapsed = isTablet ? false : isCollapsed
@@ -58,10 +62,12 @@ export default function Sidebar({
 
   return (
     <aside
-      className="flex flex-col h-screen fixed right-0 top-0 z-50 transition-all duration-300 shadow-xl"
+      className="flex flex-col h-screen fixed right-0 top-0 z-50 shadow-xl"
       style={{
         width: isTablet ? '200px' : collapsed ? '72px' : '256px',
         background: 'linear-gradient(180deg, #8B1A3A 0%, #6B1228 100%)',
+        transition: 'transform 0.3s ease, width 0.3s',
+        ...mobileStyle,
       }}
     >
       {/* Header */}
