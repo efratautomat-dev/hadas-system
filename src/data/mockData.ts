@@ -287,3 +287,91 @@ export const mockVendorStatements: { id: string; supplier_id: string; status: Ve
   { id: 'VS-002', supplier_id: 'SUP-002', status: 'mismatch' },
   { id: 'VS-003', supplier_id: 'SUP-003', status: 'pending' },
 ]
+
+export type AlertType = 'duplicate_invoice' | 'delivery_note' | 'statement_mismatch'
+export type AlertStatus = 'new' | 'read' | 'resolved'
+
+export interface Alert {
+  id: string
+  type: AlertType
+  date: string
+  description: string
+  status: AlertStatus
+  supplier?: string
+  relatedId?: string
+}
+
+export const mockAlerts: Alert[] = [
+  {
+    id: 'ALT-001',
+    type: 'duplicate_invoice',
+    date: '13/05/2026',
+    description: 'נמצאה חשבונית כפולה אפשרית — INV-2026-001 ו-INV-2026-003 זהות במספר ובסכום מאותו ספק',
+    status: 'new',
+    supplier: 'תבורי בע"מ',
+    relatedId: 'INV-2026-001',
+  },
+  {
+    id: 'ALT-002',
+    type: 'statement_mismatch',
+    date: '12/05/2026',
+    description: 'הפרש של ₪3,200 בין כרטסת ספק למסמכי ספק — יש לבדוק ולפתור לפני סגירת החודש',
+    status: 'new',
+    supplier: 'אסם השקעות',
+    relatedId: 'REC-044',
+  },
+  {
+    id: 'ALT-003',
+    type: 'delivery_note',
+    date: '12/05/2026',
+    description: 'תעודת משלוח DN-002 טרם שויכה לחשבונית — ממתינה לשיוך כבר 5 ימים',
+    status: 'new',
+    supplier: 'תבורי בע"מ',
+    relatedId: 'DN-002',
+  },
+  {
+    id: 'ALT-004',
+    type: 'duplicate_invoice',
+    date: '11/05/2026',
+    description: 'חשבונית INV-2026-007 זהה בסכום ובתאריך לחשבונית קיימת מאותו ספק — נדרשת בדיקה',
+    status: 'new',
+    supplier: 'שטראוס גרופ',
+    relatedId: 'INV-2026-007',
+  },
+  {
+    id: 'ALT-005',
+    type: 'statement_mismatch',
+    date: '10/05/2026',
+    description: 'הפרש של ₪850 בין כרטסת ספק לנתוני המערכת — טרם טופל',
+    status: 'read',
+    supplier: 'שטראוס גרופ',
+    relatedId: 'REC-041',
+  },
+  {
+    id: 'ALT-006',
+    type: 'delivery_note',
+    date: '09/05/2026',
+    description: 'תעודת משלוח DN-004 התקבלה ללא חשבונית מתאימה — ממתינה כבר 7 ימים לשיוך',
+    status: 'read',
+    supplier: 'שטראוס גרופ',
+    relatedId: 'DN-004',
+  },
+  {
+    id: 'ALT-007',
+    type: 'duplicate_invoice',
+    date: '07/05/2026',
+    description: 'כפילות חשבונית INV-2026-002 טופלה בהצלחה — הוסרה הדגלה לאחר בדיקה ואישור',
+    status: 'resolved',
+    supplier: 'מקורות מים',
+    relatedId: 'INV-2026-002',
+  },
+  {
+    id: 'ALT-008',
+    type: 'statement_mismatch',
+    date: '05/05/2026',
+    description: 'אי-התאמה בכרטסת ספק נסטלה ישראל טופלה — עודכנה רשומת התשלום ואושרה',
+    status: 'resolved',
+    supplier: 'נסטלה ישראל',
+    relatedId: 'REC-038',
+  },
+]

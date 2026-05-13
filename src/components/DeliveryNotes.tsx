@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Plus, Package, X, ChevronLeft, AlertCircle } from 'lucide-react'
-import { mockSuppliers, mockInvoices, mockDeliveryNotes, type DeliveryNote } from '../data/mockData'
+import { type DeliveryNote } from '../data/mockData'
+import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
+import { useInvoices } from '../hooks/useInvoices'
+import { useSuppliers } from '../hooks/useSuppliers'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -13,6 +16,21 @@ const statusLabel = { pending: 'ממתינה', archived: 'בארכיון' } as c
 const statusBadge = {
   pending:  { bg: '#FEF9C3', color: '#A16207' },
   archived: { bg: '#F3F4F6', color: '#6B7280' },
+  fallback: { bg: '#F3F4F6', color: '#9CA3AF' },
+}
+
+function normalizeStatus(status: string): 'pending' | 'archived' {
+  if (status === 'pending' || status === 'unlinked' || status === 'ממתינה לשיוך') return 'pending'
+  if (status === 'archived' || status === 'משויכת') return 'archived'
+  return 'pending'
+}
+
+function getBadge(status: string) {
+  return statusBadge[normalizeStatus(status)] ?? statusBadge.fallback
+}
+
+function getLabel(status: string) {
+  return statusLabel[normalizeStatus(status)]
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -60,7 +78,10 @@ const MIN_W = '680px'
 // ── component ─────────────────────────────────────────────────────────────────
 
 export default function DeliveryNotes() {
-  const [notes, setNotes]             = useState<DeliveryNote[]>([...mockDeliveryNotes])
+  const { data: serverNotes, loading, error, link: linkNote, unlink: unlinkNote } = useDeliveryNotes()
+  const { data: invoicesData } = useInvoices()
+  const { data: suppliersData } = useSuppliers()
+  const [notes, setNotes]             = useState<DeliveryNote[]>([])
   const [showAll, setShowAll]          = useState(false)
   const [filterSupp, setFilterSupp]    = useState('')
   const [filterDate, setFilterDate]    = useState('')
@@ -75,26 +96,30 @@ export default function DeliveryNotes() {
   const isMobile = useIsMobile()
   const COL = isMobile ? COL_M : COL_D
 
+  useEffect(() => {
+    setNotes([...serverNotes])
+  }, [serverNotes])
+
   // ── derived ──────────────────────────────────────────────────────────────
   const displayed = notes
     .filter(n => {
-      if (!showAll && n.status === 'archived') return false
+      if (!showAll && normalizeStatus(n.status) === 'archived') return false
       if (filterSupp && n.supplierId !== filterSupp) return false
       if (filterDate && n.isoDate < filterDate) return false
-      if (showAll && filterStat !== 'all' && n.status !== filterStat) return false
+      if (showAll && filterStat !== 'all' && normalizeStatus(n.status) !== filterStat) return false
       return true
     })
-    .sort((a, b) => b.isoDate.localeCompare(a.isoDate))
+    .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''))
 
-  const pendingCount  = notes.filter(n => n.status === 'pending').length
-  const archivedCount = notes.filter(n => n.status === 'archived').length
+  const pendingCount  = notes.filter(n => normalizeStatus(n.status) === 'pending').length
+  const archivedCount = notes.filter(n => normalizeStatus(n.status) === 'archived').length
 
   const supplierInvoices = selected
-    ? mockInvoices.filter(i => i.supplierId === selected.supplierId || i.supplier === selected.supplierName)
+    ? invoicesData.filter(i => i.supplierId === selected.supplierId || i.supplier === selected.supplierName)
     : []
 
   const linkedInvoice = selected?.linkedInvoiceId
-    ? mockInvoices.find(i => i.id === selected.linkedInvoiceId) ?? null
+    ? invoicesData.find(i => i.id === selected.linkedInvoiceId) ?? null
     : null
 
   const canAdd = form.supplierId && form.noteId && form.isoDate && form.amount
@@ -119,6 +144,7 @@ export default function DeliveryNotes() {
     setNotes(prev => prev.map(n =>
       n.id === selected.id ? { ...n, status: 'archived' as const, linkedInvoiceId: selectedInvId } : n
     ))
+    linkNote(selected.id, selectedInvId).catch(() => {})
     closeModal()
   }
 
@@ -127,11 +153,12 @@ export default function DeliveryNotes() {
     setNotes(prev => prev.map(n =>
       n.id === selected.id ? { ...n, status: 'pending' as const, linkedInvoiceId: undefined } : n
     ))
+    unlinkNote(selected.id).catch(() => {})
     closeModal()
   }
 
   const addNote = () => {
-    const sup = mockSuppliers.find(s => s.id === form.supplierId)
+    const sup = suppliersData.find(s => s.id === form.supplierId)
     if (!sup || !form.noteId || !form.isoDate || !form.amount) return
     const [y, m, d] = form.isoDate.split('-')
     const newNote: DeliveryNote = {
@@ -150,8 +177,21 @@ export default function DeliveryNotes() {
   }
 
   // ── render ────────────────────────────────────────────────────────────────
+  if (loading && notes.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-5">
+      {error && (
+        <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
+          לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל
+        </div>
+      )}
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
@@ -220,7 +260,7 @@ export default function DeliveryNotes() {
             onFocus={focusBdr} onBlur={blurBdr}
           >
             <option value="">כל הספקים</option>
-            {mockSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {suppliersData.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
 
           {/* Date filter */}
@@ -294,8 +334,8 @@ export default function DeliveryNotes() {
             </div>
           ) : (
             displayed.map((note) => {
-              const isArchived = note.status === 'archived'
-              const badge = statusBadge[note.status]
+              const isArchived = normalizeStatus(note.status) === 'archived'
+              const badge = getBadge(note.status)
               return (
                 <div
                   key={note.id}
@@ -331,9 +371,9 @@ export default function DeliveryNotes() {
                   <span className="flex justify-center">
                     <span
                       className="rounded-lg font-medium"
-                      style={{ fontSize: '11px', padding: '3px 10px', background: badge.bg, color: badge.color }}
+                      style={{ fontSize: '11px', padding: '3px 10px', background: badge?.bg, color: badge?.color }}
                     >
-                      {statusLabel[note.status]}
+                      {getLabel(note.status)}
                     </span>
                   </span>
                   {!isMobile && (
@@ -363,7 +403,7 @@ export default function DeliveryNotes() {
           >
 
             {/* ── Pending detail modal ── */}
-            {modalType === 'detail' && selected && selected.status === 'pending' && (
+            {modalType === 'detail' && selected && normalizeStatus(selected.status) === 'pending' && (
               <div>
                 {/* Modal header */}
                 <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#F0E8E7' }}>
@@ -460,7 +500,7 @@ export default function DeliveryNotes() {
             )}
 
             {/* ── Archived detail modal ── */}
-            {modalType === 'detail' && selected && selected.status === 'archived' && (
+            {modalType === 'detail' && selected && normalizeStatus(selected.status) === 'archived' && (
               <div>
                 {/* Modal header */}
                 <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#F0E8E7' }}>
@@ -607,7 +647,7 @@ export default function DeliveryNotes() {
                       onFocus={focusBdr} onBlur={blurBdr}
                     >
                       <option value="">בחר ספק...</option>
-                      {mockSuppliers.filter(s => s.status === 'פעיל').map(s => (
+                      {suppliersData.filter(s => s.status === 'פעיל').map(s => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>

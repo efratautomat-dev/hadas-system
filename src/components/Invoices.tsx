@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { FileText, Search, ChevronRight, ExternalLink, Save, AlertTriangle, X } from 'lucide-react'
-import { mockInvoices, mockSuppliers, type Invoice } from '../data/mockData'
+import { type Invoice } from '../data/mockData'
+import { useInvoices } from '../hooks/useInvoices'
+import { useSuppliers } from '../hooks/useSuppliers'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -226,6 +228,7 @@ function InvoiceDetail({
 }: {
   invoice: Invoice; onBack: () => void; onSave: (inv: Invoice) => void
 }) {
+  const { data: suppliersData } = useSuppliers()
   const [form, setForm] = useState<Invoice>({ ...invoice })
 
   const set = (field: keyof Invoice) => (value: any) => {
@@ -242,7 +245,7 @@ function InvoiceDetail({
   }
 
   const handleSupplier = (supplierId: string) => {
-    const sup = mockSuppliers.find(s => s.id === supplierId)
+    const sup = suppliersData.find(s => s.id === supplierId)
     setForm(prev => ({ ...prev, supplierId, supplier: sup?.name ?? prev.supplier }))
   }
 
@@ -307,7 +310,7 @@ function InvoiceDetail({
               label="קישור לספק"
               value={form.supplierId}
               onChange={handleSupplier}
-              options={mockSuppliers.map(s => ({ value: s.id, label: s.name }))}
+              options={suppliersData.map(s => ({ value: s.id, label: s.name }))}
             />
             <TInput label="שם ספק" value={form.supplier} onChange={set('supplier')} />
           </Row2>
@@ -383,12 +386,17 @@ type Filter = 'all' | 'ממתין' | 'בטיפול' | 'הושלם' | 'שגיאה
 interface DupModal { invoice: Invoice; pair: Invoice }
 
 export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Filter }) {
-  const [invoices, setInvoices] = useState<Invoice[]>(mockInvoices)
+  const { data: serverInvoices, loading, error, update: updateInvoice, remove: removeInvoice } = useInvoices()
+  const [invoices, setInvoices] = useState<Invoice[]>([])
   const [selected, setSelected] = useState<Invoice | null>(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>(initialFilter)
   const [dupModal, setDupModal] = useState<DupModal | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  useEffect(() => {
+    setInvoices(serverInvoices)
+  }, [serverInvoices])
 
   // ── duplicate helpers ────────────────────────────────────────────────────
   const dupCount = invoices.filter(i => i.duplicateFlag === 'כפילות אפשרית').length
@@ -410,12 +418,14 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
     setInvoices(prev => prev.map(i =>
       i.id === dupModal.invoice.id ? { ...i, duplicateFlag: null } : i
     ))
+    updateInvoice(dupModal.invoice.id, { duplicateFlag: null }).catch(() => {})
     setDupModal(null)
   }
 
   const handleDeleteDuplicate = () => {
     if (!dupModal) return
     setInvoices(prev => prev.filter(i => i.id !== dupModal.invoice.id))
+    removeInvoice(dupModal.invoice.id).catch(() => {})
     setDupModal(null)
   }
 
@@ -426,6 +436,8 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
         ? { ...i, duplicateFlag: null, duplicateNote: 'אושר ידנית' }
         : i
     ))
+    updateInvoice(dupModal.invoice.id, { duplicateFlag: null, duplicateNote: 'אושר ידנית' }).catch(() => {})
+    updateInvoice(dupModal.pair.id, { duplicateFlag: null, duplicateNote: 'אושר ידנית' }).catch(() => {})
     setDupModal(null)
   }
 
@@ -449,14 +461,15 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
             return next
           })
           setSelected(null)
+          updateInvoice(updated.id, updated).catch(() => {/* server sync failed silently */})
         }}
       />
     )
   }
 
   const filtered = invoices.filter(inv => {
-    const matchSearch = inv.supplier.includes(search) || inv.id.includes(search) ||
-      inv.invoiceNumber.includes(search)
+    const matchSearch = (inv.supplier || '').includes(search) || (inv.id || '').includes(search) ||
+      (inv.invoiceNumber || '').includes(search)
     const matchFilter = filter === 'all'
       ? true
       : filter === 'כפילויות'
@@ -477,8 +490,21 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
   }
   const total = invoices.reduce((s, i) => s + i.amount, 0)
 
+  if (loading && invoices.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-5" dir="rtl">
+      {error && (
+        <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
+          לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל
+        </div>
+      )}
 
       {/* Header */}
       <div className="text-right">

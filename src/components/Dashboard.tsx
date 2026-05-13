@@ -1,6 +1,28 @@
-import { Users, FileText, TrendingUp, AlertCircle, Package, AlertTriangle } from 'lucide-react'
-import { mockStats, mockInvoices, mockPayments, mockDeliveries, mockDeliveryNotes, mockVendorStatements } from '../data/mockData'
-const dupInvoiceCount = mockInvoices.filter(i => i.duplicateFlag === 'כפילות אפשרית').length
+import { Users, FileText, TrendingUp, AlertCircle, Package, AlertTriangle, Bell, Truck, Copy, Scale } from 'lucide-react'
+import { useInvoices } from '../hooks/useInvoices'
+import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
+import { usePayments } from '../hooks/usePayments'
+import { useSuppliers } from '../hooks/useSuppliers'
+import { useReturns } from '../hooks/useReturns'
+import { useStatements } from '../hooks/useStatements'
+import type { Alert, AlertType } from '../data/mockData'
+
+const ALERT_TYPE_CONFIG: Record<AlertType, {
+  label: string
+  Icon: React.ComponentType<{ className?: string }>
+  bg: string
+  color: string
+}> = {
+  duplicate_invoice:  { label: 'כפילות',   Icon: Copy,  bg: '#FEF3C7', color: '#D97706' },
+  delivery_note:      { label: 'תעודה',     Icon: Truck, bg: '#DBEAFE', color: '#1E40AF' },
+  statement_mismatch: { label: 'אי-התאמה', Icon: Scale, bg: '#FEE2E2', color: '#DC2626' },
+}
+
+const ALERT_STATUS: Record<string, { bg: string; color: string; label: string }> = {
+  new:      { bg: '#FEE2E2', color: '#DC2626', label: 'חדש'  },
+  read:     { bg: '#F3F4F6', color: '#6B7280', label: 'נקרא' },
+  resolved: { bg: '#DCFCE7', color: '#166534', label: 'טופל' },
+}
 
 const statusStyle: Record<string, { bg: string; color: string }> = {
   'ממתין':  { bg: '#FEF9C3', color: '#A16207' },
@@ -16,6 +38,13 @@ function formatILS(n: number) {
   return '₪' + n.toLocaleString('he-IL')
 }
 
+function fmtDate(iso: string): string {
+  if (!iso) return ''
+  if (iso.includes('/')) return iso
+  const [y, m, d] = iso.split('-')
+  return `${d}/${m}/${y}`
+}
+
 interface StatCardProps {
   title: string
   value: string
@@ -24,9 +53,10 @@ interface StatCardProps {
   iconBg: string
   iconColor: string
   subColor: string
+  loading?: boolean
 }
 
-function StatCard({ title, value, sub, icon, iconBg, iconColor, subColor }: StatCardProps) {
+function StatCard({ title, value, sub, icon, iconBg, iconColor, subColor, loading }: StatCardProps) {
   return (
     <div className="bg-white rounded-2xl p-5 shadow-sm border flex flex-col gap-3" style={{ borderColor: '#E2E4E9' }}>
       <div className="flex items-start justify-between">
@@ -34,7 +64,9 @@ function StatCard({ title, value, sub, icon, iconBg, iconColor, subColor }: Stat
           className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
           style={{ backgroundColor: iconBg, color: iconColor }}
         >
-          {icon}
+          {loading
+            ? <div className="animate-spin rounded-full h-5 w-5 border-b-2" style={{ borderColor: iconColor }} />
+            : icon}
         </div>
         <p className="text-sm font-medium text-gray-500 text-right">{title}</p>
       </div>
@@ -56,21 +88,47 @@ function getGreeting(): string {
 
 interface DashboardProps {
   onPageChange?: (page: string) => void
+  alerts?: Alert[]
 }
 
-export default function Dashboard({ onPageChange }: DashboardProps) {
-  const mismatchCount        = mockVendorStatements.filter((s) => s.status === 'mismatch').length
-  const pendingDeliveryCount = mockDeliveryNotes.filter((d) => d.status === 'pending').length
+function Spinner() {
+  return (
+    <div className="flex items-center justify-center h-32">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+    </div>
+  )
+}
+
+export default function Dashboard({ onPageChange, alerts = [] }: DashboardProps) {
+  const { data: invoices, loading: invLoading }             = useInvoices()
+  const { data: deliveryNotes, loading: dnLoading }         = useDeliveryNotes()
+  const { data: payments, loading: payLoading }             = usePayments()
+  const { data: suppliers, loading: supLoading }            = useSuppliers()
+  const { data: returns, loading: retLoading }              = useReturns()
+  const { data: statements, loading: stmtLoading }          = useStatements()
+
+  const dupInvoiceCount   = invoices.filter(i => i.duplicateFlag === 'כפילות אפשרית').length
+  const mismatchCount     = statements.filter(s => s.status === 'mismatch').length
+  const pendingDeliveryCount = deliveryNotes.filter(d => d.status === 'pending').length
+
+  const activeSuppliers   = suppliers.filter(s => s.status === 'פעיל').length
+  const pendingInvoices   = invoices.filter(i => i.status === 'ממתין').length
+  const monthlyPayments   = payments.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0)
+  const openReturns       = returns.filter(r => r.status === 'בטיפול').length
+
+  const statsLoading = supLoading || invLoading || payLoading || retLoading
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-black text-gray-800">{getGreeting()}</h1>
-        <p className="text-gray-500 text-sm mt-0.5">סקירה כללית של פעילות הספקים · {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+        <p className="text-gray-500 text-sm mt-0.5">
+          סקירה כללית של פעילות הספקים · {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+        </p>
       </div>
 
       {/* Duplicate invoice alert */}
-      {dupInvoiceCount > 0 && (
+      {!invLoading && dupInvoiceCount > 0 && (
         <div
           className="rounded-2xl p-4 shadow-sm border flex items-center justify-between cursor-pointer transition-opacity hover:opacity-90"
           style={{ borderColor: '#FDE68A', background: '#FFFBEB' }}
@@ -89,10 +147,7 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
               </p>
               <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולאשר לפני סגירת חודש</p>
             </div>
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: '#FEF3C7', color: '#D97706' }}
-            >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#FEF3C7', color: '#D97706' }}>
               <AlertTriangle className="w-5 h-5" />
             </div>
           </div>
@@ -100,7 +155,7 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
       )}
 
       {/* Mismatch alert */}
-      {mismatchCount > 0 && (
+      {!stmtLoading && mismatchCount > 0 && (
         <div
           className="rounded-2xl p-4 shadow-sm border flex items-center justify-between cursor-pointer transition-opacity hover:opacity-90"
           style={{ borderColor: '#FECDD3', background: '#FFF1F2' }}
@@ -119,10 +174,7 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
               </p>
               <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולפתור לפני סגירת חודש</p>
             </div>
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: '#FEE2E2', color: '#DC2626' }}
-            >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#FEE2E2', color: '#DC2626' }}>
               <AlertTriangle className="w-5 h-5" />
             </div>
           </div>
@@ -131,43 +183,97 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="ספקים פעילים"
-          value={String(mockStats.activeSuppliers)}
-          sub="+3 החודש"
-          icon={<Users className="w-5 h-5" />}
-          iconBg="#FFF0EF"
-          iconColor="#E8645A"
-          subColor="#E8645A"
-        />
-        <StatCard
-          title="חשבוניות ממתינות"
-          value={String(mockStats.pendingInvoices)}
-          sub="4 דחופות לטיפול"
-          icon={<FileText className="w-5 h-5" />}
-          iconBg="#FFF8EC"
-          iconColor="#E8A020"
-          subColor="#E8A020"
-        />
-        <StatCard
-          title="תשלומים החודש"
-          value={formatILS(mockStats.monthlyPayments)}
-          sub="+12% מחודש קודם"
-          icon={<TrendingUp className="w-5 h-5" />}
-          iconBg="#F0FDF4"
-          iconColor="#22C55E"
-          subColor="#22C55E"
-        />
-        <StatCard
-          title="חזרות פתוחות"
-          value={String(mockStats.openReturns)}
-          sub="דורש טיפול דחוף"
-          icon={<AlertCircle className="w-5 h-5" />}
-          iconBg="#FEF2F2"
-          iconColor="#EF4444"
-          subColor="#EF4444"
-        />
+        <StatCard title="ספקים פעילים" value={statsLoading ? '...' : String(activeSuppliers)} sub="+3 החודש"
+          icon={<Users className="w-5 h-5" />} iconBg="#FFF0EF" iconColor="#E8645A" subColor="#E8645A" loading={statsLoading} />
+        <StatCard title="חשבוניות ממתינות" value={statsLoading ? '...' : String(pendingInvoices)} sub="4 דחופות לטיפול"
+          icon={<FileText className="w-5 h-5" />} iconBg="#FFF8EC" iconColor="#E8A020" subColor="#E8A020" loading={statsLoading} />
+        <StatCard title="תשלומים החודש" value={statsLoading ? '...' : formatILS(monthlyPayments)} sub="+12% מחודש קודם"
+          icon={<TrendingUp className="w-5 h-5" />} iconBg="#F0FDF4" iconColor="#22C55E" subColor="#22C55E" loading={statsLoading} />
+        <StatCard title="חזרות פתוחות" value={statsLoading ? '...' : String(openReturns)} sub="דורש טיפול דחוף"
+          icon={<AlertCircle className="w-5 h-5" />} iconBg="#FEF2F2" iconColor="#EF4444" subColor="#EF4444" loading={statsLoading} />
       </div>
+
+      {/* Recent Alerts card */}
+      {alerts.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+          <div className="px-6 py-4 flex items-center justify-between border-b" style={{ borderColor: '#E2E4E9' }}>
+            <button
+              onClick={() => onPageChange?.('alerts')}
+              className="text-sm font-semibold transition-colors"
+              style={{ color: '#E8645A' }}
+              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#8B1A3A')}
+              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#E8645A')}
+            >
+              לכל ההתראות ←
+            </button>
+            <div className="flex items-center gap-2">
+              {alerts.filter(a => a.status === 'new').length > 0 && (
+                <span
+                  className="flex items-center justify-center text-white font-bold"
+                  style={{
+                    minWidth: '20px', height: '20px', borderRadius: '10px',
+                    background: '#DC2626', fontSize: '11px', padding: '0 5px',
+                  }}
+                >
+                  {alerts.filter(a => a.status === 'new').length}
+                </span>
+              )}
+              <h2 className="font-bold text-gray-800 text-base">התראות אחרונות</h2>
+              <Bell className="w-4 h-4 text-gray-400" />
+            </div>
+          </div>
+          <div className="divide-y" style={{ borderColor: '#F3F4F6' }}>
+            {alerts.slice(0, 5).map((alert) => {
+              const typeConf   = ALERT_TYPE_CONFIG[alert.type]
+              const statusConf = ALERT_STATUS[alert.status]
+              const TypeIcon   = typeConf.Icon
+              return (
+                <div
+                  key={alert.id}
+                  className="px-6 py-3.5 flex items-center justify-between gap-3 cursor-pointer transition-colors"
+                  style={{ opacity: alert.status === 'resolved' ? 0.65 : 1 }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+                  onClick={() => onPageChange?.('alerts')}
+                >
+                  {/* Left: status badge + date */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs text-gray-400">{alert.date}</span>
+                    <span
+                      className="px-2 py-0.5 rounded-md text-xs font-bold"
+                      style={{ background: statusConf.bg, color: statusConf.color }}
+                    >
+                      {statusConf.label}
+                    </span>
+                  </div>
+
+                  {/* Right: type icon + description */}
+                  <div className="flex items-center gap-2.5 text-right overflow-hidden">
+                    <div className="text-right overflow-hidden">
+                      {alert.supplier && (
+                        <p className="text-sm font-semibold text-gray-700 truncate">{alert.supplier}</p>
+                      )}
+                      <p className="text-xs text-gray-500 truncate">{alert.description}</p>
+                    </div>
+                    <span
+                      className="px-2 py-0.5 rounded-md text-xs font-bold whitespace-nowrap flex-shrink-0"
+                      style={{ background: typeConf.bg, color: typeConf.color }}
+                    >
+                      {typeConf.label}
+                    </span>
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ background: typeConf.bg }}
+                    >
+                      <TypeIcon className="w-4 h-4" style={{ color: typeConf.color }} />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Lists grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -187,37 +293,32 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
               <FileText className="w-4 h-4 text-gray-400" />
             </div>
           </div>
-
-          <div className="divide-y" style={{}}>
-            {mockInvoices.map((inv) => {
-              const st = statusStyle[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
-              return (
-                <div
-                  key={inv.id}
-                  className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
-                >
-                  {/* Left side */}
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="px-3 py-1 rounded-lg text-xs font-bold"
-                      style={{ backgroundColor: st.bg, color: st.color }}
-                    >
-                      {inv.status}
-                    </span>
-                    <span className="font-bold text-gray-800">{formatILS(inv.amount)}</span>
+          {invLoading ? <Spinner /> : (
+            <div className="divide-y">
+              {invoices.map((inv) => {
+                const st = statusStyle[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
+                return (
+                  <div
+                    key={inv.id}
+                    className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="px-3 py-1 rounded-lg text-xs font-bold" style={{ backgroundColor: st.bg, color: st.color }}>
+                        {inv.status}
+                      </span>
+                      <span className="font-bold text-gray-800">{formatILS(inv.amount)}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-gray-800 text-sm">{inv.supplier}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{inv.id} · {inv.date}</p>
+                    </div>
                   </div>
-
-                  {/* Right side */}
-                  <div className="text-right">
-                    <p className="font-semibold text-gray-800 text-sm">{inv.supplier}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{inv.id} · {inv.date}</p>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Right column */}
@@ -230,27 +331,29 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
                 <TrendingUp className="w-4 h-4 text-gray-400" />
               </div>
             </div>
-            <div className="divide-y" style={{}}>
-              {mockPayments.map((pay) => (
-                <div key={pay.id} className="px-5 py-3.5">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-black text-gray-800">{formatILS(pay.amount)}</span>
-                    <span className="text-sm font-semibold text-gray-700">{pay.supplier}</span>
+            {payLoading ? <Spinner /> : (
+              <div className="divide-y">
+                {payments.filter(p => p.status === 'pending').map((pay) => (
+                  <div key={pay.id} className="px-5 py-3.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-black text-gray-800">{formatILS(pay.amount)}</span>
+                      <span className="text-sm font-semibold text-gray-700">{pay.supplier}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400">{pay.type}</span>
+                      <span className="text-xs text-gray-400">פירעון: {fmtDate(pay.date)}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400">{pay.method}</span>
-                    <span className="text-xs text-gray-400">פירעון: {pay.dueDate}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Recent Deliveries */}
           <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
             <div className="px-5 py-4 border-b" style={{ borderColor: '#E2E4E9' }}>
               <div className="flex items-center justify-between">
-                {pendingDeliveryCount > 0 && (
+                {!dnLoading && pendingDeliveryCount > 0 && (
                   <button
                     onClick={() => onPageChange?.('deliveries')}
                     className="flex items-center gap-1.5 rounded-lg font-semibold transition-all"
@@ -268,28 +371,28 @@ export default function Dashboard({ onPageChange }: DashboardProps) {
                 </div>
               </div>
             </div>
-            <div className="divide-y" style={{}}>
-              {mockDeliveries.map((del) => {
-                const st = statusStyle[del.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
-                return (
-                  <div key={del.id} className="px-5 py-3.5">
-                    <div className="flex items-center justify-between mb-1">
-                      <span
-                        className="text-xs px-2 py-0.5 rounded-md font-bold"
-                        style={{ backgroundColor: st.bg, color: st.color }}
-                      >
-                        {del.status}
-                      </span>
-                      <span className="text-sm font-semibold text-gray-700">{del.supplier}</span>
+            {dnLoading ? <Spinner /> : (
+              <div className="divide-y">
+                {deliveryNotes.slice(0, 5).map((dn) => {
+                  const st = statusStyle[dn.status === 'pending' ? 'ממתין' : 'הושלם'] ?? { bg: '#F3F4F6', color: '#6B7280' }
+                  const label = dn.status === 'pending' ? 'ממתינה' : 'בארכיון'
+                  return (
+                    <div key={dn.id} className="px-5 py-3.5">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs px-2 py-0.5 rounded-md font-bold" style={{ backgroundColor: st.bg, color: st.color }}>
+                          {label}
+                        </span>
+                        <span className="text-sm font-semibold text-gray-700">{dn.supplierName}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-400">{formatILS(dn.amount)} · {dn.id}</span>
+                        <span className="text-xs text-gray-400">{dn.date}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-400">{del.items} פריטים · {del.id}</span>
-                      <span className="text-xs text-gray-400">{del.date}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

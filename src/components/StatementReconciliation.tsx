@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { CheckCircle2, AlertTriangle, Clock, Search as SearchIcon, X, ArrowLeftRight, Eye } from 'lucide-react'
-import type { VendorStatementStatus } from '../data/mockData'
+import { useStatements } from '../hooks/useStatements'
+import type { VendorStatementStatus } from '../hooks/useStatements'
 
 interface VendorStatement {
   id: string
@@ -39,23 +40,6 @@ const statusConfig: Record<VendorStatementStatus, {
   investigating: { label: 'בבדיקה',   bg: '#DBEAFE', color: '#1E40AF', Icon: SearchIcon },
 }
 
-const initStatements: VendorStatement[] = [
-  {
-    id: 'VS-001', supplier_id: 'SUP-001', supplier_name: 'תנובה',
-    month: '04/2026', our_balance: 45200, vendor_balance: 45200, diff: 0,
-    status: 'matched', uploaded_at: '02/05/2026',
-  },
-  {
-    id: 'VS-002', supplier_id: 'SUP-002', supplier_name: 'תבורי בע"מ',
-    month: '04/2026', our_balance: 12500, vendor_balance: 14000, diff: 1500,
-    status: 'mismatch', uploaded_at: '01/05/2026',
-  },
-  {
-    id: 'VS-003', supplier_id: 'SUP-003', supplier_name: 'אסם השקעות',
-    month: '04/2026', our_balance: 6800, vendor_balance: null, diff: 0,
-    status: 'pending', uploaded_at: '—',
-  },
-]
 
 const stmtDetails: Record<string, StmtDetail> = {
   'VS-002': {
@@ -333,7 +317,8 @@ function useIsMobile() {
 }
 
 export default function StatementReconciliation() {
-  const [statements, setStatements] = useState<VendorStatement[]>(initStatements)
+  const { data: serverStatements, loading, error, resolve: resolveStatement } = useStatements()
+  const [statements, setStatements] = useState<VendorStatement[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<VendorStatementStatus | 'all'>('all')
   const [search, setSearch] = useState('')
@@ -342,6 +327,10 @@ export default function StatementReconciliation() {
     ? '1.5fr 1.2fr 1fr 0.7fr'
     : '0.8fr 1.5fr 0.9fr 1.2fr 1.2fr 1fr 1.1fr 0.9fr'
   const gridMin = isMobile ? '320px' : '720px'
+
+  useEffect(() => {
+    setStatements(serverStatements as VendorStatement[])
+  }, [serverStatements])
 
   const counts = {
     matched:       statements.filter((s) => s.status === 'matched').length,
@@ -360,6 +349,7 @@ export default function StatementReconciliation() {
 
   function handleStatusChange(id: string, status: VendorStatementStatus) {
     setStatements((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)))
+    resolveStatement(id, { status }).catch(() => {})
   }
 
   function handleBalanceUpdate(id: string, balance: number) {
@@ -369,6 +359,7 @@ export default function StatementReconciliation() {
         const newDiff = s.vendor_balance != null ? Math.abs(s.vendor_balance - balance) : 0
         const newStatus: VendorStatementStatus =
           s.vendor_balance != null && Math.abs(s.vendor_balance - balance) < 1 ? 'matched' : s.status
+        resolveStatement(id, { ourBalance: balance, diff: newDiff, status: newStatus }).catch(() => {})
         return { ...s, our_balance: balance, diff: newDiff, status: newStatus }
       })
     )
@@ -387,8 +378,21 @@ export default function StatementReconciliation() {
     { key: 'investigating', label: 'בבדיקה',   iconBg: '#DBEAFE', iconColor: '#1E40AF', Icon: SearchIcon },
   ]
 
+  if (loading && statements.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6" dir="rtl">
+      {error && (
+        <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
+          לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל
+        </div>
+      )}
       <div>
         <h1 className="text-2xl font-black text-gray-800">התאמת כרטסות ספקים</h1>
         <p className="text-gray-500 text-sm mt-0.5">השוואת יתרות מול דפי חשבון ספקים</p>

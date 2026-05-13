@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, UserPlus, Download } from 'lucide-react'
-import { mockSuppliers } from '../data/mockData'
+import { useSuppliers } from '../hooks/useSuppliers'
+import { usePayments as usePaymentsData } from '../hooks/usePayments'
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -420,10 +421,12 @@ function SupplierSelect({
 export default function Payments() {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
+  const { data: serverSuppliers, loading: suppliersLoading } = useSuppliers()
+  const { data: serverPayments, loading: paymentsLoading, create: createPayment, update: updatePaymentApi, cancel: cancelPaymentApi } = usePaymentsData()
   const nextIdRef = useRef(INITIAL_PAYMENTS.length + 1)
   const toastIdRef = useRef(0)
 
-  const [payments, setPayments] = useState<Payment[]>(INITIAL_PAYMENTS)
+  const [payments, setPayments] = useState<Payment[]>([])
   const [activeTab, setActiveTab] = useState<'all' | 'future'>('all')
   const [showForm, setShowForm] = useState(true)
 
@@ -435,9 +438,16 @@ export default function Payments() {
   const [fltStatus, setFltStatus] = useState('')
 
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table')
-  const [allSuppliers, setAllSuppliers] = useState<string[]>(
-    () => mockSuppliers.map(s => s.name)
-  )
+  const [allSuppliers, setAllSuppliers] = useState<string[]>([])
+
+  useEffect(() => {
+    setPayments(serverPayments as Payment[])
+    nextIdRef.current = serverPayments.length + 1
+  }, [serverPayments])
+
+  useEffect(() => {
+    setAllSuppliers(serverSuppliers.map(s => s.name))
+  }, [serverSuppliers])
 
   function handleAddSupplier(name: string) {
     setAllSuppliers(prev => prev.includes(name) ? prev : [...prev, name])
@@ -551,7 +561,7 @@ export default function Payments() {
     .filter((p) => p.status !== 'cancelled')
     .reduce((s, p) => s + p.amount, 0)
 
-  const monthOptions = [...new Set(payments.map((p) => p.date.slice(0, 7)))].sort().reverse()
+  const monthOptions = [...new Set(payments.map((p) => (p.date || '').slice(0, 7)).filter(Boolean))].sort().reverse()
 
   const VALUE_DATE_TYPES = ["צ'ק", 'כרטיס אשראי', 'הרשאה לחיוב חשבון']
   const needsValueDate = VALUE_DATE_TYPES.includes(form.type)
@@ -585,6 +595,7 @@ export default function Payments() {
     setPayments((prev) => [p, ...prev])
     setForm({ ...EMPTY_FORM, date: todayStr() })
     showToast('✅ תשלום נוסף בהצלחה')
+    createPayment({ supplier: p.supplier, amount: p.amount, type: p.type, date: p.date, ref: p.ref, valueDate: p.valueDate, notes: p.notes, status: p.status }).catch(() => {})
   }
 
   function openEdit(id: number) {
@@ -631,8 +642,15 @@ export default function Payments() {
           : p
       )
     )
+    const savedId = editId
+    const savedForm = editForm
     closeEdit()
     showToast('💾 תשלום עודכן בהצלחה')
+    updatePaymentApi(savedId, {
+      supplier: savedForm.supplier.trim(), amount: parseFloat(savedForm.amount),
+      type: savedForm.type, date: savedForm.date, ref: savedForm.ref.trim(),
+      notes: savedForm.notes.trim(), status: savedForm.status,
+    }).catch(() => {})
   }
 
   function doCancel() {
@@ -640,8 +658,10 @@ export default function Payments() {
     setPayments((prev) =>
       prev.map((p) => (p.id === confirmId ? { ...p, status: 'cancelled' } : p))
     )
+    const savedConfirmId = confirmId
     setConfirmId(null)
     showToast('🚫 תשלום בוטל', 'warning')
+    cancelPaymentApi(savedConfirmId).catch(() => {})
   }
 
   function handleRestore(id: number) {
@@ -681,27 +701,6 @@ export default function Payments() {
     color: '#6B7280',
     marginBottom: '5px',
     display: 'block',
-  }
-
-  // ── table style helpers ───────────────────────────────────────────────────
-
-  const thStyle: React.CSSProperties = {
-    padding: isTablet ? '11px 14px' : '9px 12px',
-    textAlign: 'right',
-    fontSize: '12px',
-    fontWeight: 700,
-    color: '#6B7280',
-    whiteSpace: 'nowrap',
-    borderBottom: '2px solid #E2E4E9',
-    background: '#F8F9FA',
-  }
-
-  const tdStyle: React.CSSProperties = {
-    padding: isTablet ? '13px 14px' : '11px 12px',
-    textAlign: 'right',
-    fontSize: isTablet ? '14px' : '13px',
-    color: '#374151',
-    verticalAlign: 'middle',
   }
 
   // ── days-chip helper ──────────────────────────────────────────────────────
@@ -943,6 +942,14 @@ export default function Payments() {
   // ─────────────────────────────────────────────────────────────────────────
   // JSX
   // ─────────────────────────────────────────────────────────────────────────
+
+  if ((paymentsLoading || suppliersLoading) && payments.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-5" style={{ direction: 'rtl' }}>

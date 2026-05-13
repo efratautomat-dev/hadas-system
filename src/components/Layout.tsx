@@ -9,6 +9,9 @@ import SupplierLedger from './SupplierLedger'
 import DeliveryNotes from './DeliveryNotes'
 import StatementReconciliation from './StatementReconciliation'
 import Returns from './Returns'
+import Alerts from './Alerts'
+import { mockAlerts } from '../data/mockData'
+import type { Alert } from '../data/mockData'
 
 function getGreeting(): string {
   const hour = new Date().getHours()
@@ -47,6 +50,7 @@ interface LayoutProps {
 
 const pageLabels: Record<string, string> = {
   dashboard:             'דשבורד',
+  alerts:                'התראות',
   suppliers:             'ספקים',
   ledger:                'כרטסת ספק',
   invoices:              'חשבוניות',
@@ -55,6 +59,7 @@ const pageLabels: Record<string, string> = {
   deliveries:            'תעודות משלוח',
   returns:               'חזרות',
   reconciliation:        'התאמת כרטסות',
+  settings:              'הגדרות',
 }
 
 function ComingSoon({ page }: { page: string }) {
@@ -74,8 +79,20 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const [activePage, setActivePage]     = useState('dashboard')
   const [ledgerSupplierId, setLedgerSupplierId] = useState<string | undefined>(undefined)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [alerts, setAlerts] = useState<Alert[]>(mockAlerts)
   const isMobile = useIsMobile()
   const isTablet = useIsTablet()
+
+  const newAlertsCount = alerts.filter(a => a.status === 'new').length
+
+  const handleMarkRead = (id: string) =>
+    setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'read' as const } : a))
+
+  const handleMarkResolved = (id: string) =>
+    setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'resolved' as const } : a))
+
+  const handleDeleteAlert = (id: string) =>
+    setAlerts(prev => prev.filter(a => a.id !== id))
 
   const sidebarWidth = isMobile ? 0 : isTablet ? 200 : isCollapsed ? 72 : 256
   const pad = isMobile ? '12px' : isTablet ? '20px' : '32px'
@@ -86,7 +103,8 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   }
 
   const renderPage = () => {
-    if (activePage === 'dashboard')      return <Dashboard onPageChange={handlePageChange} />
+    if (activePage === 'dashboard')      return <Dashboard onPageChange={handlePageChange} alerts={alerts} />
+    if (activePage === 'alerts')         return <Alerts alerts={alerts} onMarkRead={handleMarkRead} onMarkResolved={handleMarkResolved} onDelete={handleDeleteAlert} />
     if (activePage === 'suppliers')      return <Suppliers onViewLedger={(id) => { setLedgerSupplierId(id); handlePageChange('ledger') }} />
     if (activePage === 'ledger')         return <SupplierLedger initialSupplierId={ledgerSupplierId} />
     if (activePage === 'invoices')             return <Invoices key="invoices" />
@@ -116,6 +134,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onPageChange={handlePageChange}
         onLogout={onLogout}
         userEmail={userEmail}
+        newAlertsCount={newAlertsCount}
         mobileStyle={isMobile ? {
           transform: mobileMenuOpen ? 'translateX(0)' : 'translateX(110%)',
           transition: 'transform 0.3s ease',
@@ -171,13 +190,30 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
             )}
 
             <button
+              onClick={() => handlePageChange('alerts')}
               className="relative rounded-xl flex items-center justify-center text-gray-400 transition-colors flex-shrink-0"
               style={{ background: '#FFF0EF', width: '36px', height: '36px' }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#E8645A')}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
             >
               <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full" style={{ background: '#E8A020' }} />
+              {newAlertsCount > 0 && (
+                <span
+                  className="absolute flex items-center justify-center text-white font-bold"
+                  style={{
+                    top: '-4px',
+                    right: '-4px',
+                    minWidth: '16px',
+                    height: '16px',
+                    borderRadius: '8px',
+                    background: '#DC2626',
+                    fontSize: '10px',
+                    padding: '0 3px',
+                  }}
+                >
+                  {newAlertsCount}
+                </span>
+              )}
             </button>
 
             <div

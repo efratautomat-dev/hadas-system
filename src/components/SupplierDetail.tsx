@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle } from 'lucide-react'
-import { mockInvoices, mockPayments } from '../data/mockData'
+import { useInvoices } from '../hooks/useInvoices'
+import { usePayments } from '../hooks/usePayments'
 
 function useIsTablet() {
   const [v, setV] = useState(
@@ -60,17 +61,30 @@ function formatILS(n: number) {
 }
 
 function parseDate(d: string) {
+  if (d.includes('-')) {
+    const [year, month, day] = d.split('-').map(Number)
+    return new Date(year, month - 1, day).getTime()
+  }
   const [day, month, year] = d.split('/').map(Number)
   return new Date(year, month - 1, day).getTime()
+}
+
+function fmtDate(d: string): string {
+  if (!d) return ''
+  if (d.includes('/')) return d
+  const [y, m, day] = d.split('-')
+  return `${day}/${m}/${y}`
 }
 
 export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger }: Props) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
+  const { data: allInvoices } = useInvoices()
+  const { data: allPayments } = usePayments()
 
-  const invoices = mockInvoices.filter((inv) => inv.supplier === supplier.name)
-  const payments = mockPayments.filter((pay) => pay.supplier === supplier.name)
+  const invoices = allInvoices.filter((inv) => inv.supplier === supplier.name)
+  const payments = allPayments.filter((pay) => pay.supplier === supplier.name)
 
   const totalInvoiced = invoices.reduce((s, i) => s + i.amount, 0)
   const paidAmount    = invoices.filter((i) => i.status === 'שולם').reduce((s, i) => s + i.amount, 0)
@@ -86,9 +100,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
       credit: 0,
     })),
     ...payments.map((pay) => ({
-      id: pay.id,
-      date: pay.dueDate,
-      description: `תשלום · ${pay.method}`,
+      id: String(pay.id),
+      date: pay.date,
+      description: `תשלום · ${pay.type}`,
       debit: 0,
       credit: pay.amount,
     })),
@@ -309,7 +323,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
             <span className="text-center">חובה</span>
             <span className="text-right">תאריך</span>
           </div>
-          {ledger.map((entry, i) => (
+          {ledger.map((entry) => (
             <div
               key={entry.id}
               className="grid items-center"
@@ -327,7 +341,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
               <span className="text-center font-medium" style={{ color: '#A16207', fontSize: fs('14px', '13px') }}>
                 {entry.debit > 0 ? formatILS(entry.debit) : '—'}
               </span>
-              <span className="text-right text-gray-400" style={{ fontSize: '12px' }}>{entry.date}</span>
+              <span className="text-right text-gray-400" style={{ fontSize: '12px' }}>{fmtDate(entry.date)}</span>
             </div>
           ))}
           </div>
@@ -401,8 +415,8 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
                 style={{ gridTemplateColumns: '1fr 80px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
               >
                 <div className="text-right">
-                  <p className="text-gray-600 font-medium" style={{ fontSize: '13px' }}>{pay.method}</p>
-                  <p className="text-gray-400" style={{ fontSize: '12px' }}>פירעון: {pay.dueDate}</p>
+                  <p className="text-gray-600 font-medium" style={{ fontSize: '13px' }}>{pay.type}</p>
+                  <p className="text-gray-400" style={{ fontSize: '12px' }}>פירעון: {fmtDate(pay.date)}</p>
                 </div>
                 <p className="text-center text-gray-400" style={{ fontSize: '12px' }}>{pay.id}</p>
                 <span className="text-left font-black text-gray-800" style={{ fontSize: fs('15px', '14px') }}>

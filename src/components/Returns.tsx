@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Plus, Pencil, X, CheckCircle2, Clock, XCircle, RotateCcw } from 'lucide-react'
-import { mockSuppliers, mockInvoices } from '../data/mockData'
+import { useSuppliers } from '../hooks/useSuppliers'
+import { useInvoices } from '../hooks/useInvoices'
+import { useReturns } from '../hooks/useReturns'
 
 type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -36,38 +38,6 @@ const STATUS_CONFIG: Record<ReturnStatus, { bg: string; color: string; Icon: Rea
   'נדחה':   { bg: '#FEE2E2', color: '#DC2626', Icon: XCircle },
 }
 
-const initReturns: ReturnEntry[] = [
-  {
-    id: 'RET-001', date: '05/05/2026', dateIso: '2026-05-05',
-    supplierId: 'SUP-001', supplier: 'תנובה',
-    amount: 3500, reason: 'סחורה פגומה - כיסויי ראש קיץ',
-    originalInvoiceId: 'INV-2026-003', status: 'אושר', createdBy: 'שרה כהן',
-  },
-  {
-    id: 'RET-002', date: '01/05/2026', dateIso: '2026-05-01',
-    supplierId: 'SUP-002', supplier: 'תבורי בע"מ',
-    amount: 1200, reason: 'הזמנה שגויה - גודל שגוי',
-    originalInvoiceId: 'INV-2026-001', status: 'בטיפול', createdBy: 'רחל לוי',
-  },
-  {
-    id: 'RET-003', date: '25/04/2026', dateIso: '2026-04-25',
-    supplierId: 'SUP-003', supplier: 'אסם השקעות',
-    amount: 800, reason: 'מוצר לא תואם לפרטי ההזמנה',
-    originalInvoiceId: 'INV-2026-004', status: 'אושר', createdBy: 'שרה כהן',
-  },
-  {
-    id: 'RET-004', date: '20/04/2026', dateIso: '2026-04-20',
-    supplierId: 'SUP-005', supplier: 'נסטלה ישראל',
-    amount: 2200, reason: 'פריטים חסרים במשלוח - 8 יחידות',
-    originalInvoiceId: 'INV-2026-006', status: 'נדחה', createdBy: 'רחל לוי',
-  },
-  {
-    id: 'RET-005', date: '15/04/2026', dateIso: '2026-04-15',
-    supplierId: 'SUP-001', supplier: 'תנובה',
-    amount: 950, reason: 'שגיאת תמחור בחשבונית',
-    originalInvoiceId: null, status: 'בטיפול', createdBy: 'מיכל דוד',
-  },
-]
 
 function fmtILS(n: number) {
   return '₪' + n.toLocaleString('he-IL')
@@ -80,7 +50,7 @@ function isoToDisplay(iso: string): string {
 
 function emptyForm(): FormState {
   return {
-    supplierId: mockSuppliers.filter(s => s.status === 'פעיל')[0]?.id ?? '',
+    supplierId: '',
     dateIso: new Date().toISOString().slice(0, 10),
     amountStr: '',
     reason: '',
@@ -143,11 +113,13 @@ interface FormModalProps {
   isEdit: boolean
   onSave: () => void
   onClose: () => void
+  suppliers: { id: string; name: string; status: string; balance: number }[]
+  invoices: { id: string; supplierId: string; amount?: number; date?: string }[]
 }
 
-function FormModal({ form, setForm, isEdit, onSave, onClose }: FormModalProps) {
-  const supplierInvoices = mockInvoices.filter(inv => inv.supplierId === form.supplierId)
-  const selectedSupplier = mockSuppliers.find(s => s.id === form.supplierId)
+function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices }: FormModalProps) {
+  const supplierInvoices = invoices.filter(inv => inv.supplierId === form.supplierId)
+  const selectedSupplier = suppliers.find(s => s.id === form.supplierId)
   const canSave = !!form.supplierId && !!form.amountStr && Number(form.amountStr) > 0 && !!form.reason.trim() && !!form.dateIso
 
   const focus = (e: React.FocusEvent<HTMLElement>) => ((e.target as HTMLElement & { style: CSSStyleDeclaration }).style.borderColor = '#7C3AED')
@@ -184,7 +156,7 @@ function FormModal({ form, setForm, isEdit, onSave, onClose }: FormModalProps) {
               onFocus={focus as React.FocusEventHandler<HTMLSelectElement>}
               onBlur={blur as React.FocusEventHandler<HTMLSelectElement>}
             >
-              {mockSuppliers.filter(s => s.status === 'פעיל').map(s => (
+              {suppliers.filter(s => s.status === 'פעיל').map(s => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>
@@ -237,7 +209,7 @@ function FormModal({ form, setForm, isEdit, onSave, onClose }: FormModalProps) {
               <option value="">— ללא חשבונית מקורית —</option>
               {supplierInvoices.map(inv => (
                 <option key={inv.id} value={inv.id}>
-                  {inv.id} · {fmtILS(inv.amount)} · {inv.date}
+                  {inv.id}{inv.amount ? ` · ${fmtILS(inv.amount)}` : ''}{inv.date ? ` · ${inv.date}` : ''}
                 </option>
               ))}
             </select>
@@ -325,7 +297,10 @@ function FormModal({ form, setForm, isEdit, onSave, onClose }: FormModalProps) {
 
 export default function Returns() {
   const isTablet = useIsTablet()
-  const [returns, setReturns] = useState<ReturnEntry[]>(initReturns)
+  const { data: serverReturns, loading, error, create: createReturn, update: updateReturn } = useReturns()
+  const { data: suppliersData } = useSuppliers()
+  const { data: invoicesData } = useInvoices()
+  const [returns, setReturns] = useState<ReturnEntry[]>([])
   const [filterSupplier, setFilterSupplier] = useState('all')
   const [filterMonth, setFilterMonth] = useState('')
   const [filterStatus, setFilterStatus] = useState<ReturnStatus | 'all'>('all')
@@ -333,6 +308,10 @@ export default function Returns() {
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm())
+
+  useEffect(() => {
+    setReturns(serverReturns as ReturnEntry[])
+  }, [serverReturns])
 
   const filtered = returns
     .filter(r => {
@@ -342,7 +321,7 @@ export default function Returns() {
       if (filterEmployee !== 'all' && r.createdBy !== filterEmployee) return false
       return true
     })
-    .sort((a, b) => b.dateIso.localeCompare(a.dateIso))
+    .sort((a, b) => (b.dateIso || '').localeCompare(a.dateIso || ''))
 
   const totalApproved = returns.filter(r => r.status === 'אושר').reduce((s, r) => s + r.amount, 0)
   const countPending  = returns.filter(r => r.status === 'בטיפול').length
@@ -373,40 +352,26 @@ export default function Returns() {
     const amount = Number(form.amountStr)
     if (!form.supplierId || !amount || !form.reason.trim() || !form.dateIso) return
 
-    const sup = mockSuppliers.find(s => s.id === form.supplierId)
+    const sup = suppliersData.find(s => s.id === form.supplierId)
     const supplierName = sup?.name ?? ''
 
     if (editId) {
-      const prev = returns.find(r => r.id === editId)
-      if (sup && prev) {
-        if (prev.status !== 'אושר' && form.status === 'אושר') {
-          sup.balance -= amount
-        } else if (prev.status === 'אושר' && form.status !== 'אושר') {
-          sup.balance += prev.amount
-        } else if (prev.status === 'אושר' && form.status === 'אושר') {
-          sup.balance += prev.amount - amount
-        }
+      const body = {
+        supplierId: form.supplierId,
+        supplier: supplierName,
+        date: isoToDisplay(form.dateIso),
+        dateIso: form.dateIso,
+        amount,
+        reason: form.reason,
+        originalInvoiceId: form.originalInvoiceId || null,
+        status: form.status,
+        createdBy: form.createdBy,
       }
-      setReturns(prev => prev.map(r =>
-        r.id !== editId ? r : {
-          ...r,
-          supplierId: form.supplierId,
-          supplier: supplierName,
-          date: isoToDisplay(form.dateIso),
-          dateIso: form.dateIso,
-          amount,
-          reason: form.reason,
-          originalInvoiceId: form.originalInvoiceId || null,
-          status: form.status,
-          createdBy: form.createdBy,
-        }
-      ))
+      setReturns(prev => prev.map(r => r.id !== editId ? r : { ...r, ...body }))
+      updateReturn(editId, body).catch(() => {})
     } else {
-      if (sup && form.status === 'אושר') {
-        sup.balance -= amount
-      }
       const newId = `RET-${String(returns.length + 1).padStart(3, '0')}`
-      setReturns(prev => [{
+      const entry = {
         id: newId,
         date: isoToDisplay(form.dateIso),
         dateIso: form.dateIso,
@@ -417,7 +382,9 @@ export default function Returns() {
         originalInvoiceId: form.originalInvoiceId || null,
         status: form.status,
         createdBy: form.createdBy,
-      }, ...prev])
+      }
+      setReturns(prev => [entry, ...prev])
+      createReturn(entry).catch(() => {})
     }
 
     setShowForm(false)
@@ -431,8 +398,21 @@ export default function Returns() {
     : '95px 1fr 110px 2fr 140px 105px 110px 72px'
   const MIN_W = isTablet ? '580px' : '880px'
 
+  if (loading && returns.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6" dir="rtl">
+      {error && (
+        <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
+          לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <button
@@ -480,7 +460,7 @@ export default function Returns() {
               style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', border: '1px solid #E2E4E9', fontSize: '14px', background: 'white', direction: 'rtl', color: '#1A1D23', cursor: 'pointer', outline: 'none' }}
             >
               <option value="all">כל הספקים</option>
-              {mockSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {suppliersData.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
 
@@ -613,6 +593,8 @@ export default function Returns() {
           isEdit={editId !== null}
           onSave={handleSave}
           onClose={() => { setShowForm(false); setEditId(null) }}
+          suppliers={suppliersData}
+          invoices={invoicesData}
         />
       )}
     </div>

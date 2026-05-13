@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react'
-import { User, Settings2, Bell, Download, Upload, Camera, ChevronLeft } from 'lucide-react'
+import { User, Settings2, Bell, Download, Upload, Camera } from 'lucide-react'
 
 function useIsTablet() {
-  const [v, setV] = useState(
+  const [v] = useState(
     () => typeof window !== 'undefined' && window.innerWidth >= 768 && window.innerWidth <= 1024
   )
   return v

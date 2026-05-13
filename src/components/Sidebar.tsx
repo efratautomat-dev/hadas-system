@@ -11,6 +11,7 @@ import {
   LogOut,
   ChevronLeft,
   Settings,
+  Bell,
 } from 'lucide-react'
 
 function useIsTablet() {
@@ -33,10 +34,12 @@ interface SidebarProps {
   onLogout: () => void
   userEmail: string
   mobileStyle?: React.CSSProperties
+  newAlertsCount?: number
 }
 
 const navItems = [
   { id: 'dashboard', label: 'דשבורד', Icon: LayoutDashboard },
+  { id: 'alerts',    label: 'התראות',  Icon: Bell },
   { id: 'suppliers', label: 'ספקים', Icon: Users },
   { id: 'ledger',    label: 'כרטסת ספק', Icon: Receipt },
   { id: 'invoices',  label: 'חשבוניות', Icon: FileText },
@@ -55,6 +58,7 @@ export default function Sidebar({
   onLogout,
   userEmail,
   mobileStyle,
+  newAlertsCount = 0,
 }: SidebarProps) {
   const isTablet = useIsTablet()
   const collapsed = isTablet ? false : isCollapsed
@@ -178,16 +182,61 @@ export default function Sidebar({
               }}
             >
               {!collapsed && (
-                <span
-                  style={{
-                    fontWeight: isActive ? 600 : 400,
-                    fontSize: isTablet ? '16px' : '14px',
-                  }}
-                >
-                  {label}
-                </span>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span
+                    style={{
+                      fontWeight: isActive ? 600 : 400,
+                      fontSize: isTablet ? '16px' : '14px',
+                    }}
+                  >
+                    {label}
+                  </span>
+                  {id === 'alerts' && newAlertsCount > 0 && (
+                    <span
+                      style={{
+                        minWidth: '20px',
+                        height: '20px',
+                        borderRadius: '10px',
+                        background: '#DC2626',
+                        color: 'white',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '0 5px',
+                      }}
+                    >
+                      {newAlertsCount}
+                    </span>
+                  )}
+                </div>
               )}
-              <Icon className="w-5 h-5 flex-shrink-0" />
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <Icon className="w-5 h-5" />
+                {collapsed && id === 'alerts' && newAlertsCount > 0 && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '-5px',
+                      left: '-5px',
+                      minWidth: '16px',
+                      height: '16px',
+                      borderRadius: '8px',
+                      background: '#DC2626',
+                      color: 'white',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '0 3px',
+                    }}
+                  >
+                    {newAlertsCount}
+                  </span>
+                )}
+              </div>
             </button>
           )
         })}

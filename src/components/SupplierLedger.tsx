@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Printer, BookOpen } from 'lucide-react'
-import { mockSuppliers, mockLedgerEntries, supplierOpeningBalances } from '../data/mockData'
+import { mockLedgerEntries, supplierOpeningBalances } from '../data/mockData'
+import { useSuppliers } from '../hooks/useSuppliers'
 
 type EntryType = 'חשבונית' | 'תשלום' | 'זיכוי'
 
@@ -46,13 +47,20 @@ const COL_D = COL
 const COL_M = '80px 1fr 110px'
 
 export default function SupplierLedger({ initialSupplierId }: { initialSupplierId?: string }) {
-  const [selectedSupplierId, setSelectedSupplierId] = useState(initialSupplierId ?? mockSuppliers[0].id)
+  const { data: suppliersData, loading } = useSuppliers()
+  const [selectedSupplierId, setSelectedSupplierId] = useState(initialSupplierId ?? '')
   const [fromDate, setFromDate] = useState('2026-01-01')
   const [toDate,   setToDate]   = useState('2026-05-31')
   const isMobile = useIsMobile()
   const activeCOL = isMobile ? COL_M : COL_D
 
-  const supplier      = mockSuppliers.find(s => s.id === selectedSupplierId)!
+  useEffect(() => {
+    if (!selectedSupplierId && suppliersData.length > 0) {
+      setSelectedSupplierId(initialSupplierId ?? suppliersData[0].id)
+    }
+  }, [suppliersData, initialSupplierId, selectedSupplierId])
+
+  const supplier      = suppliersData.find(s => s.id === selectedSupplierId)
   const baseOpening   = supplierOpeningBalances[selectedSupplierId] ?? 0
   const allEntries    = mockLedgerEntries.filter(e => e.supplierId === selectedSupplierId)
 
@@ -96,6 +104,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
 
   // ── Print ─────────────────────────────────────────────────────────────────
   const handlePrint = () => {
+    if (!supplier) return
     const today      = new Date().toLocaleDateString('he-IL', { year: 'numeric', month: 'long', day: 'numeric' })
     const fromDisp   = isoToDisplay(fromDate)
     const toDisp     = isoToDisplay(toDate)
@@ -175,6 +184,16 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+  if (loading && suppliersData.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+      </div>
+    )
+  }
+
+  if (!supplier) return null
+
   return (
     <div className="space-y-5">
 
@@ -216,7 +235,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
               onFocus={e => (e.target.style.borderColor = '#E8645A')}
               onBlur={e  => (e.target.style.borderColor = '#F0E8E7')}
             >
-              {mockSuppliers.map(s => (
+              {suppliersData.map(s => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
             </select>

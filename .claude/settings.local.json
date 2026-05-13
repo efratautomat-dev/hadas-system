@@ -5,7 +5,15 @@
       "Bash(npm run *)",
       "Bash(node -e \"require\\('xlsx'\\)\")",
       "Bash(npm install *)",
-      "Bash(node -e \"require\\('xlsx'\\); console.log\\('ok'\\)\")"
+      "Bash(node -e \"require\\('xlsx'\\); console.log\\('ok'\\)\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\אפרת\\\\Desktop\\\\hadas\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "Bash(npx supabase *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\אפרת\\\\Desktop\\\\hadas\" -Recurse -Force)",
+      "Bash(Select-Object FullName)",
+      "Bash(npm list *)",
+      "Bash(npx vite *)"
     ]
   }
 }

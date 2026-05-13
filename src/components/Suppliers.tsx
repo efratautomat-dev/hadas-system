@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Users, Plus, Search, Pencil, ChevronLeft, X } from 'lucide-react'
-import { mockSuppliers } from '../data/mockData'
+import { useSuppliers } from '../hooks/useSuppliers'
 import SupplierDetail, { type Supplier } from './SupplierDetail'
 
 function useIsTablet() {
@@ -335,8 +335,9 @@ interface SuppliersProps {
 
 export default function Suppliers({ onViewLedger }: SuppliersProps) {
   const isTablet = useIsTablet()
+  const { data: serverSuppliers, loading, error, create: createSupplier, update: updateSupplier, remove: removeSupplier } = useSuppliers()
 
-  const [suppliers, setSuppliers]     = useState<Supplier[]>(() => [...mockSuppliers] as Supplier[])
+  const [suppliers, setSuppliers]     = useState<Supplier[]>([])
   const [viewId,     setViewId]        = useState<string | null>(null)
   const [editingId,  setEditingId]     = useState<string | null>(null)
   const [editForm,   setEditForm]      = useState<EditFormState | null>(null)
@@ -344,6 +345,10 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
   const [addForm,    setAddForm]       = useState<EditFormState>({ ...emptyForm })
   const [search,     setSearch]        = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+
+  useEffect(() => {
+    setSuppliers([...serverSuppliers] as Supplier[])
+  }, [serverSuppliers])
 
   // ── Detail view ───────────────────────────────────────────────────────────
   if (viewId) {
@@ -361,6 +366,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
         onDelete={() => {
           setSuppliers((prev) => prev.filter((s) => s.id !== sup.id))
           setViewId(null)
+          removeSupplier(sup.id).catch(() => {/* server sync failed silently */})
         }}
         onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
       />
@@ -373,61 +379,43 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
     setEditForm(supplierToForm(sup))
   }
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editForm || !editingId) return
     const balance = editForm.openingBalance ? Number(editForm.openingBalance) : 0
+    const body = {
+      name: editForm.name, hp: editForm.hp, category: editForm.category,
+      contact: editForm.contact, email: editForm.email, phone: editForm.phone,
+      openingBalance: balance, openingBalanceDate: editForm.openingBalanceDate,
+      notes: editForm.notes, balance,
+    }
     setSuppliers((prev) => prev.map((s) =>
-      s.id === editingId
-        ? {
-            ...s,
-            name: editForm.name,
-            hp: editForm.hp,
-            category: editForm.category,
-            contact: editForm.contact,
-            email: editForm.email,
-            phone: editForm.phone,
-            openingBalance: balance,
-            openingBalanceDate: editForm.openingBalanceDate,
-            notes: editForm.notes,
-            balance,
-          }
-        : s
+      s.id === editingId ? { ...s, ...body } : s
     ))
     setEditingId(null)
     setEditForm(null)
+    try { await updateSupplier(editingId, body) } catch { /* server sync failed silently */ }
   }
 
-  const saveAdd = () => {
+  const saveAdd = async () => {
     if (!addForm.name.trim()) return
-    const newId = `SUP-${String(suppliers.length + 1).padStart(3, '0')}`
     const balance = addForm.openingBalance ? Number(addForm.openingBalance) : 0
-    setSuppliers((prev) => [
-      ...prev,
-      {
-        id: newId,
-        name: addForm.name,
-        hp: addForm.hp,
-        category: addForm.category,
-        contact: addForm.contact,
-        email: addForm.email,
-        phone: addForm.phone,
-        openingBalance: balance,
-        openingBalanceDate: addForm.openingBalanceDate,
-        notes: addForm.notes,
-        status: 'פעיל',
-        paymentTerms: '',
-        lastOrderDate: '',
-        balance,
-      },
-    ])
+    const body = {
+      name: addForm.name, hp: addForm.hp, category: addForm.category,
+      contact: addForm.contact, email: addForm.email, phone: addForm.phone,
+      openingBalance: balance, openingBalanceDate: addForm.openingBalanceDate,
+      notes: addForm.notes, status: 'פעיל', balance,
+    }
+    const newId = `SUP-${String(suppliers.length + 1).padStart(3, '0')}`
+    setSuppliers((prev) => [...prev, { id: newId, paymentTerms: '', lastOrderDate: '', ...body } as any])
     setShowAdd(false)
     setAddForm({ ...emptyForm })
+    try { await createSupplier(body) } catch { /* server sync failed silently */ }
   }
 
   // ── Derived state ──────────────────────────────────────────────────────────
   const filtered = suppliers.filter((s) => {
     const matchSearch =
-      s.name.includes(search) || s.contact.includes(search) || s.category.includes(search)
+      (s.name || '').includes(search) || (s.contact || '').includes(search) || (s.category || '').includes(search)
     const matchStatus = statusFilter === 'all' || s.status === statusFilter
     return matchSearch && matchStatus
   })
@@ -436,8 +424,21 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
   const totalBalance = suppliers.reduce((sum, s) => sum + s.balance, 0)
 
   // ── Render ─────────────────────────────────────────────────────────────────
+  if (loading && suppliers.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-5">
+      {error && (
+        <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
+          לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between">
