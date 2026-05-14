@@ -21,8 +21,8 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
   'שגיאה':  { bg: '#FEE2E2', color: '#DC2626' },
 }
 
-function formatILS(n: number) {
-  return '₪' + n.toLocaleString('he-IL')
+function formatILS(n: number | null | undefined) {
+  return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
 // ── Field primitives ────────────────────────────────────────────────────────
@@ -413,32 +413,40 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
     setConfirmDelete(false)
   }
 
-  const handleSetPrimary = () => {
+  const handleSetPrimary = async () => {
     if (!dupModal) return
-    setInvoices(prev => prev.map(i =>
-      i.id === dupModal.invoice.id ? { ...i, duplicateFlag: null } : i
-    ))
-    updateInvoice(dupModal.invoice.id, { duplicateFlag: null }).catch(() => {})
+    const saved = dupModal
     setDupModal(null)
+    try {
+      await updateInvoice(saved.invoice.id, { duplicateFlag: null })
+    } catch {
+      // hook sets error state
+    }
   }
 
-  const handleDeleteDuplicate = () => {
+  const handleDeleteDuplicate = async () => {
     if (!dupModal) return
-    setInvoices(prev => prev.filter(i => i.id !== dupModal.invoice.id))
-    removeInvoice(dupModal.invoice.id).catch(() => {})
+    const saved = dupModal
     setDupModal(null)
+    try {
+      await removeInvoice(saved.invoice.id)
+    } catch {
+      // hook sets error state
+    }
   }
 
-  const handleApproveAll = () => {
+  const handleApproveAll = async () => {
     if (!dupModal) return
-    setInvoices(prev => prev.map(i =>
-      (i.id === dupModal.invoice.id || i.id === dupModal.pair.id)
-        ? { ...i, duplicateFlag: null, duplicateNote: 'אושר ידנית' }
-        : i
-    ))
-    updateInvoice(dupModal.invoice.id, { duplicateFlag: null, duplicateNote: 'אושר ידנית' }).catch(() => {})
-    updateInvoice(dupModal.pair.id, { duplicateFlag: null, duplicateNote: 'אושר ידנית' }).catch(() => {})
+    const saved = dupModal
     setDupModal(null)
+    try {
+      await Promise.all([
+        updateInvoice(saved.invoice.id, { duplicateFlag: null, duplicateNote: 'אושר ידנית' }),
+        updateInvoice(saved.pair.id,    { duplicateFlag: null, duplicateNote: 'אושר ידנית' }),
+      ])
+    } catch {
+      // hook sets error state
+    }
   }
 
   if (selected) {
@@ -446,22 +454,13 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
       <InvoiceDetail
         invoice={selected}
         onBack={() => setSelected(null)}
-        onSave={(updated) => {
-          setInvoices(prev => {
-            const next = prev.map(i => i.id === updated.id ? updated : i)
-            if (!updated.invoiceNumber) return next
-            const dups = next.filter(i =>
-              i.invoiceNumber === updated.invoiceNumber && i.supplierId === updated.supplierId
-            )
-            if (dups.length > 1) {
-              return next.map(i =>
-                dups.some(d => d.id === i.id) ? { ...i, duplicateFlag: 'כפילות אפשרית' as const } : i
-              )
-            }
-            return next
-          })
+        onSave={async (updated) => {
           setSelected(null)
-          updateInvoice(updated.id, updated).catch(() => {/* server sync failed silently */})
+          try {
+            await updateInvoice(updated.id, updated)
+          } catch {
+            // hook sets error state
+          }
         }}
       />
     )
@@ -488,7 +487,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
     בטיפול: invoices.filter(i => i.status === 'בטיפול').length,
     שגיאה: invoices.filter(i => i.status === 'שגיאה').length,
   }
-  const total = invoices.reduce((s, i) => s + i.amount, 0)
+  const total = invoices.reduce((s, i) => s + (Number(i.amount) || 0), 0)
 
   if (loading && invoices.length === 0) {
     return (

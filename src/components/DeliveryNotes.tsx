@@ -7,8 +7,8 @@ import { useSuppliers } from '../hooks/useSuppliers'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function formatILS(n: number) {
-  return '₪' + n.toLocaleString('he-IL')
+function formatILS(n: number | null | undefined) {
+  return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
 const statusLabel = { pending: 'ממתינה', archived: 'בארכיון' } as const
@@ -139,22 +139,27 @@ export default function DeliveryNotes() {
     setConfirmUnlink(false)
   }
 
-  const linkInvoice = () => {
+  const linkInvoice = async () => {
     if (!selected || !selectedInvId) return
-    setNotes(prev => prev.map(n =>
-      n.id === selected.id ? { ...n, status: 'archived' as const, linkedInvoiceId: selectedInvId } : n
-    ))
-    linkNote(selected.id, selectedInvId).catch(() => {})
+    const savedId = selected.id
+    const savedInvId = selectedInvId
     closeModal()
+    try {
+      await linkNote(savedId, savedInvId)
+    } catch {
+      // hook sets error state
+    }
   }
 
-  const doUnlink = () => {
+  const doUnlink = async () => {
     if (!selected) return
-    setNotes(prev => prev.map(n =>
-      n.id === selected.id ? { ...n, status: 'pending' as const, linkedInvoiceId: undefined } : n
-    ))
-    unlinkNote(selected.id).catch(() => {})
+    const savedId = selected.id
     closeModal()
+    try {
+      await unlinkNote(savedId)
+    } catch {
+      // hook sets error state
+    }
   }
 
   const addNote = () => {

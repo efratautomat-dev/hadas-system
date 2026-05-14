@@ -39,8 +39,8 @@ const STATUS_CONFIG: Record<ReturnStatus, { bg: string; color: string; Icon: Rea
 }
 
 
-function fmtILS(n: number) {
-  return '₪' + n.toLocaleString('he-IL')
+function fmtILS(n: number | null | undefined) {
+  return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
 function isoToDisplay(iso: string): string {
@@ -348,12 +348,15 @@ export default function Returns() {
     setShowForm(true)
   }
 
-  function handleSave() {
+  async function handleSave() {
     const amount = Number(form.amountStr)
     if (!form.supplierId || !amount || !form.reason.trim() || !form.dateIso) return
 
     const sup = suppliersData.find(s => s.id === form.supplierId)
     const supplierName = sup?.name ?? ''
+
+    setShowForm(false)
+    setEditId(null)
 
     if (editId) {
       const body = {
@@ -367,12 +370,13 @@ export default function Returns() {
         status: form.status,
         createdBy: form.createdBy,
       }
-      setReturns(prev => prev.map(r => r.id !== editId ? r : { ...r, ...body }))
-      updateReturn(editId, body).catch(() => {})
+      try {
+        await updateReturn(editId, body)
+      } catch {
+        // hook sets error state
+      }
     } else {
-      const newId = `RET-${String(returns.length + 1).padStart(3, '0')}`
       const entry = {
-        id: newId,
         date: isoToDisplay(form.dateIso),
         dateIso: form.dateIso,
         supplierId: form.supplierId,
@@ -383,12 +387,12 @@ export default function Returns() {
         status: form.status,
         createdBy: form.createdBy,
       }
-      setReturns(prev => [entry, ...prev])
-      createReturn(entry).catch(() => {})
+      try {
+        await createReturn(entry)
+      } catch {
+        // hook sets error state
+      }
     }
-
-    setShowForm(false)
-    setEditId(null)
   }
 
   const hasFilter = filterSupplier !== 'all' || filterMonth !== '' || filterStatus !== 'all' || filterEmployee !== 'all'

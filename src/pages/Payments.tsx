@@ -9,7 +9,7 @@ type PaymentType = string
 type PaymentStatus = 'paid' | 'pending' | 'cancelled'
 
 interface Payment {
-  id: number
+  id: string
   supplier: string
   amount: number
   type: PaymentType
@@ -66,8 +66,8 @@ function daysFromToday(dateStr: string): number {
   return Math.round((target.getTime() - now.getTime()) / 86_400_000)
 }
 
-function fmtILS(n: number) {
-  return '₪' + n.toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function fmtILS(n: number | null | undefined) {
+  return '₪' + (n ?? 0).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function fmtDate(d: string | null) {
@@ -176,7 +176,7 @@ const EMPTY_FORM: FormState = {
 
 const INITIAL_PAYMENTS: Payment[] = [
   {
-    id: 1,
+    id: '1',
     supplier: 'תנובה',
     amount: 45200,
     type: 'העברה בנקאית',
@@ -187,7 +187,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     status: 'paid',
   },
   {
-    id: 2,
+    id: '2',
     supplier: 'תבורי בע"מ',
     amount: 12500,
     type: "צ'ק",
@@ -198,7 +198,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     status: 'pending',
   },
   {
-    id: 3,
+    id: '3',
     supplier: 'מקורות מים',
     amount: 8300,
     type: 'מזומן',
@@ -209,7 +209,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     status: 'paid',
   },
   {
-    id: 4,
+    id: '4',
     supplier: 'נסטלה ישראל',
     amount: 23100,
     type: 'כרטיס אשראי',
@@ -220,7 +220,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     status: 'pending',
   },
   {
-    id: 5,
+    id: '5',
     supplier: 'אסם השקעות',
     amount: 6800,
     type: 'העברה בנקאית',
@@ -231,7 +231,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     status: 'paid',
   },
   {
-    id: 6,
+    id: '6',
     supplier: 'עלית',
     amount: 3200,
     type: "צ'ק",
@@ -242,7 +242,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     status: 'pending',
   },
   {
-    id: 7,
+    id: '7',
     supplier: 'שטראוס גרופ',
     amount: 9750,
     type: "צ'ק",
@@ -253,7 +253,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     status: 'pending',
   },
   {
-    id: 8,
+    id: '8',
     supplier: 'נסטלה ישראל',
     amount: 14300,
     type: 'העברה בנקאית',
@@ -264,7 +264,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     status: 'paid',
   },
   {
-    id: 9,
+    id: '9',
     supplier: 'תנובה',
     amount: 31600,
     type: 'כרטיס אשראי',
@@ -275,7 +275,7 @@ const INITIAL_PAYMENTS: Payment[] = [
     status: 'pending',
   },
   {
-    id: 10,
+    id: '10',
     supplier: 'אסם השקעות',
     amount: 4100,
     type: 'מזומן',
@@ -423,7 +423,6 @@ export default function Payments() {
   const isMobile = useIsMobile()
   const { data: serverSuppliers, loading: suppliersLoading } = useSuppliers()
   const { data: serverPayments, loading: paymentsLoading, create: createPayment, update: updatePaymentApi, cancel: cancelPaymentApi } = usePaymentsData()
-  const nextIdRef = useRef(INITIAL_PAYMENTS.length + 1)
   const toastIdRef = useRef(0)
 
   const [payments, setPayments] = useState<Payment[]>([])
@@ -442,7 +441,6 @@ export default function Payments() {
 
   useEffect(() => {
     setPayments(serverPayments as Payment[])
-    nextIdRef.current = serverPayments.length + 1
   }, [serverPayments])
 
   useEffect(() => {
@@ -470,7 +468,7 @@ export default function Payments() {
   const [bizboxTo, setBizboxTo] = useState('')
   const [showBizboxValidation, setShowBizboxValidation] = useState(false)
   const [bizboxIssues, setBizboxIssues] = useState<BizboxIssue[]>([])
-  const [highlightedBadIds, setHighlightedBadIds] = useState<Set<number>>(new Set())
+  const [highlightedBadIds, setHighlightedBadIds] = useState<Set<string>>(new Set())
 
   function openBizbox() {
     const range = defaultBizboxRange()
@@ -535,10 +533,10 @@ export default function Payments() {
     showToast(`✅ ${fileName} הורד (${rows.length} תשלומים)`)
   }
 
-  const [editId, setEditId] = useState<number | null>(null)
+  const [editId, setEditId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<EditForm | null>(null)
 
-  const [confirmId, setConfirmId] = useState<number | null>(null)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
 
   const [toasts, setToasts] = useState<Toast[]>([])
 
@@ -556,10 +554,10 @@ export default function Payments() {
     .filter((p) => p.status !== 'cancelled' && p.valueDate && daysFromToday(p.valueDate) > 0)
     .sort((a, b) => new Date(a.valueDate!).getTime() - new Date(b.valueDate!).getTime())
 
-  const futureTotal = futurePayments.reduce((s, p) => s + p.amount, 0)
+  const futureTotal = futurePayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
   const activeTotal = payments
     .filter((p) => p.status !== 'cancelled')
-    .reduce((s, p) => s + p.amount, 0)
+    .reduce((s, p) => s + (Number(p.amount) || 0), 0)
 
   const monthOptions = [...new Set(payments.map((p) => (p.date || '').slice(0, 7)).filter(Boolean))].sort().reverse()
 
@@ -575,11 +573,12 @@ export default function Payments() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000)
   }
 
-  function handleAddSubmit(e: React.FormEvent) {
+  async function handleAddSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.type) return
-    const p: Payment = {
-      id: nextIdRef.current++,
+    const status: PaymentStatus =
+      form.valueDate && needsValueDate && daysFromToday(form.valueDate) > 0 ? 'pending' : 'paid'
+    const payload = {
       supplier: form.supplier.trim(),
       amount: parseFloat(form.amount),
       type: form.type,
@@ -587,18 +586,18 @@ export default function Payments() {
       ref: form.ref.trim(),
       valueDate: needsValueDate ? form.valueDate || null : null,
       notes: form.notes.trim(),
-      status:
-        form.valueDate && needsValueDate && daysFromToday(form.valueDate) > 0
-          ? 'pending'
-          : 'paid',
+      status,
     }
-    setPayments((prev) => [p, ...prev])
-    setForm({ ...EMPTY_FORM, date: todayStr() })
-    showToast('✅ תשלום נוסף בהצלחה')
-    createPayment({ supplier: p.supplier, amount: p.amount, type: p.type, date: p.date, ref: p.ref, valueDate: p.valueDate, notes: p.notes, status: p.status }).catch(() => {})
+    try {
+      await createPayment(payload)
+      setForm({ ...EMPTY_FORM, date: todayStr() })
+      showToast('✅ תשלום נוסף בהצלחה')
+    } catch {
+      // hook sets error state
+    }
   }
 
-  function openEdit(id: number) {
+  function openEdit(id: string) {
     const p = payments.find((x) => x.id === id)
     if (!p) return
     setEditId(id)
@@ -619,49 +618,34 @@ export default function Payments() {
     setEditForm(null)
   }
 
-  function saveEdit(e: React.FormEvent) {
+  async function saveEdit(e: React.FormEvent) {
     e.preventDefault()
     if (!editId || !editForm) return
-    setPayments((prev) =>
-      prev.map((p) =>
-        p.id === editId
-          ? {
-              ...p,
-              supplier: editForm.supplier.trim(),
-              amount: parseFloat(editForm.amount),
-              type: editForm.type,
-              date: editForm.date,
-              ref: editForm.ref.trim(),
-              valueDate:
-                editForm.type === 'check' || editForm.type === 'credit'
-                  ? editForm.valueDate || null
-                  : null,
-              notes: editForm.notes.trim(),
-              status: editForm.status,
-            }
-          : p
-      )
-    )
     const savedId = editId
     const savedForm = editForm
     closeEdit()
-    showToast('💾 תשלום עודכן בהצלחה')
-    updatePaymentApi(savedId, {
-      supplier: savedForm.supplier.trim(), amount: parseFloat(savedForm.amount),
-      type: savedForm.type, date: savedForm.date, ref: savedForm.ref.trim(),
-      notes: savedForm.notes.trim(), status: savedForm.status,
-    }).catch(() => {})
+    try {
+      await updatePaymentApi(savedId, {
+        supplier: savedForm.supplier.trim(), amount: parseFloat(savedForm.amount),
+        type: savedForm.type, date: savedForm.date, ref: savedForm.ref.trim(),
+        notes: savedForm.notes.trim(), status: savedForm.status,
+      })
+      showToast('💾 תשלום עודכן בהצלחה')
+    } catch {
+      // hook sets error state
+    }
   }
 
-  function doCancel() {
+  async function doCancel() {
     if (!confirmId) return
-    setPayments((prev) =>
-      prev.map((p) => (p.id === confirmId ? { ...p, status: 'cancelled' } : p))
-    )
     const savedConfirmId = confirmId
     setConfirmId(null)
-    showToast('🚫 תשלום בוטל', 'warning')
-    cancelPaymentApi(savedConfirmId).catch(() => {})
+    try {
+      await cancelPaymentApi(savedConfirmId)
+      showToast('🚫 תשלום בוטל', 'warning')
+    } catch {
+      // hook sets error state
+    }
   }
 
   function handleRestore(id: number) {
@@ -1422,7 +1406,7 @@ export default function Payments() {
                 ? '85px 1fr 110px 80px 80px 80px'
                 : '85px 1fr 110px 80px 100px 90px 80px 80px'
               const pMIN = isMobile ? '480px' : '720px'
-              const activeTotal = filtered.filter(p => p.status !== 'cancelled').reduce((s, p) => s + p.amount, 0)
+              const activeTotal = filtered.filter(p => p.status !== 'cancelled').reduce((s, p) => s + (Number(p.amount) || 0), 0)
               const activeCount = filtered.filter(p => p.status !== 'cancelled').length
               return (
                 <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
@@ -2092,7 +2076,7 @@ export default function Payments() {
                 ).length
                 const total = payments
                   .filter(p => p.status !== 'cancelled' && bizboxFrom && bizboxTo && p.date >= bizboxFrom && p.date <= bizboxTo)
-                  .reduce((s, p) => s + p.amount, 0)
+                  .reduce((s, p) => s + (Number(p.amount) || 0), 0)
                 return (
                   <div style={{
                     background: count > 0 ? '#EFF6FF' : '#F9FAFB',

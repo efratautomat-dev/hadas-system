@@ -57,9 +57,10 @@ const stmtDetails: Record<string, StmtDetail> = {
   },
 }
 
-function formatILS(n: number) {
-  const abs = Math.abs(n)
-  const sign = n < 0 ? '-' : ''
+function formatILS(n: number | null | undefined) {
+  const safe = n ?? 0
+  const abs = Math.abs(safe)
+  const sign = safe < 0 ? '-' : ''
   return sign + '₪' + abs.toLocaleString('he-IL')
 }
 
@@ -347,22 +348,25 @@ export default function StatementReconciliation() {
 
   const selectedStmt = selectedId ? statements.find((s) => s.id === selectedId) ?? null : null
 
-  function handleStatusChange(id: string, status: VendorStatementStatus) {
-    setStatements((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)))
-    resolveStatement(id, { status }).catch(() => {})
+  async function handleStatusChange(id: string, status: VendorStatementStatus) {
+    try {
+      await resolveStatement(id, { status })
+    } catch {
+      // hook sets error state
+    }
   }
 
-  function handleBalanceUpdate(id: string, balance: number) {
-    setStatements((prev) =>
-      prev.map((s) => {
-        if (s.id !== id) return s
-        const newDiff = s.vendor_balance != null ? Math.abs(s.vendor_balance - balance) : 0
-        const newStatus: VendorStatementStatus =
-          s.vendor_balance != null && Math.abs(s.vendor_balance - balance) < 1 ? 'matched' : s.status
-        resolveStatement(id, { ourBalance: balance, diff: newDiff, status: newStatus }).catch(() => {})
-        return { ...s, our_balance: balance, diff: newDiff, status: newStatus }
-      })
-    )
+  async function handleBalanceUpdate(id: string, balance: number) {
+    const stmt = statements.find((s) => s.id === id)
+    if (!stmt) return
+    const newDiff = stmt.vendor_balance != null ? Math.abs(stmt.vendor_balance - balance) : 0
+    const newStatus: VendorStatementStatus =
+      stmt.vendor_balance != null && Math.abs(stmt.vendor_balance - balance) < 1 ? 'matched' : stmt.status
+    try {
+      await resolveStatement(id, { ourBalance: balance, diff: newDiff, status: newStatus })
+    } catch {
+      // hook sets error state
+    }
   }
 
   const statCards: {

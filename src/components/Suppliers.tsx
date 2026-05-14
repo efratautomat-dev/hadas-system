@@ -46,8 +46,8 @@ const categoryColors: Record<string, { bg: string; color: string }> = {
   'מאפים':             { bg: '#FFF1F2', color: '#BE123C' },
 }
 
-function formatILS(n: number) {
-  return '₪' + n.toLocaleString('he-IL')
+function formatILS(n: number | null | undefined) {
+  return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
 // ─── Form types ─────────────────────────────────────────────────────────────
@@ -363,10 +363,13 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
           setEditingId(sup.id)
           setEditForm(supplierToForm(sup))
         }}
-        onDelete={() => {
-          setSuppliers((prev) => prev.filter((s) => s.id !== sup.id))
+        onDelete={async () => {
           setViewId(null)
-          removeSupplier(sup.id).catch(() => {/* server sync failed silently */})
+          try {
+            await removeSupplier(sup.id)
+          } catch {
+            // hook sets error state
+          }
         }}
         onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
       />
@@ -386,14 +389,16 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
       name: editForm.name, hp: editForm.hp, category: editForm.category,
       contact: editForm.contact, email: editForm.email, phone: editForm.phone,
       openingBalance: balance, openingBalanceDate: editForm.openingBalanceDate,
-      notes: editForm.notes, balance,
+      notes: editForm.notes,
     }
-    setSuppliers((prev) => prev.map((s) =>
-      s.id === editingId ? { ...s, ...body } : s
-    ))
+    const savedId = editingId
     setEditingId(null)
     setEditForm(null)
-    try { await updateSupplier(editingId, body) } catch { /* server sync failed silently */ }
+    try {
+      await updateSupplier(savedId, body)
+    } catch {
+      // hook sets error state
+    }
   }
 
   const saveAdd = async () => {
@@ -403,13 +408,15 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
       name: addForm.name, hp: addForm.hp, category: addForm.category,
       contact: addForm.contact, email: addForm.email, phone: addForm.phone,
       openingBalance: balance, openingBalanceDate: addForm.openingBalanceDate,
-      notes: addForm.notes, status: 'פעיל', balance,
+      notes: addForm.notes,
     }
-    const newId = `SUP-${String(suppliers.length + 1).padStart(3, '0')}`
-    setSuppliers((prev) => [...prev, { id: newId, paymentTerms: '', lastOrderDate: '', ...body } as any])
     setShowAdd(false)
     setAddForm({ ...emptyForm })
-    try { await createSupplier(body) } catch { /* server sync failed silently */ }
+    try {
+      await createSupplier(body)
+    } catch {
+      // hook sets error state
+    }
   }
 
   // ── Derived state ──────────────────────────────────────────────────────────
@@ -421,7 +428,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
   })
 
   const activeCount  = suppliers.filter((s) => s.status === 'פעיל').length
-  const totalBalance = suppliers.reduce((sum, s) => sum + s.balance, 0)
+  const totalBalance = suppliers.reduce((sum, s) => sum + (Number(s.balance) || 0), 0)
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading && suppliers.length === 0) {
@@ -525,7 +532,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
           <p style={{ fontSize: '16px' }}>לא נמצאו ספקים</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
           {/* Add form card */}
           {showAdd && (
@@ -555,6 +562,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
 
             const catStyle = categoryColors[sup.category] ?? { bg: '#F3F4F6', color: '#6B7280' }
             const isActive = sup.status === 'פעיל'
+            const contactLine = [sup.contact, sup.phone].filter(Boolean).join(' · ') || '—'
 
             return (
               <div
@@ -564,8 +572,8 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
               >
                 <div className="p-5 flex-1 flex flex-col gap-4">
 
-                  {/* Status | Category */}
-                  <div className="flex items-center justify-between">
+                  {/* Status | Category — fixed height row */}
+                  <div className="flex items-center justify-between" style={{ minHeight: '28px' }}>
                     <span
                       className="rounded-lg font-bold"
                       style={{
@@ -577,40 +585,47 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
                       {sup.status}
                     </span>
                     <span
-                      className="rounded-lg font-medium"
+                      className="rounded-lg font-medium truncate"
                       style={{
                         fontSize: '12px', padding: '4px 10px',
                         backgroundColor: catStyle.bg, color: catStyle.color,
+                        maxWidth: '55%',
                       }}
                     >
                       {sup.category}
                     </span>
                   </div>
 
-                  {/* Name + contact */}
-                  <div className="text-right">
-                    <h3 className="font-black text-gray-800" style={{ fontSize: isTablet ? '20px' : '18px' }}>
+                  {/* Name + contact — always 2 lines */}
+                  <div className="text-right" style={{ minHeight: isTablet ? '54px' : '48px' }}>
+                    <h3
+                      className="font-black text-gray-800 truncate"
+                      style={{ fontSize: isTablet ? '20px' : '18px' }}
+                    >
                       {sup.name}
                     </h3>
-                    <p className="text-gray-500 mt-1" style={{ fontSize: isTablet ? '15px' : '13px' }}>
-                      {[sup.contact, sup.phone].filter(Boolean).join(' · ')}
+                    <p
+                      className="text-gray-500 mt-1 truncate"
+                      style={{ fontSize: isTablet ? '15px' : '13px' }}
+                    >
+                      {contactLine}
                     </p>
                   </div>
 
-                  {/* Balance box */}
+                  {/* Balance box — fixed structure */}
                   <div className="rounded-xl p-3 text-right" style={{ background: '#F8F9FA' }}>
-                    <p style={{ fontSize: '11px', color: '#9CA3AF' }}>
-                      יתרת פתיחה{sup.openingBalanceDate ? ` · ${sup.openingBalanceDate}` : ''}
+                    <p style={{ fontSize: '11px', color: '#9CA3AF', minHeight: '16px' }}>
+                      יתרת פתיחה{(sup as any).openingBalanceDate ? ` · ${(sup as any).openingBalanceDate}` : ''}
                     </p>
                     <p className="font-black text-gray-800 mt-0.5" style={{ fontSize: isTablet ? '24px' : '22px' }}>
-                      {formatILS(sup.balance)}
+                      {formatILS((sup as any).openingBalance ?? 0)}
                     </p>
                   </div>
 
                 </div>
 
-                {/* Action buttons */}
-                <div className="flex gap-2 px-5 pb-5">
+                {/* Action buttons — always at bottom */}
+                <div className="flex gap-2 px-5 pb-5 mt-auto">
                   <button
                     onClick={() => setViewId(sup.id)}
                     className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"

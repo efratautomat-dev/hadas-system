@@ -4,7 +4,7 @@ import type { Alert, AlertType, AlertStatus } from '../data/mockData'
 
 const TYPE_CONFIG: Record<AlertType, {
   label: string
-  Icon: React.ComponentType<{ className?: string }>
+  Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   bg: string
   color: string
   border: string
