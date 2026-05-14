@@ -9,7 +9,7 @@ import type { Alert, AlertType } from '../data/mockData'
 
 const ALERT_TYPE_CONFIG: Record<AlertType, {
   label: string
-  Icon: React.ComponentType<{ className?: string }>
+  Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   bg: string
   color: string
 }> = {
@@ -34,8 +34,8 @@ const statusStyle: Record<string, { bg: string; color: string }> = {
   'בדרך':   { bg: '#EDE9FE', color: '#5B21B6' },
 }
 
-function formatILS(n: number) {
-  return '₪' + n.toLocaleString('he-IL')
+function formatILS(n: number | null | undefined) {
+  return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
 function fmtDate(iso: string): string {
@@ -113,7 +113,7 @@ export default function Dashboard({ onPageChange, alerts = [] }: DashboardProps)
 
   const activeSuppliers   = suppliers.filter(s => s.status === 'פעיל').length
   const pendingInvoices   = invoices.filter(i => i.status === 'ממתין').length
-  const monthlyPayments   = payments.filter(p => p.status === 'paid').reduce((s, p) => s + p.amount, 0)
+  const monthlyPayments   = payments.filter(p => p.status === 'paid').reduce((s, p) => s + (Number(p.amount) || 0), 0)
   const openReturns       = returns.filter(r => r.status === 'בטיפול').length
 
   const statsLoading = supLoading || invLoading || payLoading || retLoading

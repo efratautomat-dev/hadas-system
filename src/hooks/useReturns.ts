@@ -99,7 +99,7 @@ export function useReturns() {
 
   const update = async (id: string, body: Partial<ReturnEntry>) => {
     // Strip supplier name and display date — send only whitelisted fields
-    const { supplier: _supplier, date: _date, ...rest } = body as ReturnEntry
+    const { supplier: _supplier, date: _date, id: _id, ...rest } = body as ReturnEntry
     const payload = rest
     console.log('[useReturns] update payload:', { id, ...payload })
     try {

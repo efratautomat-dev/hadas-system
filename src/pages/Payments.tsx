@@ -172,121 +172,6 @@ const EMPTY_FORM: FormState = {
   notes: '',
 }
 
-// ─── mock data ────────────────────────────────────────────────────────────────
-
-const INITIAL_PAYMENTS: Payment[] = [
-  {
-    id: '1',
-    supplier: 'תנובה',
-    amount: 45200,
-    type: 'העברה בנקאית',
-    date: '2026-04-24',
-    ref: 'TRF-2026-001',
-    valueDate: null,
-    notes: 'תשלום חודשי מוצרי חלב',
-    status: 'paid',
-  },
-  {
-    id: '2',
-    supplier: 'תבורי בע"מ',
-    amount: 12500,
-    type: "צ'ק",
-    date: '2026-04-29',
-    ref: 'CHK-1042',
-    valueDate: '2026-05-08',
-    notes: 'משקאות קמעוני',
-    status: 'pending',
-  },
-  {
-    id: '3',
-    supplier: 'מקורות מים',
-    amount: 8300,
-    type: 'מזומן',
-    date: '2026-05-01',
-    ref: 'קבלה 0088',
-    valueDate: null,
-    notes: '',
-    status: 'paid',
-  },
-  {
-    id: '4',
-    supplier: 'נסטלה ישראל',
-    amount: 23100,
-    type: 'כרטיס אשראי',
-    date: '2026-05-02',
-    ref: 'CC-5544',
-    valueDate: '2026-05-26',
-    notes: 'שתייה חמה ומשלימים',
-    status: 'pending',
-  },
-  {
-    id: '5',
-    supplier: 'אסם השקעות',
-    amount: 6800,
-    type: 'העברה בנקאית',
-    date: '2026-04-20',
-    ref: 'TRF-2026-005',
-    valueDate: null,
-    notes: '',
-    status: 'paid',
-  },
-  {
-    id: '6',
-    supplier: 'עלית',
-    amount: 3200,
-    type: "צ'ק",
-    date: '2026-05-03',
-    ref: 'CHK-1043',
-    valueDate: '2026-05-07',
-    notes: 'ממתקים חודש מאי',
-    status: 'pending',
-  },
-  {
-    id: '7',
-    supplier: 'שטראוס גרופ',
-    amount: 9750,
-    type: "צ'ק",
-    date: '2026-05-05',
-    ref: 'CHK-1044',
-    valueDate: '2026-06-15',
-    notes: 'מוצרי חלב ומשקאות',
-    status: 'pending',
-  },
-  {
-    id: '8',
-    supplier: 'נסטלה ישראל',
-    amount: 14300,
-    type: 'העברה בנקאית',
-    date: '2026-04-10',
-    ref: 'TRF-2026-008',
-    valueDate: null,
-    notes: 'תשלום אפריל',
-    status: 'paid',
-  },
-  {
-    id: '9',
-    supplier: 'תנובה',
-    amount: 31600,
-    type: 'כרטיס אשראי',
-    date: '2026-05-04',
-    ref: 'CC-5560',
-    valueDate: '2026-07-20',
-    notes: 'הסדר תשלומים מיוחד',
-    status: 'pending',
-  },
-  {
-    id: '10',
-    supplier: 'אסם השקעות',
-    amount: 4100,
-    type: 'מזומן',
-    date: '2026-03-15',
-    ref: 'קבלה 0071',
-    valueDate: null,
-    notes: 'בוטל - כפילות',
-    status: 'cancelled',
-  },
-]
-
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 function TypeBadge({ type }: { type: string }) {
@@ -579,6 +464,7 @@ export default function Payments() {
     const status: PaymentStatus =
       form.valueDate && needsValueDate && daysFromToday(form.valueDate) > 0 ? 'pending' : 'paid'
     const payload = {
+      supplier_id: '',
       supplier: form.supplier.trim(),
       amount: parseFloat(form.amount),
       type: form.type,
@@ -648,7 +534,7 @@ export default function Payments() {
     }
   }
 
-  function handleRestore(id: number) {
+  function handleRestore(id: string) {
     setPayments((prev) =>
       prev.map((p) =>
         p.id === id
