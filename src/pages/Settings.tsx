@@ -1,5 +1,7 @@
 import { useState, useRef } from 'react'
-import { User, Settings2, Bell, Download, Upload, Camera } from 'lucide-react'
+import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2 } from 'lucide-react'
+import { useEmployees } from '../hooks/useEmployees'
+import type { Employee } from '../hooks/useEmployees'
 
 function useIsTablet() {
   const [v] = useState(
@@ -8,7 +10,7 @@ function useIsTablet() {
   return v
 }
 
-type Tab = 'profile' | 'preferences' | 'notifications' | 'backup'
+type Tab = 'profile' | 'preferences' | 'notifications' | 'backup' | 'employees'
 
 interface ProfileState {
   businessName: string
@@ -36,7 +38,8 @@ const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ className?: st
   { id: 'profile',       label: 'פרופיל',       Icon: User },
   { id: 'preferences',   label: 'העדפות',        Icon: Settings2 },
   { id: 'notifications', label: 'התראות',        Icon: Bell },
-  { id: 'backup',        label: 'גיבוי וייצוא',  Icon: Download },
+  { id: 'backup',        label: 'גיבוי',          Icon: Download },
+  { id: 'employees',     label: 'עובדים',         Icon: Users },
 ]
 
 const DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'DD.MM.YYYY']
@@ -170,6 +173,13 @@ export default function Settings() {
     pendingDeliveries: true,
   })
 
+  // ── Employees state ──────────────────────────────────────────────────────────
+  const { data: employees, loading: empLoading, create: createEmp, update: updateEmp, remove: removeEmp } = useEmployees()
+  const [showEmpForm, setShowEmpForm] = useState(false)
+  const [editingEmpId, setEditingEmpId] = useState<string | null>(null)
+  const [empForm, setEmpForm] = useState({ name: '', role: '', phone: '', active: true })
+  const [deletingEmpId, setDeletingEmpId] = useState<string | null>(null)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   function showToast() {
@@ -211,7 +221,51 @@ export default function Settings() {
     })
   }
 
-  const tabContent = {
+  // ── Employee handlers ────────────────────────────────────────────────────────
+
+  function openEmpAdd() {
+    setEditingEmpId(null)
+    setEmpForm({ name: '', role: '', phone: '', active: true })
+    setShowEmpForm(true)
+    setDeletingEmpId(null)
+  }
+
+  function openEmpEdit(emp: Employee) {
+    setEditingEmpId(emp.id)
+    setEmpForm({ name: emp.name, role: emp.role, phone: emp.phone, active: emp.active })
+    setShowEmpForm(true)
+    setDeletingEmpId(null)
+  }
+
+  async function saveEmp() {
+    if (!empForm.name.trim()) return
+    try {
+      if (editingEmpId) {
+        await updateEmp(editingEmpId, empForm)
+      } else {
+        await createEmp(empForm)
+      }
+      setShowEmpForm(false)
+      setEditingEmpId(null)
+      showToast()
+    } catch {
+      // hook sets error state
+    }
+  }
+
+  async function confirmDeleteEmp(id: string) {
+    try {
+      await removeEmp(id)
+      setDeletingEmpId(null)
+      showToast()
+    } catch {
+      // hook sets error state
+    }
+  }
+
+  // ── Tab content ──────────────────────────────────────────────────────────────
+
+  const tabContent: Record<Tab, React.ReactNode> = {
     profile: (
       <div className="space-y-5">
         <SectionCard title="לוגו עסקי">
@@ -401,10 +455,7 @@ export default function Settings() {
             className="flex items-center gap-3 p-4 rounded-xl"
             style={{ background: '#F8F9FA' }}
           >
-            <div
-              className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ background: '#22C55E' }}
-            />
+            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#22C55E' }} />
             <div>
               <p className="text-sm font-semibold text-gray-700">התראות בתוך המערכת</p>
               <p className="text-xs text-gray-400 mt-0.5">התראות מוצגות בפעמון בסרגל העליון</p>
@@ -414,18 +465,12 @@ export default function Settings() {
             className="flex items-center gap-3 p-4 rounded-xl mt-2 border border-dashed"
             style={{ borderColor: '#E2E4E9' }}
           >
-            <div
-              className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ background: '#D1D5DB' }}
-            />
+            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#D1D5DB' }} />
             <div className="flex-1">
               <p className="text-sm font-semibold text-gray-400">התראות במייל</p>
               <p className="text-xs text-gray-400 mt-0.5">יהיה זמין בקרוב</p>
             </div>
-            <span
-              className="text-xs px-2 py-1 rounded-lg font-bold"
-              style={{ background: '#F3F4F6', color: '#9CA3AF' }}
-            >
+            <span className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: '#F3F4F6', color: '#9CA3AF' }}>
               בפיתוח
             </span>
           </div>
@@ -437,10 +482,7 @@ export default function Settings() {
       <div className="space-y-5">
         <SectionCard title="ייצוא נתונים">
           <div className="space-y-4">
-            <div
-              className="flex items-center justify-between p-4 rounded-xl border"
-              style={{ borderColor: '#E2E4E9' }}
-            >
+            <div className="flex items-center justify-between p-4 rounded-xl border" style={{ borderColor: '#E2E4E9' }}>
               <button
                 onClick={handleExportAll}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all"
@@ -470,10 +512,7 @@ export default function Settings() {
                   <Upload className="w-4 h-4" />
                   גיבוי לדרייב
                 </button>
-                <span
-                  className="text-xs px-2 py-1 rounded-lg font-bold"
-                  style={{ background: '#FEF9C3', color: '#A16207' }}
-                >
+                <span className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: '#FEF9C3', color: '#A16207' }}>
                   בקרוב
                 </span>
               </div>
@@ -499,10 +538,7 @@ export default function Settings() {
                 <Upload className="w-4 h-4" />
                 ייבא מ-Excel
               </button>
-              <span
-                className="text-xs px-2 py-1 rounded-lg font-bold"
-                style={{ background: '#FEF9C3', color: '#A16207' }}
-              >
+              <span className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: '#FEF9C3', color: '#A16207' }}>
                 בקרוב
               </span>
             </div>
@@ -526,6 +562,185 @@ export default function Settings() {
               </div>
             ))}
           </div>
+        </SectionCard>
+      </div>
+    ),
+
+    employees: (
+      <div className="space-y-5">
+        {/* Add / Edit form */}
+        {showEmpForm && (
+          <SectionCard title={editingEmpId ? 'עריכת עובד' : 'הוספת עובד חדש'}>
+            <div className="grid grid-cols-1 gap-4" style={{ gridTemplateColumns: isTablet ? '1fr' : '1fr 1fr' }}>
+              <div>
+                <FieldLabel>שם מלא *</FieldLabel>
+                <TextInput
+                  value={empForm.name}
+                  onChange={v => setEmpForm(f => ({ ...f, name: v }))}
+                  placeholder="שם מלא"
+                />
+              </div>
+              <div>
+                <FieldLabel>תפקיד</FieldLabel>
+                <TextInput
+                  value={empForm.role}
+                  onChange={v => setEmpForm(f => ({ ...f, role: v }))}
+                  placeholder="רכזת, מנהלת חשבונות..."
+                />
+              </div>
+              <div>
+                <FieldLabel>טלפון</FieldLabel>
+                <TextInput
+                  value={empForm.phone}
+                  onChange={v => setEmpForm(f => ({ ...f, phone: v }))}
+                  placeholder="050-0000000"
+                  type="tel"
+                />
+              </div>
+              <div>
+                <Toggle
+                  value={empForm.active}
+                  onChange={v => setEmpForm(f => ({ ...f, active: v }))}
+                  label="עובד/ת פעיל/ה"
+                />
+              </div>
+            </div>
+            <div
+              className="flex justify-end gap-3 mt-5 pt-4 border-t"
+              style={{ borderColor: '#F3F4F6' }}
+            >
+              <button
+                onClick={() => { setShowEmpForm(false); setEditingEmpId(null) }}
+                className="px-4 py-2 rounded-xl text-sm font-bold border-2 transition-colors"
+                style={{ borderColor: '#E2E4E9', color: '#6B7280' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#F8F9FA' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'white' }}
+              >
+                ביטול
+              </button>
+              <button
+                onClick={saveEmp}
+                disabled={!empForm.name.trim()}
+                className="px-5 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                style={{ background: '#E8645A' }}
+                onMouseEnter={e => { if (empForm.name.trim()) (e.currentTarget as HTMLElement).style.background = '#8B1A3A' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
+              >
+                {editingEmpId ? 'שמור שינויים' : 'הוסף עובד'}
+              </button>
+            </div>
+          </SectionCard>
+        )}
+
+        {/* Employee list */}
+        <SectionCard>
+          <div className="flex items-center justify-between mb-5">
+            <button
+              onClick={openEmpAdd}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-all"
+              style={{ background: '#E8645A' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#8B1A3A' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
+            >
+              <Plus className="w-4 h-4" />
+              הוסף עובד
+            </button>
+            <h3 className="font-bold text-gray-700 text-base">
+              רשימת עובדים {employees.length > 0 && `(${employees.length})`}
+            </h3>
+          </div>
+
+          {empLoading ? (
+            <div className="py-10 text-center">
+              <div
+                className="animate-spin rounded-full h-6 w-6 border-b-2 mx-auto"
+                style={{ borderColor: '#E8645A' }}
+              />
+            </div>
+          ) : employees.length === 0 ? (
+            <div className="py-10 text-center">
+              <Users className="w-10 h-10 mx-auto mb-2 text-gray-200" />
+              <p className="text-gray-400 text-sm">אין עובדים — הוסף עובד ראשון</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {employees.map(emp => (
+                <div
+                  key={emp.id}
+                  className="flex items-center justify-between p-3.5 rounded-xl border transition-colors"
+                  style={{
+                    borderColor: deletingEmpId === emp.id ? '#FECACA' : '#E2E4E9',
+                    background: deletingEmpId === emp.id ? '#FFF5F5' : 'white',
+                  }}
+                >
+                  {/* Info (right side in RTL) */}
+                  <div className="text-right flex-1 min-w-0 mr-3">
+                    <div className="flex items-center justify-end gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-gray-800">{emp.name}</span>
+                      {emp.role && <span className="text-sm text-gray-400">· {emp.role}</span>}
+                      {emp.phone && (
+                        <span className="text-xs text-gray-400" dir="ltr">{emp.phone}</span>
+                      )}
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full font-bold"
+                        style={{
+                          background: emp.active ? '#DCFCE7' : '#F3F4F6',
+                          color: emp.active ? '#166534' : '#9CA3AF',
+                        }}
+                      >
+                        {emp.active ? 'פעיל' : 'לא פעיל'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions (left side in RTL) */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {deletingEmpId === emp.id ? (
+                      <>
+                        <button
+                          onClick={() => setDeletingEmpId(null)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors"
+                          style={{ borderColor: '#E2E4E9', color: '#6B7280' }}
+                        >
+                          ביטול
+                        </button>
+                        <button
+                          onClick={() => confirmDeleteEmp(emp.id)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-colors"
+                          style={{ background: '#DC2626' }}
+                        >
+                          מחק
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => openEmpEdit(emp)}
+                          className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                          style={{ background: '#F3F4F6', color: '#6B7280' }}
+                          title="עריכה"
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#E5E7EB' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#F3F4F6' }}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeletingEmpId(emp.id)}
+                          className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                          style={{ background: '#FEE2E2', color: '#DC2626' }}
+                          title="מחק"
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#FECACA' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#FEE2E2' }}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </SectionCard>
       </div>
     ),

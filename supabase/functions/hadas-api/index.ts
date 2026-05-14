@@ -348,10 +348,11 @@ function returnToRow(body: Record<string, unknown>): Record<string, unknown> {
   if (body.dateIso           !== undefined) row.date        = body.dateIso;   // ISO value → date column
   if (body.amount            !== undefined) row.amount      = body.amount;
   if (body.reason            !== undefined) row.reason      = body.reason;
+  if (body.detail            !== undefined) row.detail      = body.detail;
   if (body.originalInvoiceId !== undefined) row.invoice_id  = body.originalInvoiceId;
   if (body.status            !== undefined) row.status      = body.status;
-  if (body.createdBy         !== undefined) row.created_by  = body.createdBy;
-  // Intentionally excluded: body.id, body.date (display), body.supplier (no column)
+  if (body.employeeId        !== undefined) row.employee_id = body.employeeId || null;
+  // Intentionally excluded: body.id, body.date (display), body.supplier (no column), body.createdBy (display)
   return row;
 }
 
@@ -475,6 +476,45 @@ async function createAlert(req: Request, supabase: SupabaseClient): Promise<Resp
   return json({ id: data.id }, 201);
 }
 
+// ─── Employees ────────────────────────────────────────────────────────────────
+
+async function listEmployees(supabase: SupabaseClient): Promise<Response> {
+  const { data, error } = await supabase.from("employees").select("*").order("name");
+  if (error) return json({ error: error.message }, 500);
+  return json(data);
+}
+
+async function createEmployee(req: Request, supabase: SupabaseClient): Promise<Response> {
+  const { name, role, phone, active } = await req.json();
+  if (!name) return json({ error: "name is required" }, 400);
+  const { data, error } = await supabase
+    .from("employees")
+    .insert({ name, role: role ?? null, phone: phone ?? null, active: active ?? true })
+    .select("id")
+    .single();
+  if (error || !data) return json({ error: error?.message }, 500);
+  return json({ id: data.id }, 201);
+}
+
+async function updateEmployee(req: Request, supabase: SupabaseClient, id: string): Promise<Response> {
+  const body = await req.json();
+  const ALLOWED: Record<string, string> = { name: "name", role: "role", phone: "phone", active: "active" };
+  const updates: Record<string, unknown> = {};
+  for (const [key, col] of Object.entries(ALLOWED)) {
+    if (body[key] !== undefined) updates[col] = body[key];
+  }
+  if (Object.keys(updates).length === 0) return json({ error: "No fields to update" }, 400);
+  const { error } = await supabase.from("employees").update(updates).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
+}
+
+async function deleteEmployee(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { error } = await supabase.from("employees").delete().eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -577,6 +617,18 @@ Deno.serve(async (req: Request) => {
     const stmtResolveMatch = path.match(/^\/statements\/([^/]+)\/resolve$/);
     if (stmtResolveMatch && req.method === "PUT")
       return await resolveStatement(req, supabase, stmtResolveMatch[1]);
+
+    // ── Employees ─────────────────────────────────────────────────────────────
+    if (path === "/employees") {
+      if (req.method === "GET")  return await listEmployees(supabase);
+      if (req.method === "POST") return await createEmployee(req, supabase);
+    }
+    const employeeMatch = path.match(/^\/employees\/([^/]+)$/);
+    if (employeeMatch) {
+      const id = employeeMatch[1];
+      if (req.method === "PUT")    return await updateEmployee(req, supabase, id);
+      if (req.method === "DELETE") return await deleteEmployee(supabase, id);
+    }
 
     // ── Alerts ────────────────────────────────────────────────────────────────
     if (path === "/alerts" && req.method === "POST") return await createAlert(req, supabase);

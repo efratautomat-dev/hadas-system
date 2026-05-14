@@ -3,6 +3,8 @@ import { Plus, Pencil, X, CheckCircle2, Clock, XCircle, RotateCcw } from 'lucide
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
 import { useReturns } from '../hooks/useReturns'
+import { useEmployees } from '../hooks/useEmployees'
+import type { Employee } from '../hooks/useEmployees'
 
 type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -14,8 +16,10 @@ interface ReturnEntry {
   supplier: string
   amount: number
   reason: string
+  detail: string
   originalInvoiceId: string | null
   status: ReturnStatus
+  employeeId: string | null
   createdBy: string
 }
 
@@ -24,20 +28,17 @@ interface FormState {
   dateIso: string
   amountStr: string
   reason: string
+  detail: string
   originalInvoiceId: string
-  createdBy: string
+  employeeId: string
   status: ReturnStatus
 }
-
-const EMPLOYEES = ['שרה כהן', 'רחל לוי', 'מיכל דוד']
-const CURRENT_USER = EMPLOYEES[0]
 
 const STATUS_CONFIG: Record<ReturnStatus, { bg: string; color: string; Icon: React.ElementType }> = {
   'אושר':   { bg: '#DCFCE7', color: '#166534', Icon: CheckCircle2 },
   'בטיפול': { bg: '#FEF3C7', color: '#D97706', Icon: Clock },
   'נדחה':   { bg: '#FEE2E2', color: '#DC2626', Icon: XCircle },
 }
-
 
 function fmtILS(n: number | null | undefined) {
   return '₪' + (n ?? 0).toLocaleString('he-IL')
@@ -54,8 +55,9 @@ function emptyForm(): FormState {
     dateIso: new Date().toISOString().slice(0, 10),
     amountStr: '',
     reason: '',
+    detail: '',
     originalInvoiceId: '',
-    createdBy: CURRENT_USER,
+    employeeId: '',
     status: 'בטיפול',
   }
 }
@@ -115,9 +117,10 @@ interface FormModalProps {
   onClose: () => void
   suppliers: { id: string; name: string; status: string; balance: number }[]
   invoices: { id: string; supplierId: string; amount?: number; date?: string }[]
+  employees: Employee[]
 }
 
-function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices }: FormModalProps) {
+function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices, employees }: FormModalProps) {
   const supplierInvoices = invoices.filter(inv => inv.supplierId === form.supplierId)
   const selectedSupplier = suppliers.find(s => s.id === form.supplierId)
   const canSave = !!form.supplierId && !!form.amountStr && Number(form.amountStr) > 0 && !!form.reason.trim() && !!form.dateIso
@@ -156,6 +159,7 @@ function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices
               onFocus={focus as React.FocusEventHandler<HTMLSelectElement>}
               onBlur={blur as React.FocusEventHandler<HTMLSelectElement>}
             >
+              <option value="">— בחר ספק —</option>
               {suppliers.filter(s => s.status === 'פעיל').map(s => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
@@ -222,14 +226,28 @@ function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices
               value={form.reason}
               onChange={(e) => setForm({ ...form, reason: e.target.value })}
               placeholder="תאר את סיבת החזרה..."
-              rows={3}
-              style={{ ...inputBase, resize: 'vertical', minHeight: '80px' }}
+              rows={2}
+              style={{ ...inputBase, resize: 'vertical', minHeight: '60px' }}
               onFocus={focus as React.FocusEventHandler<HTMLTextAreaElement>}
               onBlur={blur as React.FocusEventHandler<HTMLTextAreaElement>}
             />
           </div>
 
-          {/* Status + Created by */}
+          {/* Detail */}
+          <div>
+            <label style={labelBase}>פירוט</label>
+            <textarea
+              value={form.detail}
+              onChange={(e) => setForm({ ...form, detail: e.target.value })}
+              placeholder="פרטים נוספים: מצב הסחורה, כמות, הערות..."
+              rows={2}
+              style={{ ...inputBase, resize: 'vertical', minHeight: '60px' }}
+              onFocus={focus as React.FocusEventHandler<HTMLTextAreaElement>}
+              onBlur={blur as React.FocusEventHandler<HTMLTextAreaElement>}
+            />
+          </div>
+
+          {/* Status + Employee */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label style={labelBase}>סטטוס</label>
@@ -247,12 +265,18 @@ function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices
             </div>
             <div>
               <label style={labelBase}>נוצר על ידי</label>
-              <input
-                type="text"
-                value={form.createdBy}
-                readOnly
-                style={{ ...inputBase, background: '#F8F9FA', color: '#6B7280', cursor: 'default' }}
-              />
+              <select
+                value={form.employeeId}
+                onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
+                style={inputBase}
+                onFocus={focus as React.FocusEventHandler<HTMLSelectElement>}
+                onBlur={blur as React.FocusEventHandler<HTMLSelectElement>}
+              >
+                <option value="">— בחר עובד —</option>
+                {employees.filter(e => e.active).map(e => (
+                  <option key={e.id} value={e.id}>{e.name}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -300,6 +324,7 @@ export default function Returns() {
   const { data: serverReturns, loading, error, create: createReturn, update: updateReturn } = useReturns()
   const { data: suppliersData } = useSuppliers()
   const { data: invoicesData } = useInvoices()
+  const { data: employees } = useEmployees()
   const [returns, setReturns] = useState<ReturnEntry[]>([])
   const [filterSupplier, setFilterSupplier] = useState('all')
   const [filterMonth, setFilterMonth] = useState('')
@@ -318,7 +343,7 @@ export default function Returns() {
       if (filterSupplier !== 'all' && r.supplierId !== filterSupplier) return false
       if (filterMonth && !r.dateIso.startsWith(filterMonth)) return false
       if (filterStatus !== 'all' && r.status !== filterStatus) return false
-      if (filterEmployee !== 'all' && r.createdBy !== filterEmployee) return false
+      if (filterEmployee !== 'all' && r.employeeId !== filterEmployee) return false
       return true
     })
     .sort((a, b) => (b.dateIso || '').localeCompare(a.dateIso || ''))
@@ -341,8 +366,9 @@ export default function Returns() {
       dateIso: r.dateIso,
       amountStr: String(r.amount),
       reason: r.reason,
+      detail: r.detail,
       originalInvoiceId: r.originalInvoiceId ?? '',
-      createdBy: r.createdBy,
+      employeeId: r.employeeId ?? '',
       status: r.status,
     })
     setShowForm(true)
@@ -354,6 +380,8 @@ export default function Returns() {
 
     const sup = suppliersData.find(s => s.id === form.supplierId)
     const supplierName = sup?.name ?? ''
+    const emp = employees.find(e => e.id === form.employeeId)
+    const createdByName = emp?.name ?? ''
 
     setShowForm(false)
     setEditId(null)
@@ -366,9 +394,11 @@ export default function Returns() {
         dateIso: form.dateIso,
         amount,
         reason: form.reason,
+        detail: form.detail,
         originalInvoiceId: form.originalInvoiceId || null,
         status: form.status,
-        createdBy: form.createdBy,
+        employeeId: form.employeeId || null,
+        createdBy: createdByName,
       }
       try {
         await updateReturn(editId, body)
@@ -383,9 +413,11 @@ export default function Returns() {
         supplier: supplierName,
         amount,
         reason: form.reason,
+        detail: form.detail,
         originalInvoiceId: form.originalInvoiceId || null,
         status: form.status,
-        createdBy: form.createdBy,
+        employeeId: form.employeeId || null,
+        createdBy: createdByName,
       }
       try {
         await createReturn(entry)
@@ -417,6 +449,7 @@ export default function Returns() {
           לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל
         </div>
       )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <button
@@ -493,14 +526,14 @@ export default function Returns() {
           </div>
 
           <div>
-            <p className="text-right mb-1.5 text-xs font-semibold text-gray-500">עובדת</p>
+            <p className="text-right mb-1.5 text-xs font-semibold text-gray-500">עובד</p>
             <select
               value={filterEmployee}
               onChange={(e) => setFilterEmployee(e.target.value)}
               style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', border: '1px solid #E2E4E9', fontSize: '14px', background: 'white', direction: 'rtl', color: '#1A1D23', cursor: 'pointer', outline: 'none' }}
             >
-              <option value="all">כל העובדות</option>
-              {EMPLOYEES.map(e => <option key={e} value={e}>{e}</option>)}
+              <option value="all">כל העובדים</option>
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </div>
 
@@ -599,6 +632,7 @@ export default function Returns() {
           onClose={() => { setShowForm(false); setEditId(null) }}
           suppliers={suppliersData}
           invoices={invoicesData}
+          employees={employees}
         />
       )}
     </div>
