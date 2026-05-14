@@ -517,6 +517,29 @@ async function deleteEmployee(supabase: SupabaseClient, id: string): Promise<Res
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 
+// Two valid auth paths:
+//   1. x-hadas-key header  — N8N server-to-server calls (unchanged)
+//   2. Authorization: Bearer <jwt> — frontend user calls (new)
+async function isAuthorized(req: Request, supabase: SupabaseClient): Promise<boolean> {
+  const hadasKey = req.headers.get("x-hadas-key");
+  if (hadasKey) return validateKey(hadasKey);
+
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) return false;
+    const { data } = await supabase
+      .from("allowed_users")
+      .select("email")
+      .eq("email", user.email)
+      .maybeSingle();
+    return !!data;
+  }
+
+  return false;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
@@ -530,8 +553,7 @@ Deno.serve(async (req: Request) => {
   const serviceKey  = Deno.env.get("HADAS_SERVICE_KEY")!;
   const supabase    = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-  const hadasKey = req.headers.get("x-hadas-key");
-  if (!validateKey(hadasKey)) {
+  if (!(await isAuthorized(req, supabase))) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { ...CORS, "Content-Type": "application/json" },

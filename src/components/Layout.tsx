@@ -45,7 +45,7 @@ function useIsTablet() {
 
 interface LayoutProps {
   userEmail: string
-  onLogout: () => void
+  onLogout: () => void | Promise<void>
 }
 
 const pageLabels: Record<string, string> = {
@@ -94,7 +94,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const handleDeleteAlert = (id: string) =>
     setAlerts(prev => prev.filter(a => a.id !== id))
 
-  const sidebarWidth = isMobile ? 0 : isTablet ? 200 : isCollapsed ? 72 : 256
+  const sidebarWidth = isMobile ? 0 : isCollapsed ? 72 : isTablet ? 200 : 256
   const pad = isMobile ? '12px' : isTablet ? '20px' : '32px'
 
   const handlePageChange = (page: string) => {
