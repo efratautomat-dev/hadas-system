@@ -599,8 +599,8 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
                   {/* Name + contact — always 2 lines */}
                   <div className="text-right" style={{ minHeight: isTablet ? '54px' : '48px' }}>
                     <h3
-                      className="font-semibold truncate" style={{ color: '#1A1A2E' }}
-                      style={{ fontSize: isTablet ? '20px' : '18px' }}
+                      className="font-semibold truncate"
+                      style={{ color: '#1A1A2E', fontSize: isTablet ? '20px' : '18px' }}
                     >
                       {sup.name}
                     </h3>
