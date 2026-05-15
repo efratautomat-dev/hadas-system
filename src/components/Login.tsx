@@ -5,8 +5,6 @@ interface Props {
   unauthorizedError?: boolean
 }
 
-const PROD_URL = 'https://hadas-system.vercel.app'
-
 export default function Login({ unauthorizedError = false }: Props) {
   const [email, setEmail]     = useState('')
   const [sent, setSent]       = useState(false)
@@ -20,9 +18,11 @@ export default function Login({ unauthorizedError = false }: Props) {
     setLoading(true)
     setError(null)
 
+    // window.location.origin works for both prod (https://hadas-system.vercel.app)
+    // and local dev (http://localhost:5173) without hardcoding.
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: email.trim().toLowerCase(),
-      options: { emailRedirectTo: PROD_URL },
+      options: { emailRedirectTo: window.location.origin },
     })
 
     setLoading(false)
