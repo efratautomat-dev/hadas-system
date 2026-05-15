@@ -7,14 +7,20 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: '#E8645A',
-        'primary-dark': '#8B1A3A',
-        'primary-mid': '#D94F5C',
-        accent: '#E8A020',
-        background: '#FFF8F7',
+        primary:        '#D32F4A',
+        'primary-dark': '#A8213B',
+        'primary-soft': '#F4A5B0',
+        accent:         '#F2C94C',
+        background:     '#F8F8FA',
+        surface:        '#FFFFFF',
+        border:         '#EEEEF2',
+        'border-input': '#DEDFE5',
+        'active-bg':    '#FDF2F4',
+        'text-primary': '#1A1A2E',
+        'text-muted':   '#6B7280',
       },
       fontFamily: {
-        heebo: ['Heebo', 'system-ui', 'sans-serif'],
+        rubik: ['Rubik', 'system-ui', 'sans-serif'],
       },
     },
   },

@@ -28,7 +28,7 @@ function formatILS(n: number | null | undefined) {
 // ── Field primitives ────────────────────────────────────────────────────────
 
 const BASE: React.CSSProperties = {
-  border: '1.5px solid #E5D9D9',
+  border: '1.5px solid #DEDFE5',
   borderRadius: '10px',
   padding: '9px 13px',
   fontSize: '15px',
@@ -90,7 +90,7 @@ function TInput({
         readOnly={readOnly}
         onFocus={f.onFocus}
         onBlur={f.onBlur}
-        style={{ ...BASE, borderColor: f.on && !readOnly ? '#8B1A3A' : '#E5D9D9', background: readOnly ? '#FAF5F5' : 'white' }}
+        style={{ ...BASE, borderColor: f.on && !readOnly ? '#D32F4A' : '#DEDFE5', background: readOnly ? '#F8F8FA' : 'white' }}
       />
     </div>
   )
@@ -114,7 +114,7 @@ function TSelect({
         onChange={e => onChange(e.target.value)}
         onFocus={f.onFocus}
         onBlur={f.onBlur}
-        style={{ ...BASE, borderColor: f.on ? '#8B1A3A' : '#E5D9D9', cursor: 'pointer' }}
+        style={{ ...BASE, borderColor: f.on ? '#D32F4A' : '#DEDFE5', cursor: 'pointer' }}
       >
         <option value="">-- בחר --</option>
         {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -132,8 +132,8 @@ function TCheckbox({ label, checked, onChange }: { label: string; checked: boole
       <span style={{ fontSize: '15px', color: '#374151' }}>{label}</span>
       <div style={{
         width: '22px', height: '22px', borderRadius: '6px', flexShrink: 0,
-        border: checked ? '2px solid #8B1A3A' : '2px solid #D1C4C4',
-        background: checked ? '#8B1A3A' : 'white',
+        border: checked ? '2px solid #D32F4A' : '2px solid #D1C4C4',
+        background: checked ? '#D32F4A' : 'white',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         transition: 'all 0.15s',
       }}>
@@ -158,7 +158,7 @@ function TTextarea({ label, value, onChange }: { label: string; value: string; o
         onFocus={f.onFocus}
         onBlur={f.onBlur}
         rows={4}
-        style={{ ...BASE, borderColor: f.on ? '#8B1A3A' : '#E5D9D9', resize: 'vertical', lineHeight: 1.6 }}
+        style={{ ...BASE, borderColor: f.on ? '#D32F4A' : '#DEDFE5', resize: 'vertical', lineHeight: 1.6 }}
       />
     </div>
   )
@@ -178,7 +178,7 @@ function TLink({ label, value, onChange }: { label: string; value: string; onCha
           onBlur={f.onBlur}
           placeholder="https://..."
           dir="ltr"
-          style={{ ...BASE, flex: 1, textAlign: 'left', borderColor: f.on ? '#8B1A3A' : '#E5D9D9' }}
+          style={{ ...BASE, flex: 1, textAlign: 'left', borderColor: f.on ? '#D32F4A' : '#DEDFE5' }}
         />
         {value && (
           <a
@@ -186,8 +186,8 @@ function TLink({ label, value, onChange }: { label: string; value: string; onCha
             target="_blank"
             rel="noopener noreferrer"
             style={{
-              padding: '9px 11px', borderRadius: '10px', border: '1.5px solid #E5D9D9',
-              color: '#8B1A3A', display: 'flex', alignItems: 'center', flexShrink: 0, textDecoration: 'none',
+              padding: '9px 11px', borderRadius: '10px', border: '1.5px solid #DEDFE5',
+              color: '#D32F4A', display: 'flex', alignItems: 'center', flexShrink: 0, textDecoration: 'none',
             }}
           >
             <ExternalLink size={16} />
@@ -202,9 +202,9 @@ function TLink({ label, value, onChange }: { label: string; value: string; onCha
 
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #E2E4E9', overflow: 'hidden' }}>
-      <div style={{ padding: '12px 18px', borderBottom: '1px solid #E2E4E9', background: '#F8F9FA' }}>
-        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#8B1A3A', textAlign: 'right' }}>{title}</h3>
+    <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #EEEEF2', overflow: 'hidden' }}>
+      <div style={{ padding: '12px 18px', borderBottom: '1px solid #EEEEF2', background: '#FAFAFC' }}>
+        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#D32F4A', textAlign: 'right' }}>{title}</h3>
       </div>
       <div style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
         {children}
@@ -260,12 +260,12 @@ function InvoiceDetail({
         <button
           onClick={() => onSave(form)}
           style={{
-            background: '#7C3AED', color: 'white', border: 'none', borderRadius: '12px',
+            background: '#D32F4A', color: 'white', border: 'none', borderRadius: '12px',
             padding: '10px 22px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: '7px',
           }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
         >
           <Save size={16} />
           שמור
@@ -278,7 +278,7 @@ function InvoiceDetail({
             >
               {form.status}
             </span>
-            <h2 style={{ margin: 0, fontSize: '19px', fontWeight: 800, color: '#1F2937' }}>{form.id}</h2>
+            <h2 style={{ margin: 0, fontSize: '19px', fontWeight: 600, color: '#1F2937' }}>{form.id}</h2>
           </div>
           <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#9CA3AF' }}>{form.supplier}</p>
         </div>
@@ -286,7 +286,7 @@ function InvoiceDetail({
         <button
           onClick={onBack}
           style={{
-            background: 'white', border: '1.5px solid #E5D9D9', borderRadius: '12px',
+            background: 'white', border: '1.5px solid #DEDFE5', borderRadius: '12px',
             padding: '10px 16px', fontSize: '14px', color: '#6B7280', cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: '6px',
           }}
@@ -326,10 +326,10 @@ function InvoiceDetail({
             <TInput label='מע"מ (₪)' value={String(form.vat || '')} onChange={set('vat')} type="number" />
           </Row2>
           <div style={{
-            background: '#F8F9FA', border: '1.5px solid #F0D4DA', borderRadius: '12px',
+            background: '#FAFAFC', border: '1.5px solid #F0D4DA', borderRadius: '12px',
             padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           }}>
-            <span style={{ fontSize: '24px', fontWeight: 800, color: '#8B1A3A' }}>{formatILS(total)}</span>
+            <span style={{ fontSize: '24px', fontWeight: 600, color: '#D32F4A' }}>{formatILS(total)}</span>
             <span style={{ fontSize: '14px', color: '#9CA3AF' }}>סכום כולל (מחושב אוטומטית)</span>
           </div>
         </Group>
@@ -492,7 +492,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
   if (loading && invoices.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
       </div>
     )
   }
@@ -507,7 +507,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
 
       {/* Header */}
       <div className="text-right">
-        <h1 className="text-2xl font-black text-gray-800">חשבוניות</h1>
+        <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>חשבוניות</h1>
         <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>
           {invoices.length} חשבוניות במערכת
         </p>
@@ -524,9 +524,9 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
           <div
             key={label}
             className="bg-white rounded-2xl p-4 shadow-sm border text-center"
-            style={{ borderColor: '#E2E4E9' }}
+            style={{ borderColor: '#EEEEF2' }}
           >
-            <p className="text-2xl font-black" style={{ color }}>{value}</p>
+            <p className="text-2xl" style={{ color, fontWeight: 500 }}>{value}</p>
             <p className="text-gray-500 mt-1" style={{ fontSize: '13px' }}>{label}</p>
           </div>
         ))}
@@ -536,7 +536,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
       <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div
           className="bg-white rounded-xl border p-1 flex-shrink-0"
-          style={{ borderColor: '#E2E4E9', display: 'flex', gap: '2px' }}
+          style={{ borderColor: '#EEEEF2', display: 'flex', gap: '2px' }}
         >
           {(['all', 'ממתין', 'בטיפול', 'הושלם', 'שגיאה', 'כפילויות'] as Filter[]).map(f => (
             <button
@@ -545,7 +545,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
               style={{
                 borderRadius: '8px', padding: '7px 12px', fontSize: '14px', fontWeight: 600,
                 border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                background: filter === f ? (f === 'כפילויות' ? '#D97706' : '#8B1A3A') : 'transparent',
+                background: filter === f ? (f === 'כפילויות' ? '#D97706' : '#D32F4A') : 'transparent',
                 color: filter === f ? 'white' : f === 'כפילויות' ? '#D97706' : '#6B7280',
                 display: 'flex', alignItems: 'center', gap: '5px',
               }}
@@ -566,7 +566,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
         </div>
         <div
           className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4"
-          style={{ borderColor: '#E2E4E9', minHeight: '44px' }}
+          style={{ borderColor: '#EEEEF2', minHeight: '44px' }}
         >
           <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <input
@@ -609,7 +609,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
       )}
 
       {/* List */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
         {filtered.length === 0 ? (
           <div className="py-16 text-center text-gray-400">
             <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -620,7 +620,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
             {/* Column headers */}
             <div
               className="grid font-semibold text-gray-400 uppercase tracking-wider border-b"
-              style={{ gridTemplateColumns: COL, borderColor: '#E2E4E9', fontSize: '11px', padding: '10px 16px' }}
+              style={{ gridTemplateColumns: COL, borderColor: '#EEEEF2', fontSize: '11px', padding: '10px 16px' }}
             >
               <span className="text-right">ספק</span>
               {!isMobile && <span className="text-right">מסמך · תאריך</span>}
@@ -644,13 +644,13 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
                   className="grid items-center cursor-pointer"
                   style={{
                     gridTemplateColumns: COL,
-                    borderBottom: '1px solid #E2E4E9',
+                    borderBottom: '1px solid #EEEEF2',
                     minHeight: '56px',
                     padding: '12px 16px',
                     transition: 'background 0.12s',
                   }}
                   onClick={() => setSelected(inv)}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#F8F9FA')}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#FDF5F6')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
                   {/* Col 1: ספק + flags */}
@@ -733,7 +733,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
             onClick={e => e.stopPropagation()}
           >
             {/* Modal header */}
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid #E2E4E9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #EEEEF2', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <button
                 onClick={() => { setDupModal(null); setConfirmDelete(false) }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: '4px', borderRadius: '8px' }}
@@ -741,7 +741,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
                 <X className="w-5 h-5" />
               </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h2 style={{ fontSize: '17px', fontWeight: 800, color: '#1F2937', margin: 0 }}>השוואת חשבוניות כפולות</h2>
+                <h2 style={{ fontSize: '17px', fontWeight: 600, color: '#1F2937', margin: 0 }}>השוואת חשבוניות כפולות</h2>
                 <AlertTriangle className="w-5 h-5" style={{ color: '#D97706' }} />
               </div>
             </div>
@@ -749,7 +749,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
             {/* Column sub-headers */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', padding: '14px 24px 8px' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: '#6B7280', textAlign: 'right' }}>שדה</span>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#8B1A3A', textAlign: 'center' }}>חשבונית זו</span>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#D32F4A', textAlign: 'center' }}>חשבונית זו</span>
               <span style={{ fontSize: '11px', fontWeight: 700, color: '#9CA3AF', textAlign: 'center' }}>כפילות אפשרית</span>
             </div>
 
@@ -805,7 +805,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
             {!confirmDelete && (
               <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <button onClick={handleSetPrimary}
-                  style={{ width: '100%', height: '46px', borderRadius: '12px', background: 'linear-gradient(135deg,#8B1A3A,#E8645A)', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '15px', fontFamily: 'inherit' }}>
+                  style={{ width: '100%', height: '46px', borderRadius: '12px', background: '#D32F4A', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '15px', fontFamily: 'inherit' }}>
                   סמן כחשבונית ראשית
                 </button>
                 <div style={{ display: 'flex', gap: '8px' }}>

@@ -73,22 +73,22 @@ const emptyForm: EditFormState = {
 
 const inputBase: React.CSSProperties = {
   height: '44px', padding: '0 14px', fontSize: '16px',
-  outline: 'none', border: '1px solid #E2E4E9', borderRadius: '12px',
+  outline: 'none', border: '1px solid #DEDFE5', borderRadius: '12px',
   background: 'white', width: '100%', color: '#1F2937', boxSizing: 'border-box',
 }
 
 const textareaBase: React.CSSProperties = {
   padding: '12px 14px', fontSize: '16px',
-  outline: 'none', border: '1px solid #E2E4E9', borderRadius: '12px',
+  outline: 'none', border: '1px solid #EEEEF2', borderRadius: '12px',
   background: 'white', width: '100%', color: '#1F2937',
   resize: 'vertical', minHeight: '80px', boxSizing: 'border-box',
 }
 
 function focusBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = '#E8645A'
+  (e.target as HTMLElement).style.borderColor = '#D32F4A'
 }
 function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = '#E2E4E9'
+  (e.target as HTMLElement).style.borderColor = '#DEDFE5'
 }
 
 function FormField({
@@ -98,7 +98,7 @@ function FormField({
     <div>
       <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>
         {label}
-        {required && <span style={{ color: '#E8645A' }}> *</span>}
+        {required && <span style={{ color: '#D32F4A' }}> *</span>}
       </p>
       {children}
     </div>
@@ -108,8 +108,8 @@ function FormField({
 function GroupHeader({ title }: { title: string }) {
   return (
     <div className="flex items-center gap-3 mb-3">
-      <div className="flex-1 h-px" style={{ background: '#E2E4E9' }} />
-      <span style={{ fontSize: '12px', fontWeight: 700, color: '#8B1A3A', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
+      <div className="flex-1 h-px" style={{ background: '#EEEEF2' }} />
+      <span style={{ fontSize: '12px', fontWeight: 700, color: '#D32F4A', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
         {title}
       </span>
     </div>
@@ -128,7 +128,7 @@ function SupplierFormCard({
   const canSave = form.name.trim().length > 0
 
   return (
-    <div className="bg-white rounded-2xl flex flex-col" style={{ border: '2px solid #E8645A' }}>
+    <div className="bg-white rounded-2xl flex flex-col" style={{ border: '1px solid #EEEEF2' }}>
       <div className="p-5 flex flex-col gap-5">
 
         {/* Header */}
@@ -141,7 +141,7 @@ function SupplierFormCard({
           >
             <X className="w-4 h-4" />
           </button>
-          <h3 className="font-black text-gray-800 text-right" style={{ fontSize: '16px' }}>{title}</h3>
+          <h3 className="font-semibold text-right" style={{ fontSize: '16px', color: '#1A1A2E' }}>{title}</h3>
         </div>
 
         {/* ── קבוצה 1: פרטי זיהוי ── */}
@@ -290,7 +290,7 @@ function SupplierFormCard({
           className="flex-1 rounded-xl font-semibold transition-all"
           style={{
             minHeight: '44px', fontSize: '15px',
-            background: canSave ? '#7C3AED' : '#E5E7EB',
+            background: canSave ? '#D32F4A' : '#E5E7EB',
             color: canSave ? 'white' : '#9CA3AF',
           }}
         >
@@ -434,7 +434,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
   if (loading && suppliers.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
       </div>
     )
   }
@@ -450,7 +450,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="text-right">
-          <h1 className="text-2xl font-black text-gray-800">ספקים</h1>
+          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>ספקים</h1>
           <p className="text-gray-500 mt-0.5" style={{ fontSize: isTablet ? '16px' : '14px' }}>
             {suppliers.length} ספקים במערכת
           </p>
@@ -459,13 +459,13 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
           onClick={() => { setShowAdd(true); setAddForm({ ...emptyForm }) }}
           className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all flex-shrink-0"
           style={{
-            background: '#7C3AED',
+            background: '#D32F4A',
             padding: isTablet ? '12px 20px' : '10px 18px',
             minHeight: '44px',
             fontSize: isTablet ? '16px' : '14px',
           }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
         >
           <Plus className="w-4 h-4 flex-shrink-0" />
           הוסף ספק
@@ -482,9 +482,9 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
           <div
             key={label}
             className="bg-white rounded-2xl p-4 shadow-sm border text-center"
-            style={{ borderColor: '#E2E4E9' }}
+            style={{ borderColor: '#EEEEF2' }}
           >
-            <p className="text-2xl font-black" style={{ color }}>{value}</p>
+            <p className="text-2xl" style={{ color, fontWeight: 500 }}>{value}</p>
             <p className="text-gray-500 mt-1" style={{ fontSize: isTablet ? '15px' : '13px' }}>{label}</p>
           </div>
         ))}
@@ -492,7 +492,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#E2E4E9' }}>
+        <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#EEEEF2' }}>
           {(['all', 'פעיל', 'לא פעיל'] as StatusFilter[]).map((f) => (
             <button
               key={f}
@@ -501,7 +501,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
               style={{
                 minHeight: isTablet ? '40px' : '34px',
                 fontSize: isTablet ? '16px' : '13px',
-                background: statusFilter === f ? '#8B1A3A' : 'transparent',
+                background: statusFilter === f ? '#D32F4A' : 'transparent',
                 color: statusFilter === f ? 'white' : '#6B7280',
               }}
             >
@@ -511,7 +511,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
         </div>
         <div
           className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4"
-          style={{ borderColor: '#E2E4E9', minHeight: '44px' }}
+          style={{ borderColor: '#EEEEF2', minHeight: '44px' }}
         >
           <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <input
@@ -568,7 +568,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
               <div
                 key={sup.id}
                 className="bg-white rounded-2xl shadow-sm border flex flex-col"
-                style={{ borderColor: '#E2E4E9' }}
+                style={{ borderColor: '#EEEEF2' }}
               >
                 <div className="p-5 flex-1 flex flex-col gap-4">
 
@@ -599,7 +599,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
                   {/* Name + contact — always 2 lines */}
                   <div className="text-right" style={{ minHeight: isTablet ? '54px' : '48px' }}>
                     <h3
-                      className="font-black text-gray-800 truncate"
+                      className="font-semibold truncate" style={{ color: '#1A1A2E' }}
                       style={{ fontSize: isTablet ? '20px' : '18px' }}
                     >
                       {sup.name}
@@ -613,11 +613,11 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
                   </div>
 
                   {/* Balance box — fixed structure */}
-                  <div className="rounded-xl p-3 text-right" style={{ background: '#F8F9FA' }}>
+                  <div className="rounded-xl p-3 text-right" style={{ background: '#F5F5F8' }}>
                     <p style={{ fontSize: '11px', color: '#9CA3AF', minHeight: '16px' }}>
                       יתרת פתיחה{(sup as any).openingBalanceDate ? ` · ${(sup as any).openingBalanceDate}` : ''}
                     </p>
-                    <p className="font-black text-gray-800 mt-0.5" style={{ fontSize: isTablet ? '24px' : '22px' }}>
+                    <p className="mt-0.5" style={{ fontSize: isTablet ? '24px' : '22px', fontWeight: 500, color: '#1A1A2E' }}>
                       {formatILS((sup as any).openingBalance ?? 0)}
                     </p>
                   </div>
@@ -632,7 +632,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
                     style={{
                       minHeight: '44px',
                       fontSize: isTablet ? '15px' : '14px',
-                      background: '#7C3AED',
+                      background: '#D32F4A',
                       color: 'white',
                     }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
@@ -647,11 +647,11 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
                     style={{
                       minHeight: '44px',
                       fontSize: isTablet ? '15px' : '14px',
-                      background: '#FFF0EF',
-                      color: '#E8645A',
+                      background: '#FDF2F4',
+                      color: '#D32F4A',
                     }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FFF0EF')}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
                   >
                     <Pencil className="w-4 h-4" />
                     עריכה

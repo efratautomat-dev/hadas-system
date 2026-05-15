@@ -15,8 +15,8 @@ interface TableRow {
   runningBalance: number
 }
 
-function formatILS(n: number) {
-  return '₪' + n.toLocaleString('he-IL')
+function formatILS(n: number | null | undefined) {
+  return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
 function isoToDisplay(iso: string): string {
@@ -113,7 +113,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
     const rowsHtml = rows.map(row => {
       const bs = typeBadge[row.type] ?? typeBadge['פתיחה']
       const isOpening = row.type === 'פתיחה'
-      return `<tr style="border-bottom:1px solid #F0E8E7;background:${isOpening ? '#FFF8F7' : 'white'}">
+      return `<tr style="border-bottom:1px solid #EEEEF2;background:${isOpening ? '#FDF2F4' : 'white'}">
         <td style="padding:9px 12px">${row.displayDate}</td>
         <td style="padding:9px 12px">${row.description}</td>
         <td style="padding:9px 6px;text-align:center">
@@ -133,13 +133,13 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   <style>
     *{box-sizing:border-box;font-family:Arial,sans-serif}
     body{margin:24px;color:#1F2937;direction:rtl}
-    .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;margin-bottom:20px;border-bottom:2px solid #8B1A3A}
+    .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;margin-bottom:20px;border-bottom:2px solid #D32F4A}
     .logo{height:56px;object-fit:contain}
     table{width:100%;border-collapse:collapse}
-    thead tr{background:#8B1A3A}
+    thead tr{background:#D32F4A}
     th{padding:10px 12px;color:white;font-size:13px;text-align:right;font-weight:600}
     th.num{text-align:left}
-    .foot-row{background:#FFF8F7;border-top:2px solid #8B1A3A}
+    .foot-row{background:#FDF2F4;border-top:2px solid #D32F4A}
     .foot-row td{padding:10px 12px;font-weight:700}
     @media print{@page{margin:1cm}}
   </style>
@@ -152,7 +152,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   </div>
   <div style="text-align:right">
     <div style="font-size:12px;color:#9CA3AF;margin-bottom:4px">כרטסת ספק</div>
-    <div style="font-size:22px;font-weight:900;color:#8B1A3A">${supplier.name}</div>
+    <div style="font-size:22px;font-weight:900;color:#D32F4A">${supplier.name}</div>
     <div style="font-size:12px;color:#6B7280;margin-top:2px">${supplier.contact} · ${supplier.phone}</div>
   </div>
   <img src="${logoUrl}" class="logo" alt="לוגו" onerror="this.style.display='none'"/>
@@ -170,7 +170,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       <td colspan="3" style="color:#6B7280;font-size:13px">סיכום תקופה</td>
       <td style="text-align:left;color:#A16207">${formatILS(totalDebit)}</td>
       <td style="text-align:left;color:#166534">${formatILS(totalCredit)}</td>
-      <td style="text-align:left;color:#8B1A3A;font-size:15px">${formatILS(finalBalance)}</td>
+      <td style="text-align:left;color:#D32F4A;font-size:15px">${formatILS(finalBalance)}</td>
     </tr>
   </tfoot>
 </table>
@@ -187,7 +187,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   if (loading && suppliersData.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
       </div>
     )
   }
@@ -200,15 +200,15 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="text-right">
-          <h1 className="text-2xl font-black text-gray-800">כרטסת ספק</h1>
+          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>כרטסת ספק</h1>
           <p className="text-gray-500 mt-0.5" style={{ fontSize: '15px' }}>כרטסת עסקאות מפורטת לפי ספק ותקופה</p>
         </div>
         <button
           onClick={handlePrint}
           className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-          style={{ minHeight: '44px', padding: '0 18px', background: '#FFF0EF', color: '#E8645A', fontSize: '16px' }}
+          style={{ minHeight: '44px', padding: '0 18px', background: '#FDF2F4', color: '#D32F4A', fontSize: '16px' }}
           onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
-          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FFF0EF')}
+          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
         >
           <Printer className="w-4 h-4" />
           הדפסה
@@ -216,7 +216,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl shadow-sm border p-5" style={{ borderColor: '#F0E8E7' }}>
+      <div className="bg-white rounded-2xl shadow-sm border p-5" style={{ borderColor: '#EEEEF2' }}>
         <div
           className="grid gap-4"
           style={{ gridTemplateColumns: '1fr 160px 160px' }}
@@ -229,11 +229,11 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
               onChange={e => setSelectedSupplierId(e.target.value)}
               style={{
                 height: '44px', width: '100%', padding: '0 14px', fontSize: '16px',
-                border: '1px solid #F0E8E7', borderRadius: '12px', outline: 'none',
+                border: '1px solid #EEEEF2', borderRadius: '12px', outline: 'none',
                 background: 'white', color: '#1F2937', direction: 'rtl', cursor: 'pointer',
               }}
-              onFocus={e => (e.target.style.borderColor = '#E8645A')}
-              onBlur={e  => (e.target.style.borderColor = '#F0E8E7')}
+              onFocus={e => (e.target.style.borderColor = '#D32F4A')}
+              onBlur={e  => (e.target.style.borderColor = '#EEEEF2')}
             >
               {suppliersData.map(s => (
                 <option key={s.id} value={s.id}>{s.name}</option>
@@ -250,11 +250,11 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
               onChange={e => setFromDate(e.target.value)}
               style={{
                 height: '44px', width: '100%', padding: '0 12px', fontSize: '15px',
-                border: '1px solid #F0E8E7', borderRadius: '12px', outline: 'none',
+                border: '1px solid #EEEEF2', borderRadius: '12px', outline: 'none',
                 background: 'white', direction: 'ltr',
               }}
-              onFocus={e => (e.target.style.borderColor = '#E8645A')}
-              onBlur={e  => (e.target.style.borderColor = '#F0E8E7')}
+              onFocus={e => (e.target.style.borderColor = '#D32F4A')}
+              onBlur={e  => (e.target.style.borderColor = '#EEEEF2')}
             />
           </div>
 
@@ -267,18 +267,18 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
               onChange={e => setToDate(e.target.value)}
               style={{
                 height: '44px', width: '100%', padding: '0 12px', fontSize: '15px',
-                border: '1px solid #F0E8E7', borderRadius: '12px', outline: 'none',
+                border: '1px solid #EEEEF2', borderRadius: '12px', outline: 'none',
                 background: 'white', direction: 'ltr',
               }}
-              onFocus={e => (e.target.style.borderColor = '#E8645A')}
-              onBlur={e  => (e.target.style.borderColor = '#F0E8E7')}
+              onFocus={e => (e.target.style.borderColor = '#D32F4A')}
+              onBlur={e  => (e.target.style.borderColor = '#EEEEF2')}
             />
           </div>
         </div>
       </div>
 
       {/* Ledger table card */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#F0E8E7' }}>
+      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
 
         {/* Card header */}
         <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: '#F5EEEE' }}>
@@ -298,7 +298,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           {/* Column headers */}
           <div
             className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
-            style={{ gridTemplateColumns: activeCOL, borderColor: '#E2E4E9', fontSize: '11px', minWidth: isMobile ? '300px' : '660px', padding: '10px 16px' }}
+            style={{ gridTemplateColumns: activeCOL, borderColor: '#EEEEF2', fontSize: '11px', minWidth: isMobile ? '300px' : '660px', padding: '10px 16px' }}
           >
             <span className="text-right">תאריך</span>
             <span className="text-right">תיאור</span>
@@ -318,8 +318,8 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                 className="grid items-center"
                 style={{
                   gridTemplateColumns: activeCOL,
-                  borderBottom: '1px solid #E2E4E9',
-                  background: isOpening ? '#FFF8F7' : undefined,
+                  borderBottom: '1px solid #EEEEF2',
+                  background: isOpening ? '#FDF2F4' : undefined,
                   minWidth: isMobile ? '300px' : '660px',
                   minHeight: '56px',
                   padding: '12px 16px',
@@ -351,7 +351,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                     {row.credit > 0 ? formatILS(row.credit) : '—'}
                   </span>
                 )}
-                <span className="text-left font-black" style={{ fontSize: '15px', color: isOpening ? '#6B7280' : '#1F2937' }}>
+                <span className="text-left font-semibold" style={{ fontSize: '15px', color: isOpening ? '#6B7280' : '#1F2937' }}>
                   {formatILS(row.runningBalance)}
                 </span>
               </div>
@@ -361,22 +361,22 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           {/* Summary row */}
           <div
             className="grid items-center"
-            style={{ gridTemplateColumns: activeCOL, borderTop: '2px solid #8B1A3A', background: '#FFF8F7', minWidth: isMobile ? '300px' : '660px', padding: '12px 16px' }}
+            style={{ gridTemplateColumns: activeCOL, borderTop: '2px solid #D32F4A', background: '#FDF2F4', minWidth: isMobile ? '300px' : '660px', padding: '12px 16px' }}
           >
             <div style={{ gridColumn: isMobile ? 'span 1' : 'span 3', textAlign: 'right' }}>
               <span className="font-bold" style={{ fontSize: '13px', color: '#6B7280' }}>סיכום תקופה</span>
             </div>
             {!isMobile && (
-              <span className="text-left font-black" style={{ color: '#A16207', fontSize: '15px' }}>
+              <span className="text-left font-semibold" style={{ color: '#A16207', fontSize: '15px' }}>
                 {formatILS(totalDebit)}
               </span>
             )}
             {!isMobile && (
-              <span className="text-left font-black" style={{ color: '#166534', fontSize: '15px' }}>
+              <span className="text-left font-semibold" style={{ color: '#166534', fontSize: '15px' }}>
                 {formatILS(totalCredit)}
               </span>
             )}
-            <span className="text-left font-black" style={{ color: '#8B1A3A', fontSize: '16px' }}>
+            <span className="text-left font-semibold" style={{ color: '#D32F4A', fontSize: '16px' }}>
               {formatILS(finalBalance)}
             </span>
           </div>
@@ -386,17 +386,17 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
 
       {/* Summary stat cards */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#F0E8E7' }}>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#EEEEF2' }}>
           <p style={{ fontSize: '11px', color: '#A16207', fontWeight: 600, marginBottom: '6px' }}>סה"כ חובה</p>
-          <p className="font-black text-2xl" style={{ color: '#A16207' }}>{formatILS(totalDebit)}</p>
+          <p className="text-2xl" style={{ fontWeight: 500, color: '#A16207' }}>{formatILS(totalDebit)}</p>
         </div>
-        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#F0E8E7' }}>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#EEEEF2' }}>
           <p style={{ fontSize: '11px', color: '#166534', fontWeight: 600, marginBottom: '6px' }}>סה"כ זכות</p>
-          <p className="font-black text-2xl" style={{ color: '#166534' }}>{formatILS(totalCredit)}</p>
+          <p className="text-2xl" style={{ fontWeight: 500, color: '#166534' }}>{formatILS(totalCredit)}</p>
         </div>
-        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#F0E8E7' }}>
-          <p style={{ fontSize: '11px', color: '#8B1A3A', fontWeight: 600, marginBottom: '6px' }}>יתרה סופית</p>
-          <p className="font-black text-2xl" style={{ color: '#8B1A3A' }}>{formatILS(finalBalance)}</p>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#EEEEF2' }}>
+          <p style={{ fontSize: '11px', color: '#D32F4A', fontWeight: 600, marginBottom: '6px' }}>יתרה סופית</p>
+          <p className="text-2xl" style={{ fontWeight: 500, color: '#D32F4A' }}>{formatILS(finalBalance)}</p>
         </div>
       </div>
 

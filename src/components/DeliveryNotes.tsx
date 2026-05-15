@@ -35,21 +35,21 @@ function getLabel(status: string) {
 
 const fieldStyle: React.CSSProperties = {
   height: '44px', width: '100%', padding: '0 14px', fontSize: '16px',
-  border: '1px solid #F0E8E7', borderRadius: '12px', outline: 'none',
+  border: '1px solid #DEDFE5', borderRadius: '12px', outline: 'none',
   background: 'white', color: '#1F2937',
 }
 
 function focusBdr(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = '#E8645A'
+  (e.target as HTMLElement).style.borderColor = '#D32F4A'
 }
 function blurBdr(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = '#F0E8E7'
+  (e.target as HTMLElement).style.borderColor = '#DEDFE5'
 }
 
 function FieldLabel({ text, required }: { text: string; required?: boolean }) {
   return (
     <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>
-      {text}{required && <span style={{ color: '#E8645A' }}> *</span>}
+      {text}{required && <span style={{ color: '#D32F4A' }}> *</span>}
     </p>
   )
 }
@@ -185,7 +185,7 @@ export default function DeliveryNotes() {
   if (loading && notes.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
       </div>
     )
   }
@@ -201,7 +201,7 @@ export default function DeliveryNotes() {
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div className="text-right">
-          <h1 className="text-2xl font-black text-gray-800">תעודות משלוח</h1>
+          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>תעודות משלוח</h1>
           <p className="text-gray-500 mt-0.5" style={{ fontSize: '15px' }}>
             {pendingCount} ממתינות לשיוך · {archivedCount} בארכיון
           </p>
@@ -209,7 +209,7 @@ export default function DeliveryNotes() {
         <button
           onClick={() => { setForm({ ...emptyForm }); setModalType('add') }}
           className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
-          style={{ background: 'linear-gradient(135deg,#8B1A3A,#E8645A)', minHeight: '44px', padding: '0 20px', fontSize: '16px' }}
+          style={{ background: '#D32F4A', minHeight: '44px', padding: '0 20px', fontSize: '16px' }}
           onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
           onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
         >
@@ -222,18 +222,18 @@ export default function DeliveryNotes() {
       <div className="grid grid-cols-3 gap-4">
         {[
           { label: 'ממתינות לשיוך', value: pendingCount,  color: '#A16207', bg: '#FFFBEB', border: '#FDE68A' },
-          { label: 'בארכיון',       value: archivedCount, color: '#6B7280', bg: 'white',   border: '#F0E8E7' },
-          { label: 'סה"כ תעודות',   value: notes.length,  color: '#1F2937', bg: 'white',   border: '#F0E8E7' },
+          { label: 'בארכיון',       value: archivedCount, color: '#6B7280', bg: 'white',   border: '#DEDFE5' },
+          { label: 'סה"כ תעודות',   value: notes.length,  color: '#1F2937', bg: 'white',   border: '#DEDFE5' },
         ].map(({ label, value, color, bg, border }) => (
           <div key={label} className="rounded-2xl p-4 shadow-sm border text-center" style={{ background: bg, borderColor: border }}>
-            <p className="font-black text-2xl" style={{ color }}>{value}</p>
+            <p className="text-2xl" style={{ color, fontWeight: 500 }}>{value}</p>
             <p className="text-gray-500 mt-1" style={{ fontSize: '14px' }}>{label}</p>
           </div>
         ))}
       </div>
 
       {/* ── Toggle + Filters ── */}
-      <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#F0E8E7' }}>
+      <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#DEDFE5' }}>
         <div className="flex items-center gap-3 flex-wrap">
 
           {/* View toggle */}
@@ -248,7 +248,7 @@ export default function DeliveryNotes() {
                 className="rounded-lg px-4 font-medium transition-all"
                 style={{
                   minHeight: '36px', fontSize: '14px',
-                  background: showAll === v ? '#8B1A3A' : 'transparent',
+                  background: showAll === v ? '#D32F4A' : 'transparent',
                   color: showAll === v ? 'white' : '#6B7280',
                 }}
               >
@@ -288,7 +288,7 @@ export default function DeliveryNotes() {
                   className="rounded-lg px-3 font-medium transition-all"
                   style={{
                     minHeight: '36px', fontSize: '13px',
-                    background: filterStat === s ? '#E8645A' : 'transparent',
+                    background: filterStat === s ? '#D32F4A' : 'transparent',
                     color: filterStat === s ? 'white' : '#6B7280',
                   }}
                 >
@@ -314,13 +314,13 @@ export default function DeliveryNotes() {
       </div>
 
       {/* ── Table ── */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#F0E8E7' }}>
+      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#DEDFE5' }}>
         <div style={{ overflowX: 'auto' }}>
 
           {/* Column headers */}
           <div
             className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
-            style={{ gridTemplateColumns: COL, borderColor: '#E2E4E9', fontSize: '11px', minWidth: isMobile ? '300px' : MIN_W, padding: '10px 16px' }}
+            style={{ gridTemplateColumns: COL, borderColor: '#EEEEF2', fontSize: '11px', minWidth: isMobile ? '300px' : MIN_W, padding: '10px 16px' }}
           >
             {!isMobile && <span className="text-right">מספר תעודה</span>}
             <span className="text-right">ספק</span>
@@ -347,7 +347,7 @@ export default function DeliveryNotes() {
                   className="grid items-center cursor-pointer transition-colors"
                   style={{
                     gridTemplateColumns: COL,
-                    borderBottom: '1px solid #E2E4E9',
+                    borderBottom: '1px solid #EEEEF2',
                     background: isArchived ? '#FAFAFA' : 'white',
                     minWidth: isMobile ? '300px' : MIN_W,
                     minHeight: '56px',
@@ -411,7 +411,7 @@ export default function DeliveryNotes() {
             {modalType === 'detail' && selected && normalizeStatus(selected.status) === 'pending' && (
               <div>
                 {/* Modal header */}
-                <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#F0E8E7' }}>
+                <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#DEDFE5' }}>
                   <button onClick={closeModal} className="p-1.5 rounded-lg text-gray-400 transition-colors"
                     onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#6B7280')}
                     onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '')}
@@ -420,7 +420,7 @@ export default function DeliveryNotes() {
                     <span className="rounded-lg font-medium" style={{ fontSize: '12px', padding: '3px 10px', background: statusBadge.pending.bg, color: statusBadge.pending.color }}>
                       {statusLabel.pending}
                     </span>
-                    <h2 className="font-black text-gray-800" style={{ fontSize: '17px' }}>תעודת משלוח {selected.id}</h2>
+                    <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>תעודת משלוח {selected.id}</h2>
                   </div>
                 </div>
 
@@ -433,7 +433,7 @@ export default function DeliveryNotes() {
                       { label: 'סכום',   value: formatILS(selected.amount) },
                       { label: 'מספר',   value: selected.id },
                     ].map(({ label, value }) => (
-                      <div key={label} className="rounded-xl px-4 py-3 text-right" style={{ background: '#FFF8F7', border: '1px solid #F0E8E7' }}>
+                      <div key={label} className="rounded-xl px-4 py-3 text-right" style={{ background: '#FFF8F7', border: '1px solid #DEDFE5' }}>
                         <p style={{ fontSize: '11px', color: '#9CA3AF' }}>{label}</p>
                         <p className="font-bold text-gray-800 mt-0.5" style={{ fontSize: '15px' }}>{value}</p>
                       </div>
@@ -441,7 +441,7 @@ export default function DeliveryNotes() {
                   </div>
 
                   {selected.notes && (
-                    <div className="rounded-xl px-4 py-3 text-right" style={{ background: '#FFF8F7', border: '1px solid #F0E8E7' }}>
+                    <div className="rounded-xl px-4 py-3 text-right" style={{ background: '#FFF8F7', border: '1px solid #DEDFE5' }}>
                       <p style={{ fontSize: '11px', color: '#9CA3AF' }}>הערות</p>
                       <p className="text-gray-700 mt-0.5" style={{ fontSize: '14px' }}>{selected.notes}</p>
                     </div>
@@ -451,7 +451,7 @@ export default function DeliveryNotes() {
                   <div>
                     <div className="flex items-center gap-2 justify-end mb-3">
                       <p className="font-semibold text-gray-700" style={{ fontSize: '14px' }}>שיוך לחשבונית</p>
-                      <div className="flex-1 h-px" style={{ background: '#F0E8E7' }} />
+                      <div className="flex-1 h-px" style={{ background: '#DEDFE5' }} />
                     </div>
 
                     {supplierInvoices.length === 0 ? (
@@ -485,7 +485,7 @@ export default function DeliveryNotes() {
                     className="flex-1 rounded-xl font-semibold transition-all"
                     style={{
                       minHeight: '44px', fontSize: '15px',
-                      background: selectedInvId ? 'linear-gradient(135deg,#8B1A3A,#E8645A)' : '#E5E7EB',
+                      background: selectedInvId ? '#D32F4A' : '#E5E7EB',
                       color: selectedInvId ? 'white' : '#9CA3AF',
                     }}
                   >
@@ -508,7 +508,7 @@ export default function DeliveryNotes() {
             {modalType === 'detail' && selected && normalizeStatus(selected.status) === 'archived' && (
               <div>
                 {/* Modal header */}
-                <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#F0E8E7' }}>
+                <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#DEDFE5' }}>
                   <button onClick={closeModal} className="p-1.5 rounded-lg text-gray-400 transition-colors"
                     onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#6B7280')}
                     onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '')}
@@ -517,7 +517,7 @@ export default function DeliveryNotes() {
                     <span className="rounded-lg font-medium" style={{ fontSize: '12px', padding: '3px 10px', background: statusBadge.archived.bg, color: statusBadge.archived.color }}>
                       {statusLabel.archived}
                     </span>
-                    <h2 className="font-black text-gray-800" style={{ fontSize: '17px' }}>תעודת משלוח {selected.id}</h2>
+                    <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>תעודת משלוח {selected.id}</h2>
                   </div>
                 </div>
 
@@ -530,7 +530,7 @@ export default function DeliveryNotes() {
                       { label: 'סכום',  value: formatILS(selected.amount) },
                       { label: 'מספר',  value: selected.id },
                     ].map(({ label, value }) => (
-                      <div key={label} className="rounded-xl px-4 py-3 text-right" style={{ background: '#FAFAFA', border: '1px solid #F0E8E7' }}>
+                      <div key={label} className="rounded-xl px-4 py-3 text-right" style={{ background: '#FAFAFA', border: '1px solid #DEDFE5' }}>
                         <p style={{ fontSize: '11px', color: '#9CA3AF' }}>{label}</p>
                         <p className="font-bold text-gray-600 mt-0.5" style={{ fontSize: '15px' }}>{value}</p>
                       </div>
@@ -538,7 +538,7 @@ export default function DeliveryNotes() {
                   </div>
 
                   {selected.notes && (
-                    <div className="rounded-xl px-4 py-3 text-right" style={{ background: '#FAFAFA', border: '1px solid #F0E8E7' }}>
+                    <div className="rounded-xl px-4 py-3 text-right" style={{ background: '#FAFAFA', border: '1px solid #DEDFE5' }}>
                       <p style={{ fontSize: '11px', color: '#9CA3AF' }}>הערות</p>
                       <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>{selected.notes}</p>
                     </div>
@@ -548,13 +548,13 @@ export default function DeliveryNotes() {
                   <div>
                     <div className="flex items-center gap-2 justify-end mb-3">
                       <p className="font-semibold text-gray-700" style={{ fontSize: '14px' }}>חשבונית משויכת</p>
-                      <div className="flex-1 h-px" style={{ background: '#F0E8E7' }} />
+                      <div className="flex-1 h-px" style={{ background: '#DEDFE5' }} />
                     </div>
 
                     {linkedInvoice ? (
                       <div className="rounded-xl p-4 text-right" style={{ background: '#F0FDF4', border: '1px solid #BBF7D0' }}>
                         <div className="flex items-center justify-between">
-                          <span className="font-black" style={{ color: '#166534', fontSize: '16px' }}>
+                          <span className="font-semibold" style={{ color: '#166534', fontSize: '16px' }}>
                             {formatILS(linkedInvoice.amount)}
                           </span>
                           <span className="font-bold" style={{ color: '#166534', fontSize: '15px' }}>
@@ -609,9 +609,9 @@ export default function DeliveryNotes() {
                     <button
                       onClick={() => setConfirmUnlink(true)}
                       className="flex-1 rounded-xl font-semibold transition-all"
-                      style={{ minHeight: '44px', fontSize: '15px', background: '#FFF0EF', color: '#E8645A' }}
+                      style={{ minHeight: '44px', fontSize: '15px', background: '#FDF2F4', color: '#D32F4A' }}
                       onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
-                      onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FFF0EF')}
+                      onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
                     >
                       בטל שיוך
                     </button>
@@ -633,12 +633,12 @@ export default function DeliveryNotes() {
             {modalType === 'add' && (
               <div>
                 {/* Modal header */}
-                <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#F0E8E7' }}>
+                <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: '#DEDFE5' }}>
                   <button onClick={closeModal} className="p-1.5 rounded-lg text-gray-400 transition-colors"
                     onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#6B7280')}
                     onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '')}
                   ><X className="w-4 h-4" /></button>
-                  <h2 className="font-black text-gray-800" style={{ fontSize: '17px' }}>הוסף תעודת משלוח</h2>
+                  <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>הוסף תעודת משלוח</h2>
                 </div>
 
                 {/* Form */}
@@ -718,7 +718,7 @@ export default function DeliveryNotes() {
                     className="flex-1 rounded-xl font-semibold transition-all"
                     style={{
                       minHeight: '44px', fontSize: '15px',
-                      background: canAdd ? 'linear-gradient(135deg,#8B1A3A,#E8645A)' : '#E5E7EB',
+                      background: canAdd ? '#D32F4A' : '#E5E7EB',
                       color: canAdd ? 'white' : '#9CA3AF',
                     }}
                   >

@@ -61,15 +61,16 @@ export default function Sidebar({
   newAlertsCount = 0,
 }: SidebarProps) {
   const isTablet = useIsTablet()
-  const collapsed = isTablet ? false : isCollapsed
+  const collapsed = isCollapsed
   const initials = userEmail ? userEmail.charAt(0).toUpperCase() : 'מ'
 
   return (
     <aside
-      className="flex flex-col h-screen fixed right-0 top-0 z-50 shadow-xl"
+      className="flex flex-col h-screen fixed right-0 top-0 z-50"
       style={{
-        width: isTablet ? '200px' : collapsed ? '72px' : '256px',
-        background: 'linear-gradient(180deg, #8B1A3A 0%, #6B1228 100%)',
+        width: collapsed ? '72px' : isTablet ? '200px' : '256px',
+        background: '#FFFFFF',
+        boxShadow: '-1px 0 0 #EEEEF2',
         transition: 'transform 0.3s ease, width 0.3s',
         ...mobileStyle,
       }}
@@ -78,7 +79,7 @@ export default function Sidebar({
       <div
         className="flex items-center px-4 border-b"
         style={{
-          borderColor: 'rgba(255,255,255,0.1)',
+          borderColor: '#EEEEF2',
           height: '68px',
           justifyContent: collapsed ? 'center' : 'space-between',
         }}
@@ -87,15 +88,15 @@ export default function Sidebar({
           <div className="flex items-center gap-3">
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: 'rgba(255,255,255,0.15)' }}
+              style={{ background: '#FDF2F4' }}
             >
-              <img src="/logo.png" alt="הדס לוגו" className="w-7 h-7 object-contain" />
+              <img src="/favicon.svg" alt="הדס לוגו" className="w-7 h-7 object-contain" />
             </div>
             <div>
-              <h1 className="text-white font-black text-lg leading-tight tracking-wide">
+              <h1 className="text-lg leading-tight" style={{ color: '#1A1A2E', fontWeight: 600 }}>
                 הדס
               </h1>
-              <p className="text-xs leading-none" style={{ color: 'rgba(255,255,255,0.5)' }}>
+              <p className="text-xs leading-none" style={{ color: '#9CA3AF' }}>
                 ניהול ספקים
               </p>
             </div>
@@ -105,25 +106,25 @@ export default function Sidebar({
         {collapsed && (
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{ background: 'rgba(255,255,255,0.15)' }}
+            style={{ background: '#FDF2F4' }}
           >
-            <img src="/logo.png" alt="הדס לוגו" className="w-7 h-7 object-contain" />
+            <img src="/favicon.svg" alt="הדס לוגו" className="w-7 h-7 object-contain" />
           </div>
         )}
 
-        {/* Collapse toggle — desktop only */}
-        {!collapsed && !isTablet && (
+        {/* Collapse toggle */}
+        {!collapsed && (
           <button
             onClick={onToggle}
             className="p-1.5 rounded-lg transition-all"
-            style={{ color: 'rgba(255,255,255,0.5)' }}
+            style={{ color: '#9CA3AF' }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.1)'
-              ;(e.currentTarget as HTMLButtonElement).style.color = 'white'
+              (e.currentTarget as HTMLButtonElement).style.background = '#F5F5F8'
+              ;(e.currentTarget as HTMLButtonElement).style.color = '#6B7280'
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-              ;(e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.5)'
+              ;(e.currentTarget as HTMLButtonElement).style.color = '#9CA3AF'
             }}
           >
             <ChevronLeft className="w-4 h-4" />
@@ -131,8 +132,8 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Expand toggle when collapsed — desktop only */}
-      {collapsed && !isTablet && (
+      {/* Expand toggle when collapsed */}
+      {collapsed && (
         <button
           onClick={onToggle}
           className="mx-auto mt-2 p-1.5 rounded-lg transition-all"
@@ -164,20 +165,20 @@ export default function Sidebar({
                 justifyContent: collapsed ? 'center' : 'flex-start',
                 gap: collapsed ? '0' : '10px',
                 minHeight: isTablet ? '44px' : undefined,
-                color: isActive ? 'white' : 'rgba(255,255,255,0.65)',
-                background: isActive ? 'rgba(255,255,255,0.15)' : 'transparent',
-                borderLeft: isActive ? '3px solid #E8A020' : '3px solid transparent',
+                color: isActive ? '#D32F4A' : '#6B7280',
+                background: isActive ? '#FDF2F4' : 'transparent',
+                borderRight: isActive ? '3px solid #D32F4A' : '3px solid transparent',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {
-                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.08)'
-                  ;(e.currentTarget as HTMLButtonElement).style.color = 'white'
+                  (e.currentTarget as HTMLButtonElement).style.background = '#F5F5F8'
+                  ;(e.currentTarget as HTMLButtonElement).style.color = '#1A1A2E'
                 }
               }}
               onMouseLeave={(e) => {
                 if (!isActive) {
                   (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-                  ;(e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.65)'
+                  ;(e.currentTarget as HTMLButtonElement).style.color = '#6B7280'
                 }
               }}
             >
@@ -243,20 +244,20 @@ export default function Sidebar({
       </nav>
 
       {/* Footer */}
-      <div className="border-t p-3" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+      <div className="border-t p-3" style={{ borderColor: '#EEEEF2' }}>
         {!collapsed && (
           <div className="flex items-center gap-2.5 px-2 mb-2">
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white flex-shrink-0"
-              style={{ background: '#E8A020', fontSize: '14px' }}
+              className="w-8 h-8 rounded-full flex items-center justify-center font-medium text-white flex-shrink-0"
+              style={{ background: '#D32F4A', fontSize: '14px' }}
             >
               {initials}
             </div>
             <div className="overflow-hidden">
-              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px' }}>מחוברת</p>
+              <p style={{ color: '#9CA3AF', fontSize: '12px' }}>מחוברת</p>
               <p
                 className="font-medium truncate"
-                style={{ color: 'rgba(255,255,255,0.85)', fontSize: '14px' }}
+                style={{ color: '#1A1A2E', fontSize: '14px' }}
               >
                 {userEmail}
               </p>
@@ -270,16 +271,16 @@ export default function Sidebar({
           style={{
             gap: collapsed ? '0' : '8px',
             justifyContent: collapsed ? 'center' : 'flex-start',
-            color: 'rgba(255,255,255,0.5)',
+            color: '#9CA3AF',
             minHeight: isTablet ? '44px' : '40px',
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.08)'
-            ;(e.currentTarget as HTMLButtonElement).style.color = 'white'
+            (e.currentTarget as HTMLButtonElement).style.background = '#F5F5F8'
+            ;(e.currentTarget as HTMLButtonElement).style.color = '#6B7280'
           }}
           onMouseLeave={(e) => {
             (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-            ;(e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.5)'
+            ;(e.currentTarget as HTMLButtonElement).style.color = '#9CA3AF'
           }}
         >
           {!collapsed && (

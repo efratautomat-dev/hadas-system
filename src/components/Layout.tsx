@@ -65,10 +65,10 @@ const pageLabels: Record<string, string> = {
 function ComingSoon({ page }: { page: string }) {
   return (
     <div className="flex flex-col items-center justify-center" style={{ minHeight: '60vh' }}>
-      <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-5 text-4xl shadow-sm" style={{ background: '#FFF0EF' }}>
+      <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-5 text-4xl shadow-sm" style={{ background: '#FDF2F4' }}>
         🚧
       </div>
-      <h2 className="text-xl font-bold text-gray-700 mb-2">{pageLabels[page]} · בפיתוח</h2>
+      <h2 className="text-xl font-semibold text-gray-700 mb-2">{pageLabels[page]} · בפיתוח</h2>
       <p className="text-gray-400 text-sm">מסך זה יהיה זמין בקרוב</p>
     </div>
   )
@@ -117,7 +117,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#F4F5F7', direction: 'rtl' }}>
+    <div className="min-h-screen" style={{ backgroundColor: '#F8F8FA', direction: 'rtl' }}>
 
       {/* Mobile overlay */}
       {isMobile && mobileMenuOpen && (
@@ -152,7 +152,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         {/* Top bar */}
         <header
           className="bg-white border-b sticky top-0 z-40 flex items-center justify-between"
-          style={{ borderColor: '#E2E4E9', height: '64px', paddingLeft: pad, paddingRight: pad }}
+          style={{ borderColor: '#EEEEF2', height: '64px', paddingLeft: pad, paddingRight: pad }}
         >
           {/* Left: hamburger (mobile) + search */}
           <div className="flex items-center gap-2">
@@ -160,16 +160,16 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
               <button
                 onClick={() => setMobileMenuOpen(true)}
                 className="flex items-center justify-center rounded-xl flex-shrink-0"
-                style={{ width: '40px', height: '40px', background: '#FFF0EF', color: '#E8645A', border: 'none', cursor: 'pointer' }}
+                style={{ width: '40px', height: '40px', background: '#FDF2F4', color: '#D32F4A', border: 'none', cursor: 'pointer' }}
               >
                 <Menu className="w-5 h-5" />
               </button>
             )}
             <button
               className="flex items-center gap-2 rounded-xl text-gray-400 border transition-all"
-              style={{ borderColor: '#E2E4E9', minHeight: '40px', padding: '0 12px', fontSize: '14px' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#E8645A')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#E2E4E9')}
+              style={{ borderColor: '#EEEEF2', minHeight: '40px', padding: '0 12px', fontSize: '14px' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#D32F4A')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#EEEEF2')}
             >
               {!isMobile && <span>חיפוש...</span>}
               <Search className="w-4 h-4 flex-shrink-0" />
@@ -179,27 +179,27 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
           {/* Right: title + bell + avatar */}
           <div className="flex items-center gap-3">
             {!isMobile && (
-              <h2 className="font-bold text-gray-700" style={{ fontSize: isTablet ? '17px' : '16px' }}>
+              <h2 className="font-medium" style={{ fontSize: isTablet ? '17px' : '16px', color: '#1A1A2E' }}>
                 {activePage === 'dashboard' ? getGreeting() : pageLabels[activePage]}
               </h2>
             )}
             {isMobile && (
-              <h2 className="font-bold text-gray-700" style={{ fontSize: '15px' }}>
+              <h2 className="font-medium" style={{ fontSize: '15px', color: '#1A1A2E' }}>
                 {activePage === 'dashboard' ? 'הדס' : pageLabels[activePage]}
               </h2>
             )}
 
             <button
               onClick={() => handlePageChange('alerts')}
-              className="relative rounded-xl flex items-center justify-center text-gray-400 transition-colors flex-shrink-0"
-              style={{ background: '#FFF0EF', width: '36px', height: '36px' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#E8645A')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
+              className="relative rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
+              style={{ background: '#FDF2F4', color: '#9CA3AF', width: '36px', height: '36px' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#D32F4A')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
             >
               <Bell className="w-5 h-5" />
               {newAlertsCount > 0 && (
                 <span
-                  className="absolute flex items-center justify-center text-white font-bold"
+                  className="absolute flex items-center justify-center text-white font-medium"
                   style={{
                     top: '-4px',
                     right: '-4px',
@@ -217,8 +217,8 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
             </button>
 
             <div
-              className="rounded-xl flex items-center justify-center text-white font-bold cursor-pointer select-none flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, #8B1A3A, #E8645A)', width: '36px', height: '36px', fontSize: '14px' }}
+              className="rounded-xl flex items-center justify-center text-white font-medium cursor-pointer select-none flex-shrink-0"
+              style={{ background: '#D32F4A', width: '36px', height: '36px', fontSize: '14px' }}
               title={userEmail}
             >
               {userEmail.charAt(0).toUpperCase()}

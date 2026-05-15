@@ -116,7 +116,7 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 flex items-center justify-between border-b" style={{ borderColor: '#E2E4E9' }}>
+        <div className="px-6 py-4 flex items-center justify-between border-b" style={{ borderColor: '#EEEEF2' }}>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
@@ -152,24 +152,24 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
             <div className="grid grid-cols-2" style={{ minWidth: '600px' }}>
               <div
                 className="px-4 py-2.5 text-sm font-bold text-right border-b border-l"
-                style={{ borderColor: '#E2E4E9', background: '#F8F9FA' }}
+                style={{ borderColor: '#EEEEF2', background: '#FAFAFC' }}
               >
                 כרטסת שלנו
               </div>
               <div
                 className="px-4 py-2.5 text-sm font-bold text-right border-b"
-                style={{ borderColor: '#E2E4E9', background: '#F8F9FA' }}
+                style={{ borderColor: '#EEEEF2', background: '#FAFAFC' }}
               >
                 דף חשבון ספק
               </div>
 
               {/* Our rows */}
-              <div className="border-l" style={{ borderColor: '#E2E4E9' }}>
+              <div className="border-l" style={{ borderColor: '#EEEEF2' }}>
                 {detail.our_rows.map((row, i) => (
                   <div
                     key={i}
                     className="px-4 py-3 border-b text-right"
-                    style={{ borderColor: '#E2E4E9', background: 'white' }}
+                    style={{ borderColor: '#EEEEF2', background: 'white' }}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className={`text-sm font-bold ${row.amount < 0 ? 'text-green-600' : 'text-gray-800'}`}>
@@ -189,7 +189,7 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
                   <div
                     key={i}
                     className="px-4 py-3 border-b text-right"
-                    style={{ borderColor: '#E2E4E9', background: row.matched ? 'white' : '#FEF2F2' }}
+                    style={{ borderColor: '#EEEEF2', background: row.matched ? 'white' : '#FEF2F2' }}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
@@ -222,7 +222,7 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
         {/* Action bar */}
         <div
           className="px-6 py-4 border-t flex items-center justify-between gap-3 flex-wrap"
-          style={{ borderColor: '#E2E4E9' }}
+          style={{ borderColor: '#EEEEF2' }}
         >
           {/* Manual balance */}
           <div className="flex items-center gap-2">
@@ -230,9 +230,9 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
               <>
                 <button
                   className="px-4 py-2 rounded-xl text-sm font-bold text-white transition-colors"
-                  style={{ background: '#7C3AED' }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
+                  style={{ background: '#D32F4A' }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
                   onClick={() => {
                     const val = parseFloat(manualBalance)
                     if (!isNaN(val)) {
@@ -251,7 +251,7 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
                   placeholder="יתרה חדשה..."
                   dir="ltr"
                   className="border-2 rounded-xl px-3 py-2 text-sm w-36"
-                  style={{ borderColor: '#7C3AED' }}
+                  style={{ borderColor: '#D32F4A' }}
                   autoFocus
                 />
                 <span className="text-sm text-gray-500">עדכן יתרה ידנית:</span>
@@ -259,13 +259,13 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
             ) : (
               <button
                 className="px-4 py-2 rounded-xl text-sm font-bold border-2 transition-colors"
-                style={{ borderColor: '#E2E4E9', color: '#6B7280' }}
+                style={{ borderColor: '#EEEEF2', color: '#6B7280' }}
                 onMouseEnter={(e) => {
-                  ;(e.currentTarget as HTMLElement).style.borderColor = '#7C3AED'
-                  ;(e.currentTarget as HTMLElement).style.color = '#7C3AED'
+                  ;(e.currentTarget as HTMLElement).style.borderColor = '#D32F4A'
+                  ;(e.currentTarget as HTMLElement).style.color = '#D32F4A'
                 }}
                 onMouseLeave={(e) => {
-                  ;(e.currentTarget as HTMLElement).style.borderColor = '#E2E4E9'
+                  ;(e.currentTarget as HTMLElement).style.borderColor = '#EEEEF2'
                   ;(e.currentTarget as HTMLElement).style.color = '#6B7280'
                 }}
                 onClick={() => setShowManualInput(true)}
@@ -280,8 +280,8 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
             <button
               onClick={onClose}
               className="px-4 py-2 rounded-xl text-sm font-bold border-2 text-gray-500 transition-colors"
-              style={{ borderColor: '#E2E4E9' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+              style={{ borderColor: '#EEEEF2' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
             >
               סגור
@@ -385,7 +385,7 @@ export default function StatementReconciliation() {
   if (loading && statements.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#E8645A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
       </div>
     )
   }
@@ -398,7 +398,7 @@ export default function StatementReconciliation() {
         </div>
       )}
       <div>
-        <h1 className="text-2xl font-black text-gray-800">התאמת כרטסות ספקים</h1>
+        <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>התאמת כרטסות ספקים</h1>
         <p className="text-gray-500 text-sm mt-0.5">השוואת יתרות מול דפי חשבון ספקים</p>
       </div>
 
@@ -408,7 +408,7 @@ export default function StatementReconciliation() {
           <div
             key={key}
             className="bg-white rounded-2xl p-5 shadow-sm border cursor-pointer transition-all"
-            style={{ borderColor: filterStatus === key ? iconColor : '#E2E4E9' }}
+            style={{ borderColor: filterStatus === key ? iconColor : '#EEEEF2' }}
             onClick={() => setFilterStatus(filterStatus === key ? 'all' : key)}
           >
             <div className="flex items-start justify-between">
@@ -421,7 +421,7 @@ export default function StatementReconciliation() {
               <p className="text-sm font-medium text-gray-500">{label}</p>
             </div>
             <div className="mt-3 text-right">
-              <p className="text-3xl font-black text-gray-800">{counts[key]}</p>
+              <p className="text-3xl" style={{ fontWeight: 500, color: '#1A1A2E' }}>{counts[key]}</p>
             </div>
           </div>
         ))}
@@ -430,7 +430,7 @@ export default function StatementReconciliation() {
       {/* Filter bar */}
       <div
         className="bg-white rounded-2xl shadow-sm border p-4 flex items-center gap-3"
-        style={{ borderColor: '#E2E4E9' }}
+        style={{ borderColor: '#EEEEF2' }}
       >
         <div className="relative flex-1">
           <input
@@ -440,16 +440,16 @@ export default function StatementReconciliation() {
             placeholder="חיפוש ספק..."
             dir="rtl"
             className="w-full px-4 py-2.5 rounded-xl border-2 text-sm text-gray-800 placeholder:text-gray-400"
-            style={{ borderColor: '#E2E4E9' }}
+            style={{ borderColor: '#EEEEF2' }}
           />
           <SearchIcon className="absolute top-1/2 -translate-y-1/2 left-3 w-4 h-4 text-gray-400 pointer-events-none" />
         </div>
         {filterStatus !== 'all' && (
           <button
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border-2 transition-colors"
-            style={{ borderColor: '#E2E4E9', color: '#6B7280' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#7C3AED')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#E2E4E9')}
+            style={{ borderColor: '#EEEEF2', color: '#6B7280' }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#D32F4A')}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#EEEEF2')}
             onClick={() => setFilterStatus('all')}
           >
             <X className="w-3.5 h-3.5" />
@@ -459,8 +459,8 @@ export default function StatementReconciliation() {
       </div>
 
       {/* Main table */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-        <div className="px-6 py-4 border-b flex items-center justify-between" style={{ borderColor: '#E2E4E9' }}>
+      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
+        <div className="px-6 py-4 border-b flex items-center justify-between" style={{ borderColor: '#EEEEF2' }}>
           <span className="text-sm text-gray-500">{filtered.length} רשומות</span>
           <div className="flex items-center gap-2">
             <h2 className="font-bold text-gray-800">רשימת כרטסות</h2>
@@ -473,8 +473,8 @@ export default function StatementReconciliation() {
           <div
             className="grid text-xs font-bold text-gray-500 px-4 py-3 border-b"
             style={{
-              borderColor: '#E2E4E9',
-              background: '#F8F9FA',
+              borderColor: '#EEEEF2',
+              background: '#FAFAFC',
               gridTemplateColumns: gridCOL,
               minWidth: gridMin,
               textAlign: 'right',
@@ -499,14 +499,14 @@ export default function StatementReconciliation() {
                 key={stmt.id}
                 className="grid items-center border-b transition-colors"
                 style={{
-                  borderColor: '#E2E4E9',
+                  borderColor: '#EEEEF2',
                   gridTemplateColumns: gridCOL,
                   minWidth: gridMin,
                   textAlign: 'right',
                   minHeight: '56px',
                   padding: '12px 16px',
                 }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
               >
                 {!isMobile && <span className="text-xs text-gray-400 font-mono">{stmt.id}</span>}
