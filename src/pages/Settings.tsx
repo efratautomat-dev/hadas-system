@@ -197,6 +197,8 @@ export default function Settings() {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
+    console.log('[logo] file selected:', file.name, file.type, file.size)
+
     if (!['image/png', 'image/jpeg', 'image/svg+xml'].includes(file.type)) {
       showLogoMsg('error', 'יש להעלות קובץ PNG, JPG או SVG בלבד')
       return
@@ -205,22 +207,44 @@ export default function Settings() {
       showLogoMsg('error', 'הקובץ גדול מ-2MB')
       return
     }
+
     setLogoUploading(true)
     try {
       const ext = file.name.split('.').pop() ?? 'png'
+      const storagePath = `logo.${ext}`
+      console.log('[logo] uploading to branding/', storagePath)
+
       const { error: uploadErr } = await supabase.storage
         .from('branding')
-        .upload(`logo.${ext}`, file, { upsert: true, contentType: file.type })
-      if (uploadErr) throw uploadErr
-      const { data: { publicUrl } } = supabase.storage.from('branding').getPublicUrl(`logo.${ext}`)
+        .upload(storagePath, file, { upsert: true, contentType: file.type })
+      if (uploadErr) {
+        console.error('[logo] storage upload error:', uploadErr)
+        throw uploadErr
+      }
+      console.log('[logo] storage upload OK')
+
+      const { data: { publicUrl } } = supabase.storage.from('branding').getPublicUrl(storagePath)
+      console.log('[logo] public URL:', publicUrl)
+
       const { error: dbErr } = await supabase
         .from('app_settings')
-        .upsert({ key: 'app_logo_url', value: publicUrl, updated_at: new Date().toISOString() }, { onConflict: 'key' })
-      if (dbErr) throw dbErr
+        .upsert(
+          { key: 'app_logo_url', value: publicUrl, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        )
+      if (dbErr) {
+        console.error('[logo] app_settings upsert error:', dbErr)
+        throw dbErr
+      }
+      console.log('[logo] app_settings upserted OK')
+
       refreshLogo()
       showLogoMsg('success', 'הלוגו עודכן בהצלחה ✓')
-    } catch {
-      showLogoMsg('error', 'שגיאה בהעלאה — נסי שוב')
+    } catch (err) {
+      console.error('[logo] upload failed:', err)
+      const msg = err instanceof Error ? err.message
+        : (err as any)?.message ?? 'שגיאה בהעלאה — נסי שוב'
+      showLogoMsg('error', msg)
     } finally {
       setLogoUploading(false)
     }
@@ -229,11 +253,19 @@ export default function Settings() {
   async function handleResetSystemLogo() {
     setLogoUploading(true)
     try {
-      await supabase.from('app_settings').delete().eq('key', 'app_logo_url')
+      console.log('[logo] resetting to default')
+      const { error } = await supabase.from('app_settings').delete().eq('key', 'app_logo_url')
+      if (error) {
+        console.error('[logo] reset error:', error)
+        throw error
+      }
+      console.log('[logo] reset OK')
       refreshLogo()
       showLogoMsg('success', 'הלוגו אופס לברירת המחדל ✓')
-    } catch {
-      showLogoMsg('error', 'שגיאה — נסי שוב')
+    } catch (err) {
+      console.error('[logo] reset failed:', err)
+      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'שגיאה — נסי שוב'
+      showLogoMsg('error', msg)
     } finally {
       setLogoUploading(false)
     }
