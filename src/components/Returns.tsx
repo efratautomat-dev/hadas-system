@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, X, CheckCircle2, Clock, XCircle, RotateCcw } from 'lucide-react'
+import { Plus, Pencil, X, CheckCircle2, Clock, XCircle, RotateCcw, Download } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
 import { useReturns } from '../hooks/useReturns'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
+import { printReturnPDF } from '../utils/pdf'
+import type { ReturnPDFData } from '../utils/pdf'
 
 type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -333,6 +335,7 @@ export default function Returns() {
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm())
+  const [justSaved, setJustSaved] = useState<ReturnPDFData | null>(null)
 
   useEffect(() => {
     setReturns(serverReturns as ReturnEntry[])
@@ -419,8 +422,25 @@ export default function Returns() {
         employeeId: form.employeeId || null,
         createdBy: createdByName,
       }
+      const pdfSnapshot: ReturnPDFData = {
+        id: '—',
+        date: isoToDisplay(form.dateIso),
+        dateIso: form.dateIso,
+        status: form.status,
+        amount,
+        reason: form.reason,
+        detail: form.detail,
+        originalInvoiceId: form.originalInvoiceId || null,
+        createdBy: createdByName,
+        supplierName,
+        supplierHp: (sup as Record<string, string> | undefined)?.hp,
+        supplierContact: sup?.contact,
+        supplierPhone: sup?.phone,
+      }
       try {
         await createReturn(entry)
+        setJustSaved(pdfSnapshot)
+        setTimeout(() => setJustSaved(null), 9000)
       } catch {
         // hook sets error state
       }
@@ -431,8 +451,8 @@ export default function Returns() {
 
   const COL = isTablet
     ? '95px 1fr 100px 2fr 110px 100px'
-    : '95px 1fr 110px 2fr 140px 105px 110px 72px'
-  const MIN_W = isTablet ? '580px' : '880px'
+    : '95px 1fr 110px 2fr 140px 105px 110px 88px'
+  const MIN_W = isTablet ? '580px' : '900px'
 
   if (loading && returns.length === 0) {
     return (
@@ -485,6 +505,32 @@ export default function Returns() {
           <p className="text-gray-500 text-sm mt-1">בטיפול</p>
         </div>
       </div>
+
+      {/* Post-create download banner */}
+      {justSaved && (
+        <div
+          className="flex items-center justify-between rounded-2xl px-5 py-3"
+          style={{ background: '#F0FDF4', border: '1px solid #BBF7D0' }}
+        >
+          <button onClick={() => setJustSaved(null)} style={{ color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}>
+            <X className="w-4 h-4" />
+          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => printReturnPDF(justSaved)}
+              className="flex items-center gap-1.5 rounded-xl font-bold text-white transition-all"
+              style={{ padding: '6px 14px', background: '#D32F4A', fontSize: '13px', border: 'none', cursor: 'pointer' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
+            >
+              <Download className="w-3.5 h-3.5" />
+              הורד מסמך
+            </button>
+            <span className="font-semibold" style={{ fontSize: '14px', color: '#166534' }}>חזרה נוצרה בהצלחה</span>
+            <CheckCircle2 className="w-5 h-5" style={{ color: '#16a34a' }} />
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#E2E4E9' }}>
@@ -602,7 +648,7 @@ export default function Returns() {
                 {!isTablet && <span className="text-sm text-gray-500">{r.createdBy}</span>}
                 {!isTablet && (
                   <div
-                    className="flex items-center justify-center"
+                    className="flex items-center justify-center gap-1"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <button
@@ -614,6 +660,33 @@ export default function Returns() {
                       onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
                     >
                       <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        const sup = suppliersData.find(s => s.id === r.supplierId)
+                        printReturnPDF({
+                          id: r.id,
+                          date: r.date,
+                          dateIso: r.dateIso,
+                          status: r.status,
+                          amount: r.amount,
+                          reason: r.reason,
+                          detail: r.detail,
+                          originalInvoiceId: r.originalInvoiceId,
+                          createdBy: r.createdBy,
+                          supplierName: r.supplier,
+                          supplierHp: (sup as Record<string, string> | undefined)?.hp,
+                          supplierContact: sup?.contact,
+                          supplierPhone: sup?.phone,
+                        })
+                      }}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                      style={{ background: '#FDF2F4', color: '#9CA3AF' }}
+                      title="הורד מסמך"
+                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#D32F4A')}
+                      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
+                    >
+                      <Download className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}

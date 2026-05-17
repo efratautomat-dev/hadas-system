@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
-import { CheckCircle2, AlertTriangle, Clock, Search as SearchIcon, X, ArrowLeftRight, Eye } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, Clock, Search as SearchIcon, X, ArrowLeftRight, Eye, Download } from 'lucide-react'
 import { useStatements } from '../hooks/useStatements'
 import type { VendorStatementStatus } from '../hooks/useStatements'
+import { useSuppliers } from '../hooks/useSuppliers'
+import { printStatementPDF } from '../utils/pdf'
 
 interface VendorStatement {
   id: string
@@ -319,6 +321,7 @@ function useIsMobile() {
 
 export default function StatementReconciliation() {
   const { data: serverStatements, loading, error, resolve: resolveStatement } = useStatements()
+  const { data: suppliersData } = useSuppliers()
   const [statements, setStatements] = useState<VendorStatement[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<VendorStatementStatus | 'all'>('all')
@@ -529,19 +532,47 @@ export default function StatementReconciliation() {
                   {stmt.diff !== 0 ? formatILS(stmt.diff) : '—'}
                 </span>
                 <StatusBadge status={stmt.status} />
-                <button
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
-                  style={{ background: '#F3E8FF', color: '#7C3AED' }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#EDE9FE')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3E8FF')}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setSelectedId(stmt.id)
-                  }}
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  פירוט
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                    style={{ background: '#F3E8FF', color: '#7C3AED' }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#EDE9FE')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3E8FF')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedId(stmt.id)
+                    }}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    פירוט
+                  </button>
+                  <button
+                    className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                    style={{ background: '#FDF2F4', color: '#9CA3AF' }}
+                    title="הורד מסמך"
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#D32F4A')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const sup = suppliersData.find(s => s.id === stmt.supplier_id)
+                      printStatementPDF({
+                        id: stmt.id,
+                        month: stmt.month,
+                        status: stmt.status,
+                        our_balance: stmt.our_balance,
+                        vendor_balance: stmt.vendor_balance,
+                        diff: stmt.diff,
+                        uploaded_at: stmt.uploaded_at,
+                        supplierName: stmt.supplier_name,
+                        supplierHp: (sup as Record<string, string> | undefined)?.hp,
+                        supplierContact: sup?.contact,
+                        supplierPhone: sup?.phone,
+                      })
+                    }}
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             ))
           )}
