@@ -492,7 +492,7 @@ async function createEmployee(req: Request, supabase: SupabaseClient): Promise<R
     .insert({ name, role: role ?? null, phone: phone ?? null, active: active ?? true })
     .select("id")
     .single();
-  if (error || !data) return json({ error: error?.message }, 500);
+  if (error || !data) return json({ error: error?.message, code: error?.code, details: error?.details, hint: error?.hint }, 500);
   return json({ id: data.id }, 201);
 }
 
@@ -550,7 +550,10 @@ Deno.serve(async (req: Request) => {
     .replace(/\/$/, "") || "/";
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey  = Deno.env.get("HADAS_SERVICE_KEY")!;
+  // SUPABASE_SERVICE_ROLE_KEY is a built-in secret injected automatically by Supabase
+  // into every Edge Function — no manual configuration needed. It bypasses RLS.
+  // HADAS_SERVICE_KEY was the previous custom secret; kept as fallback during transition.
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("HADAS_SERVICE_KEY") ?? "";
   const supabase    = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
   if (!(await isAuthorized(req, supabase))) {
