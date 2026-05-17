@@ -182,7 +182,6 @@ export default function Settings() {
   const [empForm, setEmpForm] = useState({ name: '', role: '', phone: '', active: true })
   const [deletingEmpId, setDeletingEmpId] = useState<string | null>(null)
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const sysLogoInputRef = useRef<HTMLInputElement>(null)
   const { logoUrl: sysLogoUrl, refresh: refreshLogo } = useAppLogo()
   const [logoUploading, setLogoUploading] = useState(false)
@@ -370,17 +369,16 @@ export default function Settings() {
               )}
             </div>
             <div>
-              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all"
+              <label
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all cursor-pointer"
                 style={{ borderColor: '#E8645A', color: '#E8645A' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#FFF0EF' }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
               >
+                <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
                 <Upload className="w-4 h-4" />
                 העלה לוגו
-              </button>
+              </label>
               <p className="text-xs text-gray-400 mt-2">PNG, JPG עד 2MB</p>
             </div>
           </div>
