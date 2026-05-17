@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, Search, Menu } from 'lucide-react'
+import { Bell, Search, Menu, ArrowRight } from 'lucide-react'
 import Sidebar from './Sidebar'
 import Dashboard from './Dashboard'
 import Suppliers from './Suppliers'
@@ -10,6 +10,7 @@ import DeliveryNotes from './DeliveryNotes'
 import StatementReconciliation from './StatementReconciliation'
 import Returns from './Returns'
 import Alerts from './Alerts'
+import Settings from '../pages/Settings'
 import { mockAlerts } from '../data/mockData'
 import type { Alert } from '../data/mockData'
 
@@ -74,11 +75,17 @@ function ComingSoon({ page }: { page: string }) {
   )
 }
 
+interface NavEntry {
+  page: string
+  ledgerSupplierId?: string
+}
+
 export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const [isCollapsed, setIsCollapsed]   = useState(false)
   const [activePage, setActivePage]     = useState('dashboard')
   const [ledgerSupplierId, setLedgerSupplierId] = useState<string | undefined>(undefined)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [pageHistory, setPageHistory]   = useState<NavEntry[]>([])
   const [alerts, setAlerts] = useState<Alert[]>(mockAlerts)
   const isMobile = useIsMobile()
   const isTablet = useIsTablet()
@@ -98,7 +105,17 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const pad = isMobile ? '12px' : isTablet ? '20px' : '32px'
 
   const handlePageChange = (page: string) => {
+    setPageHistory(prev => [...prev, { page: activePage, ledgerSupplierId }])
     setActivePage(page)
+    setMobileMenuOpen(false)
+  }
+
+  const goBack = () => {
+    const prev = pageHistory[pageHistory.length - 1]
+    if (!prev) return
+    setPageHistory(h => h.slice(0, -1))
+    setActivePage(prev.page)
+    if (prev.ledgerSupplierId !== undefined) setLedgerSupplierId(prev.ledgerSupplierId)
     setMobileMenuOpen(false)
   }
 
@@ -113,6 +130,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     if (activePage === 'deliveries')     return <DeliveryNotes />
     if (activePage === 'reconciliation') return <StatementReconciliation />
     if (activePage === 'returns')        return <Returns />
+    if (activePage === 'settings')       return <Settings />
     return <ComingSoon page={activePage} />
   }
 
@@ -228,6 +246,37 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
 
         {/* Page content */}
         <main className="flex-1" style={{ padding: pad }}>
+          {pageHistory.length > 0 && (
+            <div dir="ltr" style={{ marginBottom: '12px' }}>
+              <button
+                onClick={goBack}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '50%',
+                  background: 'white',
+                  border: '1px solid #EEEEF2',
+                  color: '#D32F4A',
+                  cursor: 'pointer',
+                  boxShadow: 'none',
+                  transition: 'box-shadow 0.15s',
+                  flexShrink: 0,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)'
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.boxShadow = 'none'
+                }}
+                title="חזור"
+              >
+                <ArrowRight className="w-5 h-5" />
+              </button>
+            </div>
+          )}
           {renderPage()}
         </main>
       </div>
