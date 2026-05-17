@@ -391,25 +391,53 @@ export default function Payments() {
   }
 
   function doExportBizbox(rows: Payment[]) {
-    const data = rows.map(p => ({
-      'סוג_פעולה': 'חיוב',
-      'סוג_תשלום': normalizeBizboxType(p.type),
-      'תאריך': fmtDate(p.date),
-      'אסמכתא': p.ref,
-      'סכום': p.amount,
-      'תיאור': p.supplier,
-    }))
-
     const fileName = `bizbox_${todayStr()}.xlsx`
+    const HEADERS = ['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'] as const
+    const DATE_FMT = '[$-1010000]d/m/yyyy'
+
+    const writeRows = (XLSX: typeof import('xlsx'), ws: import('xlsx').WorkSheet) => {
+      rows.forEach((p, i) => {
+        const r = i + 2 // row 1 = headers
+        const [y, m, d] = p.date.split('-').map(Number)
+        const cells: [string, import('xlsx').CellObject][] = [
+          [`A${r}`, { t: 's', v: 'חיוב' }],
+          [`B${r}`, { t: 's', v: normalizeBizboxType(p.type) }],
+          [`C${r}`, { t: 'd', v: new Date(y, m - 1, d), z: DATE_FMT }],
+          [`D${r}`, { t: 's', v: p.ref ?? '' }],
+          [`E${r}`, { t: 'n', v: Number(p.amount) || 0 }],
+          [`F${r}`, { t: 's', v: p.supplier ?? '' }],
+        ]
+        cells.forEach(([addr, cell]) => { ws[addr] = cell })
+      })
+      // extend sheet range to cover written rows
+      const ref = ws['!ref'] ?? 'A1:F1'
+      const range = XLSX.utils.decode_range(ref)
+      range.e.r = Math.max(range.e.r, rows.length + 1)
+      ws['!ref'] = XLSX.utils.encode_range(range)
+    }
 
     import('xlsx').then(XLSX => {
-      const ws = XLSX.utils.json_to_sheet(data, {
-        header: ['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'],
-      })
-      ws['!cols'] = [14, 14, 14, 18, 12, 22].map(wch => ({ wch }))
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'גיליון1')
-      XLSX.writeFile(wb, fileName)
+      fetch('/add_tazrim_template.xlsx')
+        .then(res => res.arrayBuffer())
+        .then(buf => {
+          const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellStyles: true, cellDates: true })
+          const ws = wb.Sheets['גיליון1']
+          writeRows(XLSX, ws)
+          XLSX.writeFile(wb, fileName)
+        })
+        .catch(() => {
+          // fallback: build from scratch
+          const ws: import('xlsx').WorkSheet = {}
+          HEADERS.forEach((h, ci) => {
+            const addr = XLSX.utils.encode_cell({ r: 0, c: ci })
+            ws[addr] = { t: 's', v: h }
+          })
+          writeRows(XLSX, ws)
+          ws['!cols'] = [14, 12, 10, 11, 11, 22].map(wch => ({ wch }))
+          const wb = XLSX.utils.book_new()
+          XLSX.utils.book_append_sheet(wb, ws, 'גיליון1')
+          XLSX.writeFile(wb, fileName)
+        })
     })
 
     localStorage.setItem(LS_KEY, bizboxTo)
