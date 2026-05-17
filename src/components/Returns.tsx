@@ -472,6 +472,10 @@ export default function Returns() {
 
       {/* Header */}
       <div className="flex items-center justify-between">
+        <div className="text-right">
+          <h1 className="text-2xl font-black text-gray-800">חזרות וזיכויים</h1>
+          <p className="text-gray-500 text-sm mt-0.5">ניהול החזרות וזיכויים מול ספקים</p>
+        </div>
         <button
           onClick={openAdd}
           className="flex items-center gap-2 rounded-xl font-bold text-white transition-all"
@@ -482,10 +486,6 @@ export default function Returns() {
           <Plus className="w-4 h-4" />
           הוסף חזרה
         </button>
-        <div className="text-right">
-          <h1 className="text-2xl font-black text-gray-800">חזרות וזיכויים</h1>
-          <p className="text-gray-500 text-sm mt-0.5">ניהול החזרות וזיכויים מול ספקים</p>
-        </div>
       </div>
 
       {/* Stats */}
