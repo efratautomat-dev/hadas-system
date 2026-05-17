@@ -78,6 +78,8 @@ function ComingSoon({ page }: { page: string }) {
 interface NavEntry {
   page: string
   ledgerSupplierId?: string
+  supplierViewId?: string
+  invoiceSelectedId?: string
 }
 
 export default function Layout({ userEmail, onLogout }: LayoutProps) {
@@ -124,10 +126,32 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const renderPage = () => {
     if (activePage === 'dashboard')      return <Dashboard onPageChange={handlePageChange} alerts={alerts} />
     if (activePage === 'alerts')         return <Alerts alerts={alerts} onMarkRead={handleMarkRead} onMarkResolved={handleMarkResolved} onDelete={handleDeleteAlert} />
-    if (activePage === 'suppliers')      return <Suppliers onViewLedger={(id) => setNavStack(prev => [...prev, { page: 'ledger', ledgerSupplierId: id }])} />
+    if (activePage === 'suppliers')      return (
+      <Suppliers
+        onViewLedger={(id) => setNavStack(prev => [...prev, { page: 'ledger', ledgerSupplierId: id }])}
+        controlledViewId={currentNav.supplierViewId ?? null}
+        onOpenDetail={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
+        onCloseDetail={goBack}
+      />
+    )
     if (activePage === 'ledger')         return <SupplierLedger initialSupplierId={ledgerSupplierId} />
-    if (activePage === 'invoices')             return <Invoices key="invoices" />
-    if (activePage === 'invoices-duplicates') return <Invoices key="invoices-dup" initialFilter="כפילויות" />
+    if (activePage === 'invoices') return (
+      <Invoices
+        key="invoices"
+        controlledSelectedId={currentNav.invoiceSelectedId ?? null}
+        onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
+        onCloseInvoice={goBack}
+      />
+    )
+    if (activePage === 'invoices-duplicates') return (
+      <Invoices
+        key="invoices-dup"
+        initialFilter="כפילויות"
+        controlledSelectedId={currentNav.invoiceSelectedId ?? null}
+        onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices-duplicates', invoiceSelectedId: id }])}
+        onCloseInvoice={goBack}
+      />
+    )
     if (activePage === 'payments')       return <Payments />
     if (activePage === 'deliveries')     return <DeliveryNotes />
     if (activePage === 'reconciliation') return <StatementReconciliation />

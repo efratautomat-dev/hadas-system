@@ -331,14 +331,20 @@ function supplierToForm(sup: Supplier): EditFormState {
 
 interface SuppliersProps {
   onViewLedger?: (supplierId: string) => void
+  controlledViewId?: string | null
+  onOpenDetail?: (id: string) => void
+  onCloseDetail?: () => void
 }
 
-export default function Suppliers({ onViewLedger }: SuppliersProps) {
+export default function Suppliers({ onViewLedger, controlledViewId, onOpenDetail, onCloseDetail }: SuppliersProps) {
   const isTablet = useIsTablet()
   const { data: serverSuppliers, loading, error, create: createSupplier, update: updateSupplier, remove: removeSupplier } = useSuppliers()
 
-  const [suppliers, setSuppliers]     = useState<Supplier[]>([])
-  const [viewId,     setViewId]        = useState<string | null>(null)
+  const [suppliers, setSuppliers]         = useState<Supplier[]>([])
+  const [internalViewId, setInternalViewId] = useState<string | null>(null)
+  const viewId    = controlledViewId !== undefined ? controlledViewId : internalViewId
+  const openDetail  = (id: string) => onOpenDetail  ? onOpenDetail(id)  : setInternalViewId(id)
+  const closeDetail = ()           => onCloseDetail ? onCloseDetail()    : setInternalViewId(null)
   const [editingId,  setEditingId]     = useState<string | null>(null)
   const [editForm,   setEditForm]      = useState<EditFormState | null>(null)
   const [showAdd,    setShowAdd]       = useState(false)
@@ -357,14 +363,14 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
     return (
       <SupplierDetail
         supplier={sup}
-        onBack={() => setViewId(null)}
+        onBack={closeDetail}
         onEdit={() => {
-          setViewId(null)
+          closeDetail()
           setEditingId(sup.id)
           setEditForm(supplierToForm(sup))
         }}
         onDelete={async () => {
-          setViewId(null)
+          closeDetail()
           try {
             await removeSupplier(sup.id)
           } catch {
@@ -627,7 +633,7 @@ export default function Suppliers({ onViewLedger }: SuppliersProps) {
                 {/* Action buttons — always at bottom */}
                 <div className="flex gap-2 px-5 pb-5 mt-auto">
                   <button
-                    onClick={() => setViewId(sup.id)}
+                    onClick={() => openDetail(sup.id)}
                     className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
                     style={{
                       minHeight: '44px',

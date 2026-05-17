@@ -385,10 +385,17 @@ type Filter = 'all' | 'ממתין' | 'בטיפול' | 'הושלם' | 'שגיאה
 
 interface DupModal { invoice: Invoice; pair: Invoice }
 
-export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Filter }) {
+interface InvoicesProps {
+  initialFilter?: Filter
+  controlledSelectedId?: string | null
+  onOpenInvoice?: (id: string) => void
+  onCloseInvoice?: () => void
+}
+
+export default function Invoices({ initialFilter = 'all', controlledSelectedId, onOpenInvoice, onCloseInvoice }: InvoicesProps) {
   const { data: serverInvoices, loading, error, update: updateInvoice, remove: removeInvoice } = useInvoices()
   const [invoices, setInvoices] = useState<Invoice[]>([])
-  const [selected, setSelected] = useState<Invoice | null>(null)
+  const [internalSelected, setInternalSelected] = useState<Invoice | null>(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>(initialFilter)
   const [dupModal, setDupModal] = useState<DupModal | null>(null)
@@ -397,6 +404,15 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
   useEffect(() => {
     setInvoices(serverInvoices)
   }, [serverInvoices])
+
+  const isMobile = useIsMobile()
+  const isTablet = useIsTablet()
+
+  const selected     = controlledSelectedId !== undefined
+    ? (invoices.find(inv => inv.id === controlledSelectedId) ?? null)
+    : internalSelected
+  const openInvoice  = (inv: Invoice) => onOpenInvoice  ? onOpenInvoice(inv.id)  : setInternalSelected(inv)
+  const closeInvoice = ()             => onCloseInvoice ? onCloseInvoice()        : setInternalSelected(null)
 
   // ── duplicate helpers ────────────────────────────────────────────────────
   const dupCount = invoices.filter(i => i.duplicateFlag === 'כפילות אפשרית').length
@@ -453,9 +469,9 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
     return (
       <InvoiceDetail
         invoice={selected}
-        onBack={() => setSelected(null)}
+        onBack={closeInvoice}
         onSave={async (updated) => {
-          setSelected(null)
+          closeInvoice()
           try {
             await updateInvoice(updated.id, updated)
           } catch {
@@ -477,8 +493,6 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
     return matchSearch && matchFilter
   })
 
-  const isMobile = useIsMobile()
-  const isTablet = useIsTablet()
   const COL = isMobile ? '1fr 110px 75px' : isTablet ? '1fr 130px 110px 80px' : '1fr 145px 130px 110px 80px'
 
   const counts = {
@@ -649,7 +663,7 @@ export default function Invoices({ initialFilter = 'all' }: { initialFilter?: Fi
                     padding: '12px 16px',
                     transition: 'background 0.12s',
                   }}
-                  onClick={() => setSelected(inv)}
+                  onClick={() => openInvoice(inv)}
                   onMouseEnter={e => (e.currentTarget.style.background = '#FDF5F6')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
