@@ -81,12 +81,16 @@ interface NavEntry {
 }
 
 export default function Layout({ userEmail, onLogout }: LayoutProps) {
-  const [isCollapsed, setIsCollapsed]   = useState(false)
-  const [activePage, setActivePage]     = useState('dashboard')
-  const [ledgerSupplierId, setLedgerSupplierId] = useState<string | undefined>(undefined)
+  const [isCollapsed, setIsCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [pageHistory, setPageHistory]   = useState<NavEntry[]>([])
   const [alerts, setAlerts] = useState<Alert[]>(mockAlerts)
+  // Single source of truth for navigation — index 0 is always the origin (dashboard)
+  const [navStack, setNavStack] = useState<NavEntry[]>([{ page: 'dashboard' }])
+
+  const currentNav      = navStack[navStack.length - 1]
+  const activePage      = currentNav.page
+  const ledgerSupplierId = currentNav.ledgerSupplierId
+  const canGoBack       = navStack.length > 1
   const isMobile = useIsMobile()
   const isTablet = useIsTablet()
 
@@ -105,24 +109,22 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const pad = isMobile ? '12px' : isTablet ? '20px' : '32px'
 
   const handlePageChange = (page: string) => {
-    setPageHistory(prev => [...prev, { page: activePage, ledgerSupplierId }])
-    setActivePage(page)
+    setNavStack(prev => {
+      if (prev[prev.length - 1]?.page === page) return prev  // no-op if already here
+      return [...prev, { page }]
+    })
     setMobileMenuOpen(false)
   }
 
   const goBack = () => {
-    const prev = pageHistory[pageHistory.length - 1]
-    if (!prev) return
-    setPageHistory(h => h.slice(0, -1))
-    setActivePage(prev.page)
-    if (prev.ledgerSupplierId !== undefined) setLedgerSupplierId(prev.ledgerSupplierId)
+    setNavStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev)
     setMobileMenuOpen(false)
   }
 
   const renderPage = () => {
     if (activePage === 'dashboard')      return <Dashboard onPageChange={handlePageChange} alerts={alerts} />
     if (activePage === 'alerts')         return <Alerts alerts={alerts} onMarkRead={handleMarkRead} onMarkResolved={handleMarkResolved} onDelete={handleDeleteAlert} />
-    if (activePage === 'suppliers')      return <Suppliers onViewLedger={(id) => { setLedgerSupplierId(id); handlePageChange('ledger') }} />
+    if (activePage === 'suppliers')      return <Suppliers onViewLedger={(id) => setNavStack(prev => [...prev, { page: 'ledger', ledgerSupplierId: id }])} />
     if (activePage === 'ledger')         return <SupplierLedger initialSupplierId={ledgerSupplierId} />
     if (activePage === 'invoices')             return <Invoices key="invoices" />
     if (activePage === 'invoices-duplicates') return <Invoices key="invoices-dup" initialFilter="כפילויות" />
@@ -246,8 +248,8 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
 
         {/* Page content */}
         <main className="flex-1" style={{ padding: pad }}>
-          {pageHistory.length > 0 && (
-            <div dir="ltr" style={{ marginBottom: '12px' }}>
+          {canGoBack && (
+            <div style={{ marginBottom: '12px' }}>
               <button
                 onClick={goBack}
                 style={{
