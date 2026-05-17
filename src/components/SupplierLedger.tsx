@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Printer, BookOpen } from 'lucide-react'
 import { mockLedgerEntries, supplierOpeningBalances } from '../data/mockData'
 import { useSuppliers } from '../hooks/useSuppliers'
+import { useAppLogo } from '../hooks/useAppLogo'
 
 type EntryType = 'חשבונית' | 'תשלום' | 'זיכוי'
 
@@ -48,6 +49,7 @@ const COL_M = '80px 1fr 110px'
 
 export default function SupplierLedger({ initialSupplierId }: { initialSupplierId?: string }) {
   const { data: suppliersData, loading } = useSuppliers()
+  const { logoUrl } = useAppLogo()
   const [selectedSupplierId, setSelectedSupplierId] = useState(initialSupplierId ?? '')
   const [fromDate, setFromDate] = useState('2026-01-01')
   const [toDate,   setToDate]   = useState('2026-05-31')
@@ -108,8 +110,6 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
     const today      = new Date().toLocaleDateString('he-IL', { year: 'numeric', month: 'long', day: 'numeric' })
     const fromDisp   = isoToDisplay(fromDate)
     const toDisp     = isoToDisplay(toDate)
-    const logoUrl    = `${window.location.origin}/store-logo.png.jpeg`
-
     const rowsHtml = rows.map(row => {
       const bs = typeBadge[row.type] ?? typeBadge['פתיחה']
       const isOpening = row.type === 'פתיחה'

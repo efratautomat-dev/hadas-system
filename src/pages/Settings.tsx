@@ -1,7 +1,9 @@
 import { useState, useRef } from 'react'
-import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2 } from 'lucide-react'
+import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
+import { supabase } from '../lib/supabase'
+import { useAppLogo } from '../hooks/useAppLogo'
 
 function useIsTablet() {
   const [v] = useState(
@@ -181,6 +183,61 @@ export default function Settings() {
   const [deletingEmpId, setDeletingEmpId] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const sysLogoInputRef = useRef<HTMLInputElement>(null)
+  const { logoUrl: sysLogoUrl, refresh: refreshLogo } = useAppLogo()
+  const [logoUploading, setLogoUploading] = useState(false)
+  const [logoMsg, setLogoMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  function showLogoMsg(type: 'success' | 'error', text: string) {
+    setLogoMsg({ type, text })
+    setTimeout(() => setLogoMsg(null), 3000)
+  }
+
+  async function handleSystemLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    if (!['image/png', 'image/jpeg', 'image/svg+xml'].includes(file.type)) {
+      showLogoMsg('error', 'יש להעלות קובץ PNG, JPG או SVG בלבד')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showLogoMsg('error', 'הקובץ גדול מ-2MB')
+      return
+    }
+    setLogoUploading(true)
+    try {
+      const ext = file.name.split('.').pop() ?? 'png'
+      const { error: uploadErr } = await supabase.storage
+        .from('branding')
+        .upload(`logo.${ext}`, file, { upsert: true, contentType: file.type })
+      if (uploadErr) throw uploadErr
+      const { data: { publicUrl } } = supabase.storage.from('branding').getPublicUrl(`logo.${ext}`)
+      const { error: dbErr } = await supabase
+        .from('app_settings')
+        .upsert({ key: 'app_logo_url', value: publicUrl, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+      if (dbErr) throw dbErr
+      refreshLogo()
+      showLogoMsg('success', 'הלוגו עודכן בהצלחה ✓')
+    } catch {
+      showLogoMsg('error', 'שגיאה בהעלאה — נסי שוב')
+    } finally {
+      setLogoUploading(false)
+    }
+  }
+
+  async function handleResetSystemLogo() {
+    setLogoUploading(true)
+    try {
+      await supabase.from('app_settings').delete().eq('key', 'app_logo_url')
+      refreshLogo()
+      showLogoMsg('success', 'הלוגו אופס לברירת המחדל ✓')
+    } catch {
+      showLogoMsg('error', 'שגיאה — נסי שוב')
+    } finally {
+      setLogoUploading(false)
+    }
+  }
 
   function showToast() {
     setToastVisible(true)
@@ -330,6 +387,66 @@ export default function Settings() {
 
     preferences: (
       <div className="space-y-5">
+        <SectionCard title="לוגו המערכת">
+          <div className="flex items-start gap-5" style={{ flexDirection: 'row-reverse' }}>
+            <div
+              className="w-24 h-24 rounded-2xl flex items-center justify-center flex-shrink-0 overflow-hidden border"
+              style={{ borderColor: '#EEEEF2', background: '#F8F8FA' }}
+            >
+              <img
+                src={sysLogoUrl}
+                alt="לוגו המערכת"
+                className="w-full h-full object-contain p-1"
+                onError={e => { (e.target as HTMLImageElement).src = '/favicon.png' }}
+              />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm text-gray-500 mb-3">לוגו זה מוצג בסרגל הצד, בדוחות ובמסמכי PDF</p>
+              <input
+                ref={sysLogoInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.svg"
+                className="hidden"
+                onChange={handleSystemLogoUpload}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => sysLogoInputRef.current?.click()}
+                  disabled={logoUploading}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all"
+                  style={{ borderColor: '#D32F4A', color: '#D32F4A' }}
+                  onMouseEnter={e => { if (!logoUploading) (e.currentTarget as HTMLElement).style.background = '#FDF2F4' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                >
+                  {logoUploading ? (
+                    <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: '#D32F4A', borderTopColor: 'transparent' }} />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
+                  העלאת לוגו חדש
+                </button>
+                <button
+                  onClick={handleResetSystemLogo}
+                  disabled={logoUploading}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all"
+                  style={{ borderColor: '#EEEEF2', color: '#6B7280' }}
+                  onMouseEnter={e => { if (!logoUploading) (e.currentTarget as HTMLElement).style.background = '#F8F8FA' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  איפוס ללוגו ברירת מחדל
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">PNG, JPG, SVG עד 2MB</p>
+              {logoMsg && (
+                <p className="text-xs mt-2 font-semibold" style={{ color: logoMsg.type === 'error' ? '#DC2626' : '#16A34A' }}>
+                  {logoMsg.text}
+                </p>
+              )}
+            </div>
+          </div>
+        </SectionCard>
+
         <SectionCard title="שפה ומטבע">
           <div className="grid grid-cols-1 gap-4" style={{ gridTemplateColumns: isTablet ? '1fr' : '1fr 1fr' }}>
             <div>

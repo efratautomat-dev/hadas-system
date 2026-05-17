@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useAppLogo } from '../hooks/useAppLogo'
 import {
   LayoutDashboard,
   Users,
@@ -63,6 +64,7 @@ export default function Sidebar({
   const isTablet = useIsTablet()
   const collapsed = isCollapsed
   const initials = userEmail ? userEmail.charAt(0).toUpperCase() : 'מ'
+  const { logoUrl } = useAppLogo()
 
   return (
     <aside
@@ -90,7 +92,7 @@ export default function Sidebar({
               className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
               style={{ background: '#FDF2F4' }}
             >
-              <img src="/favicon.svg" alt="הדס לוגו" className="w-7 h-7 object-contain" />
+              <img src={logoUrl} alt="הדס לוגו" className="w-7 h-7 object-contain" />
             </div>
             <div>
               <h1 className="text-lg leading-tight" style={{ color: '#1A1A2E', fontWeight: 600 }}>
@@ -108,7 +110,7 @@ export default function Sidebar({
             className="w-9 h-9 rounded-xl flex items-center justify-center"
             style={{ background: '#FDF2F4' }}
           >
-            <img src="/favicon.svg" alt="הדס לוגו" className="w-7 h-7 object-contain" />
+            <img src={logoUrl} alt="הדס לוגו" className="w-7 h-7 object-contain" />
           </div>
         )}
 

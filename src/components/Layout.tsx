@@ -13,6 +13,7 @@ import Alerts from './Alerts'
 import Settings from '../pages/Settings'
 import { mockAlerts } from '../data/mockData'
 import type { Alert } from '../data/mockData'
+import { AppLogoProvider } from '../hooks/useAppLogo'
 
 function getGreeting(): string {
   const hour = new Date().getHours()
@@ -161,6 +162,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   }
 
   return (
+    <AppLogoProvider>
     <div className="min-h-screen" style={{ backgroundColor: '#F8F8FA', direction: 'rtl' }}>
 
       {/* Mobile overlay */}
@@ -307,5 +309,6 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         </main>
       </div>
     </div>
+    </AppLogoProvider>
   )
 }
