@@ -392,32 +392,30 @@ export default function Payments() {
 
   function doExportBizbox(rows: Payment[]) {
     const fileName = `bizbox_${todayStr()}.xlsx`
-    const HEADERS = ['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'] as const
-    const DATE_FMT = '[$-101011]d/m/yyyy'
 
     import('xlsx').then(XLSX => {
-      const ws: import('xlsx').WorkSheet = {}
-      HEADERS.forEach((h, ci) => {
-        ws[XLSX.utils.encode_cell({ r: 0, c: ci })] = { t: 's', v: h }
-      })
-      rows.forEach((p, i) => {
-        const r = i + 1
+      const data = rows.map(p => {
         const [y, m, d] = p.date.split('-').map(Number)
-        const cells: [string, import('xlsx').CellObject][] = [
-          [XLSX.utils.encode_cell({ r, c: 0 }), { t: 's', v: 'חיוב' }],
-          [XLSX.utils.encode_cell({ r, c: 1 }), { t: 's', v: normalizeBizboxType(p.type) }],
-          [XLSX.utils.encode_cell({ r, c: 2 }), { t: 'd', v: new Date(y, m - 1, d), z: DATE_FMT }],
-          [XLSX.utils.encode_cell({ r, c: 3 }), { t: 's', v: p.ref ?? '' }],
-          [XLSX.utils.encode_cell({ r, c: 4 }), { t: 'n', v: Number(p.amount) || 0 }],
-          [XLSX.utils.encode_cell({ r, c: 5 }), { t: 's', v: p.supplier ?? '' }],
-        ]
-        cells.forEach(([addr, cell]) => { ws[addr] = cell })
+        return {
+          'סוג_פעולה': 'חיוב',
+          'סוג_תשלום': normalizeBizboxType(p.type),
+          'תאריך':     new Date(y, m - 1, d),
+          'אסמכתא':    p.ref ?? '',
+          'סכום':      Number(p.amount) || 0,
+          'תיאור':     p.supplier ?? '',
+        }
       })
-      ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: 5 } })
+      const ws = XLSX.utils.json_to_sheet(data, {
+        header: ['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'],
+      })
+      rows.forEach((_p, i) => {
+        const addr = XLSX.utils.encode_cell({ r: i + 1, c: 2 })
+        if (ws[addr]) ws[addr].z = '[$-101011]d/m/yyyy'
+      })
       ws['!cols'] = [14, 14, 14, 18, 12, 22].map(wch => ({ wch }))
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'גיליון1')
-      XLSX.writeFile(wb, fileName, { cellDates: true })
+      XLSX.writeFile(wb, fileName)
     })
 
     localStorage.setItem(LS_KEY, bizboxTo)
