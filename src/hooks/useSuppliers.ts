@@ -67,12 +67,13 @@ export function useSuppliers() {
 
   useEffect(() => { load() }, [load])
 
-  const create = async (body: Record<string, unknown>) => {
+  const create = async (body: Record<string, unknown>): Promise<string | null> => {
     console.log('[useSuppliers] create payload:', body)
     try {
-      const res = await api.post('/suppliers', body)
+      const res = await api.post('/suppliers', body) as { id?: string }
       console.log('[useSuppliers] create response:', res)
       await load()
+      return res?.id ?? null
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[useSuppliers] create error:', msg)

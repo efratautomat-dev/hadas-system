@@ -329,14 +329,31 @@ function supplierToForm(sup: Supplier): EditFormState {
   }
 }
 
+interface AlertPrefill {
+  alertId:      string
+  supplierName: string
+  payload:      Record<string, unknown>
+}
+
 interface SuppliersProps {
   onViewLedger?: (supplierId: string) => void
   controlledViewId?: string | null
   onOpenDetail?: (id: string) => void
   onCloseDetail?: () => void
+  prefillForAlert?: AlertPrefill | null
+  onAlertSupplierCreated?: (supplierId: string, alertId: string, payload: Record<string, unknown>) => Promise<void>
+  onCancelAlertPrefill?: () => void
 }
 
-export default function Suppliers({ onViewLedger, controlledViewId, onOpenDetail, onCloseDetail }: SuppliersProps) {
+export default function Suppliers({
+  onViewLedger,
+  controlledViewId,
+  onOpenDetail,
+  onCloseDetail,
+  prefillForAlert,
+  onAlertSupplierCreated,
+  onCancelAlertPrefill,
+}: SuppliersProps) {
   const isTablet = useIsTablet()
   const { data: serverSuppliers, loading, error, create: createSupplier, update: updateSupplier, remove: removeSupplier } = useSuppliers()
 
@@ -355,6 +372,14 @@ export default function Suppliers({ onViewLedger, controlledViewId, onOpenDetail
   useEffect(() => {
     setSuppliers([...serverSuppliers] as Supplier[])
   }, [serverSuppliers])
+
+  // Auto-open Add form when arriving from an alert with a prefilled supplier name
+  useEffect(() => {
+    if (prefillForAlert?.supplierName) {
+      setAddForm({ ...emptyForm, name: prefillForAlert.supplierName })
+      setShowAdd(true)
+    }
+  }, [prefillForAlert])
 
   // ── Detail view ───────────────────────────────────────────────────────────
   if (viewId) {
@@ -416,10 +441,14 @@ export default function Suppliers({ onViewLedger, controlledViewId, onOpenDetail
       openingBalance: balance, openingBalanceDate: addForm.openingBalanceDate,
       notes: addForm.notes,
     }
+    const pendingAlert = prefillForAlert   // capture before UI resets
     setShowAdd(false)
     setAddForm({ ...emptyForm })
     try {
-      await createSupplier(body)
+      const newId = await createSupplier(body)
+      if (pendingAlert && newId && onAlertSupplierCreated) {
+        await onAlertSupplierCreated(newId, pendingAlert.alertId, pendingAlert.payload)
+      }
     } catch {
       // hook sets error state
     }
@@ -547,7 +576,10 @@ export default function Suppliers({ onViewLedger, controlledViewId, onOpenDetail
               form={addForm}
               onChange={setAddForm}
               onSave={saveAdd}
-              onCancel={() => setShowAdd(false)}
+              onCancel={() => {
+                setShowAdd(false)
+                if (prefillForAlert) onCancelAlertPrefill?.()
+              }}
             />
           )}
 

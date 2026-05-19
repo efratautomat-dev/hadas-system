@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Truck, Copy, Scale, Check, Eye, Trash2, Bell } from 'lucide-react'
+import { Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus } from 'lucide-react'
 import type { Alert, AlertType, AlertStatus } from '../data/mockData'
 
 const TYPE_CONFIG: Record<AlertType, {
@@ -30,6 +30,13 @@ const TYPE_CONFIG: Record<AlertType, {
     color: '#DC2626',
     border: '#FECACA',
   },
+  supplier_not_found: {
+    label: 'ספק לא זוהה',
+    Icon: UserPlus,
+    bg: '#F5F3FF',
+    color: '#7C3AED',
+    border: '#DDD6FE',
+  },
 }
 
 const STATUS_CONFIG: Record<AlertStatus, {
@@ -47,6 +54,7 @@ const TYPE_LABELS: Record<AlertType, string> = {
   duplicate_invoice:  'כפילות חשבונית',
   delivery_note:      'תעודת משלוח',
   statement_mismatch: 'אי-התאמת כרטסת',
+  supplier_not_found: 'ספק לא זוהה',
 }
 
 const STATUS_LABELS: Record<AlertStatus, string> = {
@@ -60,9 +68,10 @@ interface AlertCardProps {
   onMarkRead: (id: string) => void
   onMarkResolved: (id: string) => void
   onDelete: (id: string) => void
+  onCreateSupplierFromAlert?: (alert: Alert) => void
 }
 
-function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete }: AlertCardProps) {
+function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onCreateSupplierFromAlert }: AlertCardProps) {
   const typeConf   = TYPE_CONFIG[alert.type]
   const statusConf = STATUS_CONFIG[alert.status]
   const TypeIcon   = typeConf.Icon
@@ -118,7 +127,17 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete }: AlertCardPro
 
         {/* Actions */}
         {!isResolved && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {alert.type === 'supplier_not_found' && onCreateSupplierFromAlert && (
+              <button
+                onClick={() => onCreateSupplierFromAlert(alert)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+                style={{ background: '#F5F3FF', color: '#7C3AED' }}
+              >
+                <UserPlus className="w-3 h-3" />
+                צור ספק
+              </button>
+            )}
             {alert.status === 'new' && (
               <button
                 onClick={() => onMarkRead(alert.id)}
@@ -160,9 +179,10 @@ interface AlertsProps {
   onMarkRead: (id: string) => void
   onMarkResolved: (id: string) => void
   onDelete: (id: string) => void
+  onCreateSupplierFromAlert?: (alert: Alert) => void
 }
 
-export default function Alerts({ alerts, onMarkRead, onMarkResolved, onDelete }: AlertsProps) {
+export default function Alerts({ alerts, onMarkRead, onMarkResolved, onDelete, onCreateSupplierFromAlert }: AlertsProps) {
   const [typeFilter,   setTypeFilter]   = useState<TypeFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
@@ -284,6 +304,7 @@ export default function Alerts({ alerts, onMarkRead, onMarkResolved, onDelete }:
               onMarkRead={onMarkRead}
               onMarkResolved={onMarkResolved}
               onDelete={onDelete}
+              onCreateSupplierFromAlert={onCreateSupplierFromAlert}
             />
           ))}
         </div>

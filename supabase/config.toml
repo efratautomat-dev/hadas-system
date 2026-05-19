@@ -10,3 +10,9 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/hadas-api/deno.json"
 entrypoint = "./functions/hadas-api/index.ts"
+
+[functions.payments-ingest]
+enabled = true
+verify_jwt = false
+import_map = "./functions/payments-ingest/deno.json"
+entrypoint = "./functions/payments-ingest/index.ts"

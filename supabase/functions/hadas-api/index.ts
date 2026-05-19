@@ -464,6 +464,104 @@ async function resolveStatement(req: Request, supabase: SupabaseClient, id: stri
   return json({ success: true });
 }
 
+// ─── Gmail helpers (used by createPaymentFromAlert) ───────────────────────────
+
+async function gmailAccessToken(): Promise<string> {
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id:     Deno.env.get("GMAIL_CLIENT_ID")!,
+      client_secret: Deno.env.get("GMAIL_CLIENT_SECRET")!,
+      refresh_token: Deno.env.get("GMAIL_REFRESH_TOKEN")!,
+      grant_type:    "refresh_token",
+    }),
+  });
+  const data = await resp.json() as { access_token?: string };
+  if (!data.access_token) throw new Error("Gmail token exchange failed");
+  return data.access_token;
+}
+
+async function gmailLabelId(token: string, name: string): Promise<string | null> {
+  const resp = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/labels", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json() as { labels?: Array<{ id: string; name: string }> };
+  return data.labels?.find(l => l.name === name)?.id ?? null;
+}
+
+async function gmailMarkProcessed(token: string, messageId: string, labelId: string): Promise<void> {
+  await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ addLabelIds: [labelId], removeLabelIds: ["UNREAD"] }),
+    },
+  );
+}
+
+// ─── Payments from alert ───────────────────────────────────────────────────────
+
+async function createPaymentFromAlert(req: Request, supabase: SupabaseClient): Promise<Response> {
+  const { alertId, supplierId } = await req.json();
+  if (!alertId || !supplierId) return json({ error: "alertId and supplierId are required" }, 400);
+
+  const { data: alert } = await supabase
+    .from("alerts")
+    .select("*")
+    .eq("id", alertId)
+    .maybeSingle();
+
+  if (!alert) return json({ error: "Alert not found" }, 404);
+
+  const payload = (alert.payload ?? alert.details) as Record<string, unknown> | null;
+  if (!payload) return json({ error: "Alert has no payload" }, 400);
+
+  // Insert payment (unique index on source_message_id prevents duplicates)
+  let paymentId: string | null = null;
+  const { data: pay, error: payErr } = await supabase.from("payments").insert({
+    supplier_id:       supplierId,
+    amount:            payload.amount,
+    payment_type:      payload.paymentType,
+    payment_date:      payload.paymentDate,
+    value_date:        payload.valueDate ?? null,
+    reference:         payload.reference ?? "",
+    notes:             payload.notes ?? "",
+    status:            "pending",
+    source:            "email",
+    email_received_at: payload.emailReceivedAt ?? null,
+    source_message_id: payload.gmailMessageId ?? null,
+  }).select("id").single();
+
+  if (payErr) {
+    if (payErr.code !== "23505") return json({ error: payErr.message }, 500);
+    // 23505 = unique violation → payment already exists, proceed to mark+resolve
+  } else {
+    paymentId = pay?.id ?? null;
+  }
+
+  // Mark Gmail message as processed (best effort — don't fail the whole request)
+  const gmailMessageId = payload.gmailMessageId as string | null;
+  if (gmailMessageId) {
+    try {
+      const token   = await gmailAccessToken();
+      const labelId = await gmailLabelId(token, "תשלומים שנקלטו");
+      if (labelId) await gmailMarkProcessed(token, gmailMessageId, labelId);
+    } catch (e) {
+      console.error("Gmail mark-processed failed:", e);
+    }
+  }
+
+  // Resolve the alert
+  await supabase.from("alerts")
+    .update({ status: "resolved", resolved: true })
+    .eq("id", alertId);
+
+  return json({ success: true, paymentId });
+}
+
 // ─── Alerts ───────────────────────────────────────────────────────────────────
 
 async function createAlert(req: Request, supabase: SupabaseClient): Promise<Response> {
@@ -594,6 +692,8 @@ Deno.serve(async (req: Request) => {
     if (path === "/payments") {
       if (req.method === "POST") return await createPayment(req, supabase);
     }
+    if (path === "/payments/from-alert" && req.method === "POST")
+      return await createPaymentFromAlert(req, supabase);
     const paymentCancelMatch = path.match(/^\/payments\/([^/]+)\/cancel$/);
     if (paymentCancelMatch && req.method === "PUT")
       return await cancelPayment(supabase, paymentCancelMatch[1]);

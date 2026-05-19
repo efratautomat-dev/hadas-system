@@ -288,7 +288,7 @@ export const mockVendorStatements: { id: string; supplier_id: string; status: Ve
   { id: 'VS-003', supplier_id: 'SUP-003', status: 'pending' },
 ]
 
-export type AlertType = 'duplicate_invoice' | 'delivery_note' | 'statement_mismatch'
+export type AlertType = 'duplicate_invoice' | 'delivery_note' | 'statement_mismatch' | 'supplier_not_found'
 export type AlertStatus = 'new' | 'read' | 'resolved'
 
 export interface Alert {
@@ -299,6 +299,7 @@ export interface Alert {
   status: AlertStatus
   supplier?: string
   relatedId?: string
+  payload?: Record<string, unknown>
 }
 
 export const mockAlerts: Alert[] = [

@@ -11,9 +11,10 @@ import StatementReconciliation from './StatementReconciliation'
 import Returns from './Returns'
 import Alerts from './Alerts'
 import Settings from '../pages/Settings'
-import { mockAlerts } from '../data/mockData'
 import type { Alert } from '../data/mockData'
+import { useAlerts } from '../hooks/useAlerts'
 import { AppLogoProvider } from '../hooks/useAppLogo'
+import { api } from '../lib/api'
 
 function getGreeting(): string {
   const hour = new Date().getHours()
@@ -83,30 +84,41 @@ interface NavEntry {
   invoiceSelectedId?: string
 }
 
+interface AlertPrefillState {
+  alertId:      string
+  supplierName: string
+  payload:      Record<string, unknown>
+}
+
 export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [alerts, setAlerts] = useState<Alert[]>(mockAlerts)
+  const { data: alerts, markRead, markResolved, remove: removeAlert } = useAlerts()
+  const [alertForSupplier, setAlertForSupplier] = useState<AlertPrefillState | null>(null)
   // Single source of truth for navigation — index 0 is always the origin (dashboard)
   const [navStack, setNavStack] = useState<NavEntry[]>([{ page: 'dashboard' }])
 
-  const currentNav      = navStack[navStack.length - 1]
-  const activePage      = currentNav.page
+  const currentNav       = navStack[navStack.length - 1]
+  const activePage       = currentNav.page
   const ledgerSupplierId = currentNav.ledgerSupplierId
-  const canGoBack       = navStack.length > 1
+  const canGoBack        = navStack.length > 1
   const isMobile = useIsMobile()
   const isTablet = useIsTablet()
 
   const newAlertsCount = alerts.filter(a => a.status === 'new').length
 
-  const handleMarkRead = (id: string) =>
-    setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'read' as const } : a))
+  const handleMarkRead     = (id: string) => markRead(id)
+  const handleMarkResolved = (id: string) => markResolved(id)
+  const handleDeleteAlert  = (id: string) => removeAlert(id)
 
-  const handleMarkResolved = (id: string) =>
-    setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'resolved' as const } : a))
-
-  const handleDeleteAlert = (id: string) =>
-    setAlerts(prev => prev.filter(a => a.id !== id))
+  const handleCreateSupplierFromAlert = (alert: Alert) => {
+    setAlertForSupplier({
+      alertId:      alert.id,
+      supplierName: (alert.payload?.typedSupplierName as string) ?? '',
+      payload:      alert.payload ?? {},
+    })
+    handlePageChange('suppliers')
+  }
 
   const sidebarWidth = isMobile ? 0 : isCollapsed ? 72 : isTablet ? 200 : 256
   const pad = isMobile ? '12px' : isTablet ? '20px' : '32px'
@@ -126,13 +138,24 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
 
   const renderPage = () => {
     if (activePage === 'dashboard')      return <Dashboard onPageChange={handlePageChange} alerts={alerts} />
-    if (activePage === 'alerts')         return <Alerts alerts={alerts} onMarkRead={handleMarkRead} onMarkResolved={handleMarkResolved} onDelete={handleDeleteAlert} />
+    if (activePage === 'alerts')         return <Alerts alerts={alerts} onMarkRead={handleMarkRead} onMarkResolved={handleMarkResolved} onDelete={handleDeleteAlert} onCreateSupplierFromAlert={handleCreateSupplierFromAlert} />
     if (activePage === 'suppliers')      return (
       <Suppliers
         onViewLedger={(id) => setNavStack(prev => [...prev, { page: 'ledger', ledgerSupplierId: id }])}
         controlledViewId={currentNav.supplierViewId ?? null}
         onOpenDetail={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
         onCloseDetail={goBack}
+        prefillForAlert={alertForSupplier}
+        onAlertSupplierCreated={async (supplierId, alertId, payload) => {
+          try {
+            await api.post('/payments/from-alert', { alertId, supplierId })
+          } catch (e) {
+            console.error('from-alert failed:', e)
+          }
+          setAlertForSupplier(null)
+          markResolved(alertId)
+        }}
+        onCancelAlertPrefill={() => setAlertForSupplier(null)}
       />
     )
     if (activePage === 'ledger')         return <SupplierLedger initialSupplierId={ledgerSupplierId} />
