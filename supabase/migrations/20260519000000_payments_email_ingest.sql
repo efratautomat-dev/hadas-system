@@ -11,4 +11,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS payments_source_message_id_uidx
 -- ── alerts: new columns required by payments-ingest ───────────────────────────
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS title   TEXT;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS payload JSONB;
-ALTER TABLE alerts ADD COLUMN IF NOT EXISTS status  TEXT NOT NULL DEFAULT 'new';
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS status  TEXT NOT NULL DEFAULT 'unread';

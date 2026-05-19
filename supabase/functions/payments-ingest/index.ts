@@ -479,7 +479,7 @@ async function ingestPayments(
             notes:             parsed.notes,
             emailReceivedAt:   emailTs,
           },
-          status: "new",
+          status: "unread",
         });
 
         if (alertErr) {
