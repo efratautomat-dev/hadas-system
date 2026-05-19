@@ -393,38 +393,30 @@ export default function Payments() {
   function doExportBizbox(rows: Payment[]) {
     const fileName = `bizbox_${todayStr()}.xlsx`
 
-    fetch('/add_tazrim_template.xlsx')
-      .then(r => {
-        if (!r.ok) throw new Error(`template fetch failed: ${r.status} ${r.url}`)
-        return r.arrayBuffer()
-      })
-      .then(buf => import('xlsx').then(XLSX => {
-        const wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
-        const ws = wb.Sheets['גיליון1']
-        if (!ws) throw new Error('sheet גיליון1 not found in template')
-        rows.forEach((p, i) => {
-          const r = i + 1
-          ws[XLSX.utils.encode_cell({ r, c: 0 })] = { t: 's', v: 'חיוב' }
-          ws[XLSX.utils.encode_cell({ r, c: 1 })] = { t: 's', v: normalizeBizboxType(p.type) }
-          ws[XLSX.utils.encode_cell({ r, c: 2 })] = { t: 's', v: fmtDate(p.date) }
-          ws[XLSX.utils.encode_cell({ r, c: 3 })] = { t: 's', v: p.ref ?? '' }
-          ws[XLSX.utils.encode_cell({ r, c: 4 })] = { t: 'n', v: Number(p.amount) || 0 }
-          ws[XLSX.utils.encode_cell({ r, c: 5 })] = { t: 's', v: p.supplier ?? '' }
-        })
-        const lastRow = rows.length
-        const ref = ws['!ref']
-        const start = ref ? ref.split(':')[0] : 'A1'
-        ws['!ref'] = `${start}:${XLSX.utils.encode_cell({ r: lastRow, c: 5 })}`
-        XLSX.writeFile(wb, fileName)
-        localStorage.setItem(LS_KEY, bizboxTo)
-        setShowBizbox(false)
-        setShowBizboxValidation(false)
-        showToast(`✅ ${fileName} הורד (${rows.length} תשלומים)`)
-      }))
-      .catch((err: unknown) => {
-        console.error('Bizibox export failed:', err)
-        showToast(`❌ שגיאה בייצוא: ${err instanceof Error ? err.message : String(err)}`)
-      })
+    import('xlsx').then(XLSX => {
+      const wsData = [
+        ['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'],
+        ...rows.map(p => [
+          'חיוב',
+          normalizeBizboxType(p.type),
+          fmtDate(p.date),
+          p.ref ?? '',
+          Number(p.amount) || 0,
+          p.supplier ?? '',
+        ]),
+      ]
+      const ws = XLSX.utils.aoa_to_sheet(wsData)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'גיליון1')
+      XLSX.writeFile(wb, fileName)
+      localStorage.setItem(LS_KEY, bizboxTo)
+      setShowBizbox(false)
+      setShowBizboxValidation(false)
+      showToast(`✅ ${fileName} הורד (${rows.length} תשלומים)`)
+    }).catch((err: unknown) => {
+      console.error('Bizibox export failed:', err)
+      showToast(`❌ שגיאה בייצוא: ${err instanceof Error ? err.message : String(err)}`)
+    })
   }
 
   const [editId, setEditId] = useState<string | null>(null)
