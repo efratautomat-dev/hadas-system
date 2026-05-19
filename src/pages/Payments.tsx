@@ -394,7 +394,11 @@ export default function Payments() {
     const fileName = `bizbox_${todayStr()}.xlsx`
 
     import('xlsx').then(XLSX => {
-      const wsData = [
+      const escape = (v: unknown) => {
+        const s = String(v ?? '')
+        return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+      }
+      const csvRows = [
         ['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'],
         ...rows.map(p => [
           'חיוב',
@@ -405,10 +409,13 @@ export default function Payments() {
           p.supplier ?? '',
         ]),
       ]
-      const ws = XLSX.utils.aoa_to_sheet(wsData)
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'גיליון1')
-      XLSX.writeFile(wb, fileName)
+      const csv = csvRows.map(row => row.map(escape).join(',')).join('\n')
+      const wb = XLSX.read(csv, { type: 'string' })
+      const origName = wb.SheetNames[0]
+      wb.Sheets['גיליון1'] = wb.Sheets[origName]
+      delete wb.Sheets[origName]
+      wb.SheetNames[0] = 'גיליון1'
+      XLSX.writeFile(wb, fileName, { bookType: 'xlsx' })
       localStorage.setItem(LS_KEY, bizboxTo)
       setShowBizbox(false)
       setShowBizboxValidation(false)
