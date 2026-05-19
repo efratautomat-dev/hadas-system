@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   Settings,
   Bell,
+  ScrollText,
 } from 'lucide-react'
 
 function useIsTablet() {
@@ -48,6 +49,7 @@ const navItems = [
   { id: 'deliveries', label: 'תעודות משלוח', Icon: Truck },
   { id: 'returns', label: 'חזרות', Icon: RotateCcw },
   { id: 'reconciliation', label: 'התאמת כרטסות', Icon: BookOpen },
+  { id: 'system-logs',    label: 'לוגי מערכת',    Icon: ScrollText },
   { id: 'settings',       label: 'הגדרות',        Icon: Settings },
 ]
 

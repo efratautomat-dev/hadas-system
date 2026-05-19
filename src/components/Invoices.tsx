@@ -1,8 +1,24 @@
 import { useState, useEffect } from 'react'
-import { FileText, Search, ChevronRight, ExternalLink, Save, AlertTriangle, X } from 'lucide-react'
+import { FileText, Search, ChevronRight, ExternalLink, Save, AlertTriangle, X, RefreshCw } from 'lucide-react'
 import { type Invoice } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
+
+// ── Email-sync helper ──────────────────────────────────────────────────────
+
+interface SyncResult { processed: number; alerts: number; skipped?: number; errors?: string[] }
+
+async function triggerInvoicesIngest(): Promise<SyncResult> {
+  const base = import.meta.env.VITE_SUPABASE_URL as string
+  const key  = import.meta.env.VITE_HADAS_API_KEY as string
+  const res = await fetch(`${base}/functions/v1/invoices-ingest`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'x-hadas-key': key },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`)
+  return data as SyncResult
+}
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -400,6 +416,25 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
   const [filter, setFilter] = useState<Filter>(initialFilter)
   const [dupModal, setDupModal] = useState<DupModal | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncToast, setSyncToast] = useState<{ msg: string; kind: 'success' | 'error' } | null>(null)
+
+  const handleSync = async () => {
+    if (syncing) return
+    setSyncing(true)
+    setSyncToast(null)
+    try {
+      const r = await triggerInvoicesIngest()
+      setSyncToast({ msg: `${r.processed} עובדו, ${r.alerts} התראות`, kind: 'success' })
+      // refresh list via the hook (its load is triggered by serverInvoices state on next render — easiest: reload page-level data)
+      window.setTimeout(() => window.location.reload(), 1200)
+    } catch (e) {
+      setSyncToast({ msg: `שגיאת סנכרון: ${e instanceof Error ? e.message : String(e)}`, kind: 'error' })
+    } finally {
+      setSyncing(false)
+      window.setTimeout(() => setSyncToast(null), 4000)
+    }
+  }
 
   useEffect(() => {
     setInvoices(serverInvoices)
@@ -520,12 +555,41 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
       )}
 
       {/* Header */}
-      <div className="text-right">
-        <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>חשבוניות</h1>
-        <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>
-          {invoices.length} חשבוניות במערכת
-        </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '7px',
+            background: syncing ? '#F3F4F6' : '#D32F4A',
+            color: syncing ? '#9CA3AF' : 'white',
+            border: 'none', borderRadius: '12px',
+            padding: '10px 18px', fontSize: '14px', fontWeight: 700,
+            cursor: syncing ? 'wait' : 'pointer', fontFamily: 'inherit',
+          }}
+        >
+          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+          {syncing ? 'מסנכרן...' : 'סנכרן מיילים'}
+        </button>
+        <div className="text-right">
+          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>חשבוניות</h1>
+          <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>
+            {invoices.length} חשבוניות במערכת
+          </p>
+        </div>
       </div>
+
+      {syncToast && (
+        <div
+          className="rounded-xl p-3 text-sm text-right"
+          style={{
+            background: syncToast.kind === 'success' ? '#DCFCE7' : '#FEE2E2',
+            color:      syncToast.kind === 'success' ? '#166534' : '#991B1B',
+          }}
+        >
+          {syncToast.msg}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>

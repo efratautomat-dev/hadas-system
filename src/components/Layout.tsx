@@ -11,6 +11,7 @@ import StatementReconciliation from './StatementReconciliation'
 import Returns from './Returns'
 import Alerts from './Alerts'
 import Settings from '../pages/Settings'
+import SystemLogs from '../pages/SystemLogs'
 import type { Alert } from '../data/mockData'
 import { useAlerts } from '../hooks/useAlerts'
 import { AppLogoProvider } from '../hooks/useAppLogo'
@@ -62,6 +63,7 @@ const pageLabels: Record<string, string> = {
   deliveries:            'תעודות משלוח',
   returns:               'חזרות',
   reconciliation:        'התאמת כרטסות',
+  'system-logs':         'לוגי מערכת',
   settings:              'הגדרות',
 }
 
@@ -180,6 +182,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     if (activePage === 'deliveries')     return <DeliveryNotes />
     if (activePage === 'reconciliation') return <StatementReconciliation />
     if (activePage === 'returns')        return <Returns />
+    if (activePage === 'system-logs')    return <SystemLogs />
     if (activePage === 'settings')       return <Settings />
     return <ComingSoon page={activePage} />
   }
