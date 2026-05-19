@@ -391,26 +391,20 @@ export default function Payments() {
   }
 
   function doExportBizbox(rows: Payment[]) {
+    const data = rows.map(p => ({
+      'סוג_פעולה': 'חיוב',
+      'סוג_תשלום': normalizeBizboxType(p.type),
+      'תאריך': fmtDate(p.date),
+      'אסמכתא': p.ref,
+      'סכום': p.amount,
+      'תיאור': p.supplier,
+    }))
+
     const fileName = `bizbox_${todayStr()}.xlsx`
 
     import('xlsx').then(XLSX => {
-      const data = rows.map(p => {
-        const [y, m, d] = p.date.split('-').map(Number)
-        return {
-          'סוג_פעולה': 'חיוב',
-          'סוג_תשלום': normalizeBizboxType(p.type),
-          'תאריך':     new Date(y, m - 1, d),
-          'אסמכתא':    p.ref ?? '',
-          'סכום':      Number(p.amount) || 0,
-          'תיאור':     p.supplier ?? '',
-        }
-      })
       const ws = XLSX.utils.json_to_sheet(data, {
         header: ['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'],
-      })
-      rows.forEach((_p, i) => {
-        const addr = XLSX.utils.encode_cell({ r: i + 1, c: 2 })
-        if (ws[addr]) ws[addr].z = '[$-101011]d/m/yyyy'
       })
       ws['!cols'] = [14, 14, 14, 18, 12, 22].map(wch => ({ wch }))
       const wb = XLSX.utils.book_new()
