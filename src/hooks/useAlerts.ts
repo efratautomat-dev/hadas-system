@@ -33,7 +33,7 @@ export function useAlerts() {
               type:        (r.type as AlertType) ?? 'duplicate_invoice',
               date:        r.created_at ? fmtDate(r.created_at as string) : '',
               description: String(r.message ?? ''),
-              status:      ((r.status ?? (r.resolved ? 'resolved' : 'new')) as AlertStatus),
+              status:      ((r.status === 'unread' ? 'new' : r.status) ?? (r.resolved ? 'resolved' : 'new')) as AlertStatus,
               supplier:    payload?.typedSupplierName as string | undefined,
               relatedId:   undefined,
               payload:     payload ?? undefined,
