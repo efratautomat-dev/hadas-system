@@ -211,7 +211,7 @@ function extractField(lines: string[], ...keywords: string[]): string | null {
     for (const kw of keywords) {
       const idx = line.indexOf(kw);
       if (idx === -1) continue;
-      const after = line.slice(idx + kw.length).replace(/^[\s:–\-]+/, "").trim();
+      const after = line.slice(idx + kw.length).replace(/^[\s:–\-]+/, "").replace(/\*+$/, "").replace(/^\*+/, "").trim();
       if (after) return after;
     }
   }
