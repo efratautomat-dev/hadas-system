@@ -21,6 +21,9 @@ function json(data: unknown, status = 200): Response {
 function isAuthorized(req: Request): boolean {
   const key = req.headers.get("x-hadas-key");
   const expected = Deno.env.get("HADAS_API_KEY");
+  console.log("expected:", JSON.stringify(expected));
+  console.log("got:", JSON.stringify(key));
+  console.log("match:", key === expected);
   return !!expected && key === expected;
 }
 
