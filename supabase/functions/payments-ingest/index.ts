@@ -71,11 +71,16 @@ async function listMessageIds(token: string, query: string): Promise<string[]> {
   const url =
     `https://gmail.googleapis.com/gmail/v1/users/me/messages` +
     `?q=${encodeURIComponent(query)}&maxResults=25`;
+  console.log("[listMessages] query:", query);
   const resp = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!resp.ok) throw new Error(`listMessages failed: ${resp.status}`);
-  const data = await resp.json() as { messages?: Array<{ id: string }> };
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`listMessages failed: ${resp.status} ${txt}`);
+  }
+  const data = await resp.json() as { messages?: Array<{ id: string }>; resultSizeEstimate?: number };
+  console.log("[listMessages] resultSizeEstimate:", data.resultSizeEstimate, "count:", (data.messages ?? []).length);
   return (data.messages ?? []).map((m) => m.id);
 }
 
@@ -349,14 +354,22 @@ async function ingestPayments(
   };
 
   const token = await getGmailAccessToken();
+  console.log("[ingest] gmail token OK");
+
   const processedLabelId = await getLabelId(token, "תשלומים שנקלטו");
+  console.log("[ingest] processedLabelId:", processedLabelId);
 
   // Fetch unread payment emails not yet tagged as processed
   const query =
     'to:h8420785+payments@gmail.com label:unread -label:"תשלומים שנקלטו"';
   const messageIds = await listMessageIds(token, query);
 
-  if (messageIds.length === 0) return result;
+  console.log("[ingest] messageIds found:", messageIds.length, messageIds);
+
+  if (messageIds.length === 0) {
+    console.log("[ingest] no unread messages — done");
+    return result;
+  }
 
   const { data: supplierRows } = await supabase
     .from("suppliers")
@@ -365,6 +378,8 @@ async function ingestPayments(
 
   for (const msgId of messageIds) {
     try {
+      console.log(`[msg ${msgId}] processing`);
+
       // Idempotency: skip if already ingested
       const { data: dup } = await supabase
         .from("payments")
@@ -373,6 +388,7 @@ async function ingestPayments(
         .maybeSingle();
 
       if (dup) {
+        console.log(`[msg ${msgId}] SKIP — already in payments table (id=${dup.id})`);
         if (processedLabelId) {
           await modifyLabels(token, msgId, [processedLabelId], ["UNREAD"]);
         }
@@ -381,6 +397,12 @@ async function ingestPayments(
       }
 
       const message  = await getMessage(token, msgId);
+
+      // Log subject and labels for this message
+      const subject = message.payload.headers.find(h => h.name.toLowerCase() === "subject")?.value ?? "(no subject)";
+      const labelIds = (message as unknown as { labelIds?: string[] }).labelIds ?? [];
+      console.log(`[msg ${msgId}] subject: "${subject}" | labels: ${JSON.stringify(labelIds)}`);
+
       const body     = extractBody(message);
       const emailTs  = new Date(parseInt(message.internalDate, 10)).toISOString();
       const emailFmt = new Date(parseInt(message.internalDate, 10))
@@ -392,11 +414,19 @@ async function ingestPayments(
 
       const parsed = parseEmailBody(body);
       if (!parsed) {
+        console.log(`[msg ${msgId}] SKIP — parse failed. body (first 500 chars):`, body.slice(0, 500));
         result.errors.push(`Parse failed for message ${msgId}`);
         continue;
       }
+      console.log(`[msg ${msgId}] parsed:`, JSON.stringify(parsed));
 
       const matched = findBestSupplier(parsed.supplier, suppliers);
+      // Log top scores for every supplier to see why matching fails
+      const scores = suppliers.map(s => ({ name: s.name, score: similarityScore(parsed.supplier, s.name) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+      console.log(`[msg ${msgId}] supplier "${parsed.supplier}" — top matches:`, JSON.stringify(scores));
+      console.log(`[msg ${msgId}] matched supplier:`, matched ? matched.name : "NONE");
 
       if (matched) {
         const { error: insErr } = await supabase.from("payments").insert({
@@ -415,9 +445,10 @@ async function ingestPayments(
 
         if (insErr) {
           if (insErr.code === "23505") {
-            // Unique constraint violation — concurrent run beat us
+            console.log(`[msg ${msgId}] SKIP — unique constraint (already inserted by concurrent run)`);
             result.skipped++;
           } else {
+            console.log(`[msg ${msgId}] ERROR — DB insert failed:`, insErr.message);
             result.errors.push(
               `DB insert failed for ${msgId}: ${insErr.message}`,
             );
@@ -425,6 +456,7 @@ async function ingestPayments(
           continue;
         }
 
+        console.log(`[msg ${msgId}] DONE — payment created, applying label`);
         if (processedLabelId) {
           await modifyLabels(token, msgId, [processedLabelId], ["UNREAD"]);
         }
