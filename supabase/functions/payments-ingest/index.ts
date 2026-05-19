@@ -488,7 +488,10 @@ async function ingestPayments(
             `Alert insert failed for ${msgId}: ${alertErr.message}`,
           );
         } else {
-          console.log(`[msg ${msgId}] DONE — supplier_not_found alert created`);
+          console.log(`[msg ${msgId}] DONE — supplier_not_found alert created, applying label`);
+          if (processedLabelId) {
+            await modifyLabels(token, msgId, [processedLabelId], ["UNREAD"]);
+          }
           result.alerts++;
         }
       }
