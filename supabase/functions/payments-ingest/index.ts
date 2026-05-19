@@ -462,7 +462,24 @@ async function ingestPayments(
         }
         result.processed++;
       } else {
-        // Supplier not found — create alert and leave email unread
+        // Idempotency: skip if alert already exists for this Gmail message
+        const { data: existingAlert } = await supabase
+          .from("alerts")
+          .select("id")
+          .eq("type", "supplier_not_found")
+          .filter("payload->>gmailMessageId", "eq", msgId)
+          .maybeSingle();
+
+        if (existingAlert) {
+          console.log(`[msg ${msgId}] SKIP — alert already exists (id=${existingAlert.id}), applying label`);
+          if (processedLabelId) {
+            await modifyLabels(token, msgId, [processedLabelId], ["UNREAD"]);
+          }
+          result.skipped++;
+          continue;
+        }
+
+        // Supplier not found — create alert
         const { error: alertErr } = await supabase.from("alerts").insert({
           type:    "supplier_not_found",
           title:   "ספק לא זוהה במייל תשלום",
