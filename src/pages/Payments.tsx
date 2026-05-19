@@ -394,10 +394,14 @@ export default function Payments() {
     const fileName = `bizbox_${todayStr()}.xlsx`
 
     fetch('/add_tazrim_template.xlsx')
-      .then(r => r.arrayBuffer())
+      .then(r => {
+        if (!r.ok) throw new Error(`template fetch failed: ${r.status} ${r.url}`)
+        return r.arrayBuffer()
+      })
       .then(buf => import('xlsx').then(XLSX => {
         const wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
         const ws = wb.Sheets['גיליון1']
+        if (!ws) throw new Error('sheet גיליון1 not found in template')
         rows.forEach((p, i) => {
           const r = i + 1
           ws[XLSX.utils.encode_cell({ r, c: 0 })] = { t: 's', v: 'חיוב' }
@@ -408,17 +412,19 @@ export default function Payments() {
           ws[XLSX.utils.encode_cell({ r, c: 5 })] = { t: 's', v: p.supplier ?? '' }
         })
         const lastRow = rows.length
-        const lastCol = 5
         const ref = ws['!ref']
         const start = ref ? ref.split(':')[0] : 'A1'
-        ws['!ref'] = `${start}:${XLSX.utils.encode_cell({ r: lastRow, c: lastCol })}`
+        ws['!ref'] = `${start}:${XLSX.utils.encode_cell({ r: lastRow, c: 5 })}`
         XLSX.writeFile(wb, fileName)
+        localStorage.setItem(LS_KEY, bizboxTo)
+        setShowBizbox(false)
+        setShowBizboxValidation(false)
+        showToast(`✅ ${fileName} הורד (${rows.length} תשלומים)`)
       }))
-
-    localStorage.setItem(LS_KEY, bizboxTo)
-    setShowBizbox(false)
-    setShowBizboxValidation(false)
-    showToast(`✅ ${fileName} הורד (${rows.length} תשלומים)`)
+      .catch((err: unknown) => {
+        console.error('Bizibox export failed:', err)
+        showToast(`❌ שגיאה בייצוא: ${err instanceof Error ? err.message : String(err)}`)
+      })
   }
 
   const [editId, setEditId] = useState<string | null>(null)
