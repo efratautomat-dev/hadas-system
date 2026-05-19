@@ -146,7 +146,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenDetail={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
         onCloseDetail={goBack}
         prefillForAlert={alertForSupplier}
-        onAlertSupplierCreated={async (supplierId, alertId, payload) => {
+        onAlertSupplierCreated={async (supplierId, alertId, _payload) => {
           try {
             await api.post('/payments/from-alert', { alertId, supplierId })
           } catch (e) {

@@ -13,9 +13,10 @@ const ALERT_TYPE_CONFIG: Record<AlertType, {
   bg: string
   color: string
 }> = {
-  duplicate_invoice:  { label: 'כפילות',   Icon: Copy,  bg: '#FEF3C7', color: '#D97706' },
-  delivery_note:      { label: 'תעודה',     Icon: Truck, bg: '#DBEAFE', color: '#1E40AF' },
-  statement_mismatch: { label: 'אי-התאמה', Icon: Scale, bg: '#FEE2E2', color: '#DC2626' },
+  duplicate_invoice:  { label: 'כפילות',     Icon: Copy,  bg: '#FEF3C7', color: '#D97706' },
+  delivery_note:      { label: 'תעודה',      Icon: Truck, bg: '#DBEAFE', color: '#1E40AF' },
+  statement_mismatch: { label: 'אי-התאמה',  Icon: Scale, bg: '#FEE2E2', color: '#DC2626' },
+  supplier_not_found: { label: 'ספק לא זוהה', Icon: Bell,  bg: '#F5F3FF', color: '#7C3AED' },
 }
 
 const ALERT_STATUS: Record<string, { bg: string; color: string; label: string }> = {
