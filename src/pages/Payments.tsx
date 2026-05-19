@@ -390,40 +390,43 @@ export default function Payments() {
     doExportBizbox(rows)
   }
 
-  function doExportBizbox(rows: Payment[]) {
+  async function doExportBizbox(rows: Payment[]) {
     const fileName = `bizbox_${todayStr()}.xlsx`
-
-    import('xlsx').then(XLSX => {
-      const escape = (v: unknown) => {
-        const s = String(v ?? '')
-        return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-      }
-      const csvRows = [
-        ['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'],
-        ...rows.map(p => [
+    try {
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('גיליון1')
+      ws.addRow(['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'])
+      rows.forEach(p => {
+        ws.addRow([
           'חיוב',
           normalizeBizboxType(p.type),
           fmtDate(p.date),
           p.ref ?? '',
           Number(p.amount) || 0,
           p.supplier ?? '',
-        ]),
-      ]
-      const csv = csvRows.map(row => row.map(escape).join(',')).join('\n')
-      const wb = XLSX.read(csv, { type: 'string' })
-      const origName = wb.SheetNames[0]
-      wb.Sheets['גיליון1'] = wb.Sheets[origName]
-      delete wb.Sheets[origName]
-      wb.SheetNames[0] = 'גיליון1'
-      XLSX.writeFile(wb, fileName, { bookType: 'xlsx' })
+        ])
+      })
+      const buffer = await wb.xlsx.writeBuffer()
+      const blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
       localStorage.setItem(LS_KEY, bizboxTo)
       setShowBizbox(false)
       setShowBizboxValidation(false)
       showToast(`✅ ${fileName} הורד (${rows.length} תשלומים)`)
-    }).catch((err: unknown) => {
+    } catch (err: unknown) {
       console.error('Bizibox export failed:', err)
       showToast(`❌ שגיאה בייצוא: ${err instanceof Error ? err.message : String(err)}`)
-    })
+    }
   }
 
   const [editId, setEditId] = useState<string | null>(null)
