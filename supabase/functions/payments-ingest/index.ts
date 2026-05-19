@@ -483,10 +483,12 @@ async function ingestPayments(
         });
 
         if (alertErr) {
+          console.log(`[msg ${msgId}] ERROR — alert insert failed: code=${alertErr.code} msg=${alertErr.message} details=${alertErr.details}`);
           result.errors.push(
             `Alert insert failed for ${msgId}: ${alertErr.message}`,
           );
         } else {
+          console.log(`[msg ${msgId}] DONE — supplier_not_found alert created`);
           result.alerts++;
         }
       }
