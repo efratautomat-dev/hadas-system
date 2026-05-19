@@ -391,26 +391,29 @@ export default function Payments() {
   }
 
   function doExportBizbox(rows: Payment[]) {
-    const data = rows.map(p => ({
-      'סוג_פעולה': 'חיוב',
-      'סוג_תשלום': normalizeBizboxType(p.type),
-      'תאריך': fmtDate(p.date),
-      'אסמכתא': p.ref,
-      'סכום': p.amount,
-      'תיאור': p.supplier,
-    }))
-
     const fileName = `bizbox_${todayStr()}.xlsx`
 
-    import('xlsx').then(XLSX => {
-      const ws = XLSX.utils.json_to_sheet(data, {
-        header: ['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'],
-      })
-      ws['!cols'] = [14, 14, 14, 18, 12, 22].map(wch => ({ wch }))
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'גיליון1')
-      XLSX.writeFile(wb, fileName)
-    })
+    fetch('/add_tazrim_template.xlsx')
+      .then(r => r.arrayBuffer())
+      .then(buf => import('xlsx').then(XLSX => {
+        const wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
+        const ws = wb.Sheets['גיליון1']
+        rows.forEach((p, i) => {
+          const r = i + 1
+          ws[XLSX.utils.encode_cell({ r, c: 0 })] = { t: 's', v: 'חיוב' }
+          ws[XLSX.utils.encode_cell({ r, c: 1 })] = { t: 's', v: normalizeBizboxType(p.type) }
+          ws[XLSX.utils.encode_cell({ r, c: 2 })] = { t: 's', v: fmtDate(p.date) }
+          ws[XLSX.utils.encode_cell({ r, c: 3 })] = { t: 's', v: p.ref ?? '' }
+          ws[XLSX.utils.encode_cell({ r, c: 4 })] = { t: 'n', v: Number(p.amount) || 0 }
+          ws[XLSX.utils.encode_cell({ r, c: 5 })] = { t: 's', v: p.supplier ?? '' }
+        })
+        const lastRow = rows.length
+        const lastCol = 5
+        const ref = ws['!ref']
+        const start = ref ? ref.split(':')[0] : 'A1'
+        ws['!ref'] = `${start}:${XLSX.utils.encode_cell({ r: lastRow, c: lastCol })}`
+        XLSX.writeFile(wb, fileName)
+      }))
 
     localStorage.setItem(LS_KEY, bizboxTo)
     setShowBizbox(false)
