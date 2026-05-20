@@ -34,6 +34,33 @@ async function fetchRole(user: User): Promise<Role | null> {
 }
 
 export function useAuth(): AuthState {
+  // ───────────────────────────────────────────────────────────────────────────
+  // TODO(TEMPORARY — AUTH BYPASS): Magic-link login is disabled so the system
+  // can be accessed without signing in. The fake user below is reported as an
+  // authenticated 'manager', which makes App.tsx skip the Login screen and
+  // ProtectedRoute pass through.
+  //
+  // TO REVERT: delete this whole block, down to and including the
+  // "END AUTH BYPASS" line. The real hook logic below it is UNCHANGED and
+  // resumes working immediately.
+  //
+  // NOTE: Supabase RLS policies were intentionally NOT modified. The data layer
+  // still requires a real authenticated session, so Supabase queries will be
+  // rejected until real login is restored — this bypass only opens the
+  // frontend UI gate.
+  // ───────────────────────────────────────────────────────────────────────────
+  const BYPASS_AUTH: boolean = true
+  if (BYPASS_AUTH) {
+    return {
+      user: { id: 'temp-bypass-user', email: 'bypass@local.dev' } as unknown as User,
+      role: 'manager',
+      isLoading: false,
+      unauthorizedError: false,
+      signOut: async () => {},
+    }
+  }
+  // ─── END AUTH BYPASS ─────────────────────────────────────────────────────────
+
   const [user, setUser]                           = useState<User | null>(null)
   const [role, setRole]                           = useState<Role | null>(null)
   const [isLoading, setIsLoading]                 = useState(true)
