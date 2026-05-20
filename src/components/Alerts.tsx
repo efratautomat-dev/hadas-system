@@ -72,8 +72,10 @@ interface AlertCardProps {
 }
 
 function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onCreateSupplierFromAlert }: AlertCardProps) {
-  const typeConf   = TYPE_CONFIG[alert.type]
-  const statusConf = STATUS_CONFIG[alert.status]
+  // Fallbacks guard against alert rows whose type/status are not among the
+  // known keys — an unguarded lookup here would crash the alerts page.
+  const typeConf   = TYPE_CONFIG[alert.type]     ?? TYPE_CONFIG.duplicate_invoice
+  const statusConf = STATUS_CONFIG[alert.status] ?? STATUS_CONFIG.new
   const TypeIcon   = typeConf.Icon
   const isResolved = alert.status === 'resolved'
 

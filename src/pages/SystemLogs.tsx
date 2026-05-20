@@ -241,7 +241,7 @@ export default function SystemLogs() {
               <span className="text-right">message_id</span>
             </div>
             {rows.map(row => {
-              const st = LEVEL_STYLE[row.level]
+              const st = LEVEL_STYLE[row.level] ?? LEVEL_STYLE.info
               const isOpen = expanded.has(row.id)
               return (
                 <div key={row.id} style={{ borderBottom: '1px solid #EEEEF2' }}>

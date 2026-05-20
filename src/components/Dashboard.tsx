@@ -225,8 +225,11 @@ export default function Dashboard({ onPageChange, alerts = [] }: DashboardProps)
           </div>
           <div className="divide-y" style={{ borderColor: '#F3F4F6' }}>
             {alerts.slice(0, 5).map((alert) => {
-              const typeConf   = ALERT_TYPE_CONFIG[alert.type]
-              const statusConf = ALERT_STATUS[alert.status]
+              // Fallbacks guard against alert rows whose type/status are not
+              // among the known keys (e.g. data from a newer backend) — an
+              // unguarded lookup here would crash the whole dashboard.
+              const typeConf   = ALERT_TYPE_CONFIG[alert.type] ?? ALERT_TYPE_CONFIG.duplicate_invoice
+              const statusConf = ALERT_STATUS[alert.status]    ?? ALERT_STATUS.new
               const TypeIcon   = typeConf.Icon
               return (
                 <div
