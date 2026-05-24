@@ -398,12 +398,22 @@ export default function Payments() {
       const ws = wb.addWorksheet('גיליון1')
       ws.addRow(['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'])
       rows.forEach(p => {
+        // Bizibox accepts ONLY the literal strings "הוצאה" / "הכנסה" in the
+        // סוג_פעולה column. Other values (e.g. "חיוב"/"זיכוי"/"חובה"/"זכות")
+        // trigger "שורה מספר X חזר פירוט הוצאה הכנסה" on import.
+        //
+        // Bizibox has separate חובה/זכות columns internally and the action
+        // chooses which column receives the amount — so the סכום column must
+        // always be a POSITIVE magnitude. We detect refunds via negative
+        // p.amount and flip them to income, then write |amount|.
+        const amount = Number(p.amount) || 0
+        const action = amount < 0 ? 'הכנסה' : 'הוצאה'
         ws.addRow([
-          'חיוב',
+          action,
           normalizeBizboxType(p.type),
           fmtDate(p.date),
           p.ref ?? '',
-          Number(p.amount) || 0,
+          Math.abs(amount),
           p.supplier ?? '',
         ])
       })
