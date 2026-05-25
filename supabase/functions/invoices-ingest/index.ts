@@ -710,6 +710,29 @@ function buildDocumentBlock(mimeType: string, bytes: Uint8Array): AnthropicConte
   return { type: "image", source: { type: "base64", media_type: mt, data } };
 }
 
+// ─── JSON repair helpers ───────────────────────────────────────────────────
+
+// Tries to parse raw AI output as JSON, applying progressive repairs before giving up.
+// Returns null if all attempts fail — never throws.
+function parseJsonRobust(raw: string): unknown | null {
+  // 1. Try markdown fence extraction (```json ... ```)
+  const fence = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (fence) {
+    try { return JSON.parse(fence[1].trim()); } catch { /* fall through */ }
+  }
+  // 2. Find outermost { }
+  const s = raw.indexOf("{"), e = raw.lastIndexOf("}");
+  if (s === -1 || e === -1) return null;
+  const slice = raw.slice(s, e + 1);
+  // 3. As-is
+  try { return JSON.parse(slice); } catch { /* continue */ }
+  // 4. Repair: smart/curly quotes → straight, trailing commas before } or ]
+  const repaired = slice
+    .replace(/[“”„‟‘’ʼ]/g, '"')
+    .replace(/,(\s*[}\]])/g, "$1");
+  try { return JSON.parse(repaired); } catch { return null; }
+}
+
 // ─── Subject-classifier (Haiku) ────────────────────────────────────────────
 
 async function classifyWithAI(subject: string, bodyPreview: string): Promise<DocType> {
@@ -789,25 +812,39 @@ ${hintLine}`;
     2048,
   );
 
-  const jsonStart = raw.indexOf("{");
-  const jsonEnd   = raw.lastIndexOf("}");
-  if (jsonStart === -1 || jsonEnd === -1) {
-    throw new Error(`Extractor returned non-JSON: ${raw.slice(0, 200)}`);
+  let parsed = parseJsonRobust(raw);
+  if (parsed === null) {
+    const retryRaw = await anthropicMessage(
+      ANTHROPIC_MODEL_EXTRACTOR,
+      [{
+        role: "user",
+        content: [
+          buildDocumentBlock(doc.mimeType, doc.bytes),
+          { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" +
+            '{"vendor_name":"","invoice_number":"","invoice_date":"","total_amount":0,"amount_before_vat":0,"vat_amount":0,"currency":"ILS","category":"","line_items":[],"confidence":"high","missing_fields":[]}' },
+        ],
+      }],
+      2048,
+    );
+    parsed = parseJsonRobust(retryRaw);
+    if (parsed === null) {
+      throw new Error(`extractInvoice failed after retry. Raw: ${raw.slice(0, 500)}`);
+    }
   }
-  const parsed = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
+  const p = parsed as Record<string, unknown>;
   return {
-    vendor_name:       String(parsed.vendor_name ?? ""),
-    invoice_number:    String(parsed.invoice_number ?? ""),
-    invoice_date:      String(parsed.invoice_date ?? ""),
-    total_amount:      Number(parsed.total_amount ?? 0),
-    amount_before_vat: Number(parsed.amount_before_vat ?? 0),
-    vat_amount:        Number(parsed.vat_amount ?? 0),
-    currency:          String(parsed.currency ?? "ILS"),
-    category:          String(parsed.category ?? ""),
-    line_items:        Array.isArray(parsed.line_items) ? parsed.line_items.map(String) : [],
-    confidence:        (parsed.confidence === "high" || parsed.confidence === "medium" || parsed.confidence === "low")
-                         ? parsed.confidence : "low",
-    missing_fields:    Array.isArray(parsed.missing_fields) ? parsed.missing_fields.map(String) : [],
+    vendor_name:       String(p.vendor_name ?? ""),
+    invoice_number:    String(p.invoice_number ?? ""),
+    invoice_date:      String(p.invoice_date ?? ""),
+    total_amount:      Number(p.total_amount ?? 0),
+    amount_before_vat: Number(p.amount_before_vat ?? 0),
+    vat_amount:        Number(p.vat_amount ?? 0),
+    currency:          String(p.currency ?? "ILS"),
+    category:          String(p.category ?? ""),
+    line_items:        Array.isArray(p.line_items) ? p.line_items.map(String) : [],
+    confidence:        (p.confidence === "high" || p.confidence === "medium" || p.confidence === "low")
+                         ? p.confidence : "low",
+    missing_fields:    Array.isArray(p.missing_fields) ? p.missing_fields.map(String) : [],
   };
 }
 
@@ -1461,9 +1498,23 @@ async function extractDeliveryNote(
     [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
     1024,
   );
-  const s = raw.indexOf("{"), e = raw.lastIndexOf("}");
-  if (s === -1 || e === -1) throw new Error(`extractDeliveryNote non-JSON: ${raw.slice(0, 100)}`);
-  const p = JSON.parse(raw.slice(s, e + 1));
+  let parsed = parseJsonRobust(raw);
+  if (parsed === null) {
+    const retryRaw = await anthropicMessage(
+      ANTHROPIC_MODEL_EXTRACTOR,
+      [{ role: "user", content: [
+        buildDocumentBlock(doc.mimeType, doc.bytes),
+        { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" +
+          '{"vendor_name":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}' },
+      ] }],
+      1024,
+    );
+    parsed = parseJsonRobust(retryRaw);
+    if (parsed === null) {
+      throw new Error(`extractDeliveryNote failed after retry. Raw: ${raw.slice(0, 500)}`);
+    }
+  }
+  const p = parsed as Record<string, unknown>;
   return {
     vendor_name:       String(p.vendor_name ?? ""),
     note_number:       String(p.note_number ?? ""),
@@ -1495,9 +1546,23 @@ async function extractReturn(
     [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
     512,
   );
-  const s = raw.indexOf("{"), e = raw.lastIndexOf("}");
-  if (s === -1 || e === -1) throw new Error(`extractReturn non-JSON: ${raw.slice(0, 100)}`);
-  const p = JSON.parse(raw.slice(s, e + 1));
+  let parsed = parseJsonRobust(raw);
+  if (parsed === null) {
+    const retryRaw = await anthropicMessage(
+      ANTHROPIC_MODEL_EXTRACTOR,
+      [{ role: "user", content: [
+        buildDocumentBlock(doc.mimeType, doc.bytes),
+        { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" +
+          '{"vendor_name":"","date":"","amount":0,"reason":"","detail":""}' },
+      ] }],
+      512,
+    );
+    parsed = parseJsonRobust(retryRaw);
+    if (parsed === null) {
+      throw new Error(`extractReturn failed after retry. Raw: ${raw.slice(0, 500)}`);
+    }
+  }
+  const p = parsed as Record<string, unknown>;
   return {
     vendor_name: String(p.vendor_name ?? ""),
     date:        String(p.date ?? ""),
@@ -1557,8 +1622,16 @@ async function handleNonInvoice(
     try {
       extracted = await extractDeliveryNote(ctx.doc);
     } catch (e) {
-      await log("error", `extractDeliveryNote failed: ${e instanceof Error ? e.message : e}`,
+      const errMsg = e instanceof Error ? e.message : String(e);
+      await log("error", `extractDeliveryNote failed: ${errMsg}`,
         { filename: ctx.doc.filename }, msgId);
+      await supabase.from("alerts").insert({
+        type:    "extraction_failed",
+        title:   "פענוח מסמך נכשל",
+        message: `לא ניתן היה לפענח תעודת משלוח "${ctx.doc.filename}" (מייל: ${msgId})`,
+        payload: { gmailMessageId: msgId, subject: ctx.subject, filename: ctx.doc.filename, error: errMsg },
+        status:  "unread",
+      });
       return;
     }
     const supplierId = await resolveSupplier(extracted.vendor_name);
@@ -1593,8 +1666,16 @@ async function handleNonInvoice(
     try {
       extracted = await extractReturn(ctx.doc);
     } catch (e) {
-      await log("error", `extractReturn failed: ${e instanceof Error ? e.message : e}`,
+      const errMsg = e instanceof Error ? e.message : String(e);
+      await log("error", `extractReturn failed: ${errMsg}`,
         { filename: ctx.doc.filename }, msgId);
+      await supabase.from("alerts").insert({
+        type:    "extraction_failed",
+        title:   "פענוח מסמך נכשל",
+        message: `לא ניתן היה לפענח חזרה/זיכוי "${ctx.doc.filename}" (מייל: ${msgId})`,
+        payload: { gmailMessageId: msgId, subject: ctx.subject, filename: ctx.doc.filename, error: errMsg },
+        status:  "unread",
+      });
       return;
     }
     const supplierId = await resolveSupplier(extracted.vendor_name);
