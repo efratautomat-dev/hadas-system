@@ -12,6 +12,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 
 const SOURCE_LABEL_NAME  = "ספקים";           // TEST: swap to "חשבונית" for production
 const INVOICE_DEST_LABEL = "טסטים שטופלו";   // TEST: swap to "הועבר לרוח" for production
+const PARTIAL_REFUND_LABEL = "החזר חלקי";    // business owner applies this label manually in Gmail
 
 const DEST_LABEL_NAMES = {
   processed:    "טופל",
@@ -948,9 +949,10 @@ async function resolveAuxFolder(
   rootSubfolder: string,
   date: Date,
 ): Promise<string> {
-  const root = await driveEnsureFolder(token, DRIVE_ROOT_ID, rootSubfolder);
-  const year = await driveEnsureFolder(token, root, String(date.getUTCFullYear()));
-  return year;
+  const root  = await driveEnsureFolder(token, DRIVE_ROOT_ID, rootSubfolder);
+  const year  = await driveEnsureFolder(token, root,  String(date.getUTCFullYear()));
+  const month = await driveEnsureFolder(token, year,  HEBREW_MONTHS[date.getUTCMonth()]);
+  return month;
 }
 
 // ─── Main ingest ───────────────────────────────────────────────────────────
@@ -990,6 +992,8 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   const destStatement   = await gmailEnsureLabel(token, DEST_LABEL_NAMES.statement);
   const destReturn      = await gmailEnsureLabel(token, DEST_LABEL_NAMES.returnDoc);
   const destNeedsReview = await gmailEnsureLabel(token, DEST_LABEL_NAMES.needsReview);
+  // Partial-refund label is applied manually by the business owner — look up, don't create
+  const partialRefundLabelId = labels.find((l) => l.name === PARTIAL_REFUND_LABEL)?.id ?? null;
 
   const destLabelByDocType: Record<Exclude<DocType, "skip" | "unknown">, string> = {
     invoice:        destInvoice,
@@ -1084,7 +1088,9 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
           { filename: rej.filename, mimeType: rej.mimeType, size: rej.size }, msgId);
       }
 
-      let usableDoc: { mimeType: string; filename: string; bytes: Uint8Array } | null = null;
+      type UsableDoc = { mimeType: string; filename: string; bytes: Uint8Array };
+      let usableDoc:  UsableDoc | null = null;
+      let usableDocs: UsableDoc[]      = []; // all docs for multi-doc non-invoice types
 
       if (hKept.length === 1) {
         // Single survivor — use directly, no AI classification needed
@@ -1094,6 +1100,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
           filename: a.filename,
           bytes:    await gmailGetAttachment(token, msgId, a.attachmentId),
         };
+        usableDocs = [usableDoc];
         await log("info", `using sole surviving attachment: ${a.filename}`,
           { mimeType: a.mimeType, size: a.size }, msgId);
       } else if (hKept.length > 1) {
@@ -1107,14 +1114,28 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
             { filename: a.filename, mimeType: a.mimeType, size: a.size }, msgId);
           scored.push({ att: a, bytes, cls });
         }
-        // Stage 3: pick best invoice candidate by confidence → PDF → size
-        const best = selectBestAttachment(scored);
-        if (best) {
-          usableDoc = { mimeType: best.att.mimeType, filename: best.att.filename, bytes: best.bytes };
-          await log("info", `selected: ${best.att.filename}`,
-            { docType: best.cls.document_type, confidence: best.cls.confidence }, msgId);
+
+        if (docType === "invoice") {
+          // Stage 3 (invoice): pick single best candidate by confidence → PDF → size
+          const best = selectBestAttachment(scored);
+          if (best) {
+            usableDoc  = { mimeType: best.att.mimeType, filename: best.att.filename, bytes: best.bytes };
+            usableDocs = [usableDoc];
+            await log("info", `selected: ${best.att.filename}`,
+              { docType: best.cls.document_type, confidence: best.cls.confidence }, msgId);
+          } else {
+            await log("warn", "no attachment classified as invoice — falling through to link scan", undefined, msgId);
+          }
         } else {
-          await log("warn", "no attachment classified as invoice — falling through to link scan", undefined, msgId);
+          // Stage 3 (delivery_note / return_doc / statement): keep ALL non-"other" docs
+          const relevant = scored.filter((s) => s.cls.document_type !== "other");
+          if (relevant.length > 0) {
+            usableDocs = relevant.map((s) => ({ mimeType: s.att.mimeType, filename: s.att.filename, bytes: s.bytes }));
+            usableDoc  = usableDocs[0];
+            await log("info", `multi-doc: ${usableDocs.length} document(s) for ${docType}`, undefined, msgId);
+          } else {
+            await log("warn", "no attachment relevant for doc type — falling through to link scan", undefined, msgId);
+          }
         }
       }
 
@@ -1147,7 +1168,10 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
             } else {
               usableDoc = linked; // PDFs from links accepted without classification
             }
-            if (usableDoc) await log("info", "invoice document obtained from a body link", undefined, msgId);
+            if (usableDoc) {
+              usableDocs = [usableDoc];
+              await log("info", "invoice document obtained from a body link", undefined, msgId);
+            }
           }
         }
       }
@@ -1192,18 +1216,18 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         continue;
       }
 
-      // 3. Branch by docType
+      // 3. Branch by docType — for non-invoice types process EACH doc as a separate record
       if (docType !== "invoice") {
-        // Other doc types — save to dedicated folder + matching table (stubbed)
-        await handleNonInvoice(supabase, token, log, msgId, {
-          docType,
-          subject,
-          from,
-          emailTs,
-          messageLink,
-          doc:           usableDoc,
-        });
-
+        for (const doc of usableDocs) {
+          await handleNonInvoice(supabase, token, log, msgId, suppliers, {
+            docType,
+            subject,
+            from,
+            emailTs,
+            messageLink,
+            doc,
+          });
+        }
         await gmailModifyLabels(token, msgId, [destLabelByDocType[docType], destProcessed], [sourceLabelId, "UNREAD"]);
         result.processed++;
         continue;
@@ -1280,8 +1304,9 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         }
       }
 
-      // f. Partial return flag
-      const partialReturn = subject.includes("החזר חלקי") || subject.includes("partial return");
+      // f. Partial return flag — set by Gmail label, not subject text
+      const partialReturn = partialRefundLabelId !== null &&
+        (message.labelIds ?? []).includes(partialRefundLabelId);
 
       // g+h. Resolve Drive folder and upload
       let driveFileLink   = "";
@@ -1412,13 +1437,84 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   return result;
 }
 
+// ─── Non-invoice extractors ────────────────────────────────────────────────
+
+interface ExtractedDeliveryNote {
+  vendor_name:       string;
+  note_number:       string;
+  date:              string; // YYYY-MM-DD
+  amount:            number;
+  amount_before_vat: number;
+  vat_amount:        number;
+  line_items:        string[];
+}
+
+async function extractDeliveryNote(
+  doc: { mimeType: string; bytes: Uint8Array },
+): Promise<ExtractedDeliveryNote> {
+  const prompt =
+    "אתה מנתח תעודות משלוח. חלץ את הפרטים מהמסמך וחזור ב-JSON בלבד, ללא הסברים.\n" +
+    '{"vendor_name":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}\n' +
+    "כללים: תאריך YYYY-MM-DD, סכומים ללא סימני מטבע.";
+  const raw = await anthropicMessage(
+    ANTHROPIC_MODEL_EXTRACTOR,
+    [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
+    1024,
+  );
+  const s = raw.indexOf("{"), e = raw.lastIndexOf("}");
+  if (s === -1 || e === -1) throw new Error(`extractDeliveryNote non-JSON: ${raw.slice(0, 100)}`);
+  const p = JSON.parse(raw.slice(s, e + 1));
+  return {
+    vendor_name:       String(p.vendor_name ?? ""),
+    note_number:       String(p.note_number ?? ""),
+    date:              String(p.date ?? ""),
+    amount:            Number(p.amount ?? 0),
+    amount_before_vat: Number(p.amount_before_vat ?? 0),
+    vat_amount:        Number(p.vat_amount ?? 0),
+    line_items:        Array.isArray(p.line_items) ? p.line_items.map(String) : [],
+  };
+}
+
+interface ExtractedReturn {
+  vendor_name: string;
+  date:        string; // YYYY-MM-DD
+  amount:      number;
+  reason:      string;
+  detail:      string;
+}
+
+async function extractReturn(
+  doc: { mimeType: string; bytes: Uint8Array },
+): Promise<ExtractedReturn> {
+  const prompt =
+    "אתה מנתח תעודות זיכוי וחזרות. חלץ את הפרטים מהמסמך וחזור ב-JSON בלבד.\n" +
+    '{"vendor_name":"","date":"","amount":0,"reason":"","detail":""}\n' +
+    "כללים: תאריך YYYY-MM-DD, amount = סכום מוחזר (מספר חיובי).";
+  const raw = await anthropicMessage(
+    ANTHROPIC_MODEL_EXTRACTOR,
+    [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
+    512,
+  );
+  const s = raw.indexOf("{"), e = raw.lastIndexOf("}");
+  if (s === -1 || e === -1) throw new Error(`extractReturn non-JSON: ${raw.slice(0, 100)}`);
+  const p = JSON.parse(raw.slice(s, e + 1));
+  return {
+    vendor_name: String(p.vendor_name ?? ""),
+    date:        String(p.date ?? ""),
+    amount:      Number(p.amount ?? 0),
+    reason:      String(p.reason ?? ""),
+    detail:      String(p.detail ?? ""),
+  };
+}
+
 // ─── Non-invoice doc handlers ──────────────────────────────────────────────
 
 async function handleNonInvoice(
-  supabase: SupabaseClient,
-  token:    string,
-  log:      Logger,
-  msgId:    string,
+  supabase:  SupabaseClient,
+  token:     string,
+  log:       Logger,
+  msgId:     string,
+  suppliers: SupplierRow[],
   ctx: {
     docType:     Exclude<DocType, "invoice" | "skip" | "unknown">;
     subject:     string;
@@ -1428,43 +1524,117 @@ async function handleNonInvoice(
     doc:         { mimeType: string; filename: string; bytes: Uint8Array };
   },
 ): Promise<void> {
-  const date = new Date(ctx.emailTs);
+  const date    = new Date(ctx.emailTs);
   const subRoot =
     ctx.docType === "delivery_note" ? DRIVE_SUBFOLDERS.deliveryNote :
     ctx.docType === "statement"     ? DRIVE_SUBFOLDERS.statement    :
                                        DRIVE_SUBFOLDERS.returnDoc;
 
-  const yearFolderId = await resolveAuxFolder(token, subRoot, date);
-  const uploaded     = await driveUploadFile(token, yearFolderId, ctx.doc.filename, ctx.doc.mimeType, ctx.doc.bytes);
-  const folderLink   = await driveGetFolderLink(token, yearFolderId);
+  const monthFolderId = await resolveAuxFolder(token, subRoot, date);
+  const uploaded      = await driveUploadFile(
+    token, monthFolderId, ctx.doc.filename, ctx.doc.mimeType, ctx.doc.bytes,
+  );
 
-  // TODO: Match the document to an existing supplier / linked invoice and write
-  //       a proper row into delivery_notes / vendor_statements / returns.
-  //       For now we just stash metadata so manual review can pick it up.
-  const tableByType: Record<typeof ctx.docType, string> = {
-    delivery_note: "delivery_notes",
-    statement:     "vendor_statements",
-    return_doc:    "returns",
+  // Shared supplier lookup / create
+  const resolveSupplier = async (vendorName: string): Promise<string | null> => {
+    if (!vendorName) return null;
+    const matched = findBestSupplier(vendorName, suppliers);
+    if (matched) return matched.id;
+    const { data: created, error: supErr } = await supabase
+      .from("suppliers").insert({ name: vendorName }).select("id").single();
+    if (supErr) {
+      await log("error", `supplier insert failed: ${supErr.message}`, undefined, msgId);
+      return null;
+    }
+    const id = created!.id as string;
+    suppliers.push({ id, name: vendorName });
+    await log("info", `created new supplier ${id}`, { name: vendorName }, msgId);
+    return id;
   };
-  const table = tableByType[ctx.docType];
 
-  try {
-    await supabase.from(table).insert({
-      // Common fields likely present in those tables; if a column doesn't exist
-      // the insert will fail with 42703 and we'll see it in logs.
+  if (ctx.docType === "delivery_note") {
+    let extracted: ExtractedDeliveryNote;
+    try {
+      extracted = await extractDeliveryNote(ctx.doc);
+    } catch (e) {
+      await log("error", `extractDeliveryNote failed: ${e instanceof Error ? e.message : e}`,
+        { filename: ctx.doc.filename }, msgId);
+      return;
+    }
+    const supplierId = await resolveSupplier(extracted.vendor_name);
+    const { error } = await supabase.from("delivery_notes").insert({
+      supplier_id:       supplierId,
+      supplier_name:     extracted.vendor_name,
+      note_number:       extracted.note_number,
+      date:              extracted.date || null,
+      amount:            extracted.amount,
+      amount_before_vat: extracted.amount_before_vat,
+      vat_amount:        extracted.vat_amount,
+      line_items:        extracted.line_items.join("\n"),
+      status:            "pending_match",
+      invoice_id:        null,
+      source_email:      ctx.from,
+      received_at:       ctx.emailTs,
+      drive_file_link:   uploaded.webViewLink,
+      gmail_message_id:  msgId,
+      email_subject:     ctx.subject,
+      message_link:      ctx.messageLink,
+    });
+    if (error) {
+      await log("error", `delivery_note insert failed: ${error.message}`,
+        { code: error.code, filename: ctx.doc.filename }, msgId);
+    } else {
+      await log("info", "delivery_note ingested",
+        { supplierId, noteNumber: extracted.note_number, filename: ctx.doc.filename }, msgId);
+    }
+
+  } else if (ctx.docType === "return_doc") {
+    let extracted: ExtractedReturn;
+    try {
+      extracted = await extractReturn(ctx.doc);
+    } catch (e) {
+      await log("error", `extractReturn failed: ${e instanceof Error ? e.message : e}`,
+        { filename: ctx.doc.filename }, msgId);
+      return;
+    }
+    const supplierId = await resolveSupplier(extracted.vendor_name);
+    const { error } = await supabase.from("returns").insert({
+      supplier_id:      supplierId,
+      date:             extracted.date || null,
+      amount:           extracted.amount,
+      reason:           extracted.reason,
+      detail:           extracted.detail,
+      invoice_id:       null,
+      status:           "בטיפול",
+      created_by:       "system",
       drive_file_link:  uploaded.webViewLink,
-      folder_link:      folderLink,
+      gmail_message_id: msgId,
+      email_subject:    ctx.subject,
+      message_link:     ctx.messageLink,
+    });
+    if (error) {
+      await log("error", `return insert failed: ${error.message}`,
+        { code: error.code, filename: ctx.doc.filename }, msgId);
+    } else {
+      await log("info", "return ingested",
+        { supplierId, amount: extracted.amount, filename: ctx.doc.filename }, msgId);
+    }
+
+  } else {
+    // statement — Drive upload only (no structured parser yet)
+    const { error } = await supabase.from("vendor_statements").insert({
+      drive_file_link:  uploaded.webViewLink,
       message_link:     ctx.messageLink,
       gmail_message_id: msgId,
       email_subject:    ctx.subject,
       received_at:      ctx.emailTs,
       status:           "needs_review",
     });
-  } catch (e) {
-    await log("warn", `${table} insert failed (likely schema mismatch — TODO matcher): ${e instanceof Error ? e.message : e}`, undefined, msgId);
+    if (error) {
+      await log("warn", `vendor_statements insert failed: ${error.message}`, undefined, msgId);
+    }
+    await log("info", "statement stored in Drive", { fileId: uploaded.id }, msgId);
   }
-
-  await log("info", `${ctx.docType} stored in Drive (matcher pending)`, { fileId: uploaded.id }, msgId);
 }
 
 // ─── Entry ─────────────────────────────────────────────────────────────────
