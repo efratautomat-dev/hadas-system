@@ -10,15 +10,16 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
-const SOURCE_LABEL_NAME = "ספקים"; // TEST: swap to "חשבונית" for production
+const SOURCE_LABEL_NAME  = "ספקים";           // TEST: swap to "חשבונית" for production
+const INVOICE_DEST_LABEL = "טסטים שטופלו";   // TEST: swap to "הועבר לרוח" for production
 
 const DEST_LABEL_NAMES = {
-  processed:      "טופל",                  // generic "handled"
-  invoice:        "הועבר לרוח",            // matches existing N8N convention
-  deliveryNote:   "תעודות משלוח",
-  statement:      "כרטסות",
-  returnDoc:      "חזרות",
-  needsReview:    "דורש בדיקה ידנית",
+  processed:    "טופל",
+  invoice:      INVOICE_DEST_LABEL,
+  deliveryNote: "תעודות משלוח",
+  statement:    "כרטסות",
+  returnDoc:    "חזרות",
+  needsReview:  "דורש בדיקה ידנית",
 };
 
 const DRIVE_ROOT_ID = "1ocbxq5-ReY7WutAm48pKHDiaB8rBe6SM";
@@ -39,6 +40,14 @@ const HEBREW_MONTHS = [
   "ינואר","פברואר","מרץ","אפריל","מאי","יוני",
   "יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר",
 ];
+
+// ── Body-link invoice fetching (mirrors the existing N8N HTTP node) ──────────
+const MAX_LINKS_PER_EMAIL   = 5;     // cap so a link-spam email can't DOS the run
+const LINK_FETCH_TIMEOUT_MS = 20000; // per-link fetch timeout
+const LINK_FETCH_HEADERS = {
+  "Accept":     "*/*",
+  "User-Agent": "Mozilla/5.0",
+};
 
 // ─── CORS / JSON ───────────────────────────────────────────────────────────
 
@@ -76,17 +85,26 @@ function makeLogger(supabase: SupabaseClient) {
     messageId?: string,
   ) {
     const line = `[${level}] ${messageId ? `(${messageId}) ` : ""}${message}`;
-    console.log(line, context ? JSON.stringify(context) : "");
+    let contextStr = "";
+    try { contextStr = context ? JSON.stringify(context) : ""; }
+    catch { contextStr = "[unserializable context]"; }
+    console.log(line, contextStr);
     try {
-      await supabase.from("system_logs").insert({
+      // supabase-js v2 returns { data, error } — a DB error does NOT throw,
+      // so the error must be inspected explicitly or the write fails silently.
+      const { error } = await supabase.from("system_logs").insert({
         source:     "invoices-ingest",
         level,
         message,
         context:    context ?? null,
         message_id: messageId ?? null,
       });
+      if (error) {
+        console.error(`[logger] system_logs insert failed: ${error.message}` +
+          (error.code ? ` (code ${error.code})` : ""));
+      }
     } catch (e) {
-      console.error("[logger] DB insert failed:", e);
+      console.error("[logger] system_logs insert threw:", e instanceof Error ? e.message : String(e));
     }
   };
 }
@@ -368,10 +386,11 @@ function extractHeader(message: GmailMessage, name: string): string {
 
 // Find attachments that are usable as the invoice itself (PDF / image).
 interface CandidateAttachment {
-  partId?:      string;
   attachmentId: string;
   filename:     string;
   mimeType:     string;
+  size:         number;
+  isInline:     boolean;
 }
 
 function findAttachments(message: GmailMessage): CandidateAttachment[] {
@@ -383,20 +402,242 @@ function findAttachments(message: GmailMessage): CandidateAttachment[] {
     const isPdf   = mt === "application/pdf";
     const isImage = mt.startsWith("image/");
     if (isPdf || isImage) {
+      const disp     = p.headers?.find((h) => h.name.toLowerCase() === "content-disposition")?.value ?? "";
+      const isInline = disp.toLowerCase().startsWith("inline");
       out.push({
         attachmentId: p.body.attachmentId,
         filename:     p.filename,
         mimeType:     p.mimeType || (isPdf ? "application/pdf" : "image/jpeg"),
+        size:         p.body.size ?? 0,
+        isInline,
       });
     }
   }
   return out;
 }
 
-// Pull every URL out of the body — we'll try to fetch each in turn.
-function extractUrls(text: string): string[] {
-  const matches = text.match(/https?:\/\/[^\s<>"'\)]+/g) ?? [];
-  return [...new Set(matches)];
+// ─── Attachment filtering — Stage 1 (heuristic) ────────────────────────────
+
+const LOGO_FILENAME_RE    = /logo|signature|image00[1-9]|banner|footer|header/i;
+const LOGO_SIZE_THRESHOLD = 30_000; // bytes — typical upper-bound for inline logos
+
+interface RejectedAttachment { filename: string; mimeType: string; size: number; reason: string }
+
+function heuristicFilterAttachments(
+  attachments: CandidateAttachment[],
+): { kept: CandidateAttachment[]; rejected: RejectedAttachment[] } {
+  const kept: CandidateAttachment[] = [];
+  const rejected: RejectedAttachment[] = [];
+  for (const a of attachments) {
+    const mt = a.mimeType.toLowerCase();
+    if (LOGO_FILENAME_RE.test(a.filename)) {
+      rejected.push({ filename: a.filename, mimeType: a.mimeType, size: a.size,
+        reason: "filename matches logo/signature pattern" });
+    } else if (a.isInline) {
+      rejected.push({ filename: a.filename, mimeType: a.mimeType, size: a.size,
+        reason: "Content-Disposition: inline (embedded HTML image)" });
+    } else if (mt.startsWith("image/") && a.size < LOGO_SIZE_THRESHOLD) {
+      rejected.push({ filename: a.filename, mimeType: a.mimeType, size: a.size,
+        reason: `image too small (${a.size} B < ${LOGO_SIZE_THRESHOLD} B threshold)` });
+    } else if (/\.gif$/i.test(a.filename) || mt === "image/gif") {
+      rejected.push({ filename: a.filename, mimeType: a.mimeType, size: a.size,
+        reason: ".gif is not a document format" });
+    } else {
+      kept.push(a);
+    }
+  }
+  return { kept, rejected };
+}
+
+// ─── Body-link invoice fetching ────────────────────────────────────────────
+
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/gi,    "&")
+    .replace(/&lt;/gi,     "<")
+    .replace(/&gt;/gi,     ">")
+    .replace(/&quot;/gi,   '"')
+    .replace(/&#0?39;/g,   "'")
+    .replace(/&#x2[fF];/g, "/");
+}
+
+function extractRawHtml(message: GmailMessage): string {
+  const flat = flattenParts(message.payload as GmailPart);
+  const html = flat.find((p) => p.mimeType === "text/html" && p.body?.data);
+  return html?.body.data ? decodeBase64UrlToText(html.body.data) : "";
+}
+
+const FILE_URL_RE    = /\.(pdf|jpe?g|png)(?:[?#]|$)/i;
+const DOWNLOAD_WORDS = ["להורדה", "חשבונית", "download", "invoice"];
+
+// True for URLs that look like they point at a downloadable invoice file.
+function isFileHostUrl(url: string): boolean {
+  const u = url.toLowerCase();
+  return (
+    FILE_URL_RE.test(u) ||
+    u.includes("drive.google.com/file/d/") ||
+    u.includes("drive.google.com/open?id=") ||
+    u.includes("drive.google.com/uc?") ||
+    u.includes("docs.google.com/") ||
+    u.includes("dropbox.com/") ||
+    u.includes("dropboxusercontent.com/") ||
+    u.includes("wetransfer.com/") ||
+    u.includes("we.tl/")
+  );
+}
+
+function extractAnchors(html: string): Array<{ href: string; text: string }> {
+  const out: Array<{ href: string; text: string }> = [];
+  const re = /<a\b[^>]*?href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const href = decodeHtmlEntities(m[1].trim());
+    const text = decodeHtmlEntities(m[2].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+    if (/^https?:\/\//i.test(href)) out.push({ href, text });
+  }
+  return out;
+}
+
+function rawUrls(text: string): string[] {
+  return (text.match(/https?:\/\/[^\s<>"'\)\]]+/gi) ?? []).map((u) => u.replace(/[).,;]+$/, ""));
+}
+
+// Collects candidate invoice-file URLs from the body — file-host links first,
+// then links explicitly labelled as a download/invoice link.
+function extractInvoiceLinks(plainText: string, html: string): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string) => {
+    const url = decodeHtmlEntities(raw.trim());
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) return;
+    seen.add(url);
+    candidates.push(url);
+  };
+
+  const anchors = extractAnchors(html);
+
+  // 1. Anchors whose href is a known file host / direct file URL
+  for (const a of anchors) if (isFileHostUrl(a.href)) add(a.href);
+
+  // 2. Anchors whose visible text labels them as a download/invoice link
+  for (const a of anchors) {
+    const label = a.text.toLowerCase();
+    if (DOWNLOAD_WORDS.some((w) => label.includes(w.toLowerCase()))) add(a.href);
+  }
+
+  // 3. Raw URLs (HTML source + plain text) that point at a file host
+  for (const u of [...rawUrls(html), ...rawUrls(plainText)]) {
+    if (isFileHostUrl(u)) add(u);
+  }
+
+  // 4. Raw URLs in plain text sitting next to a download keyword
+  for (const u of rawUrls(plainText)) {
+    const idx = plainText.indexOf(u);
+    if (idx === -1) continue;
+    const around = plainText.slice(Math.max(0, idx - 60), idx + u.length + 60).toLowerCase();
+    if (DOWNLOAD_WORDS.some((w) => around.includes(w.toLowerCase()))) add(u);
+  }
+
+  return candidates;
+}
+
+// Rewrites share links into their direct-download form where possible.
+function normalizeDownloadUrl(url: string): string {
+  const drive = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:[^#]*&)?id=)([\w-]+)/i);
+  if (drive) return `https://drive.google.com/uc?export=download&id=${drive[1]}`;
+  if (/dropbox\.com\//i.test(url)) {
+    if (/[?&]dl=0\b/i.test(url)) return url.replace(/([?&])dl=0\b/i, "$1dl=1");
+    if (/[?&]dl=1\b/i.test(url)) return url;
+    return url + (url.includes("?") ? "&" : "?") + "dl=1";
+  }
+  return url;
+}
+
+// Identifies a file by its magic bytes — authoritative over Content-Type.
+function sniffFileType(bytes: Uint8Array): "pdf" | "image" | "other" {
+  if (bytes.length >= 4 &&
+      bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) return "pdf";   // %PDF
+  if (bytes.length >= 3 &&
+      bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return "image";                       // JPEG
+  if (bytes.length >= 8 &&
+      bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47 &&
+      bytes[4] === 0x0D && bytes[5] === 0x0A && bytes[6] === 0x1A && bytes[7] === 0x0A) return "image";   // PNG
+  return "other";
+}
+
+function filenameFromUrl(url: string, kind: "pdf" | "image"): string {
+  try {
+    const base = new URL(url).pathname.split("/").filter(Boolean).pop() ?? "";
+    if (/\.(pdf|jpe?g|png)$/i.test(base)) return decodeURIComponent(base);
+  } catch { /* fall through to default */ }
+  return kind === "pdf" ? "invoice.pdf" : "invoice.jpg";
+}
+
+async function fetchLinkBinary(url: string): Promise<Response> {
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LINK_FETCH_TIMEOUT_MS);
+  try {
+    // Deno's fetch follows redirects automatically (redirect: "follow").
+    return await fetch(url, {
+      method:   "GET",
+      headers:  LINK_FETCH_HEADERS,
+      redirect: "follow",
+      signal:   ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+interface ResolvedDoc { mimeType: string; filename: string; bytes: Uint8Array }
+
+// Tries each candidate link in order; returns the first that yields a PDF/image.
+// Never throws — every failure is logged and collected for the caller's alert.
+async function resolveDocFromLinks(
+  candidates: string[],
+  log:        Logger,
+  msgId:      string,
+): Promise<{ doc: ResolvedDoc | null; failures: Array<{ url: string; reason: string }> }> {
+  const failures: Array<{ url: string; reason: string }> = [];
+
+  if (candidates.length > MAX_LINKS_PER_EMAIL) {
+    await log("warn", `email has ${candidates.length} candidate links — capping at ${MAX_LINKS_PER_EMAIL}`,
+      { total: candidates.length }, msgId);
+  }
+
+  for (const rawUrl of candidates.slice(0, MAX_LINKS_PER_EMAIL)) {
+    const url = normalizeDownloadUrl(rawUrl);
+    try {
+      const resp = await fetchLinkBinary(url);
+      if (!resp.ok) {
+        failures.push({ url, reason: `HTTP ${resp.status}` });
+        await log("warn", `link fetch failed — HTTP ${resp.status}`, { url, rawUrl }, msgId);
+        continue;
+      }
+      const contentType = (resp.headers.get("content-type") ?? "").toLowerCase();
+      const bytes = new Uint8Array(await resp.arrayBuffer());
+      const kind  = sniffFileType(bytes);
+      if (kind === "other") {
+        const reason = `not a PDF/image (content-type: ${contentType || "unknown"})`;
+        failures.push({ url, reason });
+        await log("info", `link skipped — ${reason}`, { url, bytes: bytes.length }, msgId);
+        continue;
+      }
+      const mimeType =
+        kind === "pdf"                     ? "application/pdf"
+        : contentType.startsWith("image/") ? contentType
+        :                                    "image/jpeg";
+      await log("info", `link yielded a ${kind} (${bytes.length} bytes)`, { url, contentType }, msgId);
+      return { doc: { mimeType, filename: filenameFromUrl(url, kind), bytes }, failures };
+    } catch (e) {
+      const reason = e instanceof Error
+        ? (e.name === "AbortError" ? `timeout after ${LINK_FETCH_TIMEOUT_MS}ms` : e.message)
+        : String(e);
+      failures.push({ url, reason });
+      await log("warn", `link fetch error — ${reason}`, { url, rawUrl }, msgId);
+    }
+  }
+  return { doc: null, failures };
 }
 
 // ─── Doc-type routing by subject ───────────────────────────────────────────
@@ -569,21 +810,61 @@ ${hintLine}`;
   };
 }
 
-// ─── "Is this a real invoice?" filter for multi-attachment cases ───────────
+// ─── Attachment AI classification — Stage 2 (Haiku, cheap) ───────────────
 
-async function isAccountingAttachment(doc: { mimeType: string; bytes: Uint8Array }): Promise<boolean> {
-  const text = await anthropicMessage(
+interface AttachmentClassification {
+  is_invoice:    boolean;
+  document_type: "invoice" | "delivery_note" | "credit_note" | "receipt" | "other";
+  confidence:    "high" | "medium" | "low";
+}
+
+async function classifyAttachmentDoc(
+  doc: { mimeType: string; bytes: Uint8Array },
+): Promise<AttachmentClassification> {
+  const raw = await anthropicMessage(
     ANTHROPIC_MODEL_CLASSIFIER,
     [{
       role:    "user",
       content: [
         buildDocumentBlock(doc.mimeType, doc.bytes),
-        { type: "text", text: "האם זה חשבונית/קבלה/מסמך חשבונאי? ענה רק כן או לא." },
+        {
+          type: "text",
+          text: 'Is this a business invoice/receipt/delivery note/credit note? ' +
+                'Answer JSON only: {"is_invoice": true/false, "document_type": "invoice"|"delivery_note"|"credit_note"|"receipt"|"other", "confidence": "high"|"medium"|"low"}',
+        },
       ],
     }],
-    16,
+    64,
   );
-  return text.trim().startsWith("כן");
+  const start = raw.indexOf("{");
+  const end   = raw.lastIndexOf("}");
+  if (start === -1 || end === -1) return { is_invoice: false, document_type: "other", confidence: "low" };
+  try {
+    const p = JSON.parse(raw.slice(start, end + 1));
+    const VALID_TYPES = ["invoice", "delivery_note", "credit_note", "receipt", "other"] as const;
+    const VALID_CONF  = ["high", "medium", "low"] as const;
+    return {
+      is_invoice:    Boolean(p.is_invoice),
+      document_type: VALID_TYPES.includes(p.document_type) ? p.document_type : "other",
+      confidence:    VALID_CONF.includes(p.confidence)     ? p.confidence    : "low",
+    };
+  } catch {
+    return { is_invoice: false, document_type: "other", confidence: "low" };
+  }
+}
+
+// Stage 3 — pick best from classified candidates
+interface ScoredAttachment { att: CandidateAttachment; bytes: Uint8Array; cls: AttachmentClassification }
+
+function selectBestAttachment(scored: ScoredAttachment[]): ScoredAttachment | null {
+  const invoices = scored.filter((s) => s.cls.is_invoice);
+  if (invoices.length === 0) return null; // caller falls through to link scan
+  const rank = (s: ScoredAttachment) => {
+    const conf = s.cls.confidence === "high" ? 2 : s.cls.confidence === "medium" ? 1 : 0;
+    const pdf  = s.att.mimeType === "application/pdf" ? 1 : 0;
+    return conf * 1000 + pdf * 100 + s.att.size / 1_000_000;
+  };
+  return invoices.sort((a, b) => rank(b) - rank(a))[0];
 }
 
 // ─── Fuzzy supplier matching (mirrored from payments-ingest) ───────────────
@@ -720,7 +1001,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   // Gmail query: source label, unread, not yet processed by N8N or by us, recent.
   const query =
     `label:"${SOURCE_LABEL_NAME}" is:unread ` +
-    `-label:"הועבר לרוח" -label:"${DEST_LABEL_NAMES.processed}" newer_than:1M`;
+    `-label:"${INVOICE_DEST_LABEL}" -label:"${DEST_LABEL_NAMES.processed}" newer_than:1M`;
   const messageIds = await gmailListMessages(token, query);
   await log("info", `found ${messageIds.length} candidate messages`, { query });
 
@@ -753,6 +1034,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       const subject    = extractHeader(message, "Subject") || "(no subject)";
       const from       = extractHeader(message, "From");
       const bodyText   = extractBodyText(message);
+      const rawHtml    = extractRawHtml(message);
       const emailTs    = new Date(parseInt(message.internalDate, 10)).toISOString();
       const messageLink = `https://mail.google.com/mail/u/0/#all/${msgId}`;
 
@@ -792,81 +1074,117 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         continue;
       }
 
-      // 2. Find a usable attachment (PDF/image) — direct, or via inline URL
-      const directAtt = findAttachments(message);
+      // 2. Find + filter attachments — Stage 1 heuristic, then Stage 2 AI for multiple candidates
+      const rawAtt = findAttachments(message);
+      const { kept: hKept, rejected: hRejected } = heuristicFilterAttachments(rawAtt);
+
+      // Log every heuristic rejection
+      for (const rej of hRejected) {
+        await log("info", `attachment rejected: ${rej.reason}`,
+          { filename: rej.filename, mimeType: rej.mimeType, size: rej.size }, msgId);
+      }
+
       let usableDoc: { mimeType: string; filename: string; bytes: Uint8Array } | null = null;
 
-      if (directAtt.length === 1) {
-        const a = directAtt[0];
+      if (hKept.length === 1) {
+        // Single survivor — use directly, no AI classification needed
+        const a = hKept[0];
         usableDoc = {
           mimeType: a.mimeType,
           filename: a.filename,
           bytes:    await gmailGetAttachment(token, msgId, a.attachmentId),
         };
-      } else if (directAtt.length > 1) {
-        // Multiple attachments — ask Haiku per attachment, keep "כן" ones
-        const keep: typeof usableDoc[] = [];
-        for (const a of directAtt) {
+        await log("info", `using sole surviving attachment: ${a.filename}`,
+          { mimeType: a.mimeType, size: a.size }, msgId);
+      } else if (hKept.length > 1) {
+        // Stage 2: classify each surviving candidate with Haiku
+        const scored: ScoredAttachment[] = [];
+        for (const a of hKept) {
           const bytes = await gmailGetAttachment(token, msgId, a.attachmentId);
-          if (await isAccountingAttachment({ mimeType: a.mimeType, bytes })) {
-            keep.push({ mimeType: a.mimeType, filename: a.filename, bytes });
-          }
+          const cls   = await classifyAttachmentDoc({ mimeType: a.mimeType, bytes });
+          await log("info",
+            `attachment classified: ${a.filename} → ${cls.document_type} (is_invoice=${cls.is_invoice}, confidence=${cls.confidence})`,
+            { filename: a.filename, mimeType: a.mimeType, size: a.size }, msgId);
+          scored.push({ att: a, bytes, cls });
         }
-        if (keep.length === 0) {
-          await log("warn", "multiple attachments but none looked accounting-relevant", undefined, msgId);
+        // Stage 3: pick best invoice candidate by confidence → PDF → size
+        const best = selectBestAttachment(scored);
+        if (best) {
+          usableDoc = { mimeType: best.att.mimeType, filename: best.att.filename, bytes: best.bytes };
+          await log("info", `selected: ${best.att.filename}`,
+            { docType: best.cls.document_type, confidence: best.cls.confidence }, msgId);
         } else {
-          usableDoc = keep[0]!; // first matching — others would be repeated invoices in practice
-          if (keep.length > 1) await log("info", `multi-attachment: kept ${keep.length}, using the first`, undefined, msgId);
+          await log("warn", "no attachment classified as invoice — falling through to link scan", undefined, msgId);
         }
       }
 
+      // Fallback: try body links when no attachment yielded a usable doc
+      let linkFailures: Array<{ url: string; reason: string }> = [];
+      let attemptedLinks = false;
       if (!usableDoc) {
-        // Try inline URLs
-        const urls = extractUrls(bodyText);
-        for (const url of urls) {
-          try {
-            const fetched = await fetch(url, { redirect: "follow" });
-            const mt = (fetched.headers.get("content-type") ?? "").toLowerCase();
-            if (mt.includes("text/html")) {
-              // Login wall
-              await log("warn", "inline link returned HTML — likely password-protected", { url }, msgId);
-              await supabase.from("alerts").insert({
-                type: "invoice_locked_link",
-                title: "חשבונית דורשת סיסמה",
-                message: `המייל "${subject}" מכיל קישור שמחייב התחברות. נא להוריד ידנית.`,
-                payload: { gmailMessageId: msgId, subject, from, messageLink, lockedUrl: url },
-                status: "unread",
-              });
-              if (managerEmail) {
-                await gmailSendAlertEmail(token, managerEmail,
-                  "חשבונית דורשת סיסמה",
-                  `קישור: ${url}\nמייל: ${messageLink}\nנושא: ${subject}`);
+        const candidateLinks = extractInvoiceLinks(bodyText, rawHtml);
+        if (candidateLinks.length > 0) {
+          attemptedLinks = true;
+          await log("info", `no usable attachment — scanning ${candidateLinks.length} body link(s)`,
+            { candidateLinks }, msgId);
+          const linkResult = await resolveDocFromLinks(candidateLinks, log, msgId);
+          linkFailures = linkResult.failures;
+          if (linkResult.doc) {
+            const linked = linkResult.doc;
+            if (linked.mimeType.startsWith("image/")) {
+              // Classify images from links — reject non-invoice images
+              const cls = await classifyAttachmentDoc({ mimeType: linked.mimeType, bytes: linked.bytes });
+              await log("info",
+                `link image classified: ${linked.filename} → ${cls.document_type} (is_invoice=${cls.is_invoice}, confidence=${cls.confidence})`,
+                undefined, msgId);
+              if (cls.is_invoice) {
+                usableDoc = linked;
+              } else {
+                linkFailures.push({ url: linked.filename, reason: `classified as ${cls.document_type}, not an invoice` });
+                await log("info", `link image rejected by classifier: ${cls.document_type}`,
+                  { filename: linked.filename }, msgId);
               }
-              usableDoc = null;
-              break;
+            } else {
+              usableDoc = linked; // PDFs from links accepted without classification
             }
-            if (mt.includes("pdf") || mt.startsWith("image/")) {
-              const buf = new Uint8Array(await fetched.arrayBuffer());
-              usableDoc = {
-                mimeType: mt.includes("pdf") ? "application/pdf" : mt,
-                filename: url.split("/").pop()?.split("?")[0] || (mt.includes("pdf") ? "invoice.pdf" : "invoice.jpg"),
-                bytes:    buf,
-              };
-              break;
-            }
-          } catch (e) {
-            await log("debug", `inline URL fetch failed: ${e instanceof Error ? e.message : e}`, { url }, msgId);
+            if (usableDoc) await log("info", "invoice document obtained from a body link", undefined, msgId);
           }
         }
       }
 
       if (!usableDoc) {
-        await log("warn", "no usable attachment", undefined, msgId);
+        // Stage 4: choose the most specific alert type
+        const hadFiltered    = rawAtt.length > 0 && hKept.length === 0;
+        const hadClassedOut  = hKept.length > 0; // survived heuristic but none is_invoice
+        const noValidAtt     = hadFiltered || hadClassedOut;
+        const alertType      = noValidAtt    ? "invoice_no_valid_attachment"
+                             : attemptedLinks ? "invoice_link_failed"
+                             :                  "invoice_no_attachment";
+        const alertTitle     = noValidAtt    ? "מייל ללא קובץ חשבונית מזוהה"
+                             : attemptedLinks ? "הורדת חשבונית מקישור נכשלה"
+                             :                  "מייל ללא קובץ מצורף";
+        const alertMessage   = hadFiltered
+          ? `במייל "${subject}" נמצאו ${rawAtt.length} קבצים אך אף אחד לא זוהה כחשבונית`
+          : hadClassedOut
+          ? `במייל "${subject}" נמצאו ${hKept.length} קבצים לאחר סינון אך אף אחד לא סווג כחשבונית`
+          : attemptedLinks
+          ? `לא ניתן היה להוריד חשבונית מהקישורים במייל "${subject}". יש לבדוק ידנית.`
+          : `במייל "${subject}" לא נמצא קובץ PDF/תמונה או קישור להורדה. יש לבדוק ידנית.`;
+
+        await log("warn", `no usable document — ${alertType}`,
+          { rawAtt: rawAtt.length, hKept: hKept.length, linkFailures }, msgId);
         await supabase.from("alerts").insert({
-          type: "invoice_no_attachment",
-          title: "מייל ללא קובץ מצורף",
-          message: `במייל "${subject}" לא נמצא קובץ PDF/תמונה. יש לבדוק ידנית.`,
-          payload: { gmailMessageId: msgId, subject, from, messageLink },
+          type:    alertType,
+          title:   alertTitle,
+          message: alertMessage,
+          payload: {
+            gmailMessageId:      msgId,
+            subject,
+            from,
+            messageLink,
+            linkFailures,
+            rejectedAttachments: hRejected,
+          },
           status: "unread",
         });
         await gmailModifyLabels(token, msgId, [destNeedsReview, destProcessed], [sourceLabelId, "UNREAD"]);
@@ -1041,7 +1359,6 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
 
       // k. Update supplier_categories + categories usage
       if (supplierId && extracted.category) {
-        await supabase.rpc("noop").catch(() => {});
         // Upsert supplier_categories
         const { data: existingSc } = await supabase
           .from("supplier_categories")
@@ -1167,6 +1484,11 @@ Deno.serve(async (req: Request) => {
     return json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // Record top-level failures in system_logs too — the per-message catch only
+    // covers errors inside the loop, not setup failures (Gmail token, etc.).
+    try {
+      await makeLogger(supabase)("error", `ingest run aborted: ${msg}`);
+    } catch { /* logger self-guards; nothing more we can do */ }
     return json({ error: msg }, 500);
   }
 });
