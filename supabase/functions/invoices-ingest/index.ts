@@ -1434,13 +1434,13 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
           .eq("gmail_message_id", msgId)
           .eq("invoice_number", extracted.invoice_number)
           .eq("supplier_id", supplierId)
-          .maybeSingle();
-        existingInv = data;
+          .limit(1);
+        existingInv = data?.[0] ?? null;
       } else {
         const { data } = await supabase.from("invoices").select("id")
           .eq("gmail_message_id", msgId)
-          .maybeSingle();
-        existingInv = data;
+          .limit(1);
+        existingInv = data?.[0] ?? null;
       }
       if (existingInv) {
         await log("info",
@@ -1712,12 +1712,12 @@ async function handleNonInvoice(
     if (supplierId && extracted.note_number) {
       const { data } = await supabase.from("delivery_notes").select("id")
         .eq("gmail_message_id", msgId).eq("note_number", extracted.note_number)
-        .eq("supplier_id", supplierId).maybeSingle();
-      existingDN = data;
+        .eq("supplier_id", supplierId).limit(1);
+      existingDN = data?.[0] ?? null;
     } else if (supplierId) {
       const { data } = await supabase.from("delivery_notes").select("id")
-        .eq("gmail_message_id", msgId).eq("supplier_id", supplierId).maybeSingle();
-      existingDN = data;
+        .eq("gmail_message_id", msgId).eq("supplier_id", supplierId).limit(1);
+      existingDN = data?.[0] ?? null;
     }
     if (existingDN) {
       await log("info",
@@ -1785,12 +1785,12 @@ async function handleNonInvoice(
     if (supplierId && extracted.date && extracted.amount) {
       const { data } = await supabase.from("returns").select("id")
         .eq("gmail_message_id", msgId).eq("amount", extracted.amount)
-        .eq("date", extracted.date).eq("supplier_id", supplierId).maybeSingle();
-      existingRet = data;
+        .eq("date", extracted.date).eq("supplier_id", supplierId).limit(1);
+      existingRet = data?.[0] ?? null;
     } else if (supplierId) {
       const { data } = await supabase.from("returns").select("id")
-        .eq("gmail_message_id", msgId).eq("supplier_id", supplierId).maybeSingle();
-      existingRet = data;
+        .eq("gmail_message_id", msgId).eq("supplier_id", supplierId).limit(1);
+      existingRet = data?.[0] ?? null;
     }
     if (existingRet) {
       await log("info",
