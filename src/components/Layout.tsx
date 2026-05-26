@@ -139,7 +139,14 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   }
 
   const renderPage = () => {
-    if (activePage === 'dashboard')      return <Dashboard onPageChange={handlePageChange} alerts={alerts} />
+    if (activePage === 'dashboard')      return (
+      <Dashboard
+        onPageChange={handlePageChange}
+        alerts={alerts}
+        onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
+        onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
+      />
+    )
     if (activePage === 'alerts')         return <Alerts alerts={alerts} onMarkRead={handleMarkRead} onMarkResolved={handleMarkResolved} onDelete={handleDeleteAlert} onCreateSupplierFromAlert={handleCreateSupplierFromAlert} />
     if (activePage === 'suppliers')      return (
       <Suppliers

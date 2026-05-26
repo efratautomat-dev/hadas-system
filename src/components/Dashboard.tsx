@@ -88,8 +88,10 @@ function getGreeting(): string {
 }
 
 interface DashboardProps {
-  onPageChange?: (page: string) => void
-  alerts?: Alert[]
+  onPageChange?:    (page: string) => void
+  onOpenInvoice?:   (invoiceId: string) => void
+  onOpenSupplier?:  (supplierId: string) => void
+  alerts?:          Alert[]
 }
 
 function Spinner() {
@@ -100,7 +102,7 @@ function Spinner() {
   )
 }
 
-export default function Dashboard({ onPageChange, alerts = [] }: DashboardProps) {
+export default function Dashboard({ onPageChange, onOpenInvoice, alerts = [] }: DashboardProps) {
   const { data: invoices, loading: invLoading }             = useInvoices()
   const { data: deliveryNotes, loading: dnLoading }         = useDeliveryNotes()
   const { data: payments, loading: payLoading }             = usePayments()
@@ -285,6 +287,7 @@ export default function Dashboard({ onPageChange, alerts = [] }: DashboardProps)
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
           <div className="px-6 py-4 flex items-center justify-between border-b" style={{ borderColor: '#EEEEF2' }}>
             <button
+              onClick={() => onPageChange?.('invoices')}
               className="text-sm font-semibold transition-colors"
               style={{ color: '#D32F4A' }}
               onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#A8213B')}
@@ -307,6 +310,7 @@ export default function Dashboard({ onPageChange, alerts = [] }: DashboardProps)
                     className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF5F6')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+                    onClick={() => onOpenInvoice ? onOpenInvoice(inv.id) : onPageChange?.('invoices')}
                   >
                     <div className="flex items-center gap-3">
                       <span className="px-3 py-1 rounded-lg text-xs font-bold" style={{ backgroundColor: st.bg, color: st.color }}>
@@ -329,8 +333,17 @@ export default function Dashboard({ onPageChange, alerts = [] }: DashboardProps)
         <div className="flex flex-col gap-6">
           {/* Upcoming Payments */}
           <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
-            <div className="px-5 py-4 border-b" style={{ borderColor: '#EEEEF2' }}>
-              <div className="flex items-center justify-end gap-2">
+            <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: '#EEEEF2' }}>
+              <button
+                onClick={() => onPageChange?.('payments')}
+                className="text-sm font-semibold transition-colors"
+                style={{ color: '#D32F4A' }}
+                onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#A8213B')}
+                onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#D32F4A')}
+              >
+                הצג הכל ←
+              </button>
+              <div className="flex items-center gap-2">
                 <h2 className="font-semibold text-gray-800 text-sm">תשלומים קרובים</h2>
                 <TrendingUp className="w-4 h-4 text-gray-400" />
               </div>
@@ -338,7 +351,13 @@ export default function Dashboard({ onPageChange, alerts = [] }: DashboardProps)
             {payLoading ? <Spinner /> : (
               <div className="divide-y">
                 {payments.filter(p => p.status === 'pending').map((pay) => (
-                  <div key={pay.id} className="px-5 py-3.5">
+                  <div
+                    key={pay.id}
+                    className="px-5 py-3.5 cursor-pointer transition-colors"
+                    onClick={() => onPageChange?.('payments')}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF5F6')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+                  >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-semibold text-gray-800">{formatILS(pay.amount)}</span>
                       <span className="text-sm font-semibold text-gray-700">{pay.supplier}</span>
@@ -357,18 +376,29 @@ export default function Dashboard({ onPageChange, alerts = [] }: DashboardProps)
           <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
             <div className="px-5 py-4 border-b" style={{ borderColor: '#EEEEF2' }}>
               <div className="flex items-center justify-between">
-                {!dnLoading && pendingDeliveryCount > 0 && (
+                <div className="flex items-center gap-2">
+                  {!dnLoading && pendingDeliveryCount > 0 && (
+                    <button
+                      onClick={() => onPageChange?.('deliveries')}
+                      className="flex items-center gap-1.5 rounded-lg font-semibold transition-all"
+                      style={{ fontSize: '12px', padding: '4px 10px', background: '#FEF9C3', color: '#A16207' }}
+                      onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#FDE68A')}
+                      onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FEF9C3')}
+                    >
+                      <AlertTriangle className="w-3 h-3" />
+                      {pendingDeliveryCount} ממתינות לשיוך ←
+                    </button>
+                  )}
                   <button
                     onClick={() => onPageChange?.('deliveries')}
-                    className="flex items-center gap-1.5 rounded-lg font-semibold transition-all"
-                    style={{ fontSize: '12px', padding: '4px 10px', background: '#FEF9C3', color: '#A16207' }}
-                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#FDE68A')}
-                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FEF9C3')}
+                    className="text-sm font-semibold transition-colors"
+                    style={{ color: '#D32F4A' }}
+                    onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#A8213B')}
+                    onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#D32F4A')}
                   >
-                    <AlertTriangle className="w-3 h-3" />
-                    {pendingDeliveryCount} ממתינות לשיוך ←
+                    הצג הכל ←
                   </button>
-                )}
+                </div>
                 <div className="flex items-center gap-2">
                   <h2 className="font-semibold text-gray-800 text-sm">תעודות משלוח</h2>
                   <Package className="w-4 h-4 text-gray-400" />
@@ -381,7 +411,13 @@ export default function Dashboard({ onPageChange, alerts = [] }: DashboardProps)
                   const st = statusStyle[dn.status === 'pending' ? 'ממתין' : 'הושלם'] ?? { bg: '#F3F4F6', color: '#6B7280' }
                   const label = dn.status === 'pending' ? 'ממתינה' : 'בארכיון'
                   return (
-                    <div key={dn.id} className="px-5 py-3.5">
+                    <div
+                      key={dn.id}
+                      className="px-5 py-3.5 cursor-pointer transition-colors"
+                      onClick={() => onPageChange?.('deliveries')}
+                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF5F6')}
+                      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+                    >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs px-2 py-0.5 rounded-md font-bold" style={{ backgroundColor: st.bg, color: st.color }}>
                           {label}
