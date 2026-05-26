@@ -1039,9 +1039,10 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
     return_doc:     destReturn,
   };
 
-  // Gmail query: source label, unread, not yet processed by N8N or by us, recent.
+  // Gmail query: source label, not yet processed by N8N or by us, recent.
+  // Intentionally no is:unread — owner may open emails before the cron runs.
   const query =
-    `label:"${SOURCE_LABEL_NAME}" is:unread ` +
+    `label:"${SOURCE_LABEL_NAME}" ` +
     `-label:"${INVOICE_DEST_LABEL}" -label:"${DEST_LABEL_NAMES.processed}" newer_than:1M`;
   const messageIds = await gmailListMessages(token, query);
   await log("info", `found ${messageIds.length} candidate messages`, { query });
