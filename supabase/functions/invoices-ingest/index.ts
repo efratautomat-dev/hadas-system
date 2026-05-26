@@ -10,18 +10,10 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
-const SOURCE_LABEL_NAME  = "ספקים";           // TEST: swap to "חשבונית" for production
-const INVOICE_DEST_LABEL = "טסטים שטופלו";   // TEST: swap to "הועבר לרוח" for production
-const PARTIAL_REFUND_LABEL = "החזר חלקי";    // business owner applies this label manually in Gmail
-
-const DEST_LABEL_NAMES = {
-  processed:    "טופל",
-  invoice:      INVOICE_DEST_LABEL,
-  deliveryNote: "תעודות משלוח",
-  statement:    "כרטסות",
-  returnDoc:    "חזרות",
-  needsReview:  "דורש בדיקה ידנית",
-};
+const SOURCE_LABEL_NAME         = "ספקים";             // TEST: swap to "חשבונית" for production
+const PROCESSED_LABEL_NAME      = "טסטים שטופלו";      // TEST: swap to "הועבר לרוח" for production
+const NEEDS_REVIEW_LABEL_NAME   = "דורש בדיקה ידנית";
+const PARTIAL_REFUND_LABEL_NAME = "החזר חלקי";         // owner applies manually — never created by code
 
 const DRIVE_ROOT_ID = "1ocbxq5-ReY7WutAm48pKHDiaB8rBe6SM";
 const DRIVE_SUBFOLDERS = {
@@ -1023,27 +1015,16 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
     result.errors.push(`source label "${SOURCE_LABEL_NAME}" missing`);
     return result;
   }
-  const destProcessed   = await gmailEnsureLabel(token, DEST_LABEL_NAMES.processed);
-  const destInvoice     = await gmailEnsureLabel(token, DEST_LABEL_NAMES.invoice);
-  const destDelivery    = await gmailEnsureLabel(token, DEST_LABEL_NAMES.deliveryNote);
-  const destStatement   = await gmailEnsureLabel(token, DEST_LABEL_NAMES.statement);
-  const destReturn      = await gmailEnsureLabel(token, DEST_LABEL_NAMES.returnDoc);
-  const destNeedsReview = await gmailEnsureLabel(token, DEST_LABEL_NAMES.needsReview);
-  // Partial-refund label is applied manually by the business owner — look up, don't create
-  const partialRefundLabelId = labels.find((l) => l.name === PARTIAL_REFUND_LABEL)?.id ?? null;
-
-  const destLabelByDocType: Record<Exclude<DocType, "skip" | "unknown">, string> = {
-    invoice:        destInvoice,
-    delivery_note:  destDelivery,
-    statement:      destStatement,
-    return_doc:     destReturn,
-  };
+  const destProcessed   = await gmailEnsureLabel(token, PROCESSED_LABEL_NAME);
+  const destNeedsReview = await gmailEnsureLabel(token, NEEDS_REVIEW_LABEL_NAME);
+  // Partial-refund label is applied manually by the business owner — look up only, never created
+  const partialRefundLabelId = labels.find((l) => l.name === PARTIAL_REFUND_LABEL_NAME)?.id ?? null;
 
   // Gmail query: source label, not yet processed by N8N or by us, recent.
   // Intentionally no is:unread — owner may open emails before the cron runs.
   const query =
     `label:"${SOURCE_LABEL_NAME}" ` +
-    `-label:"${INVOICE_DEST_LABEL}" -label:"${DEST_LABEL_NAMES.processed}" newer_than:1M`;
+    `-label:"${PROCESSED_LABEL_NAME}" newer_than:1M`;
   const messageIds = await gmailListMessages(token, query);
   await log("info", `found ${messageIds.length} candidate messages`, { query });
 
@@ -1266,7 +1247,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
             doc,
           });
         }
-        await gmailModifyLabels(token, msgId, [destLabelByDocType[docType], destProcessed], [sourceLabelId, "UNREAD"]);
+        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
         result.processed++;
         continue;
       }
@@ -1459,8 +1440,8 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         }
       }
 
-      // 5. Apply Gmail labels — destination + processed, remove source
-      await gmailModifyLabels(token, msgId, [destInvoice, destProcessed], [sourceLabelId, "UNREAD"]);
+      // 5. Apply processed label, remove source
+      await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
 
       await log("info", "invoice ingested", { supplierId, isNewSupplier, isDuplicate, category: extracted.category }, msgId);
       result.processed++;
