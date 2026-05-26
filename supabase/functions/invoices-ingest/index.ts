@@ -241,6 +241,62 @@ async function gmailSendAlertEmail(
   });
 }
 
+// ─── Drive filename helpers ────────────────────────────────────────────────
+
+// Replaces filesystem-unsafe characters and trims; falls back to placeholder if empty.
+function sanitizeForFilename(s: string): string {
+  return (s ?? "").replace(/[\/\\:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
+}
+
+// Picks an extension from the original filename, then falls back to MIME.
+function pickExtension(origFilename: string, mimeType: string): string {
+  const m = origFilename.match(/\.([a-z0-9]+)$/i);
+  if (m) return m[1].toLowerCase();
+  const mt = (mimeType ?? "").toLowerCase();
+  if (mt === "application/pdf") return "pdf";
+  if (mt === "image/png")        return "png";
+  return "jpg";
+}
+
+function buildInvoiceFilename(
+  supplierName:  string,
+  invoiceNumber: string,
+  invoiceDate:   string,
+  origFilename:  string,
+  mimeType:      string,
+): string {
+  const safe = sanitizeForFilename(supplierName) || "ספק לא ידוע";
+  const ext  = pickExtension(origFilename, mimeType);
+  const num  = (invoiceNumber ?? "").trim();
+  const id   = num || (invoiceDate || new Date().toISOString().slice(0, 10));
+  return `${safe} - ${id}.${ext}`;
+}
+
+function buildDeliveryNoteFilename(
+  supplierName: string,
+  noteNumber:   string,
+  date:         string,
+  origFilename: string,
+  mimeType:     string,
+): string {
+  const safe = sanitizeForFilename(supplierName) || "ספק לא ידוע";
+  const ext  = pickExtension(origFilename, mimeType);
+  const id   = (noteNumber ?? "").trim() || (date || new Date().toISOString().slice(0, 10));
+  return `${safe} - תעודת משלוח ${id}.${ext}`;
+}
+
+function buildReturnFilename(
+  supplierName: string,
+  date:         string,
+  origFilename: string,
+  mimeType:     string,
+): string {
+  const safe = sanitizeForFilename(supplierName) || "ספק לא ידוע";
+  const ext  = pickExtension(origFilename, mimeType);
+  const d    = (date ?? "").trim() || new Date().toISOString().slice(0, 10);
+  return `${safe} - זיכוי ${d}.${ext}`;
+}
+
 // ─── Drive helpers ─────────────────────────────────────────────────────────
 
 async function driveFindFolder(
@@ -1332,10 +1388,18 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       let monthFolderLink = "";
       try {
         const target = await resolveInvoiceFolder(token, extracted.invoice_date || new Date().toISOString().slice(0, 10), partialReturn);
+        const supplierDisplayName = matched?.name ?? extracted.vendor_name;
+        const driveFilename = buildInvoiceFilename(
+          supplierDisplayName,
+          extracted.invoice_number,
+          extracted.invoice_date,
+          usableDoc.filename,
+          usableDoc.mimeType,
+        );
         const uploaded = await driveUploadFile(
           token,
           target.fileFolderId,
-          usableDoc.filename,
+          driveFilename,
           usableDoc.mimeType,
           usableDoc.bytes,
         );
@@ -1603,9 +1667,8 @@ async function handleNonInvoice(
                                        DRIVE_SUBFOLDERS.returnDoc;
 
   const monthFolderId = await resolveAuxFolder(token, subRoot, date);
-  const uploaded      = await driveUploadFile(
-    token, monthFolderId, ctx.doc.filename, ctx.doc.mimeType, ctx.doc.bytes,
-  );
+  // Upload is deferred to each branch so the Drive filename can be built
+  // from the extracted supplier name + identifier (note number / date).
 
   // Shared supplier lookup / create
   const resolveSupplier = async (vendorName: string): Promise<string | null> => {
@@ -1662,6 +1725,14 @@ async function handleNonInvoice(
         { existingId: existingDN.id, filename: ctx.doc.filename }, msgId);
       return;
     }
+
+    const supplierDisplayName = (supplierId && suppliers.find((s) => s.id === supplierId)?.name) || extracted.vendor_name;
+    const driveFilename = buildDeliveryNoteFilename(
+      supplierDisplayName, extracted.note_number, extracted.date, ctx.doc.filename, ctx.doc.mimeType,
+    );
+    const uploaded = await driveUploadFile(
+      token, monthFolderId, driveFilename, ctx.doc.mimeType, ctx.doc.bytes,
+    );
 
     const { error } = await supabase.from("delivery_notes").insert({
       supplier_id:       supplierId,
@@ -1728,6 +1799,14 @@ async function handleNonInvoice(
       return;
     }
 
+    const supplierDisplayName = (supplierId && suppliers.find((s) => s.id === supplierId)?.name) || extracted.vendor_name;
+    const driveFilename = buildReturnFilename(
+      supplierDisplayName, extracted.date, ctx.doc.filename, ctx.doc.mimeType,
+    );
+    const uploaded = await driveUploadFile(
+      token, monthFolderId, driveFilename, ctx.doc.mimeType, ctx.doc.bytes,
+    );
+
     const { error } = await supabase.from("returns").insert({
       supplier_id:      supplierId,
       date:             extracted.date || null,
@@ -1751,7 +1830,10 @@ async function handleNonInvoice(
     }
 
   } else {
-    // statement — Drive upload only (no structured parser yet)
+    // statement — Drive upload only (no structured parser yet); original filename kept.
+    const uploaded = await driveUploadFile(
+      token, monthFolderId, ctx.doc.filename, ctx.doc.mimeType, ctx.doc.bytes,
+    );
     const { error } = await supabase.from("vendor_statements").insert({
       drive_file_link:  uploaded.webViewLink,
       message_link:     ctx.messageLink,

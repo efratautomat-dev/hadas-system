@@ -340,6 +340,7 @@ interface SuppliersProps {
   controlledViewId?: string | null
   onOpenDetail?: (id: string) => void
   onCloseDetail?: () => void
+  onOpenInvoice?: (invoiceId: string) => void
   prefillForAlert?: AlertPrefill | null
   onAlertSupplierCreated?: (supplierId: string, alertId: string, payload: Record<string, unknown>) => Promise<void>
   onCancelAlertPrefill?: () => void
@@ -350,6 +351,7 @@ export default function Suppliers({
   controlledViewId,
   onOpenDetail,
   onCloseDetail,
+  onOpenInvoice,
   prefillForAlert,
   onAlertSupplierCreated,
   onCancelAlertPrefill,
@@ -403,6 +405,7 @@ export default function Suppliers({
           }
         }}
         onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
+        onOpenInvoice={onOpenInvoice}
       />
     )
   }

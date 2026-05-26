@@ -48,6 +48,7 @@ interface Props {
   onEdit: () => void
   onDelete: () => void
   onViewLedger?: () => void
+  onOpenInvoice?: (invoiceId: string) => void
 }
 
 const invoiceStatusStyle: Record<string, { bg: string; color: string }> = {
@@ -56,8 +57,8 @@ const invoiceStatusStyle: Record<string, { bg: string; color: string }> = {
   'בטיפול': { bg: '#DBEAFE', color: '#1E40AF' },
 }
 
-function formatILS(n: number) {
-  return '₪' + n.toLocaleString('he-IL')
+function formatILS(n: number | null | undefined) {
+  return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
 function parseDate(d: string) {
@@ -76,7 +77,7 @@ function fmtDate(d: string): string {
   return `${day}/${m}/${y}`
 }
 
-export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger }: Props) {
+export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger, onOpenInvoice }: Props) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
@@ -368,11 +369,22 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
             </div>
             {invoices.map((inv) => {
               const st = invoiceStatusStyle[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
+              const clickable = !!onOpenInvoice
               return (
                 <div
                   key={inv.id}
                   className="grid items-center"
-                  style={{ gridTemplateColumns: '1fr 80px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                  style={{
+                    gridTemplateColumns: '1fr 80px 120px',
+                    borderBottom: '1px solid #E2E4E9',
+                    minHeight: '56px',
+                    padding: '12px 16px',
+                    cursor: clickable ? 'pointer' : 'default',
+                    transition: 'background 0.12s',
+                  }}
+                  onClick={clickable ? () => onOpenInvoice!(inv.id) : undefined}
+                  onMouseEnter={clickable ? (e) => ((e.currentTarget as HTMLElement).style.background = '#FDF5F6') : undefined}
+                  onMouseLeave={clickable ? (e) => ((e.currentTarget as HTMLElement).style.background = 'transparent') : undefined}
                 >
                   <p className="text-right text-gray-400" style={{ fontSize: '12px' }}>{inv.id} · {inv.date}</p>
                   <div className="flex justify-center">

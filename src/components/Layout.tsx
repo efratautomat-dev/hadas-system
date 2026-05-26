@@ -147,6 +147,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         controlledViewId={currentNav.supplierViewId ?? null}
         onOpenDetail={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
         onCloseDetail={goBack}
+        onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
         prefillForAlert={alertForSupplier}
         onAlertSupplierCreated={async (supplierId, alertId, _payload) => {
           try {

@@ -367,6 +367,7 @@ function InvoiceDetail({
 
         {/* 5 – מטא נתונים */}
         <Group title="מטא נתונים">
+          <TInput label="נושא המייל" value={form.emailSubject ?? ''} readOnly />
           <Row2>
             <TInput label="תאריך ושעת קבלת מייל" value={form.emailReceivedAt} onChange={set('emailReceivedAt')} type="datetime-local" />
             <TInput label="מזהה מייל" value={form.emailId} readOnly />

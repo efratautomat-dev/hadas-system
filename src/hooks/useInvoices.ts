@@ -49,8 +49,9 @@ export function useInvoices() {
           // duplicateFlag derived from is_duplicate (no DB column)
           duplicateFlag:     r.is_duplicate ? ('כפילות אפשרית' as const) : null,
           duplicateNote:     '',
+          isPartialReturn:   r.partial_return ?? false,
+          emailSubject:      r.email_subject ?? '',
           // Fields with no DB column — safe defaults
-          isPartialReturn:   false,
           emailId:           '',
           uploadDate:        '',
         })) as Invoice[])

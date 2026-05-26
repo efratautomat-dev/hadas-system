@@ -34,6 +34,7 @@ export interface Invoice {
   invoiceNumber: string
   duplicateFlag: 'כפילות אפשרית' | null
   duplicateNote: string
+  emailSubject?: string
 }
 
 export const mockInvoices: Invoice[] = [
