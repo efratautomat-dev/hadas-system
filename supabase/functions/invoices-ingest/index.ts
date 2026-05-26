@@ -1361,7 +1361,32 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         });
       }
 
-      // j. Insert invoice row
+      // j. Dedup guard then insert
+      // Primary: gmail_message_id + invoice_number + supplier_id
+      // Fallback (no invoice_number): gmail_message_id alone (1 invoice per email)
+      let existingInv: { id: string } | null = null;
+      if (supplierId && extracted.invoice_number) {
+        const { data } = await supabase.from("invoices").select("id")
+          .eq("gmail_message_id", msgId)
+          .eq("invoice_number", extracted.invoice_number)
+          .eq("supplier_id", supplierId)
+          .maybeSingle();
+        existingInv = data;
+      } else {
+        const { data } = await supabase.from("invoices").select("id")
+          .eq("gmail_message_id", msgId)
+          .maybeSingle();
+        existingInv = data;
+      }
+      if (existingInv) {
+        await log("info",
+          `skipped duplicate invoice: ${extracted.invoice_number || "(no number)"} for message ${msgId}`,
+          { existingId: existingInv.id }, msgId);
+        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+        result.skipped++;
+        continue;
+      }
+
       const insertRow: Record<string, unknown> = {
         supplier_id:        supplierId,
         supplier_name:      extracted.vendor_name,
@@ -1617,6 +1642,27 @@ async function handleNonInvoice(
       return;
     }
     const supplierId = await resolveSupplier(extracted.vendor_name);
+
+    // Dedup: primary = gmail_message_id + note_number + supplier_id
+    //        fallback = gmail_message_id + supplier_id (no note_number)
+    let existingDN: { id: string } | null = null;
+    if (supplierId && extracted.note_number) {
+      const { data } = await supabase.from("delivery_notes").select("id")
+        .eq("gmail_message_id", msgId).eq("note_number", extracted.note_number)
+        .eq("supplier_id", supplierId).maybeSingle();
+      existingDN = data;
+    } else if (supplierId) {
+      const { data } = await supabase.from("delivery_notes").select("id")
+        .eq("gmail_message_id", msgId).eq("supplier_id", supplierId).maybeSingle();
+      existingDN = data;
+    }
+    if (existingDN) {
+      await log("info",
+        `skipped duplicate delivery_note: ${extracted.note_number || "(no number)"} for message ${msgId}`,
+        { existingId: existingDN.id, filename: ctx.doc.filename }, msgId);
+      return;
+    }
+
     const { error } = await supabase.from("delivery_notes").insert({
       supplier_id:       supplierId,
       supplier_name:     extracted.vendor_name,
@@ -1661,6 +1707,27 @@ async function handleNonInvoice(
       return;
     }
     const supplierId = await resolveSupplier(extracted.vendor_name);
+
+    // Dedup: primary = gmail_message_id + amount + date + supplier_id
+    //        fallback = gmail_message_id + supplier_id
+    let existingRet: { id: string } | null = null;
+    if (supplierId && extracted.date && extracted.amount) {
+      const { data } = await supabase.from("returns").select("id")
+        .eq("gmail_message_id", msgId).eq("amount", extracted.amount)
+        .eq("date", extracted.date).eq("supplier_id", supplierId).maybeSingle();
+      existingRet = data;
+    } else if (supplierId) {
+      const { data } = await supabase.from("returns").select("id")
+        .eq("gmail_message_id", msgId).eq("supplier_id", supplierId).maybeSingle();
+      existingRet = data;
+    }
+    if (existingRet) {
+      await log("info",
+        `skipped duplicate return: ${extracted.amount} on ${extracted.date} for message ${msgId}`,
+        { existingId: existingRet.id, filename: ctx.doc.filename }, msgId);
+      return;
+    }
+
     const { error } = await supabase.from("returns").insert({
       supplier_id:      supplierId,
       date:             extracted.date || null,
