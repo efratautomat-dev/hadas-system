@@ -272,31 +272,6 @@ function buildInvoiceFilename(
   return `${safe} - ${id}.${ext}`;
 }
 
-function buildDeliveryNoteFilename(
-  supplierName: string,
-  noteNumber:   string,
-  date:         string,
-  origFilename: string,
-  mimeType:     string,
-): string {
-  const safe = sanitizeForFilename(supplierName) || "ספק לא ידוע";
-  const ext  = pickExtension(origFilename, mimeType);
-  const id   = (noteNumber ?? "").trim() || (date || new Date().toISOString().slice(0, 10));
-  return `${safe} - תעודת משלוח ${id}.${ext}`;
-}
-
-function buildReturnFilename(
-  supplierName: string,
-  date:         string,
-  origFilename: string,
-  mimeType:     string,
-): string {
-  const safe = sanitizeForFilename(supplierName) || "ספק לא ידוע";
-  const ext  = pickExtension(origFilename, mimeType);
-  const d    = (date ?? "").trim() || new Date().toISOString().slice(0, 10);
-  return `${safe} - זיכוי ${d}.${ext}`;
-}
-
 // ─── Drive helpers ─────────────────────────────────────────────────────────
 
 async function driveFindFolder(
@@ -1029,17 +1004,6 @@ async function resolveInvoiceFolder(
   return { fileFolderId: fileFolder, monthFolderId: monthFolder };
 }
 
-async function resolveAuxFolder(
-  token: string,
-  rootSubfolder: string,
-  date: Date,
-): Promise<string> {
-  const root  = await driveEnsureFolder(token, DRIVE_ROOT_ID, rootSubfolder);
-  const year  = await driveEnsureFolder(token, root,  String(date.getUTCFullYear()));
-  const month = await driveEnsureFolder(token, year,  HEBREW_MONTHS[date.getUTCMonth()]);
-  return month;
-}
-
 // ─── Main ingest ───────────────────────────────────────────────────────────
 
 interface IngestResult {
@@ -1294,7 +1258,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       // 3. Branch by docType — for non-invoice types process EACH doc as a separate record
       if (docType !== "invoice") {
         for (const doc of usableDocs) {
-          await handleNonInvoice(supabase, token, log, msgId, suppliers, {
+          await handleNonInvoice(supabase, log, msgId, suppliers, {
             docType,
             subject,
             from,
@@ -1598,11 +1562,12 @@ async function extractDeliveryNote(
 }
 
 interface ExtractedReturn {
-  vendor_name: string;
-  date:        string; // YYYY-MM-DD
-  amount:      number;
-  reason:      string;
-  detail:      string;
+  vendor_name:        string;
+  credit_note_number: string;
+  date:               string; // YYYY-MM-DD
+  amount:             number;
+  reason:             string;
+  detail:             string;
 }
 
 async function extractReturn(
@@ -1610,8 +1575,8 @@ async function extractReturn(
 ): Promise<ExtractedReturn> {
   const prompt =
     "אתה מנתח תעודות זיכוי וחזרות. חלץ את הפרטים מהמסמך וחזור ב-JSON בלבד.\n" +
-    '{"vendor_name":"","date":"","amount":0,"reason":"","detail":""}\n' +
-    "כללים: תאריך YYYY-MM-DD, amount = סכום מוחזר (מספר חיובי).";
+    '{"vendor_name":"","credit_note_number":"","date":"","amount":0,"reason":"","detail":""}\n' +
+    "כללים: תאריך YYYY-MM-DD, amount = סכום מוחזר (מספר חיובי), credit_note_number = מספר תעודת הזיכוי שהונפק על ידי הספק.";
   const raw = await anthropicMessage(
     ANTHROPIC_MODEL_EXTRACTOR,
     [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
@@ -1624,7 +1589,7 @@ async function extractReturn(
       [{ role: "user", content: [
         buildDocumentBlock(doc.mimeType, doc.bytes),
         { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" +
-          '{"vendor_name":"","date":"","amount":0,"reason":"","detail":""}' },
+          '{"vendor_name":"","credit_note_number":"","date":"","amount":0,"reason":"","detail":""}' },
       ] }],
       512,
     );
@@ -1635,11 +1600,12 @@ async function extractReturn(
   }
   const p = parsed as Record<string, unknown>;
   return {
-    vendor_name: String(p.vendor_name ?? ""),
-    date:        String(p.date ?? ""),
-    amount:      Number(p.amount ?? 0),
-    reason:      String(p.reason ?? ""),
-    detail:      String(p.detail ?? ""),
+    vendor_name:        String(p.vendor_name ?? ""),
+    credit_note_number: String(p.credit_note_number ?? ""),
+    date:               String(p.date ?? ""),
+    amount:             Number(p.amount ?? 0),
+    reason:             String(p.reason ?? ""),
+    detail:             String(p.detail ?? ""),
   };
 }
 
@@ -1647,7 +1613,6 @@ async function extractReturn(
 
 async function handleNonInvoice(
   supabase:  SupabaseClient,
-  token:     string,
   log:       Logger,
   msgId:     string,
   suppliers: SupplierRow[],
@@ -1660,17 +1625,9 @@ async function handleNonInvoice(
     doc:         { mimeType: string; filename: string; bytes: Uint8Array };
   },
 ): Promise<void> {
-  const date    = new Date(ctx.emailTs);
-  const subRoot =
-    ctx.docType === "delivery_note" ? DRIVE_SUBFOLDERS.deliveryNote :
-    ctx.docType === "statement"     ? DRIVE_SUBFOLDERS.statement    :
-                                       DRIVE_SUBFOLDERS.returnDoc;
+  // Non-invoice docs are NOT uploaded to Drive — they are viewable via the
+  // Gmail message link stored on the row.
 
-  const monthFolderId = await resolveAuxFolder(token, subRoot, date);
-  // Upload is deferred to each branch so the Drive filename can be built
-  // from the extracted supplier name + identifier (note number / date).
-
-  // Shared supplier lookup / create
   const resolveSupplier = async (vendorName: string): Promise<string | null> => {
     if (!vendorName) return null;
     const matched = findBestSupplier(vendorName, suppliers);
@@ -1726,14 +1683,6 @@ async function handleNonInvoice(
       return;
     }
 
-    const supplierDisplayName = (supplierId && suppliers.find((s) => s.id === supplierId)?.name) || extracted.vendor_name;
-    const driveFilename = buildDeliveryNoteFilename(
-      supplierDisplayName, extracted.note_number, extracted.date, ctx.doc.filename, ctx.doc.mimeType,
-    );
-    const uploaded = await driveUploadFile(
-      token, monthFolderId, driveFilename, ctx.doc.mimeType, ctx.doc.bytes,
-    );
-
     const { error } = await supabase.from("delivery_notes").insert({
       supplier_id:       supplierId,
       supplier_name:     extracted.vendor_name,
@@ -1747,7 +1696,7 @@ async function handleNonInvoice(
       invoice_id:        null,
       source_email:      ctx.from,
       received_at:       ctx.emailTs,
-      drive_file_link:   uploaded.webViewLink,
+      drive_file_link:   null,
       gmail_message_id:  msgId,
       email_subject:     ctx.subject,
       message_link:      ctx.messageLink,
@@ -1761,6 +1710,8 @@ async function handleNonInvoice(
     }
 
   } else if (ctx.docType === "return_doc") {
+    // Credit notes from a supplier are a RESPONSE to a return the store already
+    // issued — match them against an open return and close it, don't insert new.
     let extracted: ExtractedReturn;
     try {
       extracted = await extractReturn(ctx.doc);
@@ -1779,63 +1730,94 @@ async function handleNonInvoice(
     }
     const supplierId = await resolveSupplier(extracted.vendor_name);
 
-    // Dedup: primary = gmail_message_id + amount + date + supplier_id
-    //        fallback = gmail_message_id + supplier_id
-    let existingRet: { id: string } | null = null;
-    if (supplierId && extracted.date && extracted.amount) {
-      const { data } = await supabase.from("returns").select("id")
-        .eq("gmail_message_id", msgId).eq("amount", extracted.amount)
-        .eq("date", extracted.date).eq("supplier_id", supplierId).limit(1);
-      existingRet = data?.[0] ?? null;
-    } else if (supplierId) {
-      const { data } = await supabase.from("returns").select("id")
-        .eq("gmail_message_id", msgId).eq("supplier_id", supplierId).limit(1);
-      existingRet = data?.[0] ?? null;
-    }
-    if (existingRet) {
-      await log("info",
-        `skipped duplicate return: ${extracted.amount} on ${extracted.date} for message ${msgId}`,
-        { existingId: existingRet.id, filename: ctx.doc.filename }, msgId);
+    const createUnmatchedAlert = async (reason: string) => {
+      await supabase.from("alerts").insert({
+        type:    "unmatched_credit_note",
+        title:   "תעודת זיכוי ללא חזרה תואמת",
+        message: `תעודת זיכוי מ-${extracted.vendor_name || "ספק לא ידוע"} בסך ${extracted.amount} - אין חזרה תואמת במערכת. יש לבדוק.`,
+        payload: {
+          gmailMessageId:   msgId,
+          supplierName:     extracted.vendor_name,
+          amount:           extracted.amount,
+          creditNoteNumber: extracted.credit_note_number,
+        },
+        status: "unread",
+      });
+      await log("info", `unmatched credit note - alert created (${reason})`,
+        { supplierId, vendor: extracted.vendor_name, amount: extracted.amount }, msgId);
+    };
+
+    if (!supplierId) {
+      await createUnmatchedAlert("supplier not found");
       return;
     }
 
-    const supplierDisplayName = (supplierId && suppliers.find((s) => s.id === supplierId)?.name) || extracted.vendor_name;
-    const driveFilename = buildReturnFilename(
-      supplierDisplayName, extracted.date, ctx.doc.filename, ctx.doc.mimeType,
-    );
-    const uploaded = await driveUploadFile(
-      token, monthFolderId, driveFilename, ctx.doc.mimeType, ctx.doc.bytes,
-    );
+    const { data: openReturns, error: searchErr } = await supabase
+      .from("returns")
+      .select("id, amount, date, status")
+      .eq("supplier_id", supplierId)
+      .neq("status", "הסתיים")
+      .order("date", { ascending: false })
+      .limit(1);
+    if (searchErr) {
+      await log("error", `returns search failed: ${searchErr.message}`,
+        { code: searchErr.code, supplierId }, msgId);
+      return;
+    }
 
-    const { error } = await supabase.from("returns").insert({
-      supplier_id:      supplierId,
-      date:             extracted.date || null,
-      amount:           extracted.amount,
-      reason:           extracted.reason,
-      detail:           extracted.detail,
-      invoice_id:       null,
-      status:           "בטיפול",
-      created_by:       "system",
-      drive_file_link:  uploaded.webViewLink,
-      gmail_message_id: msgId,
-      email_subject:    ctx.subject,
-      message_link:     ctx.messageLink,
-    });
-    if (error) {
-      await log("error", `return insert failed: ${error.message}`,
-        { code: error.code, filename: ctx.doc.filename }, msgId);
+    const existing = openReturns?.[0] ?? null;
+    if (!existing) {
+      // OUTCOME C — no open return for this supplier
+      await createUnmatchedAlert("no open return for supplier");
+      return;
+    }
+
+    const expectedAmount = Number(existing.amount ?? 0);
+    const actualAmount   = extracted.amount;
+    const diff           = Math.abs(actualAmount - expectedAmount);
+    // Treat a missing/zero existing amount as a full mismatch so we still raise
+    // the alert rather than silently dividing by zero.
+    const pct            = expectedAmount > 0 ? diff / expectedAmount : 1;
+
+    const { error: updErr } = await supabase
+      .from("returns")
+      .update({
+        supplier_credit_note_number: extracted.credit_note_number,
+        supplier_credit_note_date:   extracted.date || null,
+        supplier_credit_note_amount: actualAmount,
+        gmail_message_id:            msgId,
+        status:                      "הסתיים",
+      })
+      .eq("id", existing.id);
+    if (updErr) {
+      await log("error", `return update failed: ${updErr.message}`,
+        { existingId: existing.id, code: updErr.code }, msgId);
+      return;
+    }
+
+    if (pct > 0.10) {
+      // OUTCOME B — closed, but flag the mismatch for review
+      await supabase.from("alerts").insert({
+        type:    "return_amount_mismatch",
+        title:   "פער בהחזר - יש לבדוק מול הספק",
+        message: `תעודת זיכוי מהספק ${extracted.vendor_name} בסך ${actualAmount} לא תואמת לחזרה שהונפקה בסך ${expectedAmount}. פער: ${diff.toFixed(2)}`,
+        payload: { returnId: existing.id, expectedAmount, actualAmount, supplierId },
+        status:  "unread",
+      });
+      await log("warn",
+        `return closed with mismatch: ${existing.id} (expected ${expectedAmount}, got ${actualAmount}, diff ${diff.toFixed(2)})`,
+        { returnId: existing.id }, msgId);
     } else {
-      await log("info", "return ingested",
-        { supplierId, amount: extracted.amount, filename: ctx.doc.filename }, msgId);
+      // OUTCOME A — clean match
+      await log("info",
+        `return matched and closed: ${existing.id} with credit note ${extracted.credit_note_number || "(no number)"}`,
+        { returnId: existing.id, amount: actualAmount }, msgId);
     }
 
   } else {
-    // statement — Drive upload only (no structured parser yet); original filename kept.
-    const uploaded = await driveUploadFile(
-      token, monthFolderId, ctx.doc.filename, ctx.doc.mimeType, ctx.doc.bytes,
-    );
+    // statement — no Drive upload; row is created for tracking via Gmail link.
     const { error } = await supabase.from("vendor_statements").insert({
-      drive_file_link:  uploaded.webViewLink,
+      drive_file_link:  null,
       message_link:     ctx.messageLink,
       gmail_message_id: msgId,
       email_subject:    ctx.subject,
@@ -1845,7 +1827,7 @@ async function handleNonInvoice(
     if (error) {
       await log("warn", `vendor_statements insert failed: ${error.message}`, undefined, msgId);
     }
-    await log("info", "statement stored in Drive", { fileId: uploaded.id }, msgId);
+    await log("info", "statement recorded (no Drive upload)", undefined, msgId);
   }
 }
 
