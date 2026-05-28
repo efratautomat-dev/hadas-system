@@ -1037,7 +1037,7 @@ function similarityScore(a: string, b: string): number {
   return Math.max(editScore, tokenScore, containScore);
 }
 
-interface SupplierRow { id: string; name: string }
+interface SupplierRow { id: string; name: string; category: string | null }
 
 function findBestSupplier(typed: string, suppliers: SupplierRow[], threshold = 0.85): SupplierRow | null {
   let best: { row: SupplierRow; score: number } | null = null;
@@ -1116,7 +1116,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   if (messageIds.length === 0) return result;
 
   // Load suppliers + categories once
-  const { data: supplierRows } = await supabase.from("suppliers").select("id, name");
+  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category");
   const suppliers: SupplierRow[] = supplierRows ?? [];
   const { data: catRows } = await supabase.from("categories").select("name");
   const categoryNames: string[] = (catRows ?? []).map((r: { name: string }) => r.name);
@@ -1367,23 +1367,40 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       // e. Find or flag supplier
       const matched = findBestSupplier(extracted.vendor_name, suppliers);
 
-      let supplierId: string | null = matched?.id ?? null;
+      let supplierId:        string | null = matched?.id ?? null;
+      let supplierDefaultCat: string | null = (matched?.category ?? "").trim() || null;
       let isNewSupplier = false;
       if (!supplierId && extracted.vendor_name) {
-        // create a placeholder supplier — mark is_new for downstream review
+        // New supplier — seed its category with what the AI just extracted so
+        // future invoices from this vendor skip AI category classification.
+        const seedCategory = (extracted.category ?? "").trim() || null;
         const { data: created, error: supErr } = await supabase
           .from("suppliers")
-          .insert({ name: extracted.vendor_name })
-          .select("id")
+          .insert({ name: extracted.vendor_name, category: seedCategory })
+          .select("id, category")
           .single();
         if (supErr) {
           await log("error", `supplier insert failed: ${supErr.message}`, undefined, msgId);
         } else {
           supplierId    = created!.id as string;
           isNewSupplier = true;
-          suppliers.push({ id: supplierId, name: extracted.vendor_name });
-          await log("info", `created new supplier ${supplierId}`, { name: extracted.vendor_name }, msgId);
+          suppliers.push({ id: supplierId, name: extracted.vendor_name, category: created!.category ?? null });
+          await log("info", `created new supplier ${supplierId} (category: ${seedCategory ?? "(none)"})`,
+            { name: extracted.vendor_name }, msgId);
         }
+      }
+
+      // Choose the invoice category by precedence: supplier default → AI.
+      // New suppliers don't have a "previous" default; we use the AI category
+      // (which was also saved as their default above).
+      let finalCategory = extracted.category;
+      if (supplierDefaultCat) {
+        finalCategory = supplierDefaultCat;
+        await log("info", `category from supplier default: ${finalCategory}`, undefined, msgId);
+      } else if (isNewSupplier) {
+        await log("info", `category from AI (new supplier, seeded as default): ${finalCategory}`, undefined, msgId);
+      } else {
+        await log("info", `category from AI (no supplier default): ${finalCategory}`, undefined, msgId);
       }
 
       // d. Duplicate check (supplier_id + invoice_number)
@@ -1502,7 +1519,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         total_amount:       extracted.total_amount,
         amount_before_vat:  extracted.amount_before_vat,
         vat_amount:         extracted.vat_amount,
-        category:           extracted.category,
+        category:           finalCategory,
         line_items:         extracted.line_items.join("\n"),
         ai_confidence:      extracted.confidence,
         status:             extracted.confidence === "low" ? "needs_review" : "ממתין",
@@ -1534,14 +1551,15 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         continue;
       }
 
-      // k. Update supplier_categories + categories usage
-      if (supplierId && extracted.category) {
+      // k. Update supplier_categories + categories usage (tracks the FINAL category,
+      // whether it came from the supplier default or AI).
+      if (supplierId && finalCategory) {
         // Upsert supplier_categories
         const { data: existingSc } = await supabase
           .from("supplier_categories")
           .select("id, usage_count")
           .eq("supplier_id", supplierId)
-          .eq("category", extracted.category)
+          .eq("category", finalCategory)
           .maybeSingle();
         if (existingSc) {
           await supabase
@@ -1551,24 +1569,24 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         } else {
           await supabase
             .from("supplier_categories")
-            .insert({ supplier_id: supplierId, category: extracted.category, usage_count: 1 });
+            .insert({ supplier_id: supplierId, category: finalCategory, usage_count: 1 });
         }
 
         // Bump category usage_count (creating row if new)
-        if (!categoryNames.includes(extracted.category)) {
-          await supabase.from("categories").insert({ name: extracted.category, usage_count: 1 });
-          categoryNames.push(extracted.category);
+        if (!categoryNames.includes(finalCategory)) {
+          await supabase.from("categories").insert({ name: finalCategory, usage_count: 1 });
+          categoryNames.push(finalCategory);
         } else {
           const { data: cat } = await supabase
             .from("categories")
             .select("usage_count")
-            .eq("name", extracted.category)
+            .eq("name", finalCategory)
             .single();
           if (cat) {
             await supabase
               .from("categories")
               .update({ usage_count: (cat.usage_count ?? 0) + 1 })
-              .eq("name", extracted.category);
+              .eq("name", finalCategory);
           }
         }
       }
@@ -1576,7 +1594,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       // 5. Apply processed label, remove source
       await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
 
-      await log("info", "invoice ingested", { supplierId, isNewSupplier, isDuplicate, category: extracted.category }, msgId);
+      await log("info", "invoice ingested", { supplierId, isNewSupplier, isDuplicate, category: finalCategory }, msgId);
       result.processed++;
 
     } catch (err) {
@@ -1719,7 +1737,7 @@ async function handleNonInvoice(
       return null;
     }
     const id = created!.id as string;
-    suppliers.push({ id, name: vendorName });
+    suppliers.push({ id, name: vendorName, category: null });
     await log("info", `created new supplier ${id}`, { name: vendorName }, msgId);
     return id;
   };
