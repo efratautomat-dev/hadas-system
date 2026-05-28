@@ -272,6 +272,39 @@ function buildInvoiceFilename(
   return `${safe} - ${id}.${ext}`;
 }
 
+function buildDeliveryNoteFilename(
+  supplierName: string,
+  noteNumber:   string,
+  date:         string,
+  origFilename: string,
+  mimeType:     string,
+): string {
+  const safe = sanitizeForFilename(supplierName) || "ספק לא ידוע";
+  const ext  = pickExtension(origFilename, mimeType);
+  const id   = (noteNumber ?? "").trim() || (date || new Date().toISOString().slice(0, 10));
+  return `${safe} - תעודת משלוח ${id}.${ext}`;
+}
+
+function buildReturnFilename(
+  supplierName:     string,
+  creditNoteNumber: string,
+  date:             string,
+  origFilename:     string,
+  mimeType:         string,
+): string {
+  const safe = sanitizeForFilename(supplierName) || "ספק לא ידוע";
+  const ext  = pickExtension(origFilename, mimeType);
+  const id   = (creditNoteNumber ?? "").trim() || (date || new Date().toISOString().slice(0, 10));
+  return `${safe} - זיכוי ${id}.${ext}`;
+}
+
+function buildStatementFilename(origFilename: string, mimeType: string): string {
+  // Statements have no structured extractor — sanitize the email attachment name.
+  const ext  = pickExtension(origFilename, mimeType);
+  const base = sanitizeForFilename(origFilename.replace(/\.[a-z0-9]+$/i, "")) || "כרטסת";
+  return `${base}.${ext}`;
+}
+
 // ─── Drive helpers ─────────────────────────────────────────────────────────
 
 async function driveFindFolder(
@@ -367,6 +400,38 @@ async function driveGetFolderLink(token: string, folderId: string): Promise<stri
   if (!resp.ok) return "";
   const data = await resp.json() as { webViewLink?: string };
   return data.webViewLink ?? "";
+}
+
+// ─── Supabase Storage helper ───────────────────────────────────────────────
+
+type StorageDocType = "invoices" | "delivery-notes" | "returns" | "statements";
+const STORAGE_BUCKET = "documents";
+
+// Uploads bytes to the (private) "documents" bucket at {type}/{YYYY}/{MM}/{filename}
+// and returns the storage PATH — not a URL. The bucket is private, so callers
+// generate a short-lived signed URL at view time via:
+//   supabase.storage.from("documents").createSignedUrl(path, expiresInSeconds)
+// upsert:true so a re-run on the same email overwrites rather than fails —
+// dedup is enforced at the DB level upstream.
+async function uploadToStorage(
+  supabase: SupabaseClient,
+  docType:  StorageDocType,
+  date:     Date,
+  filename: string,
+  mimeType: string,
+  bytes:    Uint8Array,
+): Promise<string> {
+  const yyyy = String(date.getUTCFullYear());
+  const mm   = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const path = `${docType}/${yyyy}/${mm}/${filename}`;
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(path, new Blob([bytes], { type: mimeType }), {
+      contentType: mimeType,
+      upsert:      true,
+    });
+  if (error) throw new Error(`storage upload failed (${path}): ${error.message}`);
+  return path;
 }
 
 // ─── Base64 / body helpers ─────────────────────────────────────────────────
@@ -1347,23 +1412,25 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       const partialReturn = partialRefundLabelId !== null &&
         (message.labelIds ?? []).includes(partialRefundLabelId);
 
-      // g+h. Resolve Drive folder and upload
+      // g+h. Upload to Drive (primary backup) AND Supabase Storage (in-app preview).
+      const supplierDisplayName = matched?.name ?? extracted.vendor_name;
+      const invoiceFilename = buildInvoiceFilename(
+        supplierDisplayName,
+        extracted.invoice_number,
+        extracted.invoice_date,
+        usableDoc.filename,
+        usableDoc.mimeType,
+      );
+      const invoiceDateObj = new Date(extracted.invoice_date || new Date().toISOString().slice(0, 10));
+
       let driveFileLink   = "";
       let monthFolderLink = "";
       try {
         const target = await resolveInvoiceFolder(token, extracted.invoice_date || new Date().toISOString().slice(0, 10), partialReturn);
-        const supplierDisplayName = matched?.name ?? extracted.vendor_name;
-        const driveFilename = buildInvoiceFilename(
-          supplierDisplayName,
-          extracted.invoice_number,
-          extracted.invoice_date,
-          usableDoc.filename,
-          usableDoc.mimeType,
-        );
         const uploaded = await driveUploadFile(
           token,
           target.fileFolderId,
-          driveFilename,
+          invoiceFilename,
           usableDoc.mimeType,
           usableDoc.bytes,
         );
@@ -1373,6 +1440,18 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       } catch (e) {
         await log("error", `Drive upload failed: ${e instanceof Error ? e.message : e}`, undefined, msgId);
         result.errors.push(`Drive upload failed for ${msgId}`);
+      }
+
+      let storagePath = "";
+      try {
+        storagePath = await uploadToStorage(
+          supabase, "invoices", invoiceDateObj,
+          invoiceFilename, usableDoc.mimeType, usableDoc.bytes,
+        );
+        await log("info", "uploaded to Storage", { storagePath }, msgId);
+      } catch (e) {
+        await log("error", `Storage upload failed: ${e instanceof Error ? e.message : e}`, undefined, msgId);
+        result.errors.push(`Storage upload failed for ${msgId}`);
       }
 
       // i. Old-date warning (still save normally)
@@ -1431,6 +1510,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         has_error:          false,
         partial_return:     partialReturn,
         drive_file_link:    driveFileLink,
+        storage_url:        storagePath || null,
         month_folder_link:  monthFolderLink,
         drive_folder_link:  monthFolderLink,
         message_link:       messageLink,
@@ -1683,6 +1763,24 @@ async function handleNonInvoice(
       return;
     }
 
+    const supplierDisplayName = (supplierId && suppliers.find((s) => s.id === supplierId)?.name) || extracted.vendor_name;
+    const storageFilename = buildDeliveryNoteFilename(
+      supplierDisplayName, extracted.note_number, extracted.date, ctx.doc.filename, ctx.doc.mimeType,
+    );
+    const dateForPath = new Date(extracted.date || ctx.emailTs);
+
+    let storagePath = "";
+    try {
+      storagePath = await uploadToStorage(
+        supabase, "delivery-notes", dateForPath,
+        storageFilename, ctx.doc.mimeType, ctx.doc.bytes,
+      );
+      await log("info", "delivery_note uploaded to Storage", { storagePath }, msgId);
+    } catch (e) {
+      await log("error", `Storage upload failed: ${e instanceof Error ? e.message : e}`,
+        { filename: ctx.doc.filename }, msgId);
+    }
+
     const { error } = await supabase.from("delivery_notes").insert({
       supplier_id:       supplierId,
       supplier_name:     extracted.vendor_name,
@@ -1697,6 +1795,7 @@ async function handleNonInvoice(
       source_email:      ctx.from,
       received_at:       ctx.emailTs,
       drive_file_link:   null,
+      storage_url:       storagePath || null,
       gmail_message_id:  msgId,
       email_subject:     ctx.subject,
       message_link:      ctx.messageLink,
@@ -1730,6 +1829,26 @@ async function handleNonInvoice(
     }
     const supplierId = await resolveSupplier(extracted.vendor_name);
 
+    // Upload the credit-note file to Storage up front so it's available whether
+    // we match a return (storage_url goes on the row) or alert (goes in payload).
+    const supplierDisplayName = (supplierId && suppliers.find((s) => s.id === supplierId)?.name) || extracted.vendor_name;
+    const storageFilename = buildReturnFilename(
+      supplierDisplayName, extracted.credit_note_number, extracted.date, ctx.doc.filename, ctx.doc.mimeType,
+    );
+    const dateForPath = new Date(extracted.date || ctx.emailTs);
+
+    let storagePath = "";
+    try {
+      storagePath = await uploadToStorage(
+        supabase, "returns", dateForPath,
+        storageFilename, ctx.doc.mimeType, ctx.doc.bytes,
+      );
+      await log("info", "credit_note uploaded to Storage", { storagePath }, msgId);
+    } catch (e) {
+      await log("error", `Storage upload failed: ${e instanceof Error ? e.message : e}`,
+        { filename: ctx.doc.filename }, msgId);
+    }
+
     const createUnmatchedAlert = async (reason: string) => {
       await supabase.from("alerts").insert({
         type:    "unmatched_credit_note",
@@ -1740,6 +1859,7 @@ async function handleNonInvoice(
           supplierName:     extracted.vendor_name,
           amount:           extracted.amount,
           creditNoteNumber: extracted.credit_note_number,
+          storagePath:       storagePath || null,
         },
         status: "unread",
       });
@@ -1786,6 +1906,7 @@ async function handleNonInvoice(
         supplier_credit_note_date:   extracted.date || null,
         supplier_credit_note_amount: actualAmount,
         gmail_message_id:            msgId,
+        storage_url:                 storagePath || null,
         status:                      "הסתיים",
       })
       .eq("id", existing.id);
@@ -1815,9 +1936,23 @@ async function handleNonInvoice(
     }
 
   } else {
-    // statement — no Drive upload; row is created for tracking via Gmail link.
+    // statement — uploaded to Storage only; no Drive upload.
+    const storageFilename = buildStatementFilename(ctx.doc.filename, ctx.doc.mimeType);
+    let storagePath = "";
+    try {
+      storagePath = await uploadToStorage(
+        supabase, "statements", new Date(ctx.emailTs),
+        storageFilename, ctx.doc.mimeType, ctx.doc.bytes,
+      );
+      await log("info", "statement uploaded to Storage", { storagePath }, msgId);
+    } catch (e) {
+      await log("error", `Storage upload failed: ${e instanceof Error ? e.message : e}`,
+        { filename: ctx.doc.filename }, msgId);
+    }
+
     const { error } = await supabase.from("vendor_statements").insert({
       drive_file_link:  null,
+      storage_url:      storagePath || null,
       message_link:     ctx.messageLink,
       gmail_message_id: msgId,
       email_subject:    ctx.subject,
@@ -1827,7 +1962,7 @@ async function handleNonInvoice(
     if (error) {
       await log("warn", `vendor_statements insert failed: ${error.message}`, undefined, msgId);
     }
-    await log("info", "statement recorded (no Drive upload)", undefined, msgId);
+    await log("info", "statement recorded", { storagePath }, msgId);
   }
 }
 
