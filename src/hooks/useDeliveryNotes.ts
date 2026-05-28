@@ -31,6 +31,7 @@ export function useDeliveryNotes() {
           linkedInvoiceId: r.invoice_id   ?? undefined,
           amount:          Number(r.amount ?? 0),
           status:          r.status       ?? 'pending',
+          driveFileLink:   r.drive_file_link ?? '',
           // notes field doesn't exist in DB; omit it
         })) as DeliveryNote[])
         setError(null)

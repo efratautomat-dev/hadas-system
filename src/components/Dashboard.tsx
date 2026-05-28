@@ -88,10 +88,11 @@ function getGreeting(): string {
 }
 
 interface DashboardProps {
-  onPageChange?:    (page: string) => void
-  onOpenInvoice?:   (invoiceId: string) => void
-  onOpenSupplier?:  (supplierId: string) => void
-  alerts?:          Alert[]
+  onPageChange?:             (page: string) => void
+  onOpenInvoice?:            (invoiceId: string) => void
+  onOpenSupplier?:           (supplierId: string) => void
+  onCreateSupplierFromAlert?: (alert: Alert) => void
+  alerts?:                    Alert[]
 }
 
 function Spinner() {
@@ -102,7 +103,37 @@ function Spinner() {
   )
 }
 
-export default function Dashboard({ onPageChange, onOpenInvoice, alerts = [] }: DashboardProps) {
+export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplierFromAlert, alerts = [] }: DashboardProps) {
+  // Route a clicked alert row to the most useful destination for its type.
+  // For invoice-related alerts we open the linked invoice; for supplier_not_found
+  // we kick off the existing "create supplier from alert" flow (which prefills
+  // the new-supplier form and links the resulting payment).
+  function handleAlertClick(alert: Alert) {
+    const payload = (alert.payload ?? {}) as Record<string, unknown>
+    const invoiceId = (payload.existingInvoiceId as string | undefined)
+      ?? (payload.invoiceId as string | undefined)
+      ?? alert.relatedId
+
+    if (alert.type === 'duplicate_invoice' && invoiceId && onOpenInvoice) {
+      onOpenInvoice(invoiceId)
+      return
+    }
+    if (alert.type === 'supplier_not_found' && onCreateSupplierFromAlert) {
+      onCreateSupplierFromAlert(alert)
+      return
+    }
+    if (alert.type === 'delivery_note') {
+      onPageChange?.('deliveries')
+      return
+    }
+    if (alert.type === 'statement_mismatch') {
+      onPageChange?.('reconciliation')
+      return
+    }
+    // Fallback — open the full alerts page
+    onPageChange?.('alerts')
+  }
+
   const { data: invoices, loading: invLoading }             = useInvoices()
   const { data: deliveryNotes, loading: dnLoading }         = useDeliveryNotes()
   const { data: payments, loading: payLoading }             = usePayments()
@@ -237,29 +268,18 @@ export default function Dashboard({ onPageChange, onOpenInvoice, alerts = [] }: 
                 <div
                   key={alert.id}
                   className="px-6 py-3.5 flex items-center justify-between gap-3 cursor-pointer transition-colors"
-                  style={{ opacity: alert.status === 'resolved' ? 0.65 : 1 }}
+                  style={{ opacity: alert.status === 'resolved' ? 0.65 : 1, direction: 'rtl' }}
                   onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
                   onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
-                  onClick={() => onPageChange?.('alerts')}
+                  onClick={() => handleAlertClick(alert)}
                 >
-                  {/* Left: status badge + date */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs text-gray-400">{alert.date}</span>
-                    <span
-                      className="px-2 py-0.5 rounded-md text-xs font-bold"
-                      style={{ background: statusConf.bg, color: statusConf.color }}
+                  {/* RIGHT (first in RTL): type icon + description */}
+                  <div className="flex items-center gap-2.5 text-right overflow-hidden flex-1 min-w-0">
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ background: typeConf.bg }}
                     >
-                      {statusConf.label}
-                    </span>
-                  </div>
-
-                  {/* Right: type icon + description */}
-                  <div className="flex items-center gap-2.5 text-right overflow-hidden">
-                    <div className="text-right overflow-hidden">
-                      {alert.supplier && (
-                        <p className="text-sm font-semibold text-gray-700 truncate">{alert.supplier}</p>
-                      )}
-                      <p className="text-xs text-gray-500 truncate">{alert.description}</p>
+                      <TypeIcon className="w-4 h-4" style={{ color: typeConf.color }} />
                     </div>
                     <span
                       className="px-2 py-0.5 rounded-md text-xs font-bold whitespace-nowrap flex-shrink-0"
@@ -267,12 +287,23 @@ export default function Dashboard({ onPageChange, onOpenInvoice, alerts = [] }: 
                     >
                       {typeConf.label}
                     </span>
-                    <div
-                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ background: typeConf.bg }}
-                    >
-                      <TypeIcon className="w-4 h-4" style={{ color: typeConf.color }} />
+                    <div className="text-right overflow-hidden flex-1 min-w-0">
+                      {alert.supplier && (
+                        <p className="text-sm font-semibold text-gray-700 truncate">{alert.supplier}</p>
+                      )}
+                      <p className="text-xs text-gray-500 truncate">{alert.description}</p>
                     </div>
+                  </div>
+
+                  {/* LEFT (last in RTL): status badge + date */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span
+                      className="px-2 py-0.5 rounded-md text-xs font-bold"
+                      style={{ background: statusConf.bg, color: statusConf.color }}
+                    >
+                      {statusConf.label}
+                    </span>
+                    <span className="text-xs text-gray-400">{alert.date}</span>
                   </div>
                 </div>
               )

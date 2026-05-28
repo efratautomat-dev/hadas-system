@@ -267,6 +267,7 @@ export interface DeliveryNote {
   status: 'pending' | 'archived'
   linkedInvoiceId?: string
   notes?: string
+  driveFileLink?: string
 }
 
 export const mockDeliveryNotes: DeliveryNote[] = [

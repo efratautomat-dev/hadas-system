@@ -5,18 +5,22 @@ import { api } from '../lib/api'
 export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
 export interface ReturnEntry {
-  id:                string
-  date:              string        // display DD/MM/YYYY
-  dateIso:           string        // ISO YYYY-MM-DD — maps to DB `date` column on write
-  supplierId:        string        // DB: supplier_id
-  supplier:          string        // display only — no DB column
-  amount:            number
-  reason:            string
-  detail:            string        // DB: detail
-  originalInvoiceId: string | null // DB: invoice_id
-  status:            ReturnStatus
-  employeeId:        string | null  // DB: employee_id (FK → employees)
-  createdBy:         string         // display only — derived from employees join or legacy created_by text
+  id:                       string
+  date:                     string        // display DD/MM/YYYY
+  dateIso:                  string        // ISO YYYY-MM-DD — maps to DB `date` column on write
+  supplierId:               string        // DB: supplier_id
+  supplier:                 string        // display only — no DB column
+  amount:                   number
+  reason:                   string
+  detail:                   string        // DB: detail
+  originalInvoiceId:        string | null // DB: invoice_id
+  status:                   ReturnStatus
+  employeeId:               string | null  // DB: employee_id (FK → employees)
+  createdBy:                string         // display only — derived from employees join or legacy created_by text
+  driveFileLink?:           string         // DB: drive_file_link
+  supplierCreditNoteNumber?: string | null // DB: supplier_credit_note_number
+  supplierCreditNoteDate?:   string | null // DB: supplier_credit_note_date (ISO)
+  supplierCreditNoteAmount?: number | null // DB: supplier_credit_note_amount
 }
 
 function isoToDisplay(iso: string): string {
@@ -59,18 +63,22 @@ export function useReturns() {
         for (const e of empRows ?? []) empMap[e.id] = e.name
 
         setData(rows.map(r => ({
-          id:                String(r.id),
-          supplierId:        r.supplier_id  ?? '',
-          supplier:          suppMap[r.supplier_id] ?? '',
-          dateIso:           r.date         ?? '',
-          date:              isoToDisplay(r.date ?? ''),
-          amount:            Number(r.amount ?? 0),
-          reason:            r.reason       ?? '',
-          detail:            r.detail       ?? '',
-          originalInvoiceId: r.invoice_id   ?? null,
-          status:            r.status       as ReturnStatus ?? 'בטיפול',
-          employeeId:        r.employee_id  ?? null,
-          createdBy:         empMap[r.employee_id] ?? r.created_by ?? '',
+          id:                        String(r.id),
+          supplierId:                r.supplier_id  ?? '',
+          supplier:                  suppMap[r.supplier_id] ?? '',
+          dateIso:                   r.date         ?? '',
+          date:                      isoToDisplay(r.date ?? ''),
+          amount:                    Number(r.amount ?? 0),
+          reason:                    r.reason       ?? '',
+          detail:                    r.detail       ?? '',
+          originalInvoiceId:         r.invoice_id   ?? null,
+          status:                    r.status       as ReturnStatus ?? 'בטיפול',
+          employeeId:                r.employee_id  ?? null,
+          createdBy:                 empMap[r.employee_id] ?? r.created_by ?? '',
+          driveFileLink:             r.drive_file_link ?? '',
+          supplierCreditNoteNumber:  r.supplier_credit_note_number ?? null,
+          supplierCreditNoteDate:    r.supplier_credit_note_date   ?? null,
+          supplierCreditNoteAmount:  r.supplier_credit_note_amount != null ? Number(r.supplier_credit_note_amount) : null,
         })) as ReturnEntry[])
         setError(null)
       } else {

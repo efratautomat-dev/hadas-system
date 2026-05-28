@@ -48,6 +48,7 @@ interface Props {
   onEdit: () => void
   onDelete: () => void
   onViewLedger?: () => void
+  onViewPayments?: () => void
   onOpenInvoice?: (invoiceId: string) => void
 }
 
@@ -77,7 +78,7 @@ function fmtDate(d: string): string {
   return `${day}/${m}/${y}`
 }
 
-export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger, onOpenInvoice }: Props) {
+export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger, onViewPayments, onOpenInvoice }: Props) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
@@ -130,29 +131,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
 
       {/* ── Header ── */}
       <div className={isMobile ? 'flex flex-col gap-3' : 'flex items-center justify-between gap-4'}>
-        {/* RIGHT (first in RTL): name + status */}
-        <div className="flex items-center gap-3 min-w-0">
-          <span
-            className="rounded-lg font-bold flex-shrink-0"
-            style={{
-              fontSize: '13px', padding: '5px 12px',
-              background: supplier.status === 'פעיל' ? '#DCFCE7' : '#F3F4F6',
-              color:      supplier.status === 'פעיל' ? '#16A34A' : '#6B7280',
-            }}
-          >
-            {supplier.status}
-          </span>
-          <div className="text-right min-w-0">
-            <h1 className="font-black text-gray-800 truncate" style={{ fontSize: fs('26px', '22px') }}>
-              {supplier.name}
-            </h1>
-            <p className="text-gray-500 mt-0.5 truncate" style={{ fontSize: fs('15px', '13px') }}>
-              {supplier.contact} · {supplier.phone}
-            </p>
-          </div>
-        </div>
-
-        {/* LEFT (last in RTL): action buttons */}
+        {/* RIGHT (first in RTL): action buttons */}
         <div className={isMobile ? 'flex items-center gap-2 overflow-x-auto pb-1' : 'flex items-center gap-2 flex-shrink-0'}>
           {onViewLedger && (
             <button
@@ -186,6 +165,28 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
             חזרה לרשימה
           </button>
         </div>
+
+        {/* LEFT (last in RTL): name + status */}
+        <div className="flex items-center gap-3 min-w-0">
+          <span
+            className="rounded-lg font-bold flex-shrink-0"
+            style={{
+              fontSize: '13px', padding: '5px 12px',
+              background: supplier.status === 'פעיל' ? '#DCFCE7' : '#F3F4F6',
+              color:      supplier.status === 'פעיל' ? '#16A34A' : '#6B7280',
+            }}
+          >
+            {supplier.status}
+          </span>
+          <div className="text-right min-w-0">
+            <h1 className="font-black text-gray-800 truncate" style={{ fontSize: fs('26px', '22px') }}>
+              {supplier.name}
+            </h1>
+            <p className="text-gray-500 mt-0.5 truncate" style={{ fontSize: fs('15px', '13px') }}>
+              {supplier.contact} · {supplier.phone}
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* ── פרטי קשר ── */}
@@ -208,22 +209,11 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
         ].map(({ Icon, label, value }, i) => (
           <div
             key={label}
-            className="flex items-center justify-between px-5"
+            className="px-5 py-3 text-right"
             style={{ minHeight: '52px', borderTop: i > 0 ? '1px solid #E2E4E9' : undefined }}
           >
-            {/* Value — LEFT (end in RTL) */}
-            <span
-              style={{
-                fontSize: fs('15px', '14px'),
-                color: value ? '#1F2937' : '#9CA3AF',
-                fontWeight: value ? 500 : 400,
-              }}
-            >
-              {value || '—'}
-            </span>
-
             {/* Icon + Label — RIGHT (start in RTL) */}
-            <div className="flex items-center gap-2.5 flex-shrink-0">
+            <div className="flex items-center justify-end gap-2.5 mb-1">
               <span className="text-gray-400" style={{ fontSize: '13px' }}>{label}</span>
               <div
                 className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -232,6 +222,19 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
                 <Icon className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
               </div>
             </div>
+
+            {/* Value — right-aligned under label */}
+            <p
+              className="text-right"
+              style={{
+                fontSize: fs('15px', '14px'),
+                color: value ? '#1F2937' : '#9CA3AF',
+                fontWeight: value ? 500 : 400,
+                margin: 0,
+              }}
+            >
+              {value || '—'}
+            </p>
           </div>
         ))}
 
@@ -256,12 +259,8 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
               </p>
             </div>
           ) : (
-            <div
-              className="flex items-center justify-between px-5"
-              style={{ minHeight: '52px' }}
-            >
-              <span style={{ fontSize: fs('15px', '14px'), color: '#9CA3AF' }}>—</span>
-              <div className="flex items-center gap-2.5 flex-shrink-0">
+            <div className="px-5 py-3 text-right" style={{ minHeight: '52px' }}>
+              <div className="flex items-center justify-end gap-2.5 mb-1">
                 <span className="text-gray-400" style={{ fontSize: '13px' }}>הערות</span>
                 <div
                   className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -270,6 +269,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
                   <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
                 </div>
               </div>
+              <p className="text-right" style={{ fontSize: fs('15px', '14px'), color: '#9CA3AF', margin: 0 }}>—</p>
             </div>
           )}
         </div>
@@ -308,9 +308,20 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
       {/* ── כרטסת (ledger) ── */}
       {ledger.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-          <div className="px-5 py-4 border-b flex items-center justify-end gap-2" style={{ borderColor: '#E2E4E9' }}>
-            <h2 className="font-bold text-gray-800">כרטסת</h2>
-            <CreditCard className="w-4 h-4 text-gray-400" />
+          <div
+            className="px-5 py-4 border-b flex items-center justify-between gap-2"
+            style={{ borderColor: '#E2E4E9', cursor: onViewLedger ? 'pointer' : 'default' }}
+            onClick={onViewLedger}
+            onMouseEnter={onViewLedger ? (e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC') : undefined}
+            onMouseLeave={onViewLedger ? (e) => ((e.currentTarget as HTMLElement).style.background = 'transparent') : undefined}
+          >
+            {onViewLedger && (
+              <span className="text-sm font-semibold" style={{ color: '#D32F4A' }}>פתח כרטסת ←</span>
+            )}
+            <div className="flex items-center gap-2">
+              <h2 className="font-bold text-gray-800">כרטסת</h2>
+              <CreditCard className="w-4 h-4 text-gray-400" />
+            </div>
           </div>
           {/* Table header */}
           <div style={{ overflowX: 'auto' }}>
@@ -404,9 +415,20 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
 
       {/* ── Payments ── */}
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-        <div className="px-5 py-4 border-b flex items-center justify-end gap-2" style={{ borderColor: '#E2E4E9' }}>
-          <h2 className="font-bold text-gray-800">תשלומים</h2>
-          <CreditCard className="w-4 h-4 text-gray-400" />
+        <div
+          className="px-5 py-4 border-b flex items-center justify-between gap-2"
+          style={{ borderColor: '#E2E4E9', cursor: onViewPayments ? 'pointer' : 'default' }}
+          onClick={onViewPayments}
+          onMouseEnter={onViewPayments ? (e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC') : undefined}
+          onMouseLeave={onViewPayments ? (e) => ((e.currentTarget as HTMLElement).style.background = 'transparent') : undefined}
+        >
+          {onViewPayments && (
+            <span className="text-sm font-semibold" style={{ color: '#D32F4A' }}>פתח דף תשלומים ←</span>
+          )}
+          <div className="flex items-center gap-2">
+            <h2 className="font-bold text-gray-800">תשלומים</h2>
+            <CreditCard className="w-4 h-4 text-gray-400" />
+          </div>
         </div>
         {payments.length === 0 ? (
           <p className="text-center text-gray-400 py-8" style={{ fontSize: '15px' }}>אין תשלומים עבור ספק זה</p>

@@ -1,24 +1,9 @@
 import { useState, useEffect } from 'react'
-import { FileText, Search, ChevronRight, ExternalLink, Save, AlertTriangle, X, RefreshCw } from 'lucide-react'
+import { FileText, Search, ChevronRight, ExternalLink, Save, AlertTriangle, X } from 'lucide-react'
 import { type Invoice } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
-
-// ── Email-sync helper ──────────────────────────────────────────────────────
-
-interface SyncResult { processed: number; alerts: number; skipped?: number; errors?: string[] }
-
-async function triggerInvoicesIngest(): Promise<SyncResult> {
-  const base = import.meta.env.VITE_SUPABASE_URL as string
-  const key  = import.meta.env.VITE_HADAS_API_KEY as string
-  const res = await fetch(`${base}/functions/v1/invoices-ingest`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', 'x-hadas-key': key },
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`)
-  return data as SyncResult
-}
+import { PdfPreviewButton } from './PdfPreviewModal'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -180,7 +165,7 @@ function TTextarea({ label, value, onChange }: { label: string; value: string; o
   )
 }
 
-function TLink({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function TLink({ label, value, onChange, showPreview = false }: { label: string; value: string; onChange: (v: string) => void; showPreview?: boolean }) {
   const f = useFocus()
   return (
     <div>
@@ -196,6 +181,7 @@ function TLink({ label, value, onChange }: { label: string; value: string; onCha
           dir="ltr"
           style={{ ...BASE, flex: 1, textAlign: 'left', borderColor: f.on ? '#D32F4A' : '#DEDFE5' }}
         />
+        {value && showPreview && <PdfPreviewButton url={value} />}
         {value && (
           <a
             href={value}
@@ -240,9 +226,10 @@ function Row2({ children }: { children: React.ReactNode }) {
 // ── Invoice Detail ──────────────────────────────────────────────────────────
 
 function InvoiceDetail({
-  invoice, onBack, onSave,
+  invoice, onBack, onSave, onOpenSupplier,
 }: {
   invoice: Invoice; onBack: () => void; onSave: (inv: Invoice) => void
+  onOpenSupplier?: (supplierId: string) => void
 }) {
   const { data: suppliersData } = useSuppliers()
   const [form, setForm] = useState<Invoice>({ ...invoice })
@@ -296,7 +283,22 @@ function InvoiceDetail({
             </span>
             <h2 style={{ margin: 0, fontSize: '19px', fontWeight: 600, color: '#1F2937' }}>{form.id}</h2>
           </div>
-          <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#9CA3AF' }}>{form.supplier}</p>
+          {form.supplier && form.supplierId && onOpenSupplier ? (
+            <button
+              type="button"
+              onClick={() => onOpenSupplier(form.supplierId)}
+              style={{
+                margin: '3px 0 0', padding: 0, fontSize: '13px', color: '#D32F4A',
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                textDecoration: 'underline', fontFamily: 'inherit',
+              }}
+              title="פתח כרטיס ספק"
+            >
+              {form.supplier}
+            </button>
+          ) : (
+            <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#9CA3AF' }}>{form.supplier}</p>
+          )}
         </div>
 
         <button
@@ -360,7 +362,7 @@ function InvoiceDetail({
 
         {/* 4 – קישורי גישה */}
         <Group title="קישורי גישה">
-          <TLink label="קישור לקובץ בדרייב" value={form.driveFileLink} onChange={set('driveFileLink')} />
+          <TLink label="קישור לקובץ בדרייב" value={form.driveFileLink} onChange={set('driveFileLink')} showPreview />
           <TLink label="קישור לתיקיית החודש" value={form.monthFolderLink} onChange={set('monthFolderLink')} />
           <TLink label="קישור למייל המקורי" value={form.originalEmailLink} onChange={set('originalEmailLink')} />
         </Group>
@@ -407,9 +409,10 @@ interface InvoicesProps {
   controlledSelectedId?: string | null
   onOpenInvoice?: (id: string) => void
   onCloseInvoice?: () => void
+  onOpenSupplier?: (supplierId: string) => void
 }
 
-export default function Invoices({ initialFilter = 'all', controlledSelectedId, onOpenInvoice, onCloseInvoice }: InvoicesProps) {
+export default function Invoices({ initialFilter = 'all', controlledSelectedId, onOpenInvoice, onCloseInvoice, onOpenSupplier }: InvoicesProps) {
   const { data: serverInvoices, loading, error, update: updateInvoice, remove: removeInvoice } = useInvoices()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [internalSelected, setInternalSelected] = useState<Invoice | null>(null)
@@ -417,25 +420,6 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
   const [filter, setFilter] = useState<Filter>(initialFilter)
   const [dupModal, setDupModal] = useState<DupModal | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [syncing, setSyncing] = useState(false)
-  const [syncToast, setSyncToast] = useState<{ msg: string; kind: 'success' | 'error' } | null>(null)
-
-  const handleSync = async () => {
-    if (syncing) return
-    setSyncing(true)
-    setSyncToast(null)
-    try {
-      const r = await triggerInvoicesIngest()
-      setSyncToast({ msg: `${r.processed} עובדו, ${r.alerts} התראות`, kind: 'success' })
-      // refresh list via the hook (its load is triggered by serverInvoices state on next render — easiest: reload page-level data)
-      window.setTimeout(() => window.location.reload(), 1200)
-    } catch (e) {
-      setSyncToast({ msg: `שגיאת סנכרון: ${e instanceof Error ? e.message : String(e)}`, kind: 'error' })
-    } finally {
-      setSyncing(false)
-      window.setTimeout(() => setSyncToast(null), 4000)
-    }
-  }
 
   useEffect(() => {
     setInvoices(serverInvoices)
@@ -506,6 +490,7 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
       <InvoiceDetail
         invoice={selected}
         onBack={closeInvoice}
+        onOpenSupplier={onOpenSupplier}
         onSave={async (updated) => {
           closeInvoice()
           try {
@@ -556,22 +541,7 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
       )}
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <button
-          onClick={handleSync}
-          disabled={syncing}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '7px',
-            background: syncing ? '#F3F4F6' : '#D32F4A',
-            color: syncing ? '#9CA3AF' : 'white',
-            border: 'none', borderRadius: '12px',
-            padding: '10px 18px', fontSize: '14px', fontWeight: 700,
-            cursor: syncing ? 'wait' : 'pointer', fontFamily: 'inherit',
-          }}
-        >
-          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'מסנכרן...' : 'סנכרן מיילים'}
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
         <div className="text-right">
           <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>חשבוניות</h1>
           <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>
@@ -579,18 +549,6 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
           </p>
         </div>
       </div>
-
-      {syncToast && (
-        <div
-          className="rounded-xl p-3 text-sm text-right"
-          style={{
-            background: syncToast.kind === 'success' ? '#DCFCE7' : '#FEE2E2',
-            color:      syncToast.kind === 'success' ? '#166534' : '#991B1B',
-          }}
-        >
-          {syncToast.msg}
-        </div>
-      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
@@ -699,12 +657,12 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
             {/* Column headers */}
             <div
               className="grid font-semibold text-gray-400 uppercase tracking-wider border-b"
-              style={{ gridTemplateColumns: COL, borderColor: '#EEEEF2', fontSize: '11px', padding: '10px 16px' }}
+              style={{ gridTemplateColumns: COL, borderColor: '#EEEEF2', fontSize: '11px', padding: '10px 16px', direction: 'rtl', textAlign: 'right' }}
             >
               <span className="text-right">ספק</span>
               {!isMobile && <span className="text-right">מסמך · תאריך</span>}
               {!isMobile && !isTablet && <span className="text-right">קטגוריה</span>}
-              <span className="text-left">סכום</span>
+              <span className="text-right">סכום</span>
               <span className="text-center">סטטוס</span>
             </div>
 
@@ -727,6 +685,8 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
                     minHeight: '56px',
                     padding: '12px 16px',
                     transition: 'background 0.12s',
+                    direction: 'rtl',
+                    textAlign: 'right',
                   }}
                   onClick={() => openInvoice(inv)}
                   onMouseEnter={e => (e.currentTarget.style.background = '#FDF5F6')}
@@ -735,6 +695,7 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
                   {/* Col 1: ספק + flags */}
                   <div className="text-right">
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                      {inv.driveFileLink && <PdfPreviewButton url={inv.driveFileLink} title="תצוגה מקדימה של הקובץ" />}
                       {inv.duplicateFlag === 'כפילות אפשרית' && isMobile && (
                         <button
                           onClick={e => openDupModal(inv, e)}
@@ -784,7 +745,7 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
                   )}
 
                   {/* Col 4: סכום */}
-                  <span className="text-left font-bold" style={{ fontSize: '15px', color: '#1F2937' }}>
+                  <span className="text-right font-bold" style={{ fontSize: '15px', color: '#1F2937' }}>
                     {formatILS(inv.amount)}
                   </span>
 

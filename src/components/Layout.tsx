@@ -84,6 +84,7 @@ interface NavEntry {
   ledgerSupplierId?: string
   supplierViewId?: string
   invoiceSelectedId?: string
+  paymentsSupplierFilter?: string
 }
 
 interface AlertPrefillState {
@@ -145,12 +146,14 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         alerts={alerts}
         onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
         onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
+        onCreateSupplierFromAlert={handleCreateSupplierFromAlert}
       />
     )
     if (activePage === 'alerts')         return <Alerts alerts={alerts} onMarkRead={handleMarkRead} onMarkResolved={handleMarkResolved} onDelete={handleDeleteAlert} onCreateSupplierFromAlert={handleCreateSupplierFromAlert} />
     if (activePage === 'suppliers')      return (
       <Suppliers
         onViewLedger={(id) => setNavStack(prev => [...prev, { page: 'ledger', ledgerSupplierId: id }])}
+        onViewPayments={(name) => setNavStack(prev => [...prev, { page: 'payments', paymentsSupplierFilter: name }])}
         controlledViewId={currentNav.supplierViewId ?? null}
         onOpenDetail={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
         onCloseDetail={goBack}
@@ -175,6 +178,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         controlledSelectedId={currentNav.invoiceSelectedId ?? null}
         onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
         onCloseInvoice={goBack}
+        onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
       />
     )
     if (activePage === 'invoices-duplicates') return (
@@ -184,9 +188,10 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         controlledSelectedId={currentNav.invoiceSelectedId ?? null}
         onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices-duplicates', invoiceSelectedId: id }])}
         onCloseInvoice={goBack}
+        onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
       />
     )
-    if (activePage === 'payments')       return <Payments />
+    if (activePage === 'payments')       return <Payments initialSupplier={currentNav.paymentsSupplierFilter} />
     if (activePage === 'deliveries')     return <DeliveryNotes />
     if (activePage === 'reconciliation') return <StatementReconciliation />
     if (activePage === 'returns')        return <Returns />

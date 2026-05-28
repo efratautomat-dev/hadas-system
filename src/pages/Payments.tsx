@@ -303,7 +303,11 @@ function SupplierSelect({
 
 // ─── component ────────────────────────────────────────────────────────────────
 
-export default function Payments() {
+interface PaymentsProps {
+  initialSupplier?: string
+}
+
+export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const { data: serverSuppliers, loading: suppliersLoading } = useSuppliers()
@@ -316,7 +320,7 @@ export default function Payments() {
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
 
-  const [fltSupplier, setFltSupplier] = useState('')
+  const [fltSupplier, setFltSupplier] = useState(initialSupplier ?? '')
   const [fltType, setFltType] = useState('')
   const [fltMonth, setFltMonth] = useState('')
   const [fltStatus, setFltStatus] = useState('')

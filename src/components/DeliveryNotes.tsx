@@ -4,6 +4,7 @@ import { type DeliveryNote } from '../data/mockData'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
+import { PdfPreviewButton } from './PdfPreviewModal'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -386,7 +387,8 @@ export default function DeliveryNotes() {
                       {note.linkedInvoiceId ?? '—'}
                     </span>
                   )}
-                  <span className="flex justify-center">
+                  <span className="flex justify-center items-center gap-2" onClick={e => e.stopPropagation()}>
+                    {note.driveFileLink && <PdfPreviewButton url={note.driveFileLink} title="תצוגה מקדימה של התעודה" />}
                     <ChevronLeft className="w-4 h-4 text-gray-300" />
                   </span>
                 </div>

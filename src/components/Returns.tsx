@@ -7,6 +7,7 @@ import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
 import { printReturnPDF } from '../utils/pdf'
 import type { ReturnPDFData } from '../utils/pdf'
+import { PdfPreviewButton } from './PdfPreviewModal'
 
 type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -23,6 +24,10 @@ interface ReturnEntry {
   status: ReturnStatus
   employeeId: string | null
   createdBy: string
+  driveFileLink?: string
+  supplierCreditNoteNumber?: string | null
+  supplierCreditNoteDate?: string | null
+  supplierCreditNoteAmount?: number | null
 }
 
 interface FormState {
@@ -450,9 +455,9 @@ export default function Returns() {
   const hasFilter = filterSupplier !== 'all' || filterMonth !== '' || filterStatus !== 'all' || filterEmployee !== 'all'
 
   const COL = isTablet
-    ? '95px 1fr 100px 2fr 110px 100px'
-    : '95px 1fr 110px 2fr 140px 105px 110px 88px'
-  const MIN_W = isTablet ? '580px' : '900px'
+    ? '95px 1fr 100px 2fr 130px 105px 100px'
+    : '95px 1fr 110px 2fr 150px 110px 105px 110px 88px'
+  const MIN_W = isTablet ? '680px' : '1020px'
 
   if (loading && returns.length === 0) {
     return (
@@ -616,7 +621,8 @@ export default function Returns() {
             <span>ספק</span>
             <span>סכום</span>
             <span>סיבה</span>
-            <span>חשבונית מקורית</span>
+            <span>תעודת זיכוי מספק</span>
+            <span>סכום זיכוי</span>
             <span>סטטוס</span>
             {!isTablet && <span>נוצר ע"י</span>}
             {!isTablet && <span className="text-center">פעולות</span>}
@@ -641,8 +647,20 @@ export default function Returns() {
                 <span className="text-sm font-semibold text-gray-800">{r.supplier}</span>
                 <span className="text-sm font-bold" style={{ color: '#7C3AED' }}>{fmtILS(r.amount)}</span>
                 <span className="text-sm text-gray-600 truncate" title={r.reason} style={{ paddingLeft: '8px' }}>{r.reason}</span>
-                <span className="text-xs font-mono" style={{ color: r.originalInvoiceId ? '#6B7280' : '#D1D5DB' }}>
-                  {r.originalInvoiceId ?? '—'}
+                {r.supplierCreditNoteNumber ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-xs font-mono font-semibold"
+                    style={{ color: '#166534' }}
+                    title={r.supplierCreditNoteDate ? `הונפק ${isoToDisplay(r.supplierCreditNoteDate)}` : undefined}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                    {r.supplierCreditNoteNumber}
+                  </span>
+                ) : (
+                  <span className="text-xs font-medium" style={{ color: '#9CA3AF' }}>ממתין</span>
+                )}
+                <span className="text-sm font-bold" style={{ color: r.supplierCreditNoteAmount != null ? '#166534' : '#D1D5DB' }}>
+                  {r.supplierCreditNoteAmount != null ? fmtILS(r.supplierCreditNoteAmount) : '—'}
                 </span>
                 <StatusBadge status={r.status} />
                 {!isTablet && <span className="text-sm text-gray-500">{r.createdBy}</span>}
@@ -651,6 +669,7 @@ export default function Returns() {
                     className="flex items-center justify-center gap-1"
                     onClick={(e) => e.stopPropagation()}
                   >
+                    {r.driveFileLink && <PdfPreviewButton url={r.driveFileLink} title="תצוגה מקדימה של זיכוי הספק" />}
                     <button
                       onClick={() => openEdit(r.id)}
                       className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"

@@ -337,6 +337,7 @@ interface AlertPrefill {
 
 interface SuppliersProps {
   onViewLedger?: (supplierId: string) => void
+  onViewPayments?: (supplierName: string) => void
   controlledViewId?: string | null
   onOpenDetail?: (id: string) => void
   onCloseDetail?: () => void
@@ -348,6 +349,7 @@ interface SuppliersProps {
 
 export default function Suppliers({
   onViewLedger,
+  onViewPayments,
   controlledViewId,
   onOpenDetail,
   onCloseDetail,
@@ -405,6 +407,7 @@ export default function Suppliers({
           }
         }}
         onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
+        onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
         onOpenInvoice={onOpenInvoice}
       />
     )
