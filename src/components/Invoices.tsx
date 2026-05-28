@@ -514,7 +514,16 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
     return matchSearch && matchFilter
   })
 
-  const COL = isMobile ? '1fr 110px 75px' : isTablet ? '1fr 130px 110px 80px' : '1fr 145px 130px 110px 80px'
+  // Mirrors the Returns table: multiple flexible columns so extra width is
+  // shared between them, never absorbed by a single column. That kills the
+  // "supplier on the right, everything else clumped on the left" gap.
+  // Amount and status keep fixed widths so numbers and badges stay tight.
+  const COL = isMobile
+    ? '1fr 110px 90px'
+    : isTablet
+      ? '1.5fr 1fr 110px 100px'
+      : '1.5fr 1fr 1fr 120px 100px'
+  const MIN_W = isMobile ? '360px' : isTablet ? '620px' : '820px'
 
   const counts = {
     ממתין: invoices.filter(i => i.status === 'ממתין').length,
@@ -540,14 +549,12 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
         </div>
       )}
 
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-        <div className="text-right">
-          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>חשבוניות</h1>
-          <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>
-            {invoices.length} חשבוניות במערכת
-          </p>
-        </div>
+      {/* Header — same shape as Returns: text block, right-aligned */}
+      <div className="text-right">
+        <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>חשבוניות</h1>
+        <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>
+          {invoices.length} חשבוניות במערכת
+        </p>
       </div>
 
       {/* Stats */}
@@ -617,52 +624,55 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
         </div>
       </div>
 
-      {/* Duplicate warning banner */}
+      {/* Duplicate warning banner — RTL: icon + warning text pinned to the
+          RIGHT (first in document order), action button on the LEFT. */}
       {dupCount > 0 && filter !== 'כפילויות' && (
         <div
           className="rounded-2xl p-4 border flex items-center justify-between cursor-pointer"
           style={{ background: '#FFFBEB', borderColor: '#FDE68A' }}
           onClick={() => setFilter('כפילויות')}
         >
+          {/* RIGHT (first in RTL): icon + warning text */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: '#FEF3C7', color: '#D97706' }}>
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div className="text-right">
+              <p className="font-bold text-sm" style={{ color: '#92400E' }}>
+                נמצאו {dupCount} חשבוניות עם מספר כפול אפשרי
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולאשר או למחוק לפני סגירת חודש</p>
+            </div>
+          </div>
+          {/* LEFT (last in RTL): action button */}
           <button
             className="px-4 py-2 rounded-xl text-sm font-bold text-white flex-shrink-0"
             style={{ background: '#D97706' }}
           >
             לבדיקה ←
           </button>
-          <div className="flex items-center gap-3 text-right">
-            <div>
-              <p className="font-bold text-sm" style={{ color: '#92400E' }}>
-                נמצאו {dupCount} חשבוניות עם מספר כפול אפשרי
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולאשר או למחוק לפני סגירת חודש</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: '#FEF3C7', color: '#D97706' }}>
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-          </div>
         </div>
       )}
 
-      {/* List */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
+      {/* List — same shape as the Returns table */}
+      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
         {filtered.length === 0 ? (
           <div className="py-16 text-center text-gray-400">
             <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
             <p style={{ fontSize: '16px' }}>לא נמצאו חשבוניות</p>
           </div>
         ) : (
-          <div>
+          <div style={{ overflowX: 'auto' }}>
             {/* Column headers */}
             <div
-              className="grid font-semibold text-gray-400 uppercase tracking-wider border-b"
-              style={{ gridTemplateColumns: COL, borderColor: '#EEEEF2', fontSize: '11px', padding: '10px 16px', direction: 'rtl', textAlign: 'right' }}
+              className="grid text-xs font-bold text-gray-500 border-b"
+              style={{ gridTemplateColumns: COL, minWidth: MIN_W, padding: '10px 16px', background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right' }}
             >
-              <span className="text-right">ספק</span>
-              {!isMobile && <span className="text-right">מסמך · תאריך</span>}
-              {!isMobile && !isTablet && <span className="text-right">קטגוריה</span>}
-              <span className="text-right">סכום</span>
+              <span>ספק</span>
+              {!isMobile && <span>מסמך · תאריך</span>}
+              {!isMobile && !isTablet && <span>קטגוריה</span>}
+              <span>סכום</span>
               <span className="text-center">סטטוס</span>
             </div>
 
@@ -678,24 +688,31 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
               return (
                 <div
                   key={inv.id}
-                  className="grid items-center cursor-pointer"
-                  style={{
-                    gridTemplateColumns: COL,
-                    borderBottom: '1px solid #EEEEF2',
-                    minHeight: '56px',
-                    padding: '12px 16px',
-                    transition: 'background 0.12s',
-                    direction: 'rtl',
-                    textAlign: 'right',
-                  }}
+                  className="grid items-center border-b transition-colors cursor-pointer"
+                  style={{ gridTemplateColumns: COL, minWidth: MIN_W, padding: '14px 16px', borderColor: '#E2E4E9', textAlign: 'right' }}
                   onClick={() => openInvoice(inv)}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#FDF5F6')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 >
-                  {/* Col 1: ספק + flags */}
-                  <div className="text-right">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                  {/* Col 1: ספק. Eye icon FIRST in document order = rightmost
+                      in RTL, so the preview button stays at the right edge of
+                      the cell. Supplier name to its left, truncates if long. */}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {inv.driveFileLink && <PdfPreviewButton url={inv.driveFileLink} title="תצוגה מקדימה של הקובץ" />}
+                      <span
+                        style={{
+                          fontSize: '14px',
+                          fontWeight: 700,
+                          color: '#1F2937',
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {inv.supplier}
+                      </span>
                       {inv.duplicateFlag === 'כפילות אפשרית' && isMobile && (
                         <button
                           onClick={e => openDupModal(inv, e)}
@@ -705,10 +722,9 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
                           <AlertTriangle className="w-4 h-4" />
                         </button>
                       )}
-                      <p style={{ fontSize: '14px', fontWeight: 700, color: '#1F2937', margin: 0 }}>{inv.supplier}</p>
                     </div>
                     {flags.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
                         {flags.map(fl => (
                           <span key={fl.label} style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '5px', background: fl.bg, color: fl.color }}>
                             {fl.label}
@@ -718,40 +734,40 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
                     )}
                   </div>
 
-                  {/* Col 2: מסמך + תאריך (desktop only) */}
+                  {/* Col 2: מסמך + תאריך (desktop only) — invoice number first
+                      in document order so it pins to the right edge of the cell
+                      whether or not the duplicate-flag button is rendered. */}
                   {!isMobile && (
-                    <div className="text-right">
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '5px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '13px', color: '#374151' }}>{inv.invoiceNumber || inv.id}</span>
                         {inv.duplicateFlag === 'כפילות אפשרית' && (
                           <button
                             onClick={e => openDupModal(inv, e)}
                             title="קיימת חשבונית נוספת עם אותו מספר לספק זה"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#D97706', display: 'flex', flexShrink: 0 }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#D97706', display: 'flex', flexShrink: 0 }}
                           >
                             <AlertTriangle className="w-4 h-4" />
                           </button>
                         )}
-                        <p style={{ fontSize: '13px', color: '#374151', margin: 0 }}>{inv.invoiceNumber || inv.id}</p>
                       </div>
-                      <p style={{ fontSize: '12px', color: '#9CA3AF', margin: '2px 0 0' }}>{inv.date}</p>
+                      <span style={{ fontSize: '12px', color: '#9CA3AF', display: 'block', marginTop: '2px' }}>{inv.date}</span>
                     </div>
                   )}
 
                   {/* Col 3: קטגוריה (desktop only) */}
                   {!isMobile && !isTablet && (
-                    <span className="text-right" style={{ fontSize: '12px', color: '#6B7280' }}>
-                      {inv.category || '—'}
-                    </span>
+                    <span style={{ fontSize: '12px', color: '#6B7280' }}>{inv.category || ''}</span>
                   )}
 
                   {/* Col 4: סכום */}
-                  <span className="text-right font-bold" style={{ fontSize: '15px', color: '#1F2937' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 800, color: '#1F2937', whiteSpace: 'nowrap' }}>
                     {formatILS(inv.amount)}
                   </span>
 
                   {/* Col 5: סטטוס */}
                   <div className="flex justify-center">
-                    <span style={{ ...st, fontSize: '12px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px' }}>
+                    <span style={{ ...st, fontSize: '12px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', whiteSpace: 'nowrap' }}>
                       {inv.status}
                     </span>
                   </div>

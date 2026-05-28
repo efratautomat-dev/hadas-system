@@ -88,38 +88,48 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onCreateSuppli
         opacity: isResolved ? 0.72 : 1,
       }}
     >
-      <div className="p-4">
-        {/* Header row */}
-        <div className="flex items-start justify-between gap-3 mb-2.5">
-          {/* Right: type icon + badge */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: typeConf.bg }}
-            >
-              <TypeIcon className="w-4 h-4" style={{ color: typeConf.color }} />
-            </div>
-            <span
-              className="px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap"
-              style={{ background: typeConf.bg, color: typeConf.color }}
-            >
-              {typeConf.label}
-            </span>
+      <div className="p-4" style={{ direction: 'rtl' }}>
+        {/* Header — 6-column grid keeps the supplier in a dedicated slot
+            (160px). Position is consistent across cards; empty supplier leaves
+            the column blank without shifting the other columns. */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'auto auto minmax(0, 1fr) 160px auto auto',
+            alignItems: 'center',
+            columnGap: '10px',
+            marginBottom: '10px',
+          }}
+        >
+          {/* Col 1 (rightmost in RTL): type icon */}
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center"
+            style={{ background: typeConf.bg }}
+          >
+            <TypeIcon className="w-4 h-4" style={{ color: typeConf.color }} />
           </div>
-
-          {/* Left: supplier + date + status */}
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            {alert.supplier && (
-              <span className="text-sm font-semibold text-gray-700">{alert.supplier}</span>
-            )}
-            <span className="text-xs text-gray-400">{alert.date}</span>
-            <span
-              className="px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap"
-              style={{ background: statusConf.bg, color: statusConf.color }}
-            >
-              {statusConf.label}
-            </span>
-          </div>
+          {/* Col 2: type label */}
+          <span
+            className="px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap"
+            style={{ background: typeConf.bg, color: typeConf.color }}
+          >
+            {typeConf.label}
+          </span>
+          {/* Col 3: spacer (1fr) — pushes the next columns left */}
+          <div />
+          {/* Col 4: supplier — dedicated 160px slot, right-aligned, stays empty when missing */}
+          <span className="text-sm font-semibold text-gray-700 text-right truncate">
+            {alert.supplier ?? ''}
+          </span>
+          {/* Col 5: date */}
+          <span className="text-xs text-gray-400 whitespace-nowrap">{alert.date}</span>
+          {/* Col 6 (leftmost in RTL): status */}
+          <span
+            className="px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap"
+            style={{ background: statusConf.bg, color: statusConf.color }}
+          >
+            {statusConf.label}
+          </span>
         </div>
 
         {/* Description */}

@@ -316,7 +316,12 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent Invoices - 2/3 width */}
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
-          <div className="px-6 py-4 flex items-center justify-between border-b" style={{ borderColor: '#EEEEF2' }}>
+          {/* Header: title (with icon) pinned right, "הצג הכל" on the left */}
+          <div className="px-6 py-4 flex items-center justify-between border-b" style={{ borderColor: '#EEEEF2', direction: 'rtl' }}>
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-gray-400" />
+              <h2 className="font-semibold text-gray-800 text-base">חשבוניות אחרונות</h2>
+            </div>
             <button
               onClick={() => onPageChange?.('invoices')}
               className="text-sm font-semibold transition-colors"
@@ -326,10 +331,6 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
             >
               הצג הכל ←
             </button>
-            <div className="flex items-center gap-2">
-              <h2 className="font-semibold text-gray-800 text-base">חשבוניות אחרונות</h2>
-              <FileText className="w-4 h-4 text-gray-400" />
-            </div>
           </div>
           {invLoading ? <Spinner /> : (
             <div className="divide-y">
@@ -338,20 +339,23 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
                 return (
                   <div
                     key={inv.id}
-                    className="px-6 py-4 flex items-center justify-between cursor-pointer transition-colors"
+                    className="px-6 py-4 flex items-center justify-between gap-3 cursor-pointer transition-colors"
+                    style={{ direction: 'rtl' }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF5F6')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                     onClick={() => onOpenInvoice ? onOpenInvoice(inv.id) : onPageChange?.('invoices')}
                   >
-                    <div className="flex items-center gap-3">
-                      <span className="px-3 py-1 rounded-lg text-xs font-bold" style={{ backgroundColor: st.bg, color: st.color }}>
+                    {/* RIGHT: supplier + id/date — truncates so long names don't overflow */}
+                    <div className="text-right min-w-0 flex-1 overflow-hidden">
+                      <p className="font-semibold text-gray-800 text-sm truncate">{inv.supplier}</p>
+                      <p className="text-xs text-gray-400 mt-0.5 truncate">{inv.id} · {inv.date}</p>
+                    </div>
+                    {/* LEFT: amount + status */}
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="font-bold text-gray-800 whitespace-nowrap">{formatILS(inv.amount)}</span>
+                      <span className="px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap" style={{ backgroundColor: st.bg, color: st.color }}>
                         {inv.status}
                       </span>
-                      <span className="font-bold text-gray-800">{formatILS(inv.amount)}</span>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-gray-800 text-sm">{inv.supplier}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{inv.id} · {inv.date}</p>
                     </div>
                   </div>
                 )
@@ -364,7 +368,11 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
         <div className="flex flex-col gap-6">
           {/* Upcoming Payments */}
           <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
-            <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: '#EEEEF2' }}>
+            <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: '#EEEEF2', direction: 'rtl' }}>
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-gray-400" />
+                <h2 className="font-semibold text-gray-800 text-sm">תשלומים קרובים</h2>
+              </div>
               <button
                 onClick={() => onPageChange?.('payments')}
                 className="text-sm font-semibold transition-colors"
@@ -374,10 +382,6 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
               >
                 הצג הכל ←
               </button>
-              <div className="flex items-center gap-2">
-                <h2 className="font-semibold text-gray-800 text-sm">תשלומים קרובים</h2>
-                <TrendingUp className="w-4 h-4 text-gray-400" />
-              </div>
             </div>
             {payLoading ? <Spinner /> : (
               <div className="divide-y">
@@ -385,17 +389,23 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
                   <div
                     key={pay.id}
                     className="px-5 py-3.5 cursor-pointer transition-colors"
+                    style={{ direction: 'rtl' }}
                     onClick={() => onPageChange?.('payments')}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF5F6')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-semibold text-gray-800">{formatILS(pay.amount)}</span>
-                      <span className="text-sm font-semibold text-gray-700">{pay.supplier}</span>
+                    {/* Top row: amount on the right (RTL — first in document
+                        order), supplier on the left. Amounts line up at the
+                        right edge across rows. */}
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-sm font-semibold text-gray-800 whitespace-nowrap flex-shrink-0">{formatILS(pay.amount)}</span>
+                      <span className="text-sm font-semibold text-gray-700 truncate min-w-0">{pay.supplier}</span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-400">{pay.type}</span>
-                      <span className="text-xs text-gray-400">פירעון: {fmtDate(pay.date)}</span>
+                    {/* Bottom row: date on the right (aligns under amount),
+                        type on the left (aligns under supplier). */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-400 whitespace-nowrap">פירעון: {fmtDate(pay.date)}</span>
+                      <span className="text-xs text-gray-400 truncate min-w-0">{pay.type}</span>
                     </div>
                   </div>
                 ))}
@@ -405,9 +415,13 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
 
           {/* Recent Deliveries */}
           <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
-            <div className="px-5 py-4 border-b" style={{ borderColor: '#EEEEF2' }}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+            <div className="px-5 py-4 border-b" style={{ borderColor: '#EEEEF2', direction: 'rtl' }}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Package className="w-4 h-4 text-gray-400" />
+                  <h2 className="font-semibold text-gray-800 text-sm">תעודות משלוח</h2>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
                   {!dnLoading && pendingDeliveryCount > 0 && (
                     <button
                       onClick={() => onPageChange?.('deliveries')}
@@ -417,22 +431,18 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
                       onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FEF9C3')}
                     >
                       <AlertTriangle className="w-3 h-3" />
-                      {pendingDeliveryCount} ממתינות לשיוך ←
+                      {pendingDeliveryCount} ←
                     </button>
                   )}
                   <button
                     onClick={() => onPageChange?.('deliveries')}
-                    className="text-sm font-semibold transition-colors"
+                    className="text-sm font-semibold transition-colors whitespace-nowrap"
                     style={{ color: '#D32F4A' }}
                     onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#A8213B')}
                     onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#D32F4A')}
                   >
                     הצג הכל ←
                   </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <h2 className="font-semibold text-gray-800 text-sm">תעודות משלוח</h2>
-                  <Package className="w-4 h-4 text-gray-400" />
                 </div>
               </div>
             </div>
@@ -445,19 +455,20 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
                     <div
                       key={dn.id}
                       className="px-5 py-3.5 cursor-pointer transition-colors"
+                      style={{ direction: 'rtl' }}
                       onClick={() => onPageChange?.('deliveries')}
                       onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF5F6')}
                       onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs px-2 py-0.5 rounded-md font-bold" style={{ backgroundColor: st.bg, color: st.color }}>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-sm font-semibold text-gray-700 truncate min-w-0">{dn.supplierName}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-md font-bold whitespace-nowrap flex-shrink-0" style={{ backgroundColor: st.bg, color: st.color }}>
                           {label}
                         </span>
-                        <span className="text-sm font-semibold text-gray-700">{dn.supplierName}</span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-400">{formatILS(dn.amount)} · {dn.id}</span>
-                        <span className="text-xs text-gray-400">{dn.date}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-gray-400 truncate min-w-0">{formatILS(dn.amount)} · {dn.id}</span>
+                        <span className="text-xs text-gray-400 whitespace-nowrap flex-shrink-0">{dn.date}</span>
                       </div>
                     </div>
                   )

@@ -191,87 +191,91 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
 
       {/* ── פרטי קשר ── */}
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+        {/* Card header — title pinned to the RIGHT (natural RTL flex flow).
+            justify-end was the bug: in RTL, flex "end" = left side. */}
         <div
-          className="px-5 py-3.5 flex items-center justify-end gap-2 border-b"
-          style={{ borderColor: '#E2E4E9', background: '#FDFAFA' }}
+          className="flex items-center gap-2 border-b"
+          style={{ padding: '14px 24px', borderColor: '#E2E4E9', background: '#FDFAFA' }}
         >
           <h2 className="font-bold text-gray-800" style={{ fontSize: fs('16px', '15px') }}>פרטי קשר</h2>
           <User className="w-4 h-4 text-gray-400" />
         </div>
 
-        {/* Field rows */}
+        {/* Field rows — 3-column grid (icon | label | value) so icons,
+            labels and values line up vertically across rows.
+            In RTL, col 1 sits at the right edge; col 3 holds the value. */}
         {[
-          { Icon: User,         label: 'שם איש קשר', value: supplier.contact,       ltr: false },
-          { Icon: Phone,        label: 'טלפון',       value: supplier.phone,         ltr: true  },
-          { Icon: Mail,         label: 'מייל',         value: supplier.email ?? '',   ltr: true  },
-          { Icon: Hash,         label: 'ח.פ / ע.מ',  value: supplier.hp ?? '',       ltr: true  },
-          { Icon: Tag,          label: 'קטגוריה',     value: supplier.category,      ltr: false },
+          { Icon: User,  label: 'שם איש קשר', value: supplier.contact     },
+          { Icon: Phone, label: 'טלפון',       value: supplier.phone       },
+          { Icon: Mail,  label: 'מייל',         value: supplier.email ?? '' },
+          { Icon: Hash,  label: 'ח.פ / ע.מ',  value: supplier.hp    ?? '' },
+          { Icon: Tag,   label: 'קטגוריה',     value: supplier.category    },
         ].map(({ Icon, label, value }, i) => (
           <div
             key={label}
-            className="px-5 py-3 text-right"
-            style={{ minHeight: '52px', borderTop: i > 0 ? '1px solid #E2E4E9' : undefined }}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '28px 110px minmax(0, 1fr)',
+              alignItems: 'center',
+              columnGap: '12px',
+              padding: '14px 24px',
+              minHeight: '52px',
+              borderTop: i > 0 ? '1px solid #E2E4E9' : undefined,
+            }}
           >
-            {/* Icon + Label — RIGHT (start in RTL) */}
-            <div className="flex items-center justify-end gap-2.5 mb-1">
-              <span className="text-gray-400" style={{ fontSize: '13px' }}>{label}</span>
-              <div
-                className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: '#F8F9FA' }}
-              >
-                <Icon className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
-              </div>
+            {/* Col 1 (right edge in RTL): icon */}
+            <div
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{ background: '#F8F9FA' }}
+            >
+              <Icon className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
             </div>
-
-            {/* Value — right-aligned under label */}
-            <p
+            {/* Col 2: label — right-aligned within its 110px column */}
+            <span className="text-right text-gray-400" style={{ fontSize: '13px' }}>{label}</span>
+            {/* Col 3: value — right-aligned, so it sits flush with the label column */}
+            <span
               className="text-right"
               style={{
                 fontSize: fs('15px', '14px'),
-                color: value ? '#1F2937' : '#9CA3AF',
-                fontWeight: value ? 500 : 400,
-                margin: 0,
+                color: '#1F2937',
+                fontWeight: 500,
               }}
             >
-              {value || '—'}
-            </p>
+              {value}
+            </span>
           </div>
         ))}
 
-        {/* הערות — full-width block */}
-        <div style={{ borderTop: '1px solid #E2E4E9' }}>
-          {supplier.notes ? (
-            <div className="px-5 py-4">
-              <div className="flex items-center justify-end gap-2.5 mb-2">
-                <span className="text-gray-400" style={{ fontSize: '13px' }}>הערות</span>
-                <div
-                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: '#F8F9FA' }}
-                >
-                  <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
-                </div>
-              </div>
-              <p
-                className="text-right leading-relaxed"
-                style={{ fontSize: fs('15px', '14px'), color: '#374151' }}
-              >
-                {supplier.notes}
-              </p>
-            </div>
-          ) : (
-            <div className="px-5 py-3 text-right" style={{ minHeight: '52px' }}>
-              <div className="flex items-center justify-end gap-2.5 mb-1">
-                <span className="text-gray-400" style={{ fontSize: '13px' }}>הערות</span>
-                <div
-                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: '#F8F9FA' }}
-                >
-                  <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
-                </div>
-              </div>
-              <p className="text-right" style={{ fontSize: fs('15px', '14px'), color: '#9CA3AF', margin: 0 }}>—</p>
-            </div>
-          )}
+        {/* הערות — same grid; value column wraps for long text */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '28px 110px minmax(0, 1fr)',
+            alignItems: 'start',
+            columnGap: '12px',
+            padding: '14px 24px',
+            minHeight: '52px',
+            borderTop: '1px solid #E2E4E9',
+          }}
+        >
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: '#F8F9FA' }}
+          >
+            <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
+          </div>
+          <span className="text-right text-gray-400" style={{ fontSize: '13px', paddingTop: '5px' }}>הערות</span>
+          <span
+            className="text-right leading-relaxed"
+            style={{
+              fontSize: fs('15px', '14px'),
+              color: '#1F2937',
+              whiteSpace: 'pre-wrap',
+              paddingTop: '2px',
+            }}
+          >
+            {supplier.notes}
+          </span>
         </div>
       </div>
 
