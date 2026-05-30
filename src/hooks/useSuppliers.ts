@@ -55,10 +55,15 @@ export function useSuppliers() {
         }) as SupplierRow[])
         setError(null)
       } else {
+        console.warn(
+          '[useSuppliers] falling back to mockSuppliers — supabase returned no rows or an error:',
+          err ?? '(no rows)',
+        )
         setData(mockSuppliers)
         if (err) setError(err.message)
       }
-    } catch {
+    } catch (e) {
+      console.warn('[useSuppliers] falling back to mockSuppliers — exception thrown:', e)
       setData(mockSuppliers)
     } finally {
       setLoading(false)

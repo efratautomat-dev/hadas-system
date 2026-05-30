@@ -1,23 +1,12 @@
-import { Users, FileText, TrendingUp, AlertCircle, Package, AlertTriangle, Bell, Truck, Copy, Scale } from 'lucide-react'
+import { Users, FileText, TrendingUp, AlertCircle, Package, AlertTriangle, Bell } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { usePayments } from '../hooks/usePayments'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useReturns } from '../hooks/useReturns'
 import { useStatements } from '../hooks/useStatements'
-import type { Alert, AlertType } from '../data/mockData'
-
-const ALERT_TYPE_CONFIG: Record<AlertType, {
-  label: string
-  Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
-  bg: string
-  color: string
-}> = {
-  duplicate_invoice:  { label: 'כפילות',     Icon: Copy,  bg: '#FEF3C7', color: '#D97706' },
-  delivery_note:      { label: 'תעודה',      Icon: Truck, bg: '#DBEAFE', color: '#1E40AF' },
-  statement_mismatch: { label: 'אי-התאמה',  Icon: Scale, bg: '#FEE2E2', color: '#DC2626' },
-  supplier_not_found: { label: 'ספק לא זוהה', Icon: Bell,  bg: '#F5F3FF', color: '#7C3AED' },
-}
+import { resolveAlertDestination, getAlertTypeConf } from './Alerts'
+import type { Alert } from '../data/mockData'
 
 const ALERT_STATUS: Record<string, { bg: string; color: string; label: string }> = {
   new:      { bg: '#FEE2E2', color: '#DC2626', label: 'חדש'  },
@@ -88,11 +77,15 @@ function getGreeting(): string {
 }
 
 interface DashboardProps {
-  onPageChange?:             (page: string) => void
-  onOpenInvoice?:            (invoiceId: string) => void
-  onOpenSupplier?:           (supplierId: string) => void
-  onCreateSupplierFromAlert?: (alert: Alert) => void
-  alerts?:                    Alert[]
+  onPageChange?:                  (page: string) => void
+  onOpenInvoice?:                 (invoiceId: string) => void
+  onOpenInvoiceDuplicate?:        (invoiceId: string) => void
+  onOpenInvoiceByGmailMessageId?: (gmailMessageId: string) => void
+  onOpenSupplier?:                (supplierId: string) => void
+  onOpenSupplierByName?:          (supplierName: string) => void
+  onOpenReturn?:                  (returnId: string) => void
+  onCreateSupplierFromAlert?:     (alert: Alert) => void
+  alerts?:                        Alert[]
 }
 
 function Spinner() {
@@ -103,36 +96,22 @@ function Spinner() {
   )
 }
 
-export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplierFromAlert, alerts = [] }: DashboardProps) {
-  // Route a clicked alert row to the most useful destination for its type.
-  // For invoice-related alerts we open the linked invoice; for supplier_not_found
-  // we kick off the existing "create supplier from alert" flow (which prefills
-  // the new-supplier form and links the resulting payment).
-  function handleAlertClick(alert: Alert) {
-    const payload = (alert.payload ?? {}) as Record<string, unknown>
-    const invoiceId = (payload.existingInvoiceId as string | undefined)
-      ?? (payload.invoiceId as string | undefined)
-      ?? alert.relatedId
-
-    if (alert.type === 'duplicate_invoice' && invoiceId && onOpenInvoice) {
-      onOpenInvoice(invoiceId)
-      return
-    }
-    if (alert.type === 'supplier_not_found' && onCreateSupplierFromAlert) {
-      onCreateSupplierFromAlert(alert)
-      return
-    }
-    if (alert.type === 'delivery_note') {
-      onPageChange?.('deliveries')
-      return
-    }
-    if (alert.type === 'statement_mismatch') {
-      onPageChange?.('reconciliation')
-      return
-    }
-    // Fallback — open the full alerts page
-    onPageChange?.('alerts')
-  }
+export default function Dashboard({
+  onPageChange, onOpenInvoice, onOpenInvoiceDuplicate, onOpenInvoiceByGmailMessageId,
+  onOpenSupplier, onOpenSupplierByName, onOpenReturn, onCreateSupplierFromAlert, alerts = [],
+}: DashboardProps) {
+  // Use the shared mapper so this card routes identically to the full Alerts page.
+  const handleAlertClick = (alert: Alert) =>
+    resolveAlertDestination(alert, {
+      onOpenInvoice,
+      onOpenInvoiceDuplicate,
+      onOpenInvoiceByGmailMessageId,
+      onOpenSupplier,
+      onOpenSupplierByName,
+      onOpenReturn,
+      onPageChange,
+      onCreateSupplierFromAlert,
+    })
 
   const { data: invoices, loading: invLoading }             = useInvoices()
   const { data: deliveryNotes, loading: dnLoading }         = useDeliveryNotes()
@@ -230,17 +209,15 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
       {/* Recent Alerts card */}
       {alerts.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
-          <div className="px-6 py-4 flex items-center justify-between border-b" style={{ borderColor: '#EEEEF2' }}>
-            <button
-              onClick={() => onPageChange?.('alerts')}
-              className="text-sm font-semibold transition-colors"
-              style={{ color: '#D32F4A' }}
-              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#A8213B')}
-              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#D32F4A')}
-            >
-              לכל ההתראות ←
-            </button>
+          {/* Header — title + bell icon on the RIGHT (first in RTL),
+              "לכל ההתראות ←" link on the LEFT (last in RTL) */}
+          <div
+            className="px-6 py-4 flex items-center justify-between border-b"
+            style={{ borderColor: '#EEEEF2', direction: 'rtl' }}
+          >
             <div className="flex items-center gap-2">
+              <Bell className="w-4 h-4 text-gray-400" />
+              <h2 className="font-semibold text-gray-800 text-base">התראות אחרונות</h2>
               {alerts.filter(a => a.status === 'new').length > 0 && (
                 <span
                   className="flex items-center justify-center text-white font-bold"
@@ -252,58 +229,86 @@ export default function Dashboard({ onPageChange, onOpenInvoice, onCreateSupplie
                   {alerts.filter(a => a.status === 'new').length}
                 </span>
               )}
-              <h2 className="font-semibold text-gray-800 text-base">התראות אחרונות</h2>
-              <Bell className="w-4 h-4 text-gray-400" />
             </div>
+            <button
+              onClick={() => onPageChange?.('alerts')}
+              className="text-sm font-semibold transition-colors"
+              style={{ color: '#D32F4A' }}
+              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#A8213B')}
+              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#D32F4A')}
+            >
+              לכל ההתראות ←
+            </button>
           </div>
           <div className="divide-y" style={{ borderColor: '#F3F4F6' }}>
             {alerts.slice(0, 5).map((alert) => {
               // Fallbacks guard against alert rows whose type/status are not
               // among the known keys (e.g. data from a newer backend) — an
               // unguarded lookup here would crash the whole dashboard.
-              const typeConf   = ALERT_TYPE_CONFIG[alert.type] ?? ALERT_TYPE_CONFIG.duplicate_invoice
+              const typeConf   = getAlertTypeConf(alert.type)
               const statusConf = ALERT_STATUS[alert.status]    ?? ALERT_STATUS.new
-              const TypeIcon   = typeConf.Icon
               return (
                 <div
                   key={alert.id}
-                  className="px-6 py-3.5 flex items-center justify-between gap-3 cursor-pointer transition-colors"
-                  style={{ opacity: alert.status === 'resolved' ? 0.65 : 1, direction: 'rtl' }}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '120px minmax(0, 1fr) 150px 170px',
+                    alignItems: 'center',
+                    columnGap: '16px',
+                    padding: '12px 24px',
+                    direction: 'rtl',
+                    opacity: alert.status === 'resolved' ? 0.65 : 1,
+                    cursor: 'pointer',
+                    transition: 'background 0.12s',
+                  }}
                   onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
                   onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                   onClick={() => handleAlertClick(alert)}
                 >
-                  {/* RIGHT (first in RTL): type icon + description */}
-                  <div className="flex items-center gap-2.5 text-right overflow-hidden flex-1 min-w-0">
-                    <div
-                      className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ background: typeConf.bg }}
-                    >
-                      <TypeIcon className="w-4 h-4" style={{ color: typeConf.color }} />
-                    </div>
+                  {/* Col 1 (RIGHTMOST): type badge — pinned to the right edge */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
                     <span
-                      className="px-2 py-0.5 rounded-md text-xs font-bold whitespace-nowrap flex-shrink-0"
+                      className="px-2.5 py-1 rounded-md text-xs font-bold whitespace-nowrap"
                       style={{ background: typeConf.bg, color: typeConf.color }}
                     >
                       {typeConf.label}
                     </span>
-                    <div className="text-right overflow-hidden flex-1 min-w-0">
-                      {alert.supplier && (
-                        <p className="text-sm font-semibold text-gray-700 truncate">{alert.supplier}</p>
-                      )}
-                      <p className="text-xs text-gray-500 truncate">{alert.description}</p>
-                    </div>
                   </div>
 
-                  {/* LEFT (last in RTL): status badge + date */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Col 2: description text, right-aligned, truncates */}
+                  <p
+                    className="text-xs text-gray-500 truncate"
+                    style={{ textAlign: 'right', minWidth: 0, margin: 0 }}
+                  >
+                    {alert.description}
+                  </p>
+
+                  {/* Col 3: supplier name (bold), right-aligned in its column */}
+                  <span
+                    className="text-sm font-semibold text-gray-700 truncate"
+                    style={{ textAlign: 'right', minWidth: 0 }}
+                  >
+                    {alert.supplier ?? ''}
+                  </span>
+
+                  {/* Col 4 (LEFTMOST): date + status badge.
+                      space-between puts date at the right edge of the col,
+                      status badge at the left edge (= leftmost of the row). */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span className="text-xs text-gray-400 whitespace-nowrap">{alert.date}</span>
                     <span
-                      className="px-2 py-0.5 rounded-md text-xs font-bold"
+                      className="px-2 py-0.5 rounded-md text-xs font-bold whitespace-nowrap flex-shrink-0"
                       style={{ background: statusConf.bg, color: statusConf.color }}
                     >
                       {statusConf.label}
                     </span>
-                    <span className="text-xs text-gray-400">{alert.date}</span>
                   </div>
                 </div>
               )

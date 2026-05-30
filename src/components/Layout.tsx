@@ -16,6 +16,7 @@ import type { Alert } from '../data/mockData'
 import { useAlerts } from '../hooks/useAlerts'
 import { AppLogoProvider } from '../hooks/useAppLogo'
 import { api } from '../lib/api'
+import { supabase } from '../lib/supabase'
 
 function getGreeting(): string {
   const hour = new Date().getHours()
@@ -83,8 +84,11 @@ interface NavEntry {
   page: string
   ledgerSupplierId?: string
   supplierViewId?: string
+  supplierViewName?: string
   invoiceSelectedId?: string
+  invoiceDuplicateId?: string
   paymentsSupplierFilter?: string
+  returnsEditId?: string
 }
 
 interface AlertPrefillState {
@@ -123,6 +127,29 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     handlePageChange('suppliers')
   }
 
+  // invoice_low_confidence / invoice_old_date alerts are written BEFORE the
+  // invoice row is inserted, so their payload only carries gmailMessageId.
+  // Resolve to the saved invoice on demand and navigate to its detail page;
+  // if not found, fall back to the invoices list.
+  const handleOpenInvoiceByGmailMessageId = async (msgId: string) => {
+    const { data, error } = await supabase
+      .from('invoices')
+      .select('id')
+      .eq('gmail_message_id', msgId)
+      .limit(1)
+    if (error) {
+      console.error('[alert→invoice] supabase error — falling back to list:', error)
+      handlePageChange('invoices')
+      return
+    }
+    const id = data?.[0]?.id as string | undefined
+    if (id) {
+      setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])
+    } else {
+      handlePageChange('invoices')
+    }
+  }
+
   const sidebarWidth = isMobile ? 0 : isCollapsed ? 72 : isTablet ? 200 : 256
   const pad = isMobile ? '12px' : isTablet ? '20px' : '32px'
 
@@ -144,17 +171,37 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
       <Dashboard
         onPageChange={handlePageChange}
         alerts={alerts}
-        onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
-        onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
+        onOpenInvoice={(id)                => setNavStack(prev => [...prev, { page: 'invoices',  invoiceSelectedId:  id   }])}
+        onOpenInvoiceDuplicate={(id)       => setNavStack(prev => [...prev, { page: 'invoices',  invoiceDuplicateId: id   }])}
+        onOpenInvoiceByGmailMessageId={handleOpenInvoiceByGmailMessageId}
+        onOpenSupplier={(id)               => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId:     id   }])}
+        onOpenSupplierByName={(name)       => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewName:   name }])}
+        onOpenReturn={(id)                 => setNavStack(prev => [...prev, { page: 'returns',   returnsEditId:      id   }])}
         onCreateSupplierFromAlert={handleCreateSupplierFromAlert}
       />
     )
-    if (activePage === 'alerts')         return <Alerts alerts={alerts} onMarkRead={handleMarkRead} onMarkResolved={handleMarkResolved} onDelete={handleDeleteAlert} onCreateSupplierFromAlert={handleCreateSupplierFromAlert} />
+    if (activePage === 'alerts')         return (
+      <Alerts
+        alerts={alerts}
+        onMarkRead={handleMarkRead}
+        onMarkResolved={handleMarkResolved}
+        onDelete={handleDeleteAlert}
+        onCreateSupplierFromAlert={handleCreateSupplierFromAlert}
+        onOpenInvoice={(id)                => setNavStack(prev => [...prev, { page: 'invoices',  invoiceSelectedId:  id   }])}
+        onOpenInvoiceDuplicate={(id)       => setNavStack(prev => [...prev, { page: 'invoices',  invoiceDuplicateId: id   }])}
+        onOpenInvoiceByGmailMessageId={handleOpenInvoiceByGmailMessageId}
+        onOpenSupplier={(id)               => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId:     id   }])}
+        onOpenSupplierByName={(name)       => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewName:   name }])}
+        onOpenReturn={(id)                 => setNavStack(prev => [...prev, { page: 'returns',   returnsEditId:      id   }])}
+        onPageChange={handlePageChange}
+      />
+    )
     if (activePage === 'suppliers')      return (
       <Suppliers
         onViewLedger={(id) => setNavStack(prev => [...prev, { page: 'ledger', ledgerSupplierId: id }])}
         onViewPayments={(name) => setNavStack(prev => [...prev, { page: 'payments', paymentsSupplierFilter: name }])}
         controlledViewId={currentNav.supplierViewId ?? null}
+        controlledViewName={currentNav.supplierViewName ?? null}
         onOpenDetail={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
         onCloseDetail={goBack}
         onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
@@ -176,6 +223,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
       <Invoices
         key="invoices"
         controlledSelectedId={currentNav.invoiceSelectedId ?? null}
+        initialDuplicateInvoiceId={currentNav.invoiceDuplicateId ?? null}
         onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
         onCloseInvoice={goBack}
         onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
@@ -194,7 +242,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     if (activePage === 'payments')       return <Payments initialSupplier={currentNav.paymentsSupplierFilter} />
     if (activePage === 'deliveries')     return <DeliveryNotes />
     if (activePage === 'reconciliation') return <StatementReconciliation />
-    if (activePage === 'returns')        return <Returns />
+    if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
     if (activePage === 'system-logs')    return <SystemLogs />
     if (activePage === 'settings')       return <Settings />
     return <ComingSoon page={activePage} />

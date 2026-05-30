@@ -36,10 +36,15 @@ export function useDeliveryNotes() {
         })) as DeliveryNote[])
         setError(null)
       } else {
+        console.warn(
+          '[useDeliveryNotes] falling back to mockDeliveryNotes — supabase returned no rows or an error:',
+          err ?? '(no rows)',
+        )
         setData(mockDeliveryNotes)
         if (err) setError(err.message)
       }
-    } catch {
+    } catch (e) {
+      console.warn('[useDeliveryNotes] falling back to mockDeliveryNotes — exception thrown:', e)
       setData(mockDeliveryNotes)
     } finally {
       setLoading(false)

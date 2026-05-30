@@ -326,7 +326,13 @@ function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices
   )
 }
 
-export default function Returns() {
+interface ReturnsProps {
+  // When set (e.g. via a return_amount_mismatch alert), the matching return's
+  // edit modal is opened directly so the user lands on the single-entity view.
+  initialEditId?: string
+}
+
+export default function Returns({ initialEditId }: ReturnsProps = {}) {
   const isTablet = useIsTablet()
   const { data: serverReturns, loading, error, create: createReturn, update: updateReturn } = useReturns()
   const { data: suppliersData } = useSuppliers()
@@ -341,6 +347,7 @@ export default function Returns() {
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm())
   const [justSaved, setJustSaved] = useState<ReturnPDFData | null>(null)
+  const [autoOpenedEditId, setAutoOpenedEditId] = useState<string | null>(null)
 
   useEffect(() => {
     setReturns(serverReturns as ReturnEntry[])
@@ -381,6 +388,19 @@ export default function Returns() {
     })
     setShowForm(true)
   }
+
+  // Auto-open the edit modal when arriving from a return_amount_mismatch alert.
+  // Guards against reopening if the user closes the modal but the prop hasn't changed.
+  useEffect(() => {
+    if (!initialEditId) return
+    if (returns.length === 0) return
+    if (autoOpenedEditId === initialEditId) return
+    if (!returns.find(r => r.id === initialEditId)) return
+    openEdit(initialEditId)
+    setAutoOpenedEditId(initialEditId)
+  // openEdit closes over `returns` state; listing it is sufficient
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialEditId, returns])
 
   async function handleSave() {
     const amount = Number(form.amountStr)

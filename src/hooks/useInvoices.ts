@@ -57,10 +57,15 @@ export function useInvoices() {
         })) as Invoice[])
         setError(null)
       } else {
+        console.warn(
+          '[useInvoices] falling back to mockInvoices — supabase returned no rows or an error:',
+          err ?? '(no rows)',
+        )
         setData(mockInvoices)
         if (err) setError(err.message)
       }
-    } catch {
+    } catch (e) {
+      console.warn('[useInvoices] falling back to mockInvoices — exception thrown:', e)
       setData(mockInvoices)
     } finally {
       setLoading(false)

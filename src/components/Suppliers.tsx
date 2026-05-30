@@ -339,6 +339,10 @@ interface SuppliersProps {
   onViewLedger?: (supplierId: string) => void
   onViewPayments?: (supplierName: string) => void
   controlledViewId?: string | null
+  // When set, the supplier whose name matches is opened in detail view.
+  // Used by unmatched_credit_note alerts whose payload only carries the supplier's name.
+  // Falls back to the list view if no matching supplier exists.
+  controlledViewName?: string | null
   onOpenDetail?: (id: string) => void
   onCloseDetail?: () => void
   onOpenInvoice?: (invoiceId: string) => void
@@ -351,6 +355,7 @@ export default function Suppliers({
   onViewLedger,
   onViewPayments,
   controlledViewId,
+  controlledViewName,
   onOpenDetail,
   onCloseDetail,
   onOpenInvoice,
@@ -363,7 +368,13 @@ export default function Suppliers({
 
   const [suppliers, setSuppliers]         = useState<Supplier[]>([])
   const [internalViewId, setInternalViewId] = useState<string | null>(null)
-  const viewId    = controlledViewId !== undefined ? controlledViewId : internalViewId
+  // Resolve viewId from explicit ID first, then from name lookup, then from internal state.
+  const nameMatchId = controlledViewName
+    ? (suppliers.find(s => s.name === controlledViewName)?.id ?? null)
+    : null
+  const viewId    = controlledViewId !== undefined ? controlledViewId
+                  : nameMatchId !== null            ? nameMatchId
+                  : internalViewId
   const openDetail  = (id: string) => onOpenDetail  ? onOpenDetail(id)  : setInternalViewId(id)
   const closeDetail = ()           => onCloseDetail ? onCloseDetail()    : setInternalViewId(null)
   const [editingId,  setEditingId]     = useState<string | null>(null)

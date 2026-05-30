@@ -41,9 +41,14 @@ export function useAlerts() {
           }),
         )
       } else {
+        console.warn(
+          '[useAlerts] falling back to mockAlerts — supabase returned no rows or an error:',
+          error ?? '(no rows)',
+        )
         setData(mockAlerts)
       }
-    } catch {
+    } catch (e) {
+      console.warn('[useAlerts] falling back to mockAlerts — exception thrown:', e)
       setData(mockAlerts)
     } finally {
       setLoading(false)

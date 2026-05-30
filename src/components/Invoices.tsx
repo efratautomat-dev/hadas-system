@@ -407,12 +407,18 @@ interface DupModal { invoice: Invoice; pair: Invoice }
 interface InvoicesProps {
   initialFilter?: Filter
   controlledSelectedId?: string | null
+  // Auto-open the duplicate-review modal for this invoice on mount.
+  // Used by duplicate_invoice alerts so the user lands on the popup, not on the detail view.
+  initialDuplicateInvoiceId?: string | null
   onOpenInvoice?: (id: string) => void
   onCloseInvoice?: () => void
   onOpenSupplier?: (supplierId: string) => void
 }
 
-export default function Invoices({ initialFilter = 'all', controlledSelectedId, onOpenInvoice, onCloseInvoice, onOpenSupplier }: InvoicesProps) {
+export default function Invoices({
+  initialFilter = 'all', controlledSelectedId, initialDuplicateInvoiceId,
+  onOpenInvoice, onCloseInvoice, onOpenSupplier,
+}: InvoicesProps) {
   const { data: serverInvoices, loading, error, update: updateInvoice, remove: removeInvoice } = useInvoices()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [internalSelected, setInternalSelected] = useState<Invoice | null>(null)
@@ -440,6 +446,22 @@ export default function Invoices({ initialFilter = 'all', controlledSelectedId, 
   const getDupPair = (inv: Invoice): Invoice | undefined =>
     invoices.find(i => i.id !== inv.id &&
       i.invoiceNumber === inv.invoiceNumber && i.supplierId === inv.supplierId)
+
+  // Auto-open the dup modal when arriving from a duplicate-invoice alert.
+  // Runs once the invoice list has loaded (so getDupPair can find the pair).
+  useEffect(() => {
+    if (!initialDuplicateInvoiceId) return
+    if (invoices.length === 0) return
+    if (dupModal) return  // already open — don't reopen if user closed and the prop hasn't changed
+    const inv = invoices.find(i => i.id === initialDuplicateInvoiceId)
+    if (!inv) return
+    const pair = getDupPair(inv)
+    if (!pair) return
+    setDupModal({ invoice: inv, pair })
+    setConfirmDelete(false)
+  // getDupPair closes over invoices, so listing invoices is enough
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDuplicateInvoiceId, invoices])
 
   const openDupModal = (inv: Invoice, e: React.MouseEvent) => {
     e.stopPropagation()

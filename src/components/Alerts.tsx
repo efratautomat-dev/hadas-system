@@ -1,42 +1,59 @@
 import { useState } from 'react'
-import { Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus } from 'lucide-react'
+import {
+  Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus,
+  HelpCircle, FileX, Paperclip, Unlink, AlertTriangle, Clock,
+  FileWarning, Receipt, AlertCircle, Tag,
+} from 'lucide-react'
 import type { Alert, AlertType, AlertStatus } from '../data/mockData'
 
-const TYPE_CONFIG: Record<AlertType, {
+type AlertTypeConf = {
   label: string
   Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   bg: string
   color: string
-  border: string
-}> = {
-  duplicate_invoice: {
-    label: 'כפילות חשבונית',
-    Icon: Copy,
-    bg: '#FEF3C7',
-    color: '#D97706',
-    border: '#FDE68A',
-  },
-  delivery_note: {
-    label: 'תעודת משלוח',
-    Icon: Truck,
-    bg: '#DBEAFE',
-    color: '#1E40AF',
-    border: '#BFDBFE',
-  },
-  statement_mismatch: {
-    label: 'אי-התאמת כרטסת',
-    Icon: Scale,
-    bg: '#FEE2E2',
-    color: '#DC2626',
-    border: '#FECACA',
-  },
-  supplier_not_found: {
-    label: 'ספק לא זוהה',
-    Icon: UserPlus,
-    bg: '#F5F3FF',
-    color: '#7C3AED',
-    border: '#DDD6FE',
-  },
+}
+
+// Single source of truth for badge label / icon / colors per alert type.
+// Keys cover every type the backend emits (grep `alerts.insert({type:` in
+// supabase/functions) plus the legacy mock-data types. Each type gets a
+// visually distinct palette so the list doesn't read as a wall of yellow.
+// Exported so the Dashboard's "Recent Alerts" card uses the same config.
+export const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
+  // Duplicates — both the backend name and the legacy mock alias map to the same look
+  invoice_duplicate:           { label: 'כפילות',         Icon: Copy,          bg: '#FEF3C7', color: '#D97706' },
+  duplicate_invoice:           { label: 'כפילות',         Icon: Copy,          bg: '#FEF3C7', color: '#D97706' },
+
+  // Delivery / statement
+  delivery_note:               { label: 'תעודת משלוח',     Icon: Truck,         bg: '#DBEAFE', color: '#1E40AF' },
+  statement_mismatch:          { label: 'אי-התאמת כרטסת', Icon: Scale,         bg: '#FEE2E2', color: '#DC2626' },
+
+  // Supplier
+  supplier_not_found:          { label: 'ספק לא זוהה',     Icon: UserPlus,      bg: '#F5F3FF', color: '#7C3AED' },
+
+  // Invoice ingestion problems
+  invoice_unclassified:        { label: 'לא סווג',         Icon: HelpCircle,    bg: '#F3F4F6', color: '#4B5563' },
+  invoice_no_valid_attachment: { label: 'ללא קובץ תקין',   Icon: FileX,         bg: '#FFEDD5', color: '#C2410C' },
+  invoice_no_attachment:       { label: 'ללא קובץ',        Icon: Paperclip,     bg: '#FFEDD5', color: '#C2410C' },
+  invoice_link_failed:         { label: 'הורדה נכשלה',     Icon: Unlink,        bg: '#FFE4E6', color: '#BE123C' },
+  invoice_low_confidence:      { label: 'וודאות נמוכה',    Icon: AlertTriangle, bg: '#FEF9C3', color: '#B45309' },
+  invoice_old_date:            { label: 'תאריך מוקדם',     Icon: Clock,         bg: '#CCFBF1', color: '#0F766E' },
+  extraction_failed:           { label: 'פענוח נכשל',      Icon: FileWarning,   bg: '#FEE2E2', color: '#B91C1C' },
+
+  // Credit notes / returns
+  unmatched_credit_note:       { label: 'זיכוי ללא חזרה',  Icon: Receipt,       bg: '#E0E7FF', color: '#4338CA' },
+  return_amount_mismatch:      { label: 'פער בהחזר',       Icon: AlertCircle,   bg: '#FCE7F3', color: '#BE185D' },
+}
+
+// Resolve config for any alert type. Unknown types get a neutral gray badge
+// showing the raw type string — visible enough to flag that the mapping needs
+// updating, without blowing up the UI or masquerading as a duplicate.
+export function getAlertTypeConf(type: string): AlertTypeConf {
+  return ALERT_TYPE_CONFIG[type] ?? {
+    label: type || 'לא ידוע',
+    Icon: Tag,
+    bg: '#F3F4F6',
+    color: '#6B7280',
+  }
 }
 
 const STATUS_CONFIG: Record<AlertStatus, {
@@ -50,8 +67,10 @@ const STATUS_CONFIG: Record<AlertStatus, {
   resolved: { label: 'טופל', bg: '#DCFCE7', color: '#166534', indicator: '#22C55E' },
 }
 
+// Type-filter chips on top of the page — limited to the small legacy set
+// since adding every backend type would push the filter row past one line.
 const TYPE_LABELS: Record<AlertType, string> = {
-  duplicate_invoice:  'כפילות חשבונית',
+  duplicate_invoice:  'כפילות',
   delivery_note:      'תעודת משלוח',
   statement_mismatch: 'אי-התאמת כרטסת',
   supplier_not_found: 'ספק לא זוהה',
@@ -69,23 +88,35 @@ interface AlertCardProps {
   onMarkResolved: (id: string) => void
   onDelete: (id: string) => void
   onCreateSupplierFromAlert?: (alert: Alert) => void
+  onClick?: () => void
 }
 
-function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onCreateSupplierFromAlert }: AlertCardProps) {
-  // Fallbacks guard against alert rows whose type/status are not among the
-  // known keys — an unguarded lookup here would crash the alerts page.
-  const typeConf   = TYPE_CONFIG[alert.type]     ?? TYPE_CONFIG.duplicate_invoice
+function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onCreateSupplierFromAlert, onClick }: AlertCardProps) {
+  // Per-type config; unknown types fall back to a neutral badge showing the raw type
+  // (never the duplicate label) so misclassification can't masquerade as a duplicate.
+  const typeConf   = getAlertTypeConf(alert.type)
   const statusConf = STATUS_CONFIG[alert.status] ?? STATUS_CONFIG.new
   const TypeIcon   = typeConf.Icon
   const isResolved = alert.status === 'resolved'
+  const clickable  = !!onClick
 
   return (
     <div
-      className="bg-white rounded-2xl shadow-sm border overflow-hidden transition-opacity"
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={clickable ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick?.()
+        }
+      } : undefined}
+      className={`bg-white rounded-2xl shadow-sm border overflow-hidden transition-all ${clickable ? 'hover:shadow-md' : ''}`}
       style={{
         borderColor: '#E2E4E9',
         borderRight: `4px solid ${statusConf.indicator}`,
         opacity: isResolved ? 0.72 : 1,
+        cursor: clickable ? 'pointer' : 'default',
       }}
     >
       <div className="p-4" style={{ direction: 'rtl' }}>
@@ -137,9 +168,9 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onCreateSuppli
           {alert.description}
         </p>
 
-        {/* Actions */}
+        {/* Actions — stop click bubbling so action buttons don't trigger row navigation */}
         {!isResolved && (
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
             {alert.type === 'supplier_not_found' && onCreateSupplierFromAlert && (
               <button
                 onClick={() => onCreateSupplierFromAlert(alert)}
@@ -192,9 +223,109 @@ interface AlertsProps {
   onMarkResolved: (id: string) => void
   onDelete: (id: string) => void
   onCreateSupplierFromAlert?: (alert: Alert) => void
+  onOpenInvoice?:                  (invoiceId: string)    => void
+  onOpenInvoiceDuplicate?:         (invoiceId: string)    => void
+  onOpenInvoiceByGmailMessageId?:  (gmailMessageId: string) => void
+  onOpenSupplier?:                 (supplierId: string)   => void
+  onOpenSupplierByName?:           (supplierName: string) => void
+  onOpenReturn?:                   (returnId: string)     => void
+  onPageChange?:                   (page: string)         => void
 }
 
-export default function Alerts({ alerts, onMarkRead, onMarkResolved, onDelete, onCreateSupplierFromAlert }: AlertsProps) {
+// Route a clicked alert to the most useful single-entity destination for its type.
+// Backend writes a wider set of type strings (invoice_duplicate, invoice_low_confidence,
+// unmatched_credit_note, return_amount_mismatch …) than the frontend union — match on
+// the raw string and fall through to a page-level destination only when an ID isn't available.
+// Exported so the Dashboard's "Recent Alerts" card shares the exact same routing.
+export function resolveAlertDestination(
+  alert: Alert,
+  handlers: {
+    onOpenInvoice?:                 (id: string)   => void
+    onOpenInvoiceDuplicate?:        (id: string)   => void
+    onOpenInvoiceByGmailMessageId?: (msgId: string) => void
+    onOpenSupplier?:                (id: string)   => void
+    onOpenSupplierByName?:          (name: string) => void
+    onOpenReturn?:                  (id: string)   => void
+    onPageChange?:                  (page: string) => void
+    onCreateSupplierFromAlert?:     (alert: Alert) => void
+  },
+): void {
+  const t = alert.type as string
+  const p = (alert.payload ?? {}) as Record<string, unknown>
+  const invoiceId      = (p.existingInvoiceId as string | undefined) ?? (p.invoiceId as string | undefined) ?? alert.relatedId
+  const gmailMessageId = p.gmailMessageId as string | undefined
+  const messageLink    = p.messageLink    as string | undefined
+  const supplierId     = p.supplierId     as string | undefined
+  const supplierName   = p.supplierName   as string | undefined
+  const returnId       = p.returnId       as string | undefined
+
+  // Duplicate invoice → open the side-by-side review popup, not the detail view
+  if (t === 'duplicate_invoice' || t === 'invoice_duplicate') {
+    if (invoiceId && handlers.onOpenInvoiceDuplicate) { handlers.onOpenInvoiceDuplicate(invoiceId); return }
+    handlers.onPageChange?.('invoices-duplicates')
+    return
+  }
+
+  // Link-download failures: the invoice was never saved, so route the user to the original
+  // Gmail thread (payload.messageLink) where the attachment can be re-downloaded manually.
+  if (t === 'invoice_link_failed') {
+    if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
+    handlers.onPageChange?.('alerts')
+    return
+  }
+
+  // Needs-review flavor → open the specific invoice's detail page. The backend writes the
+  // invoice AFTER these alerts but with the same gmail_message_id, so prefer a payload
+  // invoiceId, then resolve by gmailMessageId, then fall back to the invoices list.
+  if (
+    t === 'needs_review'          || t === 'invoice_low_confidence' ||
+    t === 'invoice_unclassified'  || t === 'invoice_old_date'       ||
+    t === 'extraction_failed'
+  ) {
+    if (invoiceId       && handlers.onOpenInvoice)                { handlers.onOpenInvoice(invoiceId);                 return }
+    if (gmailMessageId  && handlers.onOpenInvoiceByGmailMessageId){ handlers.onOpenInvoiceByGmailMessageId(gmailMessageId); return }
+    handlers.onPageChange?.('invoices')
+    return
+  }
+
+  // Attachment-missing failures: also no invoice in DB. Send the user to the source email.
+  if (t === 'invoice_no_attachment' || t === 'invoice_no_valid_attachment') {
+    if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
+    handlers.onPageChange?.('alerts')
+    return
+  }
+
+  // Supplier-not-found → existing create-supplier-from-alert flow (prefills the new-supplier form)
+  if (t === 'supplier_not_found' && handlers.onCreateSupplierFromAlert) {
+    handlers.onCreateSupplierFromAlert(alert)
+    return
+  }
+
+  // Unmatched credit note → open THAT supplier's detail page (by ID if we have one, else by name)
+  if (t === 'unmatched_credit_note') {
+    if (supplierId   && handlers.onOpenSupplier)        { handlers.onOpenSupplier(supplierId);        return }
+    if (supplierName && handlers.onOpenSupplierByName)  { handlers.onOpenSupplierByName(supplierName); return }
+    handlers.onPageChange?.('suppliers')
+    return
+  }
+
+  // Return amount mismatch → open THAT return's edit modal directly
+  if (t === 'return_amount_mismatch') {
+    if (returnId && handlers.onOpenReturn) { handlers.onOpenReturn(returnId); return }
+    handlers.onPageChange?.('returns')
+    return
+  }
+
+  if (t === 'delivery_note')      { handlers.onPageChange?.('deliveries');     return }
+  if (t === 'statement_mismatch') { handlers.onPageChange?.('reconciliation'); return }
+  // Unknown type — leave the user on the alerts page (no-op).
+}
+
+export default function Alerts({
+  alerts, onMarkRead, onMarkResolved, onDelete, onCreateSupplierFromAlert,
+  onOpenInvoice, onOpenInvoiceDuplicate, onOpenInvoiceByGmailMessageId,
+  onOpenSupplier, onOpenSupplierByName, onOpenReturn, onPageChange,
+}: AlertsProps) {
   const [typeFilter,   setTypeFilter]   = useState<TypeFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
@@ -317,6 +448,16 @@ export default function Alerts({ alerts, onMarkRead, onMarkResolved, onDelete, o
               onMarkResolved={onMarkResolved}
               onDelete={onDelete}
               onCreateSupplierFromAlert={onCreateSupplierFromAlert}
+              onClick={() => resolveAlertDestination(alert, {
+                onOpenInvoice,
+                onOpenInvoiceDuplicate,
+                onOpenInvoiceByGmailMessageId,
+                onOpenSupplier,
+                onOpenSupplierByName,
+                onOpenReturn,
+                onPageChange,
+                onCreateSupplierFromAlert,
+              })}
             />
           ))}
         </div>
