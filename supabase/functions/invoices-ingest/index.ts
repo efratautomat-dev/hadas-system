@@ -3,15 +3,15 @@
 // ║  Pulls unread invoice emails from Gmail, classifies them with Anthropic, ║
 // ║  uploads the attachment to Drive, and writes a row into Postgres.        ║
 // ║                                                                          ║
-// ║  TEST MODE: listens on Gmail label "ספקים" (manually populated by user). ║
-// ║  To switch to production, change SOURCE_LABEL_NAME to "חשבונית".         ║
+// ║  Production: listens on Gmail label "מסמכים מספקים", marks processed     ║
+// ║  emails with "טופל_ממתין במערכת". 14-day rolling lookback window.        ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
-const SOURCE_LABEL_NAME         = "ספקים";             // TEST: swap to "חשבונית" for production
-const PROCESSED_LABEL_NAME      = "טסטים שטופלו";      // TEST: swap to "הועבר לרוח" for production
+const SOURCE_LABEL_NAME         = "מסמכים מספקים";
+const PROCESSED_LABEL_NAME      = "טופל_ממתין במערכת";
 const NEEDS_REVIEW_LABEL_NAME   = "דורש בדיקה ידנית";
 const PARTIAL_REFUND_LABEL_NAME = "החזר חלקי";         // owner applies manually — never created by code
 
@@ -1105,11 +1105,14 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   // Partial-refund label is applied manually by the business owner — look up only, never created
   const partialRefundLabelId = labels.find((l) => l.name === PARTIAL_REFUND_LABEL_NAME)?.id ?? null;
 
-  // Gmail query: source label, not yet processed by N8N or by us, recent.
-  // Intentionally no is:unread — owner may open emails before the cron runs.
+  // Gmail query: source label, not yet processed, last 14 days only.
+  // The 14-day rolling lookback is a safety measure — without it, a freshly
+  // deployed instance would chew through every historical email under the
+  // source label. Intentionally no is:unread — owner may open emails before
+  // the cron runs.
   const query =
     `label:"${SOURCE_LABEL_NAME}" ` +
-    `-label:"${PROCESSED_LABEL_NAME}" newer_than:1M`;
+    `-label:"${PROCESSED_LABEL_NAME}" newer_than:14d`;
   const messageIds = await gmailListMessages(token, query);
   await log("info", `found ${messageIds.length} candidate messages`, { query });
 
