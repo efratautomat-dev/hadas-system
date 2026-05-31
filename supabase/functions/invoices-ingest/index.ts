@@ -890,19 +890,33 @@ async function extractInvoice(
     ? `רמז: ספק זה (${supplierHint.name}) קוטלג בעבר כ-"${supplierHint.category}" - השתמש בזה אם זה תואם לתוכן.`
     : "";
 
-  const prompt = `אתה מנתח חשבוניות מומחה. חלץ את הפרטים הבאים מהחשבונית וחזור ב-JSON בלבד, ללא הסברים, ללא backticks.
+  const prompt = `אתה מנתח חשבוניות מומחה לחשבוניות ישראליות. חלץ את הפרטים הבאים מהחשבונית וחזור ב-JSON בלבד, ללא הסברים, ללא backticks.
 
 מבנה החזרה:
 {"vendor_name":"","invoice_number":"","invoice_date":"","total_amount":0,"amount_before_vat":0,"vat_amount":0,"currency":"ILS","category":"","line_items":[],"confidence":"high","missing_fields":[]}
 
-כללים:
-- תאריך בפורמט YYYY-MM-DD
+כללי תאריכים (חשוב מאוד):
+- פורמט הפלט הסופי: YYYY-MM-DD.
+- תאריכים בחשבוניות ישראליות נכתבים תמיד DD/MM/YY או DD/MM/YYYY (יום, חודש, שנה — לא הפורמט האמריקאי).
+  • "03/05/26"   → 2026-05-03 (ולא 2003-05-26)
+  • "15.04.2026" → 2026-04-15
+  • "18/05/2026" → 2026-05-18
+  • "01/05/26"   → 2026-05-01 (ולא 2001-05-26)
+- אם הפענוח מוביל לשנה לפני 2023, זה כמעט בוודאות שגיאת קריאה — סמן confidence=low והוסף "invoice_date" ל-missing_fields במקום לקבל תאריך ישן בלתי סביר.
+- כאשר התמונה לא ברורה והשנה דו-משמעית בין מאות (למשל 1903 מול 2026), העדף את השנה הנוכחית (2026) על פני שנים ישנות יותר.
+
+כללים נוספים:
 - סכומים כמספרים בלבד ללא סימני מטבע
 - confidence: high/medium/low לפי רמת הוודאות שלך
 - missing_fields: רשימת שדות שלא מצאת
 - line_items: רשימת פריטים כטקסט פשוט
 - אם שם עסק מכיל גרשיים (כמו בע"מ), השתמש בגרשיים עבריים: בע״מ
 - אם המסמך הוא חשבונית זיכוי (Credit Note / זיכוי / סכום שלילי) — החזר את הסכומים כשליליים
+
+זיהוי "לא חשבונית" (קריטי):
+- חשבונית אמיתית מכילה את הכותרת "חשבונית מס" או "חשבונית מקור", או מספר חשבונית בתחילית "חשבונית".
+- מסמך הזמנה ("הזמנה" / "ההזמנה תקפה עד" / "מסמך מחושב") הוא לא חשבונית, גם אם מופיעים בו מחירים וסכומים.
+- אם המסמך לא חשבונית בפועל — החזר confidence=low, הוסף "not_invoice" ל-missing_fields, ואל תמציא נתונים. השאר vendor_name ו-line_items ככל הניתן, אבל אל תפענח invoice_number או invoice_date.
 
 קטגוריות זמינות (חופשי לבחור מתוכן, או להציע חדשה אם אף אחת לא מתאימה):
 ${categories.join(", ")}
@@ -976,8 +990,20 @@ async function classifyAttachmentDoc(
         buildDocumentBlock(doc.mimeType, doc.bytes),
         {
           type: "text",
-          text: 'Is this a business invoice/receipt/delivery note/credit note? ' +
-                'Answer JSON only: {"is_invoice": true/false, "document_type": "invoice"|"delivery_note"|"credit_note"|"receipt"|"other", "confidence": "high"|"medium"|"low"}',
+          text:
+`Classify this Hebrew business document by its content alone. The email subject is intentionally not provided — never guess based on a subject.
+
+Mapping by document text:
+- "חשבונית מס" or "חשבונית מקור" or an invoice number prefixed with "חשבונית" → "invoice"
+- "הזמנה" / "ההזמנה תקפה עד" / "מסמך מחושב" (without "חשבונית מס" or "חשבונית מקור") → "delivery_note". Orders are routed as delivery notes in this system; they are NEVER invoices.
+- "תעודת משלוח" → "delivery_note"
+- "חשבונית זיכוי" or "תעודת זיכוי" → "credit_note"
+- A receipt with no invoice header ("קבלה") → "receipt"
+- Anything else → "other"
+
+Critical: classify as "invoice" ONLY if the document explicitly contains "חשבונית מס" or "חשבונית מקור", or shows an invoice number prefixed with "חשבונית". A document whose header says "הזמנה" is NOT an invoice even when it lists prices and totals.
+
+Answer JSON only: {"is_invoice": true/false, "document_type": "invoice"|"delivery_note"|"credit_note"|"receipt"|"other", "confidence": "high"|"medium"|"low"}`,
         },
       ],
     }],
@@ -1012,6 +1038,18 @@ function selectBestAttachment(scored: ScoredAttachment[]): ScoredAttachment | nu
     return conf * 1000 + pdf * 100 + s.att.size / 1_000_000;
   };
   return invoices.sort((a, b) => rank(b) - rank(a))[0];
+}
+
+// Pick the most useful DocType from a set of classified attachments. Returns
+// null when the classifier had nothing specific to say (all "receipt"/"other"),
+// in which case the caller keeps the subject-derived docType — important for
+// statement emails, since the classifier vocabulary doesn't include "statement".
+function dominantDocType(scored: ScoredAttachment[]): DocType | null {
+  if (scored.length === 0) return null;
+  if (scored.some((s) => s.cls.document_type === "invoice"))       return "invoice";
+  if (scored.some((s) => s.cls.document_type === "delivery_note")) return "delivery_note";
+  if (scored.some((s) => s.cls.document_type === "credit_note"))   return "return_doc";
+  return null;
 }
 
 // ─── Fuzzy supplier matching (mirrored from payments-ingest) ───────────────
@@ -1220,50 +1258,51 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       let usableDoc:  UsableDoc | null = null;
       let usableDocs: UsableDoc[]      = []; // all docs for multi-doc non-invoice types
 
-      if (hKept.length === 1) {
-        // Single survivor — use directly, no AI classification needed
-        const a = hKept[0];
-        usableDoc = {
-          mimeType: a.mimeType,
-          filename: a.filename,
-          bytes:    await gmailGetAttachment(token, msgId, a.attachmentId),
-        };
-        usableDocs = [usableDoc];
-        await log("info", `using sole surviving attachment: ${a.filename}`,
-          { mimeType: a.mimeType, size: a.size }, msgId);
-      } else if (hKept.length > 1) {
-        // Stage 2: classify each surviving candidate with Haiku
-        const scored: ScoredAttachment[] = [];
-        for (const a of hKept) {
-          const bytes = await gmailGetAttachment(token, msgId, a.attachmentId);
-          const cls   = await classifyAttachmentDoc({ mimeType: a.mimeType, bytes });
-          await log("info",
-            `attachment classified: ${a.filename} → ${cls.document_type} (is_invoice=${cls.is_invoice}, confidence=${cls.confidence})`,
-            { filename: a.filename, mimeType: a.mimeType, size: a.size }, msgId);
-          scored.push({ att: a, bytes, cls });
-        }
+      // Classify EVERY surviving attachment — even a sole survivor. The customer
+      // often types "חשבונית" in the subject regardless of attachment content,
+      // so the subject-derived docType cannot be trusted on its own; only the
+      // document content can confirm what was actually attached.
+      const scored: ScoredAttachment[] = [];
+      for (const a of hKept) {
+        const bytes = await gmailGetAttachment(token, msgId, a.attachmentId);
+        const cls   = await classifyAttachmentDoc({ mimeType: a.mimeType, bytes });
+        await log("info",
+          `attachment classified: ${a.filename} → ${cls.document_type} (is_invoice=${cls.is_invoice}, confidence=${cls.confidence})`,
+          { filename: a.filename, mimeType: a.mimeType, size: a.size }, msgId);
+        scored.push({ att: a, bytes, cls });
+      }
 
-        if (docType === "invoice") {
-          // Stage 3 (invoice): pick single best candidate by confidence → PDF → size
-          const best = selectBestAttachment(scored);
-          if (best) {
-            usableDoc  = { mimeType: best.att.mimeType, filename: best.att.filename, bytes: best.bytes };
-            usableDocs = [usableDoc];
-            await log("info", `selected: ${best.att.filename}`,
-              { docType: best.cls.document_type, confidence: best.cls.confidence }, msgId);
-          } else {
-            await log("warn", "no attachment classified as invoice — falling through to link scan", undefined, msgId);
-          }
+      // If the classifier identifies a specific doc type, trust it over the subject.
+      // (Skipped for statement emails — classifier vocabulary doesn't include statements
+      // so dominantDocType returns null in that case, leaving docType=statement intact.)
+      const overrideType = dominantDocType(scored);
+      if (overrideType && overrideType !== docType) {
+        await log("info",
+          `overriding subject-derived docType=${docType} with classifier docType=${overrideType}`,
+          undefined, msgId);
+        docType = overrideType;
+      }
+
+      if (docType === "invoice") {
+        // Pick single best candidate by confidence → PDF → size
+        const best = selectBestAttachment(scored);
+        if (best) {
+          usableDoc  = { mimeType: best.att.mimeType, filename: best.att.filename, bytes: best.bytes };
+          usableDocs = [usableDoc];
+          await log("info", `selected: ${best.att.filename}`,
+            { docType: best.cls.document_type, confidence: best.cls.confidence }, msgId);
         } else {
-          // Stage 3 (delivery_note / return_doc / statement): keep ALL non-"other" docs
-          const relevant = scored.filter((s) => s.cls.document_type !== "other");
-          if (relevant.length > 0) {
-            usableDocs = relevant.map((s) => ({ mimeType: s.att.mimeType, filename: s.att.filename, bytes: s.bytes }));
-            usableDoc  = usableDocs[0];
-            await log("info", `multi-doc: ${usableDocs.length} document(s) for ${docType}`, undefined, msgId);
-          } else {
-            await log("warn", "no attachment relevant for doc type — falling through to link scan", undefined, msgId);
-          }
+          await log("warn", "no attachment classified as invoice — falling through to link scan", undefined, msgId);
+        }
+      } else {
+        // delivery_note / return_doc / statement: keep ALL non-"other" docs
+        const relevant = scored.filter((s) => s.cls.document_type !== "other");
+        if (relevant.length > 0) {
+          usableDocs = relevant.map((s) => ({ mimeType: s.att.mimeType, filename: s.att.filename, bytes: s.bytes }));
+          usableDoc  = usableDocs[0];
+          await log("info", `multi-doc: ${usableDocs.length} document(s) for ${docType}`, undefined, msgId);
+        } else {
+          await log("warn", "no attachment relevant for doc type — falling through to link scan", undefined, msgId);
         }
       }
 
@@ -1370,6 +1409,25 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         null,
       );
       await log("info", "extracted", { extracted }, msgId);
+
+      // not_invoice escape hatch — the extractor identified the document as an
+      // order, receipt or other non-invoice and refused to fabricate fields.
+      // Skip the insert entirely so the invoices table stays clean, alert the
+      // manager, and mark the email processed so it doesn't get retried.
+      if (extracted.missing_fields?.includes("not_invoice")) {
+        await log("info", "extractor flagged as not_invoice, skipping ingest",
+          { vendor: extracted.vendor_name, missing_fields: extracted.missing_fields }, msgId);
+        await supabase.from("alerts").insert({
+          type:    "document_misclassified",
+          title:   "מסמך לא-חשבונית הגיע לתיבת החשבוניות",
+          message: `המסמך מ-${extracted.vendor_name || "ספק לא ידוע"} זוהה כלא-חשבונית (כנראה הזמנה או קבלה). נא לבדוק במייל המקורי.`,
+          payload: { gmailMessageId: msgId, subject, from, messageLink, extracted },
+          status:  "unread",
+        });
+        await gmailModifyLabels(token, msgId, [destNeedsReview, destProcessed], [sourceLabelId, "UNREAD"]);
+        result.alerts++;
+        continue;
+      }
 
       // Low confidence → needs_review path
       if (extracted.confidence === "low") {

@@ -42,6 +42,10 @@ export const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // Credit notes / returns
   unmatched_credit_note:       { label: 'זיכוי ללא חזרה',  Icon: Receipt,       bg: '#E0E7FF', color: '#4338CA' },
   return_amount_mismatch:      { label: 'פער בהחזר',       Icon: AlertCircle,   bg: '#FCE7F3', color: '#BE185D' },
+
+  // Misclassification — extractor refused to treat the document as an invoice.
+  // Informational (system handled it correctly), so amber rather than red.
+  document_misclassified:      { label: 'מסמך לא חשבונית', Icon: FileX,         bg: '#FFF7ED', color: '#9A3412' },
 }
 
 // Resolve config for any alert type. Unknown types get a neutral gray badge
@@ -269,6 +273,14 @@ export function resolveAlertDestination(
   // Link-download failures: the invoice was never saved, so route the user to the original
   // Gmail thread (payload.messageLink) where the attachment can be re-downloaded manually.
   if (t === 'invoice_link_failed') {
+    if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
+    handlers.onPageChange?.('alerts')
+    return
+  }
+
+  // Misclassified document — the extractor refused to ingest it as an invoice.
+  // Open the original email so the user can decide what to do with it.
+  if (t === 'document_misclassified') {
     if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
     handlers.onPageChange?.('alerts')
     return
