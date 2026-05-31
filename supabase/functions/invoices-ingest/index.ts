@@ -305,6 +305,27 @@ function buildStatementFilename(origFilename: string, mimeType: string): string 
   return `${base}.${ext}`;
 }
 
+// ASCII-safe key for Supabase Storage. The Storage API rejects keys containing
+// non-ASCII characters (Hebrew, spaces, etc.), so display names go to Drive
+// (which accepts Hebrew) while Storage keys are built from IDs we control plus
+// the Gmail message ID for per-email uniqueness. Any stray non-ASCII chars in
+// supplier IDs or document numbers are stripped defensively.
+function buildStorageKey(
+  prefix:     string,
+  supplierId: string | null | undefined,
+  docNumber:  string | null | undefined,
+  msgId:      string,
+  ext:        string,
+): string {
+  const sup = (supplierId ?? "").replace(/[^a-zA-Z0-9._-]/g, "");
+  const num = (docNumber  ?? "").replace(/[^a-zA-Z0-9._-]/g, "");
+  const parts = [prefix];
+  if (sup) parts.push(sup);
+  if (num) parts.push(num);
+  parts.push(msgId);
+  return parts.join("-") + "." + ext;
+}
+
 // ─── Drive helpers ─────────────────────────────────────────────────────────
 
 async function driveFindFolder(
@@ -1464,9 +1485,19 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
 
       let storagePath = "";
       try {
+        // Drive gets the Hebrew display name (invoiceFilename); Storage gets an
+        // ASCII key built from IDs so Supabase Storage's ASCII-only key rule is
+        // never violated.
+        const storageKey = buildStorageKey(
+          "invoice",
+          supplierId,
+          extracted.invoice_number,
+          msgId,
+          pickExtension(usableDoc.filename, usableDoc.mimeType),
+        );
         storagePath = await uploadToStorage(
           supabase, "invoices", invoiceDateObj,
-          invoiceFilename, usableDoc.mimeType, usableDoc.bytes,
+          storageKey, usableDoc.mimeType, usableDoc.bytes,
         );
         await log("info", "uploaded to Storage", { storagePath }, msgId);
       } catch (e) {
@@ -1784,17 +1815,20 @@ async function handleNonInvoice(
       return;
     }
 
-    const supplierDisplayName = (supplierId && suppliers.find((s) => s.id === supplierId)?.name) || extracted.vendor_name;
-    const storageFilename = buildDeliveryNoteFilename(
-      supplierDisplayName, extracted.note_number, extracted.date, ctx.doc.filename, ctx.doc.mimeType,
-    );
     const dateForPath = new Date(extracted.date || ctx.emailTs);
 
     let storagePath = "";
     try {
+      const storageKey = buildStorageKey(
+        "delivery-note",
+        supplierId,
+        extracted.note_number,
+        msgId,
+        pickExtension(ctx.doc.filename, ctx.doc.mimeType),
+      );
       storagePath = await uploadToStorage(
         supabase, "delivery-notes", dateForPath,
-        storageFilename, ctx.doc.mimeType, ctx.doc.bytes,
+        storageKey, ctx.doc.mimeType, ctx.doc.bytes,
       );
       await log("info", "delivery_note uploaded to Storage", { storagePath }, msgId);
     } catch (e) {
@@ -1852,17 +1886,20 @@ async function handleNonInvoice(
 
     // Upload the credit-note file to Storage up front so it's available whether
     // we match a return (storage_url goes on the row) or alert (goes in payload).
-    const supplierDisplayName = (supplierId && suppliers.find((s) => s.id === supplierId)?.name) || extracted.vendor_name;
-    const storageFilename = buildReturnFilename(
-      supplierDisplayName, extracted.credit_note_number, extracted.date, ctx.doc.filename, ctx.doc.mimeType,
-    );
     const dateForPath = new Date(extracted.date || ctx.emailTs);
 
     let storagePath = "";
     try {
+      const storageKey = buildStorageKey(
+        "credit-note",
+        supplierId,
+        extracted.credit_note_number,
+        msgId,
+        pickExtension(ctx.doc.filename, ctx.doc.mimeType),
+      );
       storagePath = await uploadToStorage(
         supabase, "returns", dateForPath,
-        storageFilename, ctx.doc.mimeType, ctx.doc.bytes,
+        storageKey, ctx.doc.mimeType, ctx.doc.bytes,
       );
       await log("info", "credit_note uploaded to Storage", { storagePath }, msgId);
     } catch (e) {
@@ -1958,12 +1995,15 @@ async function handleNonInvoice(
 
   } else {
     // statement — uploaded to Storage only; no Drive upload.
-    const storageFilename = buildStatementFilename(ctx.doc.filename, ctx.doc.mimeType);
     let storagePath = "";
     try {
+      const storageKey = buildStorageKey(
+        "statement", null, null, msgId,
+        pickExtension(ctx.doc.filename, ctx.doc.mimeType),
+      );
       storagePath = await uploadToStorage(
         supabase, "statements", new Date(ctx.emailTs),
-        storageFilename, ctx.doc.mimeType, ctx.doc.bytes,
+        storageKey, ctx.doc.mimeType, ctx.doc.bytes,
       );
       await log("info", "statement uploaded to Storage", { storagePath }, msgId);
     } catch (e) {
