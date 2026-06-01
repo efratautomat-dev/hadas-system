@@ -5,6 +5,7 @@ import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { PdfPreviewButton } from './PdfPreviewModal'
+import { SearchableSelect } from './SearchableSelect'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -259,15 +260,18 @@ export default function DeliveryNotes() {
           </div>
 
           {/* Supplier filter */}
-          <select
+          <SearchableSelect
             value={filterSupp}
-            onChange={e => setFilterSupp(e.target.value)}
-            style={{ ...fieldStyle, width: '160px', direction: 'rtl', cursor: 'pointer' }}
-            onFocus={focusBdr} onBlur={blurBdr}
-          >
-            <option value="">כל הספקים</option>
-            {suppliersData.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+            onChange={setFilterSupp}
+            placeholder="כל הספקים"
+            allowClear
+            options={suppliersData.map(s => ({
+              value: s.id,
+              label: s.name,
+              keywords: (s as { hp?: string }).hp,
+            }))}
+            style={{ width: '160px' }}
+          />
 
           {/* Date filter */}
           <input
@@ -647,17 +651,16 @@ export default function DeliveryNotes() {
                 <div className="p-5 space-y-4">
                   <div>
                     <FieldLabel text="ספק" required />
-                    <select
+                    <SearchableSelect
                       value={form.supplierId}
-                      onChange={e => setForm({ ...form, supplierId: e.target.value })}
-                      style={{ ...fieldStyle, direction: 'rtl', cursor: 'pointer' }}
-                      onFocus={focusBdr} onBlur={blurBdr}
-                    >
-                      <option value="">בחר ספק...</option>
-                      {suppliersData.filter(s => s.status === 'פעיל').map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
+                      onChange={v => setForm({ ...form, supplierId: v })}
+                      placeholder="בחר ספק..."
+                      options={suppliersData.filter(s => s.status === 'פעיל').map(s => ({
+                        value: s.id,
+                        label: s.name,
+                        keywords: (s as { hp?: string }).hp,
+                      }))}
+                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">

@@ -113,11 +113,6 @@ export function SearchableSelect({
     [onChange, close],
   )
 
-  // Reset highlight to the top whenever the visible list changes.
-  useEffect(() => {
-    setHighlight(0)
-  }, [query, open])
-
   // Click outside closes (and discards the in-progress query).
   useEffect(() => {
     if (!open) return
@@ -140,6 +135,7 @@ export function SearchableSelect({
   const openMenu = () => {
     if (disabled) return
     setOpen(true)
+    setHighlight(0)
     // focus the text input on next tick so typing starts immediately
     requestAnimationFrame(() => inputRef.current?.focus())
   }
@@ -216,7 +212,7 @@ export function SearchableSelect({
           <input
             ref={inputRef}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => { setQuery(e.target.value); setHighlight(0) }}
             onKeyDown={onKeyDown}
             placeholder={selected ? selected.label : placeholder}
             style={{ ...FIELD, ...style, borderColor: ACCENT, cursor: 'text' }}

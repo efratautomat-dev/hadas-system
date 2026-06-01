@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, UserPlus, Download } from 'lucide-react'
+import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download } from 'lucide-react'
+import { SearchableSelect } from '../components/SearchableSelect'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { usePayments as usePaymentsData } from '../hooks/usePayments'
 
@@ -217,86 +218,20 @@ function SupplierSelect({
   labelStyle: React.CSSProperties
   required?: boolean
 }) {
-  const [adding, setAdding] = useState(false)
-  const [draft, setDraft] = useState('')
-
-  const confirm = () => {
-    const name = draft.trim()
-    if (!name) return
-    onAddNew(name)
-    onChange(name)
-    setAdding(false)
-    setDraft('')
-  }
-
-  const cancel = () => { setAdding(false); setDraft('') }
-
   return (
     <div>
       <label style={labelStyle}>
         ספק{required && <span style={{ color: '#DC2626' }}> *</span>}
       </label>
-      <select
-        value={adding ? '__new__' : value}
-        onChange={e => {
-          if (e.target.value === '__new__') { setAdding(true); setDraft('') }
-          else onChange(e.target.value)
-        }}
-        required={required && !adding}
+      <SearchableSelect
+        value={value}
+        onChange={onChange}
+        placeholder="— בחר ספק —"
+        options={suppliers.map(s => ({ value: s, label: s }))}
+        onAddNew={name => { onAddNew(name); onChange(name) }}
+        addNewLabel={q => `הוסף ספק חדש "${q}"`}
         style={fieldStyle}
-        onFocus={e => (e.target.style.borderColor = '#8B1A3A')}
-        onBlur={e => (e.target.style.borderColor = '#E2E4E9')}
-      >
-        <option value="">— בחר ספק —</option>
-        {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
-        <option value="__new__">＋ הוסף ספק חדש...</option>
-      </select>
-
-      {adding && (
-        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center' }}>
-          <input
-            autoFocus
-            type="text"
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            placeholder="שם הספק החדש"
-            style={{ ...fieldStyle, flex: 1 }}
-            onKeyDown={e => {
-              if (e.key === 'Enter') { e.preventDefault(); confirm() }
-              if (e.key === 'Escape') cancel()
-            }}
-            onFocus={e => (e.target.style.borderColor = '#8B1A3A')}
-            onBlur={e => (e.target.style.borderColor = '#E2E4E9')}
-          />
-          <button
-            type="button"
-            onClick={confirm}
-            disabled={!draft.trim()}
-            style={{
-              background: draft.trim() ? '#8B1A3A' : '#D1C4C4',
-              color: 'white', border: 'none', borderRadius: '10px',
-              padding: '0 14px', fontWeight: 700, fontSize: '14px',
-              cursor: draft.trim() ? 'pointer' : 'not-allowed',
-              minHeight: fieldStyle.minHeight, flexShrink: 0,
-              display: 'flex', alignItems: 'center', gap: '5px',
-            }}
-          >
-            <UserPlus size={14} />
-            הוסף
-          </button>
-          <button
-            type="button"
-            onClick={cancel}
-            style={{
-              background: 'white', border: '1.5px solid #E2E4E9', color: '#6B7280',
-              borderRadius: '10px', padding: '0 12px', fontWeight: 600, fontSize: '14px',
-              cursor: 'pointer', minHeight: fieldStyle.minHeight, flexShrink: 0,
-            }}
-          >
-            ביטול
-          </button>
-        </div>
-      )}
+      />
     </div>
   )
 }

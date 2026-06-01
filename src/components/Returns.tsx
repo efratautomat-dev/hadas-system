@@ -8,6 +8,7 @@ import type { Employee } from '../hooks/useEmployees'
 import { printReturnPDF } from '../utils/pdf'
 import type { ReturnPDFData } from '../utils/pdf'
 import { PdfPreviewButton } from './PdfPreviewModal'
+import { SearchableSelect } from './SearchableSelect'
 
 type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -159,18 +160,16 @@ function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices
           {/* Supplier */}
           <div>
             <label style={labelBase}>ספק *</label>
-            <select
+            <SearchableSelect
               value={form.supplierId}
-              onChange={(e) => setForm({ ...form, supplierId: e.target.value, originalInvoiceId: '' })}
-              style={inputBase}
-              onFocus={focus as React.FocusEventHandler<HTMLSelectElement>}
-              onBlur={blur as React.FocusEventHandler<HTMLSelectElement>}
-            >
-              <option value="">— בחר ספק —</option>
-              {suppliers.filter(s => s.status === 'פעיל').map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+              onChange={(v) => setForm({ ...form, supplierId: v, originalInvoiceId: '' })}
+              placeholder="— בחר ספק —"
+              options={suppliers.filter(s => s.status === 'פעיל').map(s => ({
+                value: s.id,
+                label: s.name,
+                keywords: (s as { hp?: string }).hp,
+              }))}
+            />
             {selectedSupplier && (
               <p className="text-right mt-1" style={{ fontSize: '12px', color: '#9CA3AF' }}>
                 יתרה נוכחית: {fmtILS(selectedSupplier.balance)}
@@ -562,14 +561,19 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
           <div>
             <p className="text-right mb-1.5 text-xs font-semibold text-gray-500">ספק</p>
-            <select
+            <SearchableSelect
               value={filterSupplier}
-              onChange={(e) => setFilterSupplier(e.target.value)}
-              style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', border: '1px solid #E2E4E9', fontSize: '14px', background: 'white', direction: 'rtl', color: '#1A1D23', cursor: 'pointer', outline: 'none' }}
-            >
-              <option value="all">כל הספקים</option>
-              {suppliersData.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+              onChange={setFilterSupplier}
+              placeholder="כל הספקים"
+              allowClear
+              clearValue="all"
+              options={suppliersData.map(s => ({
+                value: s.id,
+                label: s.name,
+                keywords: (s as { hp?: string }).hp,
+              }))}
+              style={{ height: '40px', fontSize: '14px' }}
+            />
           </div>
 
           <div>

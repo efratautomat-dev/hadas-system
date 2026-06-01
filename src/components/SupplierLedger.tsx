@@ -3,6 +3,7 @@ import { Printer, BookOpen } from 'lucide-react'
 import { mockLedgerEntries, supplierOpeningBalances } from '../data/mockData'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useAppLogo } from '../hooks/useAppLogo'
+import { SearchableSelect } from './SearchableSelect'
 
 type EntryType = 'חשבונית' | 'תשלום' | 'זיכוי'
 
@@ -224,21 +225,17 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           {/* Supplier dropdown */}
           <div>
             <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>ספק</p>
-            <select
+            <SearchableSelect
               value={selectedSupplierId}
-              onChange={e => setSelectedSupplierId(e.target.value)}
-              style={{
-                height: '44px', width: '100%', padding: '0 14px', fontSize: '16px',
-                border: '1px solid #EEEEF2', borderRadius: '12px', outline: 'none',
-                background: 'white', color: '#1F2937', direction: 'rtl', cursor: 'pointer',
-              }}
-              onFocus={e => (e.target.style.borderColor = '#D32F4A')}
-              onBlur={e  => (e.target.style.borderColor = '#EEEEF2')}
-            >
-              {suppliersData.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+              onChange={setSelectedSupplierId}
+              placeholder="בחר ספק"
+              options={suppliersData.map(s => ({
+                value: s.id,
+                label: s.name,
+                keywords: (s as { hp?: string }).hp,
+              }))}
+              style={{ height: '44px', fontSize: '16px', borderRadius: '12px' }}
+            />
           </div>
 
           {/* From date */}
