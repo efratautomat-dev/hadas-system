@@ -35,6 +35,9 @@ export interface Invoice {
   duplicateFlag: 'כפילות אפשרית' | null
   duplicateNote: string
   emailSubject?: string
+  // Source Gmail message id (DB: gmail_message_id). Used to match alerts that
+  // reference an invoice only by message id. Optional: mock rows omit it.
+  gmailMessageId?: string
 }
 
 export const mockInvoices: Invoice[] = [

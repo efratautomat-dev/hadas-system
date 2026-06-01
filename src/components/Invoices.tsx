@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { FileText, Search, ChevronRight, ExternalLink, Save, AlertTriangle, X } from 'lucide-react'
-import { type Invoice } from '../data/mockData'
+import { type Invoice, type Alert } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { PdfPreviewButton } from './PdfPreviewModal'
@@ -12,14 +12,44 @@ const CATEGORIES = [
   'הוצאות ניהול', 'הוצאות משרד', 'תשלומי מס הכנסה', 'משכורות', 'שונות',
 ]
 
-const STATUSES = ['ממתין', 'בטיפול', 'הושלם', 'שגיאה']
 const QUALITIES = ['גבוהה', 'בינונית', 'נמוכה']
 
+// ── Derived status ───────────────────────────────────────────────────────────
+// Status is computed live (never read from the stored `status` column, which
+// drifts). Exactly three values, in priority order: transferred → under review
+// → waiting. See deriveInvoiceStatus below.
+const STATUS_TRANSFERRED = 'הועבר לרו״ח'
+const STATUS_REVIEW      = 'בבדיקה'
+const STATUS_WAITING     = 'ממתין'
+
 const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
-  'ממתין':  { bg: '#FEF9C3', color: '#A16207' },
-  'בטיפול': { bg: '#DBEAFE', color: '#1E40AF' },
-  'הושלם':  { bg: '#DCFCE7', color: '#166534' },
-  'שגיאה':  { bg: '#FEE2E2', color: '#DC2626' },
+  [STATUS_WAITING]:     { bg: '#FEF9C3', color: '#A16207' },  // amber
+  [STATUS_REVIEW]:      { bg: '#DBEAFE', color: '#1E40AF' },  // blue
+  [STATUS_TRANSFERRED]: { bg: '#DCFCE7', color: '#166534' },  // green
+}
+
+// An alert "points at" an invoice when its payload references the invoice id
+// (under any of the known keys) or shares the same Gmail message id. Backend
+// currently emits existingInvoiceId + gmailMessageId; invoiceId/duplicateInvoiceId
+// are matched too for forward-compatibility. relatedId covers mock data.
+function alertRefersToInvoice(alert: Alert, invoice: Invoice): boolean {
+  const p = (alert.payload ?? {}) as Record<string, unknown>
+  const ids = [p.invoiceId, p.existingInvoiceId, p.duplicateInvoiceId, alert.relatedId]
+  if (invoice.id && ids.includes(invoice.id)) return true
+  const gm = p.gmailMessageId as string | undefined
+  return !!gm && !!invoice.gmailMessageId && gm === invoice.gmailMessageId
+}
+
+// Live status, in priority order:
+//   1. transferred to accountant (sentToAccountant ← transferred_at) → "הועבר לרו״ח"
+//   2. any UNRESOLVED alert (new/read) points at this invoice        → "בבדיקה"
+//   3. otherwise                                                     → "ממתין"
+function deriveInvoiceStatus(invoice: Invoice, alerts: Alert[]): string {
+  if (invoice.sentToAccountant) return STATUS_TRANSFERRED
+  const underReview = alerts.some(
+    a => a.status !== 'resolved' && alertRefersToInvoice(a, invoice),
+  )
+  return underReview ? STATUS_REVIEW : STATUS_WAITING
 }
 
 function formatILS(n: number | null | undefined) {
@@ -226,9 +256,9 @@ function Row2({ children }: { children: React.ReactNode }) {
 // ── Invoice Detail ──────────────────────────────────────────────────────────
 
 function InvoiceDetail({
-  invoice, onBack, onSave, onOpenSupplier,
+  invoice, derivedStatus, onBack, onSave, onOpenSupplier,
 }: {
-  invoice: Invoice; onBack: () => void; onSave: (inv: Invoice) => void
+  invoice: Invoice; derivedStatus: string; onBack: () => void; onSave: (inv: Invoice) => void
   onOpenSupplier?: (supplierId: string) => void
 }) {
   const { data: suppliersData } = useSuppliers()
@@ -253,7 +283,7 @@ function InvoiceDetail({
   }
 
   const total = (Number(form.amountBeforeVat) || 0) + (Number(form.vat) || 0)
-  const st = STATUS_STYLE[form.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
+  const st = STATUS_STYLE[derivedStatus] ?? { bg: '#F3F4F6', color: '#6B7280' }
 
   return (
     <div dir="rtl" style={{ maxWidth: '800px', margin: '0 auto' }}>
@@ -279,7 +309,7 @@ function InvoiceDetail({
             <span
               style={{ ...st, fontSize: '12px', fontWeight: 600, padding: '4px 12px', borderRadius: '8px' }}
             >
-              {form.status}
+              {derivedStatus}
             </span>
             <h2 style={{ margin: 0, fontSize: '19px', fontWeight: 600, color: '#1F2937' }}>{form.id}</h2>
           </div>
@@ -380,13 +410,20 @@ function InvoiceDetail({
         {/* 6 – סטטוס ובקרה */}
         <Group title="סטטוס ובקרה">
           <Row2>
-            <TSelect label="סטטוס טיפול" value={form.status} onChange={set('status')} options={STATUSES} />
+            {/* Status is derived (transferred → under review → waiting), not
+                manually editable — shown read-only as a badge. */}
+            <div>
+              <Lbl t="סטטוס טיפול" />
+              <span style={{ ...st, display: 'inline-block', fontSize: '14px', fontWeight: 700, padding: '9px 16px', borderRadius: '10px' }}>
+                {derivedStatus}
+              </span>
+            </div>
             <TSelect label="איכות פענוח" value={form.decodeQuality} onChange={set('decodeQuality')} options={QUALITIES} />
           </Row2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
             <TCheckbox label="כפילות" checked={form.isDuplicate} onChange={set('isDuplicate')} />
             <TCheckbox label="שגיאה" checked={form.hasError} onChange={set('hasError')} />
-            <TCheckbox label='הועבר לרוה"ח' checked={form.sentToAccountant} onChange={set('sentToAccountant')} />
+            <TCheckbox label='הועבר לרו״ח' checked={form.sentToAccountant} onChange={set('sentToAccountant')} />
           </div>
           {form.hasError && (
             <TLink label="קישור לשגיאה ב-N8N" value={form.n8nErrorLink} onChange={set('n8nErrorLink')} />
@@ -400,12 +437,15 @@ function InvoiceDetail({
 
 // ── Invoice List ────────────────────────────────────────────────────────────
 
-type Filter = 'all' | 'ממתין' | 'בטיפול' | 'הושלם' | 'שגיאה' | 'כפילויות'
+type Filter = 'all' | 'כפילויות' | typeof STATUS_TRANSFERRED | typeof STATUS_REVIEW | typeof STATUS_WAITING
 
 interface DupModal { invoice: Invoice; pair: Invoice }
 
 interface InvoicesProps {
   initialFilter?: Filter
+  // Alerts are passed down (Layout owns useAlerts) so invoice status can be
+  // derived live from linked alerts without a second fetch.
+  alerts?: Alert[]
   controlledSelectedId?: string | null
   // Auto-open the duplicate-review modal for this invoice on mount.
   // Used by duplicate_invoice alerts so the user lands on the popup, not on the detail view.
@@ -433,7 +473,7 @@ export interface DuplicateResolution {
 }
 
 export default function Invoices({
-  initialFilter = 'all', controlledSelectedId, initialDuplicateInvoiceId,
+  initialFilter = 'all', alerts = [], controlledSelectedId, initialDuplicateInvoiceId,
   onOpenInvoice, onCloseInvoice, onOpenSupplier, onDuplicateResolved, onDuplicateDismissed,
 }: InvoicesProps) {
   const { data: serverInvoices, loading, error, update: updateInvoice, remove: removeInvoice } = useInvoices()
@@ -456,6 +496,15 @@ export default function Invoices({
     : internalSelected
   const openInvoice  = (inv: Invoice) => onOpenInvoice  ? onOpenInvoice(inv.id)  : setInternalSelected(inv)
   const closeInvoice = ()             => onCloseInvoice ? onCloseInvoice()        : setInternalSelected(null)
+
+  // Derived display status per invoice (id → status), recomputed when invoices
+  // or alerts change. Single source for the list badge, filtering and counts.
+  const statusOf = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const inv of invoices) m.set(inv.id, deriveInvoiceStatus(inv, alerts))
+    return m
+  }, [invoices, alerts])
+  const statusFor = (inv: Invoice) => statusOf.get(inv.id) ?? deriveInvoiceStatus(inv, alerts)
 
   // ── duplicate helpers ────────────────────────────────────────────────────
   const dupCount = invoices.filter(i => i.duplicateFlag === 'כפילות אפשרית').length
@@ -551,6 +600,7 @@ export default function Invoices({
     return (
       <InvoiceDetail
         invoice={selected}
+        derivedStatus={statusFor(selected)}
         onBack={closeInvoice}
         onOpenSupplier={onOpenSupplier}
         onSave={async (updated) => {
@@ -573,7 +623,7 @@ export default function Invoices({
         ? true
         : filter === 'כפילויות'
           ? inv.duplicateFlag === 'כפילות אפשרית'
-          : inv.status === filter
+          : statusFor(inv) === filter
       return matchSearch && matchFilter
     })
     // Newest first by invoice date, falling back to email-received time. Both
@@ -596,12 +646,14 @@ export default function Invoices({
       : '1.5fr 1fr 1fr 120px 100px'
   const MIN_W = isMobile ? '360px' : isTablet ? '620px' : '820px'
 
-  const counts = {
-    ממתין: invoices.filter(i => i.status === 'ממתין').length,
-    הושלם: invoices.filter(i => i.status === 'הושלם').length,
-    בטיפול: invoices.filter(i => i.status === 'בטיפול').length,
-    שגיאה: invoices.filter(i => i.status === 'שגיאה').length,
-  }
+  const counts = invoices.reduce(
+    (acc, inv) => {
+      const s = statusFor(inv)
+      acc[s] = (acc[s] ?? 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
   const total = invoices.reduce((s, i) => s + (Number(i.amount) || 0), 0)
 
   if (loading && invoices.length === 0) {
@@ -631,10 +683,10 @@ export default function Invoices({
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         {[
-          { label: 'סה"כ סכום',  value: formatILS(total),        color: '#1F2937' },
-          { label: 'ממתין',      value: String(counts['ממתין']),  color: '#A16207' },
-          { label: 'בטיפול',     value: String(counts['בטיפול']), color: '#1E40AF' },
-          { label: 'הושלם',      value: String(counts['הושלם']),  color: '#166534' },
+          { label: 'סה"כ סכום',         value: formatILS(total),                       color: '#1F2937' },
+          { label: STATUS_TRANSFERRED,  value: String(counts[STATUS_TRANSFERRED] ?? 0), color: '#166534' },
+          { label: STATUS_REVIEW,       value: String(counts[STATUS_REVIEW] ?? 0),      color: '#1E40AF' },
+          { label: STATUS_WAITING,      value: String(counts[STATUS_WAITING] ?? 0),     color: '#A16207' },
         ].map(({ label, value, color }) => (
           <div
             key={label}
@@ -653,7 +705,7 @@ export default function Invoices({
           className="bg-white rounded-xl border p-1 flex-shrink-0"
           style={{ borderColor: '#EEEEF2', display: 'flex', gap: '2px' }}
         >
-          {(['all', 'ממתין', 'בטיפול', 'הושלם', 'שגיאה', 'כפילויות'] as Filter[]).map(f => (
+          {(['all', 'כפילויות', STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING] as Filter[]).map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -749,11 +801,12 @@ export default function Invoices({
 
             {/* Data rows */}
             {filtered.map((inv) => {
-              const st = STATUS_STYLE[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
+              const invStatus = statusFor(inv)
+              const st = STATUS_STYLE[invStatus] ?? { bg: '#F3F4F6', color: '#6B7280' }
               const flags = [
                 inv.isDuplicate      && { label: 'כפילות',       bg: '#FEF3C7', color: '#92400E' },
                 inv.hasError         && { label: 'שגיאה',         bg: '#FEE2E2', color: '#DC2626' },
-                inv.sentToAccountant && { label: 'הועבר לרוה"ח', bg: '#F0FDF4', color: '#166534' },
+                inv.sentToAccountant && { label: 'הועבר לרו״ח', bg: '#F0FDF4', color: '#166534' },
               ].filter(Boolean) as { label: string; bg: string; color: string }[]
 
               return (
@@ -839,7 +892,7 @@ export default function Invoices({
                   {/* Col 5: סטטוס */}
                   <div className="flex justify-center">
                     <span style={{ ...st, fontSize: '12px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', whiteSpace: 'nowrap' }}>
-                      {inv.status}
+                      {invStatus}
                     </span>
                   </div>
                 </div>

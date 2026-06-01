@@ -51,6 +51,7 @@ export function useInvoices() {
           duplicateNote:     '',
           isPartialReturn:   r.partial_return ?? false,
           emailSubject:      r.email_subject ?? '',
+          gmailMessageId:    r.gmail_message_id ?? '',
           // Fields with no DB column — safe defaults
           emailId:           '',
           uploadDate:        '',

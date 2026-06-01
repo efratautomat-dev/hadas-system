@@ -246,6 +246,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     if (activePage === 'invoices') return (
       <Invoices
         key="invoices"
+        alerts={alerts}
         controlledSelectedId={currentNav.invoiceSelectedId ?? null}
         initialDuplicateInvoiceId={currentNav.invoiceDuplicateId ?? null}
         onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
@@ -259,6 +260,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
       <Invoices
         key="invoices-dup"
         initialFilter="כפילויות"
+        alerts={alerts}
         controlledSelectedId={currentNav.invoiceSelectedId ?? null}
         onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices-duplicates', invoiceSelectedId: id }])}
         onCloseInvoice={goBack}
