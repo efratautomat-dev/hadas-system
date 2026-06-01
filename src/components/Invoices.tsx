@@ -417,6 +417,10 @@ interface InvoicesProps {
   // so the parent can clean up the alert(s) that referenced the pair and, when
   // the modal was opened from a duplicate alert, navigate back to where we came from.
   onDuplicateResolved?: (info: DuplicateResolution) => void
+  // Fired when the duplicate modal is closed WITHOUT resolving (X / cancel /
+  // backdrop) but only when it was deep-linked from an alert — so the parent can
+  // return to the alerts page instead of stranding the user on the invoices list.
+  onDuplicateDismissed?: () => void
 }
 
 // Identifying info for a resolved duplicate pair — enough for the parent to match
@@ -430,7 +434,7 @@ export interface DuplicateResolution {
 
 export default function Invoices({
   initialFilter = 'all', controlledSelectedId, initialDuplicateInvoiceId,
-  onOpenInvoice, onCloseInvoice, onOpenSupplier, onDuplicateResolved,
+  onOpenInvoice, onCloseInvoice, onOpenSupplier, onDuplicateResolved, onDuplicateDismissed,
 }: InvoicesProps) {
   const { data: serverInvoices, loading, error, update: updateInvoice, remove: removeInvoice } = useInvoices()
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -482,6 +486,16 @@ export default function Invoices({
     if (!pair) return
     setDupModal({ invoice: inv, pair })
     setConfirmDelete(false)
+  }
+
+  // Close the modal without resolving (X / cancel / backdrop). When we got here
+  // from a duplicate alert, also return to the alerts page — same as resolving —
+  // instead of leaving the user stranded on the invoices list. When the modal
+  // was opened by the user browsing invoices, just close it and stay put.
+  const closeDupModal = () => {
+    setDupModal(null)
+    setConfirmDelete(false)
+    if (initialDuplicateInvoiceId) onDuplicateDismissed?.()
   }
 
   // Describe the pair currently shown in the modal so the parent can find and
@@ -839,7 +853,7 @@ export default function Invoices({
       {dupModal && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
-          onClick={() => { setDupModal(null); setConfirmDelete(false) }}
+          onClick={closeDupModal}
         >
           <div
             style={{ background: 'white', borderRadius: '20px', width: '100%', maxWidth: '540px', maxHeight: '90vh', overflowY: 'auto' }}
@@ -848,7 +862,7 @@ export default function Invoices({
             {/* Modal header */}
             <div style={{ padding: '20px 24px', borderBottom: '1px solid #EEEEF2', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <button
-                onClick={() => { setDupModal(null); setConfirmDelete(false) }}
+                onClick={closeDupModal}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: '4px', borderRadius: '8px' }}
               >
                 <X className="w-5 h-5" />

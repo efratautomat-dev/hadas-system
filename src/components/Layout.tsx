@@ -252,6 +252,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onCloseInvoice={goBack}
         onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
         onDuplicateResolved={handleDuplicateResolved}
+        onDuplicateDismissed={goBack}
       />
     )
     if (activePage === 'invoices-duplicates') return (
@@ -263,6 +264,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onCloseInvoice={goBack}
         onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
         onDuplicateResolved={handleDuplicateResolved}
+        onDuplicateDismissed={goBack}
       />
     )
     if (activePage === 'payments')       return <Payments initialSupplier={currentNav.paymentsSupplierFilter} />
