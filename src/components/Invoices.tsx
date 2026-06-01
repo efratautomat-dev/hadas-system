@@ -4,6 +4,7 @@ import { type Invoice, type Alert } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { PdfPreviewButton } from './PdfPreviewModal'
+import { SearchableSelect } from './SearchableSelect'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -354,12 +355,19 @@ function InvoiceDetail({
             <TInput label="תאריך חשבונית" value={form.invoiceDate} onChange={set('invoiceDate')} type="date" />
           </Row2>
           <Row2>
-            <TSelect
-              label="קישור לספק"
-              value={form.supplierId}
-              onChange={handleSupplier}
-              options={suppliersData.map(s => ({ value: s.id, label: s.name }))}
-            />
+            <div>
+              <Lbl t="קישור לספק" />
+              <SearchableSelect
+                value={form.supplierId}
+                onChange={handleSupplier}
+                placeholder="-- בחר --"
+                options={suppliersData.map(s => ({
+                  value: s.id,
+                  label: s.name,
+                  keywords: (s as { hp?: string }).hp,
+                }))}
+              />
+            </div>
             <TInput label="שם ספק" value={form.supplier} onChange={set('supplier')} />
           </Row2>
           <TSelect label="קטגוריה" value={form.category} onChange={set('category')} options={CATEGORIES} />
