@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Bell, Search, Menu, ArrowRight } from 'lucide-react'
 import Sidebar from './Sidebar'
 import Dashboard from './Dashboard'
 import Suppliers from './Suppliers'
-import Invoices from './Invoices'
+import Invoices, { type DuplicateResolution } from './Invoices'
 import Payments from '../pages/Payments'
 import SupplierLedger from './SupplierLedger'
 import DeliveryNotes from './DeliveryNotes'
@@ -104,6 +104,10 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const [alertForSupplier, setAlertForSupplier] = useState<AlertPrefillState | null>(null)
   // Single source of truth for navigation — index 0 is always the origin (dashboard)
   const [navStack, setNavStack] = useState<NavEntry[]>([{ page: 'dashboard' }])
+  // Remembered window scroll for the alerts list. Saved when the user clicks an
+  // alert (before we navigate away) and restored when the Alerts page re-mounts,
+  // so resolving a duplicate and returning lands them where they left off.
+  const alertsScrollY = useRef(0)
 
   const currentNav       = navStack[navStack.length - 1]
   const activePage       = currentNav.page
@@ -117,6 +121,24 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const handleMarkRead     = (id: string) => markRead(id)
   const handleMarkResolved = (id: string) => markResolved(id)
   const handleDeleteAlert  = (id: string) => removeAlert(id)
+
+  // Called by Invoices once a duplicate pair has been resolved (deleted /
+  // marked primary / approved). Cleans up every alert that still points at the
+  // pair — the one the user clicked AND any orphaned twin referencing the same
+  // pair — then, if we got here from a duplicate alert, returns to the alerts page.
+  const handleDuplicateResolved = (info: DuplicateResolution) => {
+    for (const a of alerts) {
+      const t = a.type as string
+      if (t !== 'duplicate_invoice' && t !== 'invoice_duplicate') continue
+      const p = (a.payload ?? {}) as Record<string, unknown>
+      const refId = (p.existingInvoiceId as string | undefined) ?? (p.invoiceId as string | undefined)
+      const matchesId   = !!refId && info.ids.includes(refId)
+      const matchesPair = !!info.invoiceNumber &&
+        p.invoiceNumber === info.invoiceNumber && p.supplierId === info.supplierId
+      if (matchesId || matchesPair) removeAlert(a.id)
+    }
+    if (info.fromAlert) goBack()
+  }
 
   const handleCreateSupplierFromAlert = (alert: Alert) => {
     setAlertForSupplier({
@@ -194,6 +216,8 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenSupplierByName={(name)       => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewName:   name }])}
         onOpenReturn={(id)                 => setNavStack(prev => [...prev, { page: 'returns',   returnsEditId:      id   }])}
         onPageChange={handlePageChange}
+        savedScrollY={alertsScrollY.current}
+        onScrollSave={(y) => { alertsScrollY.current = y }}
       />
     )
     if (activePage === 'suppliers')      return (
@@ -227,6 +251,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
         onCloseInvoice={goBack}
         onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
+        onDuplicateResolved={handleDuplicateResolved}
       />
     )
     if (activePage === 'invoices-duplicates') return (
@@ -237,6 +262,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices-duplicates', invoiceSelectedId: id }])}
         onCloseInvoice={goBack}
         onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
+        onDuplicateResolved={handleDuplicateResolved}
       />
     )
     if (activePage === 'payments')       return <Payments initialSupplier={currentNav.paymentsSupplierFilter} />

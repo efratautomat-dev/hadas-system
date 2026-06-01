@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useLayoutEffect } from 'react'
 import {
   Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus,
   HelpCircle, FileX, Paperclip, Unlink, AlertTriangle, Clock,
@@ -234,6 +234,11 @@ interface AlertsProps {
   onOpenSupplierByName?:           (supplierName: string) => void
   onOpenReturn?:                   (returnId: string)     => void
   onPageChange?:                   (page: string)         => void
+  // Scroll restoration: parent remembers the list position across navigation.
+  // onScrollSave is called right before we navigate away (alert click);
+  // savedScrollY is reapplied when this page re-mounts.
+  savedScrollY?:                   number
+  onScrollSave?:                   (y: number)            => void
 }
 
 // Route a clicked alert to the most useful single-entity destination for its type.
@@ -337,9 +342,18 @@ export default function Alerts({
   alerts, onMarkRead, onMarkResolved, onDelete, onCreateSupplierFromAlert,
   onOpenInvoice, onOpenInvoiceDuplicate, onOpenInvoiceByGmailMessageId,
   onOpenSupplier, onOpenSupplierByName, onOpenReturn, onPageChange,
+  savedScrollY, onScrollSave,
 }: AlertsProps) {
   const [typeFilter,   setTypeFilter]   = useState<TypeFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+
+  // Restore the remembered scroll position after the list has rendered. Using
+  // useLayoutEffect (pre-paint) avoids a visible jump from 0 to the saved spot.
+  useLayoutEffect(() => {
+    if (savedScrollY) window.scrollTo(0, savedScrollY)
+    // Restore only on mount; deps intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const newCount      = alerts.filter(a => a.status === 'new').length
   const readCount     = alerts.filter(a => a.status === 'read').length
@@ -460,16 +474,21 @@ export default function Alerts({
               onMarkResolved={onMarkResolved}
               onDelete={onDelete}
               onCreateSupplierFromAlert={onCreateSupplierFromAlert}
-              onClick={() => resolveAlertDestination(alert, {
-                onOpenInvoice,
-                onOpenInvoiceDuplicate,
-                onOpenInvoiceByGmailMessageId,
-                onOpenSupplier,
-                onOpenSupplierByName,
-                onOpenReturn,
-                onPageChange,
-                onCreateSupplierFromAlert,
-              })}
+              onClick={() => {
+                // Remember where we are so we can return here after the alert
+                // is handled (e.g. resolving a duplicate in the popup).
+                onScrollSave?.(window.scrollY)
+                resolveAlertDestination(alert, {
+                  onOpenInvoice,
+                  onOpenInvoiceDuplicate,
+                  onOpenInvoiceByGmailMessageId,
+                  onOpenSupplier,
+                  onOpenSupplierByName,
+                  onOpenReturn,
+                  onPageChange,
+                  onCreateSupplierFromAlert,
+                })
+              }}
             />
           ))}
         </div>

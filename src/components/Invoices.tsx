@@ -413,11 +413,24 @@ interface InvoicesProps {
   onOpenInvoice?: (id: string) => void
   onCloseInvoice?: () => void
   onOpenSupplier?: (supplierId: string) => void
+  // Fired after a duplicate pair is resolved (deleted / marked primary / approved)
+  // so the parent can clean up the alert(s) that referenced the pair and, when
+  // the modal was opened from a duplicate alert, navigate back to where we came from.
+  onDuplicateResolved?: (info: DuplicateResolution) => void
+}
+
+// Identifying info for a resolved duplicate pair — enough for the parent to match
+// any alert(s) that point at it (by invoice id, or by supplier + invoice number).
+export interface DuplicateResolution {
+  invoiceNumber: string
+  supplierId: string
+  ids: string[]
+  fromAlert: boolean
 }
 
 export default function Invoices({
   initialFilter = 'all', controlledSelectedId, initialDuplicateInvoiceId,
-  onOpenInvoice, onCloseInvoice, onOpenSupplier,
+  onOpenInvoice, onCloseInvoice, onOpenSupplier, onDuplicateResolved,
 }: InvoicesProps) {
   const { data: serverInvoices, loading, error, update: updateInvoice, remove: removeInvoice } = useInvoices()
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -471,12 +484,23 @@ export default function Invoices({
     setConfirmDelete(false)
   }
 
+  // Describe the pair currently shown in the modal so the parent can find and
+  // remove any alert(s) that reference it once it's resolved.
+  const resolutionInfo = (saved: DupModal): DuplicateResolution => ({
+    invoiceNumber: saved.invoice.invoiceNumber || saved.pair.invoiceNumber || '',
+    supplierId:    saved.invoice.supplierId || saved.pair.supplierId || '',
+    ids:           [saved.invoice.id, saved.pair.id],
+    // We only auto-navigate back when the modal was deep-linked from an alert.
+    fromAlert:     !!initialDuplicateInvoiceId,
+  })
+
   const handleSetPrimary = async () => {
     if (!dupModal) return
     const saved = dupModal
     setDupModal(null)
     try {
       await updateInvoice(saved.invoice.id, { duplicateFlag: null })
+      onDuplicateResolved?.(resolutionInfo(saved))
     } catch {
       // hook sets error state
     }
@@ -488,6 +512,7 @@ export default function Invoices({
     setDupModal(null)
     try {
       await removeInvoice(saved.invoice.id)
+      onDuplicateResolved?.(resolutionInfo(saved))
     } catch {
       // hook sets error state
     }
@@ -502,6 +527,7 @@ export default function Invoices({
         updateInvoice(saved.invoice.id, { duplicateFlag: null, duplicateNote: 'אושר ידנית' }),
         updateInvoice(saved.pair.id,    { duplicateFlag: null, duplicateNote: 'אושר ידנית' }),
       ])
+      onDuplicateResolved?.(resolutionInfo(saved))
     } catch {
       // hook sets error state
     }
@@ -525,16 +551,25 @@ export default function Invoices({
     )
   }
 
-  const filtered = invoices.filter(inv => {
-    const matchSearch = (inv.supplier || '').includes(search) || (inv.id || '').includes(search) ||
-      (inv.invoiceNumber || '').includes(search)
-    const matchFilter = filter === 'all'
-      ? true
-      : filter === 'כפילויות'
-        ? inv.duplicateFlag === 'כפילות אפשרית'
-        : inv.status === filter
-    return matchSearch && matchFilter
-  })
+  const filtered = invoices
+    .filter(inv => {
+      const matchSearch = (inv.supplier || '').includes(search) || (inv.id || '').includes(search) ||
+        (inv.invoiceNumber || '').includes(search)
+      const matchFilter = filter === 'all'
+        ? true
+        : filter === 'כפילויות'
+          ? inv.duplicateFlag === 'כפילות אפשרית'
+          : inv.status === filter
+      return matchSearch && matchFilter
+    })
+    // Newest first by invoice date, falling back to email-received time. Both
+    // are ISO strings (YYYY-MM-DD / full ISO timestamp), so a string compare
+    // sorts chronologically; reverse it for descending (newest at the top).
+    .sort((a, b) => {
+      const da = a.invoiceDate || a.emailReceivedAt || ''
+      const db = b.invoiceDate || b.emailReceivedAt || ''
+      return da === db ? 0 : da < db ? 1 : -1
+    })
 
   // Mirrors the Returns table: multiple flexible columns so extra width is
   // shared between them, never absorbed by a single column. That kills the
