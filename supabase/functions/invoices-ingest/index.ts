@@ -592,7 +592,12 @@ function isFileHostUrl(url: string): boolean {
     u.includes("dropbox.com/") ||
     u.includes("dropboxusercontent.com/") ||
     u.includes("wetransfer.com/") ||
-    u.includes("we.tl/")
+    u.includes("we.tl/") ||
+    // icount (the supplier invoicing platform) wraps the real document link in a
+    // track.icount.co.il click-tracker; invoice-maven is the underlying doc host.
+    u.includes("track.icount.co.il/") ||
+    u.includes("icount.co.il/") ||
+    u.includes("invoice-maven")
   );
 }
 
@@ -651,6 +656,27 @@ function extractInvoiceLinks(plainText: string, html: string): string[] {
   return candidates;
 }
 
+// icount does NOT send a direct PDF link — the real document URL is wrapped in a
+// click-tracking URL of the form track.icount.co.il/CL0/<ENCODED_REAL_URL>/<...>.
+// Following the tracker's own redirect lands on a landing/login page, not the PDF,
+// so we must lift the encoded segment out and decodeURIComponent it to recover the
+// real document URL (mirrors the working N8N flow). Some trackers double-encode,
+// so we decode up to twice and keep the first http(s) URL we recover.
+function unwrapTrackingUrl(url: string): string {
+  const m = url.match(/track\.icount\.co\.il\/CL0\/([^/?#]+)/i);
+  if (!m) return url;
+  let seg = m[1];
+  for (let i = 0; i < 2; i++) {
+    try {
+      const decoded = decodeURIComponent(seg);
+      if (/^https?:\/\//i.test(decoded)) return decoded;
+      if (decoded === seg) break; // no further change — stop decoding
+      seg = decoded;
+    } catch { break; }
+  }
+  return url;
+}
+
 // Rewrites share links into their direct-download form where possible.
 function normalizeDownloadUrl(url: string): string {
   const drive = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:[^#]*&)?id=)([\w-]+)/i);
@@ -673,6 +699,22 @@ function sniffFileType(bytes: Uint8Array): "pdf" | "image" | "other" {
       bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47 &&
       bytes[4] === 0x0D && bytes[5] === 0x0A && bytes[6] === 0x1A && bytes[7] === 0x0A) return "image";   // PNG
   return "other";
+}
+
+// Returns the specific image MIME type from the bytes' magic numbers, or null if
+// the bytes aren't a recognized image. Authoritative over any declared/header MIME
+// — servers (icount included) sometimes label PNG bytes as image/jpeg, which makes
+// the Anthropic vision call 400. Note: Anthropic vision accepts png/jpeg/gif/webp.
+function sniffImageMediaType(bytes: Uint8Array): string | null {
+  if (bytes.length >= 8 &&
+      bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return "image/png";  // PNG
+  if (bytes.length >= 3 &&
+      bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return "image/jpeg";                       // JPEG
+  if (bytes.length >= 6 &&
+      bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "image/gif";                        // GIF
+  if (bytes.length >= 12 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp"; // WEBP
+  return null;
 }
 
 function filenameFromUrl(url: string, kind: "pdf" | "image"): string {
@@ -716,7 +758,8 @@ async function resolveDocFromLinks(
   }
 
   for (const rawUrl of candidates.slice(0, MAX_LINKS_PER_EMAIL)) {
-    const url = normalizeDownloadUrl(rawUrl);
+    // Unwrap icount click-tracker first, then rewrite share links to direct-download form.
+    const url = normalizeDownloadUrl(unwrapTrackingUrl(rawUrl));
     try {
       const resp = await fetchLinkBinary(url);
       if (!resp.ok) {
@@ -733,10 +776,19 @@ async function resolveDocFromLinks(
         await log("info", `link skipped — ${reason}`, { url, bytes: bytes.length }, msgId);
         continue;
       }
+      // Logo/size filter — the attachment path drops tiny images as logos, but the
+      // link path had no such gate, so a ~20KB decorative logo could win over the
+      // real invoice link. Skip small images and keep trying the next candidate.
+      if (kind === "image" && bytes.length < LOGO_SIZE_THRESHOLD) {
+        const reason = `image too small (${bytes.length} B < ${LOGO_SIZE_THRESHOLD} B) — likely a logo`;
+        failures.push({ url, reason });
+        await log("info", `link skipped — ${reason}`, { url }, msgId);
+        continue;
+      }
       const mimeType =
-        kind === "pdf"                     ? "application/pdf"
-        : contentType.startsWith("image/") ? contentType
-        :                                    "image/jpeg";
+        kind === "pdf" ? "application/pdf"
+        : sniffImageMediaType(bytes)
+          ?? (contentType.startsWith("image/") ? contentType : "image/jpeg");
       await log("info", `link yielded a ${kind} (${bytes.length} bytes)`, { url, contentType }, msgId);
       return { doc: { mimeType, filename: filenameFromUrl(url, kind), bytes }, failures };
     } catch (e) {
@@ -814,8 +866,10 @@ function buildDocumentBlock(mimeType: string, bytes: Uint8Array): AnthropicConte
   if (mimeType === "application/pdf") {
     return { type: "document", source: { type: "base64", media_type: "application/pdf", data } };
   }
-  // Force common image MIMEs into supported set
-  const mt = mimeType.startsWith("image/") ? mimeType : "image/jpeg";
+  // Derive the image media_type from the actual bytes — a declared/header MIME of
+  // image/jpeg on PNG bytes makes the Anthropic call 400. Fall back to the declared
+  // type only when the bytes aren't a recognized image.
+  const mt = sniffImageMediaType(bytes) ?? (mimeType.startsWith("image/") ? mimeType : "image/jpeg");
   return { type: "image", source: { type: "base64", media_type: mt, data } };
 }
 
