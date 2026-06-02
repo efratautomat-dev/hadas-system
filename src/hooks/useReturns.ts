@@ -30,14 +30,6 @@ function isoToDisplay(iso: string): string {
   return `${parts[2]}/${parts[1]}/${parts[0]}`
 }
 
-const FALLBACK_RETURNS: ReturnEntry[] = [
-  { id: 'RET-001', date: '05/05/2026', dateIso: '2026-05-05', supplierId: 'SUP-001', supplier: 'תנובה',        amount: 3500, reason: 'סחורה פגומה - כיסויי ראש קיץ',          detail: '', originalInvoiceId: 'INV-2026-003', status: 'אושר',   employeeId: null, createdBy: 'שרה כהן'   },
-  { id: 'RET-002', date: '01/05/2026', dateIso: '2026-05-01', supplierId: 'SUP-002', supplier: 'תבורי בע"מ',  amount: 1200, reason: 'הזמנה שגויה - גודל שגוי',                detail: '', originalInvoiceId: 'INV-2026-001', status: 'בטיפול', employeeId: null, createdBy: 'רחל לוי'   },
-  { id: 'RET-003', date: '25/04/2026', dateIso: '2026-04-25', supplierId: 'SUP-003', supplier: 'אסם השקעות',  amount: 800,  reason: 'מוצר לא תואם לפרטי ההזמנה',             detail: '', originalInvoiceId: 'INV-2026-004', status: 'אושר',   employeeId: null, createdBy: 'שרה כהן'   },
-  { id: 'RET-004', date: '20/04/2026', dateIso: '2026-04-20', supplierId: 'SUP-005', supplier: 'נסטלה ישראל', amount: 2200, reason: 'פריטים חסרים במשלוח - 8 יחידות',        detail: '', originalInvoiceId: 'INV-2026-006', status: 'נדחה',   employeeId: null, createdBy: 'רחל לוי'   },
-  { id: 'RET-005', date: '15/04/2026', dateIso: '2026-04-15', supplierId: 'SUP-001', supplier: 'תנובה',        amount: 950,  reason: 'שגיאת תמחור בחשבונית',                   detail: '', originalInvoiceId: null,           status: 'בטיפול', employeeId: null, createdBy: 'מיכל דוד'  },
-]
-
 export function useReturns() {
   const [data, setData]       = useState<ReturnEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -55,7 +47,10 @@ export function useReturns() {
         supabase.from('employees').select('id, name'),
       ])
 
-      if (!err && rows && rows.length > 0) {
+      // Successful fetch (even with 0 rows) → show real data. Only a genuine
+      // error/exception clears the list and surfaces an error — we never fall
+      // back to mock data, which would look real to the user.
+      if (!err && rows) {
         const suppMap: Record<string, string> = {}
         for (const s of suppRows ?? []) suppMap[s.id] = s.name
 
@@ -82,11 +77,12 @@ export function useReturns() {
         })) as ReturnEntry[])
         setError(null)
       } else {
-        setData(FALLBACK_RETURNS)
-        if (err) setError(err.message)
+        setData([])
+        setError(err?.message ?? 'שגיאה בטעינת ההחזרות')
       }
-    } catch {
-      setData(FALLBACK_RETURNS)
+    } catch (e) {
+      setData([])
+      setError(e instanceof Error ? e.message : 'שגיאה בטעינת ההחזרות')
     } finally {
       setLoading(false)
     }

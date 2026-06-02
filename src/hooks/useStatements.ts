@@ -16,12 +16,6 @@ export interface VendorStatement {
   uploaded_at: string
 }
 
-const FALLBACK_STATEMENTS: VendorStatement[] = [
-  { id: 'VS-001', supplier_id: 'SUP-001', supplier_name: 'תנובה',       month: '04/2026', our_balance: 45200, vendor_balance: 45200, diff: 0,    status: 'matched',  uploaded_at: '02/05/2026' },
-  { id: 'VS-002', supplier_id: 'SUP-002', supplier_name: 'תבורי בע"מ',  month: '04/2026', our_balance: 12500, vendor_balance: 14000, diff: 1500, status: 'mismatch', uploaded_at: '01/05/2026' },
-  { id: 'VS-003', supplier_id: 'SUP-003', supplier_name: 'אסם השקעות',  month: '04/2026', our_balance: 6800,  vendor_balance: null,  diff: 0,    status: 'pending',  uploaded_at: '—' },
-]
-
 export function useStatements() {
   const [data, setData]       = useState<VendorStatement[]>([])
   const [loading, setLoading] = useState(true)
@@ -37,7 +31,10 @@ export function useStatements() {
         supabase.from('suppliers').select('id, name'),
       ])
 
-      if (!err && rows && rows.length > 0) {
+      // Successful fetch (even with 0 rows) → show real data. Only a genuine
+      // error/exception clears the list and surfaces an error — we never fall
+      // back to mock data, which would look real to the user.
+      if (!err && rows) {
         const suppMap: Record<string, string> = {}
         for (const s of suppRows ?? []) suppMap[s.id] = s.name
 
@@ -55,11 +52,12 @@ export function useStatements() {
         })) as VendorStatement[])
         setError(null)
       } else {
-        setData(FALLBACK_STATEMENTS)
-        if (err) setError(err.message)
+        setData([])
+        setError(err?.message ?? 'שגיאה בטעינת הכרטסות')
       }
-    } catch {
-      setData(FALLBACK_STATEMENTS)
+    } catch (e) {
+      setData([])
+      setError(e instanceof Error ? e.message : 'שגיאה בטעינת הכרטסות')
     } finally {
       setLoading(false)
     }
