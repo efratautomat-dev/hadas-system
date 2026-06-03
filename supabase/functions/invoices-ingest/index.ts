@@ -37,6 +37,7 @@ const HEBREW_MONTHS = [
 // ── Body-link invoice fetching (mirrors the existing N8N HTTP node) ──────────
 const MAX_LINKS_PER_EMAIL   = 5;     // cap so a link-spam email can't DOS the run
 const LINK_FETCH_TIMEOUT_MS = 20000; // per-link fetch timeout
+const MAX_REDIRECTS         = 5;     // match N8N's maxRedirects:5 — fail fast on tracker loops
 const LINK_FETCH_HEADERS = {
   "Accept":     "*/*",
   "User-Agent": "Mozilla/5.0",
@@ -503,21 +504,39 @@ interface CandidateAttachment {
   isInline:     boolean;
 }
 
+const EXT_PDF_RE   = /\.pdf$/i;
+const EXT_IMAGE_RE = /\.(jpe?g|png)$/i;
+
 function findAttachments(message: GmailMessage): CandidateAttachment[] {
   const flat = flattenParts(message.payload as GmailPart);
   const out: CandidateAttachment[] = [];
   for (const p of flat) {
     if (!p.body?.attachmentId || !p.filename) continue;
-    const mt = (p.mimeType || "").toLowerCase();
-    const isPdf   = mt === "application/pdf";
-    const isImage = mt.startsWith("image/");
+    const mt   = (p.mimeType || "").toLowerCase();
+    const name = p.filename;
+    // Detect type by MIME first, then fall back to the filename EXTENSION (N8N's
+    // approach). Many senders attach PDFs as application/octet-stream,
+    // application/x-pdf or binary/octet-stream — the old MIME-only check dropped
+    // those silently (the "אס ג'י ברטים" credit note hit this). PDF takes
+    // precedence; we normalize mimeType so Stage 1 routes it correctly.
+    const isPdf   = mt === "application/pdf" || EXT_PDF_RE.test(name);
+    const isImage = mt.startsWith("image/")  || EXT_IMAGE_RE.test(name);
     if (isPdf || isImage) {
       const disp     = p.headers?.find((h) => h.name.toLowerCase() === "content-disposition")?.value ?? "";
       const isInline = disp.toLowerCase().startsWith("inline");
+      let mimeType: string;
+      if (isPdf) {
+        mimeType = "application/pdf";
+      } else if (mt.startsWith("image/")) {
+        mimeType = p.mimeType;                                  // already a real image/* MIME
+      } else {
+        const ext = name.match(EXT_IMAGE_RE)?.[1].toLowerCase(); // image by extension on a generic MIME
+        mimeType  = ext === "png" ? "image/png" : "image/jpeg";
+      }
       out.push({
         attachmentId: p.body.attachmentId,
-        filename:     p.filename,
-        mimeType:     p.mimeType || (isPdf ? "application/pdf" : "image/jpeg"),
+        filename:     name,
+        mimeType,
         size:         p.body.size ?? 0,
         isInline,
       });
@@ -597,34 +616,15 @@ function extractRawHtml(message: GmailMessage): string {
   return html?.body.data ? decodeBase64UrlToText(html.body.data) : "";
 }
 
-const FILE_URL_RE    = /\.(pdf|jpe?g|png)(?:[?#]|$)/i;
-// Widened to the full N8N keyword set so portal-style "view/download" links are
-// caught — e.g. כובעי זיוה's "להורדת המסמך".
+// Full N8N keyword set (superset of N8N's list) so portal-style "view/download"
+// links are caught — e.g. כובעי זיוה's "להורדת המסמך" ("הורד" already matches it).
 const DOWNLOAD_WORDS = [
   "לצפייה", "צפייה", "לחץ כאן", "הורד", "להורדה", "להורדת",
   "view", "download", "invoice", "חשבונית", "מסמך",
 ];
 
-// True for URLs that look like they point at a downloadable invoice file.
-function isFileHostUrl(url: string): boolean {
-  const u = url.toLowerCase();
-  return (
-    FILE_URL_RE.test(u) ||
-    u.includes("drive.google.com/file/d/") ||
-    u.includes("drive.google.com/open?id=") ||
-    u.includes("drive.google.com/uc?") ||
-    u.includes("docs.google.com/") ||
-    u.includes("dropbox.com/") ||
-    u.includes("dropboxusercontent.com/") ||
-    u.includes("wetransfer.com/") ||
-    u.includes("we.tl/") ||
-    // icount (the supplier invoicing platform) wraps the real document link in a
-    // track.icount.co.il click-tracker; invoice-maven is the underlying doc host.
-    u.includes("track.icount.co.il/") ||
-    u.includes("icount.co.il/") ||
-    u.includes("invoice-maven")
-  );
-}
+// True for URLs that point directly at a PDF file.
+const isPdfUrl = (url: string): boolean => /\.pdf(?:[?#]|$)/i.test(url);
 
 function extractAnchors(html: string): Array<{ href: string; text: string }> {
   const out: Array<{ href: string; text: string }> = [];
@@ -642,43 +642,54 @@ function rawUrls(text: string): string[] {
   return (text.match(/https?:\/\/[^\s<>"'\)\]]+/gi) ?? []).map((u) => u.replace(/[).,;]+$/, ""));
 }
 
-// Collects candidate invoice-file URLs from the body — file-host links first,
-// then links explicitly labelled as a download/invoice link.
+// Collects candidate invoice-file URLs from the body, mirroring the N8N
+// "Extract – Link from HTML" node EXACTLY:
+//   1. decode tracking URLs on every anchor href FIRST (icount wraps the real
+//      link in track.icount.co.il/CL0/<encoded>);
+//   2. keep a link ONLY if its anchor text OR decoded URL contains a keyword;
+//   3. prefer .pdf links (pdfLinks[0]), then the remaining keyword links;
+//   4. if no keyword link at all, fall back to scanning the body for any .pdf.
+// This is the fix for icount emails: the old approach enqueued EVERY tracking
+// link (logo/header/social) in document order and the real download link got
+// evicted past the candidate cap. Keyword-filtering the set first makes the real
+// link win regardless of how many decorative tracking links precede it.
 function extractInvoiceLinks(plainText: string, html: string): string[] {
-  const candidates: string[] = [];
   const seen = new Set<string>();
-  const add = (raw: string) => {
-    const url = decodeHtmlEntities(raw.trim());
-    if (!/^https?:\/\//i.test(url) || seen.has(url)) return;
-    seen.add(url);
-    candidates.push(url);
+  const ordered: string[] = [];
+  const push = (raw: string) => {
+    if (!/^https?:\/\//i.test(raw) || seen.has(raw)) return;
+    seen.add(raw);
+    ordered.push(raw);
+  };
+  const hasKeyword = (s: string) => {
+    const low = s.toLowerCase();
+    return DOWNLOAD_WORDS.some((w) => low.includes(w.toLowerCase()));
   };
 
-  const anchors = extractAnchors(html);
+  // 1. Decode tracking on every anchor href up front.
+  const links = extractAnchors(html).map((a) => ({
+    url:  decodeHtmlEntities(unwrapTrackingUrl(a.href)),
+    text: a.text,
+  }));
 
-  // 1. Anchors whose href is a known file host / direct file URL
-  for (const a of anchors) if (isFileHostUrl(a.href)) add(a.href);
+  // 2. Keep only links whose anchor text OR decoded URL contains a keyword.
+  const keywordLinks = links.filter((l) => hasKeyword(l.text) || hasKeyword(l.url));
 
-  // 2. Anchors whose visible text labels them as a download/invoice link
-  for (const a of anchors) {
-    const label = a.text.toLowerCase();
-    if (DOWNLOAD_WORDS.some((w) => label.includes(w.toLowerCase()))) add(a.href);
+  // 3. Prefer .pdf among the keyword links, then the remaining keyword links.
+  for (const l of keywordLinks) if (isPdfUrl(l.url)) push(l.url);
+  for (const l of keywordLinks) push(l.url);
+
+  // 4. No keyword link → scan the whole body (anchors + raw URLs) for any .pdf.
+  if (ordered.length === 0) {
+    const all = [
+      ...links.map((l) => l.url),
+      ...rawUrls(html).map((u) => unwrapTrackingUrl(u)),
+      ...rawUrls(plainText).map((u) => unwrapTrackingUrl(u)),
+    ];
+    for (const u of all) if (isPdfUrl(u)) push(u);
   }
 
-  // 3. Raw URLs (HTML source + plain text) that point at a file host
-  for (const u of [...rawUrls(html), ...rawUrls(plainText)]) {
-    if (isFileHostUrl(u)) add(u);
-  }
-
-  // 4. Raw URLs in plain text sitting next to a download keyword
-  for (const u of rawUrls(plainText)) {
-    const idx = plainText.indexOf(u);
-    if (idx === -1) continue;
-    const around = plainText.slice(Math.max(0, idx - 60), idx + u.length + 60).toLowerCase();
-    if (DOWNLOAD_WORDS.some((w) => around.includes(w.toLowerCase()))) add(u);
-  }
-
-  return candidates;
+  return ordered;
 }
 
 // icount does NOT send a direct PDF link — the real document URL is wrapped in a
@@ -754,13 +765,28 @@ async function fetchLinkBinary(url: string): Promise<Response> {
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), LINK_FETCH_TIMEOUT_MS);
   try {
-    // Deno's fetch follows redirects automatically (redirect: "follow").
-    return await fetch(url, {
-      method:   "GET",
-      headers:  LINK_FETCH_HEADERS,
-      redirect: "follow",
-      signal:   ctrl.signal,
-    });
+    // Follow redirects manually with a hard cap of MAX_REDIRECTS (mirrors N8N's
+    // maxRedirects:5). Deno's default "follow" allows ~20, so a tracker redirect
+    // loop wastes the whole per-link timeout before failing; capping at 5 fails
+    // fast so the next candidate is tried promptly.
+    let current = url;
+    for (let hop = 0; ; hop++) {
+      const resp = await fetch(current, {
+        method:   "GET",
+        headers:  LINK_FETCH_HEADERS,
+        redirect: "manual",
+        signal:   ctrl.signal,
+      });
+      if (resp.status >= 300 && resp.status < 400) {
+        const loc = resp.headers.get("location");
+        await resp.body?.cancel();           // release the connection
+        if (!loc) return resp;               // 3xx without Location — let caller treat as non-OK
+        if (hop >= MAX_REDIRECTS) throw new Error(`too many redirects (>${MAX_REDIRECTS})`);
+        current = new URL(loc, current).toString(); // resolve relative redirects
+        continue;
+      }
+      return resp;
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -2103,14 +2129,15 @@ async function handleNonInvoice(
         { filename: ctx.doc.filename }, msgId);
     }
 
+    // vendor_statements schema has no email_subject / message_link /
+    // gmail_message_id / received_at columns — only status, storage_url,
+    // drive_file_link (+ supplier_id/month/balances filled in later by the user).
+    // The old insert listed those phantom columns and PostgREST rejected the row
+    // ("Could not find the 'email_subject' column"). Insert only real columns.
     const { error } = await supabase.from("vendor_statements").insert({
-      drive_file_link:  null,
-      storage_url:      storagePath || null,
-      message_link:     ctx.messageLink,
-      gmail_message_id: msgId,
-      email_subject:    ctx.subject,
-      received_at:      ctx.emailTs,
-      status:           "needs_review",
+      status:          "needs_review",
+      storage_url:     storagePath || null,
+      drive_file_link: null,
     });
     if (error) {
       await log("warn", `vendor_statements insert failed: ${error.message}`, undefined, msgId);
