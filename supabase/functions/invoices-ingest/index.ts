@@ -1684,8 +1684,9 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       // own record. These are NEVER subjected to quickInvoiceCheck (that ad-gate
       // is invoice-only — it's what previously discarded statements).
       if (docType !== "invoice") {
+        let allSaved = true;
         for (const f of usableFiles) {
-          await handleNonInvoice(supabase, log, msgId, suppliers, {
+          const ok = await handleNonInvoice(supabase, log, msgId, suppliers, {
             docType,
             subject,
             from,
@@ -1693,6 +1694,14 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
             messageLink,
             doc: { mimeType: f.mimeType, filename: f.filename, bytes: f.bytes },
           });
+          if (!ok) allSaved = false;
+        }
+        // Only label after the DB write(s) succeeded. A failed write leaves the
+        // email unlabeled so the next run retries (already-saved siblings are
+        // dedup-guarded). Without this, a failed insert was silently lost.
+        if (!allSaved) {
+          await log("warn", "a document write failed — leaving email unlabeled for retry", { docType }, msgId);
+          continue;
         }
         await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
         result.processed++;
@@ -1738,10 +1747,13 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       result.alerts    += alerted;
       if (created === 0 && alerted === 0 && skipped > 0) result.skipped++;
 
-      // Hard failures only (nothing created/alerted/skipped, no ads) — leave the
-      // source label so the next run retries instead of swallowing the email.
-      if (created === 0 && alerted === 0 && skipped === 0 && ads === 0 && errored > 0) {
-        await log("warn", "all invoice files errored — leaving email for retry", { errored }, msgId);
+      // ANY failed DB write → do NOT label; leave the email for the next run to
+      // retry. Already-created invoices are dedup-guarded (gmail_message_id +
+      // invoice_number/storage_url), so the retry only re-attempts the failed
+      // file(s). Without this, a partial failure silently lost the failed invoice.
+      if (errored > 0) {
+        await log("warn", `${errored} invoice file(s) errored — leaving email unlabeled for retry`,
+          { created, alerted, skipped, ads, errored }, msgId);
         continue;
       }
 
@@ -1876,7 +1888,11 @@ async function handleNonInvoice(
     messageLink: string;
     doc:         { mimeType: string; filename: string; bytes: Uint8Array };
   },
-): Promise<void> {
+): Promise<boolean> {
+  // Returns true when the document was fully handled (DB row written, or
+  // deliberately escalated to the user via an alert) — the caller may then label
+  // the email processed. Returns false ONLY when a DB write (insert/update/read)
+  // errored, so the caller leaves the email unlabeled for the next run to retry.
   // Non-invoice docs are NOT uploaded to Drive — they are viewable via the
   // Gmail message link stored on the row.
 
@@ -1905,21 +1921,12 @@ async function handleNonInvoice(
   };
 
   if (ctx.docType === "delivery_note") {
-    let extracted: ExtractedDeliveryNote;
-    try {
-      extracted = await extractDeliveryNote(ctx.doc);
-    } catch (e) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      await log("error", `extractDeliveryNote failed: ${errMsg}`,
-        { filename: ctx.doc.filename }, msgId);
-      await insertAlertOnce(supabase, log, msgId, {
-        type:    "extraction_failed",
-        title:   "פענוח מסמך נכשל",
-        message: `לא ניתן היה לפענח תעודת משלוח "${ctx.doc.filename}" (מייל: ${msgId})`,
-        payload: { gmailMessageId: msgId, subject: ctx.subject, filename: ctx.doc.filename, error: errMsg },
-      });
-      return;
-    }
+    // A thrown extraction error (transient API 429/500/timeout, or a parse
+    // failure after retry) propagates to the caller's per-message handler, which
+    // leaves the email UNLABELED so the next cron run retries — instead of
+    // alerting + labeling and losing the document. (No clean "not a delivery
+    // note" verdict exists here; the doc was already routed by subject/content.)
+    const extracted = await extractDeliveryNote(ctx.doc);
     const supplierId = await resolveSupplier(extracted.vendor_name);
 
     // Dedup: primary = gmail_message_id + note_number + supplier_id
@@ -1939,7 +1946,7 @@ async function handleNonInvoice(
       await log("info",
         `skipped duplicate delivery_note: ${extracted.note_number || "(no number)"} for message ${msgId}`,
         { existingId: existingDN.id, filename: ctx.doc.filename }, msgId);
-      return;
+      return true; // already saved
     }
 
     const dateForPath = new Date(extracted.date || ctx.emailTs);
@@ -1985,29 +1992,18 @@ async function handleNonInvoice(
     if (error) {
       await log("error", `delivery_note insert failed: ${error.message}`,
         { code: error.code, filename: ctx.doc.filename }, msgId);
-    } else {
-      await log("info", "delivery_note ingested",
-        { supplierId, noteNumber: extracted.note_number, filename: ctx.doc.filename }, msgId);
+      return false; // DB write failed — leave email for retry
     }
+    await log("info", "delivery_note ingested",
+      { supplierId, noteNumber: extracted.note_number, filename: ctx.doc.filename }, msgId);
+    return true;
 
   } else if (ctx.docType === "return_doc") {
     // Credit notes from a supplier are a RESPONSE to a return the store already
     // issued — match them against an open return and close it, don't insert new.
-    let extracted: ExtractedReturn;
-    try {
-      extracted = await extractReturn(ctx.doc);
-    } catch (e) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      await log("error", `extractReturn failed: ${errMsg}`,
-        { filename: ctx.doc.filename }, msgId);
-      await insertAlertOnce(supabase, log, msgId, {
-        type:    "extraction_failed",
-        title:   "פענוח מסמך נכשל",
-        message: `לא ניתן היה לפענח חזרה/זיכוי "${ctx.doc.filename}" (מייל: ${msgId})`,
-        payload: { gmailMessageId: msgId, subject: ctx.subject, filename: ctx.doc.filename, error: errMsg },
-      });
-      return;
-    }
+    // As with delivery notes — a thrown extraction error propagates so the email
+    // stays unlabeled and the next run retries, rather than escalating + labeling.
+    const extracted = await extractReturn(ctx.doc);
     const supplierId = await resolveSupplier(extracted.vendor_name);
 
     // Upload the credit-note file to Storage up front so it's available whether
@@ -2052,7 +2048,7 @@ async function handleNonInvoice(
 
     if (!supplierId) {
       await createUnmatchedAlert("supplier not found");
-      return;
+      return true; // escalated to the user — handled
     }
 
     const { data: openReturns, error: searchErr } = await supabase
@@ -2065,14 +2061,14 @@ async function handleNonInvoice(
     if (searchErr) {
       await log("error", `returns search failed: ${searchErr.message}`,
         { code: searchErr.code, supplierId }, msgId);
-      return;
+      return false; // DB read failed — leave email for retry
     }
 
     const existing = openReturns?.[0] ?? null;
     if (!existing) {
       // OUTCOME C — no open return for this supplier
       await createUnmatchedAlert("no open return for supplier");
-      return;
+      return true; // escalated to the user — handled
     }
 
     const expectedAmount = Number(existing.amount ?? 0);
@@ -2096,7 +2092,7 @@ async function handleNonInvoice(
     if (updErr) {
       await log("error", `return update failed: ${updErr.message}`,
         { existingId: existing.id, code: updErr.code }, msgId);
-      return;
+      return false; // DB write failed — leave email for retry
     }
 
     if (pct > 0.10) {
@@ -2116,6 +2112,7 @@ async function handleNonInvoice(
         `return matched and closed: ${existing.id} with credit note ${extracted.credit_note_number || "(no number)"}`,
         { returnId: existing.id, amount: actualAmount }, msgId);
     }
+    return true; // return row updated successfully
 
   } else {
     // statement — uploaded to Storage only; no Drive upload.
@@ -2157,9 +2154,10 @@ async function handleNonInvoice(
         message: `לא ניתן היה לשמור כרטסת מהמייל "${ctx.subject}". יש לבדוק ידנית.`,
         payload: { gmailMessageId: msgId, subject: ctx.subject, filename: ctx.doc.filename, error: error.message, storagePath: storagePath || null },
       });
-    } else {
-      await log("info", "statement recorded", { storagePath, month: statementMonth }, msgId);
+      return false; // DB write failed — leave email for retry
     }
+    await log("info", "statement recorded", { storagePath, month: statementMonth }, msgId);
+    return true;
   }
 }
 
