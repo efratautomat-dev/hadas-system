@@ -868,6 +868,11 @@ function classifyBySubject(subject: string): DocType {
   // הזמנה (order) is routed as a delivery note in this system, per N8N convention.
   if (s.includes("משלוח") || s.includes("הזמנה"))                   return "delivery_note";
   if (s.includes("חשבונית"))                                       return "invoice";
+  // The customer self-sends hand-received documents titled generically "מסמך"
+  // (and can't reliably label them). With no specific keyword above, force
+  // content-based detection rather than guessing. Specific keywords win first,
+  // so "מסמך חשבונית" still routes by "חשבונית".
+  if (s.includes("מסמך"))                                          return "unknown";
   return "unknown";
 }
 
@@ -970,11 +975,12 @@ async function classifyDocTypeByContent(
         content: [
           buildDocumentBlock(doc.mimeType, doc.bytes),
           { type: "text", text:
-`סווג את סוג המסמך לפי תוכנו בלבד. ענה במילה אחת בלבד:
-- "חשבונית מס" / "חשבונית מקור" / קבלה            → חשבונית
-- דוח כרטסת / ריכוז תנועות / יתרות                 → כרטסת
-- תעודת משלוח / הזמנה                              → משלוח
-- תעודת זיכוי / חשבונית זיכוי / החזר               → זיכוי` },
+`סווג את סוג המסמך לפי תוכנו בלבד. ענה במילה אחת בלבד מתוך: חשבונית / כרטסת / משלוח / זיכוי
+
+- כרטסת: דוח מצטבר עם ריבוי תנועות/שורות (תאריך, חובה, זכות), יתרת פתיחה ויתרת סגירה, או הכותרות "כרטסת", "ריכוז תנועות", "דוח יתרות", "הנהלת חשבונות". זהו ריכוז של כמה עסקאות לאורך תקופה — לא חשבונית בודדת, גם אם מופיעים בו סכומים רבים. אם יש יותר מעסקה אחת ויתרה מצטברת → כרטסת (ולא חשבונית).
+- חשבונית: מסמך של עסקה בודדת עם "חשבונית מס" / "חשבונית מקור" / קבלה ומספר חשבונית יחיד.
+- משלוח: תעודת משלוח / הזמנה.
+- זיכוי: תעודת זיכוי / חשבונית זיכוי / החזר.` },
         ],
       }],
       16,
@@ -2131,18 +2137,29 @@ async function handleNonInvoice(
 
     // vendor_statements schema has no email_subject / message_link /
     // gmail_message_id / received_at columns — only status, storage_url,
-    // drive_file_link (+ supplier_id/month/balances filled in later by the user).
-    // The old insert listed those phantom columns and PostgREST rejected the row
-    // ("Could not find the 'email_subject' column"). Insert only real columns.
+    // drive_file_link, and a NOT-NULL `month` (+ supplier_id/balances filled in
+    // later by the user). `month` is a text column rendered as-is in the UI; we
+    // default it to the email-received month (YYYY-MM), which the user can correct.
+    const statementMonth = ctx.emailTs.slice(0, 7); // "YYYY-MM" from the ISO emailTs
     const { error } = await supabase.from("vendor_statements").insert({
       status:          "needs_review",
       storage_url:     storagePath || null,
       drive_file_link: null,
+      month:           statementMonth,
     });
     if (error) {
-      await log("warn", `vendor_statements insert failed: ${error.message}`, undefined, msgId);
+      // Only log/alert FAILURE on a real error — never log "recorded" for a row
+      // that didn't persist.
+      await log("error", `vendor_statements insert failed: ${error.message}`, { code: error.code }, msgId);
+      await insertAlertOnce(supabase, log, msgId, {
+        type:    "statement_save_failed",
+        title:   "שמירת כרטסת נכשלה",
+        message: `לא ניתן היה לשמור כרטסת מהמייל "${ctx.subject}". יש לבדוק ידנית.`,
+        payload: { gmailMessageId: msgId, subject: ctx.subject, filename: ctx.doc.filename, error: error.message, storagePath: storagePath || null },
+      });
+    } else {
+      await log("info", "statement recorded", { storagePath, month: statementMonth }, msgId);
     }
-    await log("info", "statement recorded", { storagePath }, msgId);
   }
 }
 
