@@ -526,37 +526,57 @@ function findAttachments(message: GmailMessage): CandidateAttachment[] {
   return out;
 }
 
-// ─── Attachment filtering — Stage 1 (heuristic) ────────────────────────────
+// ─── Stage 1 — sort by FILE FORMAT (ports the N8N file-sort node) ───────────
 
 const LOGO_FILENAME_RE    = /logo|signature|image00[1-9]|banner|footer|header/i;
-const LOGO_SIZE_THRESHOLD = 30_000; // bytes — typical upper-bound for inline logos
+const LOGO_SIZE_THRESHOLD = 50_000; // bytes — logo gate (matches the N8N flow); also the link-path image floor
 
-interface RejectedAttachment { filename: string; mimeType: string; size: number; reason: string }
+// A document the pipeline will actually process. `attachmentId` is the stable
+// Gmail id (null for link-derived docs) — used as the per-file dedup discriminator
+// so multiple numberless invoices in one email never collide.
+interface UsableFile {
+  attachmentId: string | null;
+  filename:     string;
+  mimeType:     string;
+  bytes:        Uint8Array;
+  format:       "pdf" | "image";
+  size:         number;
+}
+interface DroppedFile { filename: string; mimeType: string; size: number; reason: string }
 
-function heuristicFilterAttachments(
+// Stage 1: PDFs pass unconditionally (a PDF ad is filtered later by the
+// invoice-path quickInvoiceCheck). Images pass only when they're NOT a
+// logo/signature by FILENAME and are larger than the 50KB size floor — this is
+// the logo gate, by name+size, replacing the old AI content classifier. Bytes
+// are downloaded only for files that survive the gate. Runs per-file, so the
+// multi-file rule (drop logos/ads, keep real docs) falls out naturally.
+async function sortAttachmentsByFormat(
+  token:       string,
+  msgId:       string,
   attachments: CandidateAttachment[],
-): { kept: CandidateAttachment[]; rejected: RejectedAttachment[] } {
-  const kept: CandidateAttachment[] = [];
-  const rejected: RejectedAttachment[] = [];
+): Promise<{ files: UsableFile[]; dropped: DroppedFile[] }> {
+  const files:   UsableFile[]  = [];
+  const dropped: DroppedFile[] = [];
   for (const a of attachments) {
     const mt = a.mimeType.toLowerCase();
+    if (mt === "application/pdf") {
+      const bytes = await gmailGetAttachment(token, msgId, a.attachmentId);
+      files.push({ attachmentId: a.attachmentId, filename: a.filename, mimeType: a.mimeType, bytes, format: "pdf", size: a.size });
+      continue;
+    }
+    // image/*
     if (LOGO_FILENAME_RE.test(a.filename)) {
-      rejected.push({ filename: a.filename, mimeType: a.mimeType, size: a.size,
-        reason: "filename matches logo/signature pattern" });
-    } else if (a.isInline) {
-      rejected.push({ filename: a.filename, mimeType: a.mimeType, size: a.size,
-        reason: "Content-Disposition: inline (embedded HTML image)" });
-    } else if (mt.startsWith("image/") && a.size < LOGO_SIZE_THRESHOLD) {
-      rejected.push({ filename: a.filename, mimeType: a.mimeType, size: a.size,
-        reason: `image too small (${a.size} B < ${LOGO_SIZE_THRESHOLD} B threshold)` });
-    } else if (/\.gif$/i.test(a.filename) || mt === "image/gif") {
-      rejected.push({ filename: a.filename, mimeType: a.mimeType, size: a.size,
-        reason: ".gif is not a document format" });
+      dropped.push({ filename: a.filename, mimeType: a.mimeType, size: a.size, reason: "filename matches logo/signature pattern" });
+    } else if (mt === "image/gif" || /\.gif$/i.test(a.filename)) {
+      dropped.push({ filename: a.filename, mimeType: a.mimeType, size: a.size, reason: ".gif is not a document format" });
+    } else if (a.size < LOGO_SIZE_THRESHOLD) {
+      dropped.push({ filename: a.filename, mimeType: a.mimeType, size: a.size, reason: `image too small (${a.size} B < ${LOGO_SIZE_THRESHOLD} B) — likely a logo` });
     } else {
-      kept.push(a);
+      const bytes = await gmailGetAttachment(token, msgId, a.attachmentId);
+      files.push({ attachmentId: a.attachmentId, filename: a.filename, mimeType: a.mimeType, bytes, format: "image", size: a.size });
     }
   }
-  return { kept, rejected };
+  return { files, dropped };
 }
 
 // ─── Body-link invoice fetching ────────────────────────────────────────────
@@ -578,7 +598,12 @@ function extractRawHtml(message: GmailMessage): string {
 }
 
 const FILE_URL_RE    = /\.(pdf|jpe?g|png)(?:[?#]|$)/i;
-const DOWNLOAD_WORDS = ["להורדה", "חשבונית", "download", "invoice"];
+// Widened to the full N8N keyword set so portal-style "view/download" links are
+// caught — e.g. כובעי זיוה's "להורדת המסמך".
+const DOWNLOAD_WORDS = [
+  "לצפייה", "צפייה", "לחץ כאן", "הורד", "להורדה", "להורדת",
+  "view", "download", "invoice", "חשבונית", "מסמך",
+];
 
 // True for URLs that look like they point at a downloadable invoice file.
 function isFileHostUrl(url: string): boolean {
@@ -804,14 +829,19 @@ async function resolveDocFromLinks(
 
 // ─── Doc-type routing by subject ───────────────────────────────────────────
 
-type DocType = "invoice" | "delivery_note" | "statement" | "return_doc" | "skip" | "unknown";
+// "skip" was retired with the old subject+text classifier (classifyWithAI). Stage 2
+// always resolves to a concrete type (subject → classifyDocTypeByContent, which
+// defaults to "invoice"), so "unknown" is only ever transient before that step.
+type DocType = "invoice" | "delivery_note" | "statement" | "return_doc" | "unknown";
 
 function classifyBySubject(subject: string): DocType {
   const s = (subject ?? "").trim();
-  if (s.includes("משלוח"))               return "delivery_note";
-  if (s.includes("כרטסת"))               return "statement";
-  if (s.includes("חזרה") || s.includes("זיכוי")) return "return_doc";
-  if (s.includes("חשבונית"))             return "invoice";
+  if (s.includes("כרטסת"))                                         return "statement";
+  // זיכוי/חזרה/החזר checked before invoice so "חשבונית זיכוי" routes to return.
+  if (s.includes("זיכוי") || s.includes("חזרה") || s.includes("החזר")) return "return_doc";
+  // הזמנה (order) is routed as a delivery note in this system, per N8N convention.
+  if (s.includes("משלוח") || s.includes("הזמנה"))                   return "delivery_note";
+  if (s.includes("חשבונית"))                                       return "invoice";
   return "unknown";
 }
 
@@ -896,27 +926,69 @@ function parseJsonRobust(raw: string): unknown | null {
   try { return JSON.parse(repaired); } catch { return null; }
 }
 
-// ─── Subject-classifier (Haiku) ────────────────────────────────────────────
+// ─── Stage 2 — document-type routing (subject first, AI content as fallback) ─
 
-async function classifyWithAI(subject: string, bodyPreview: string): Promise<DocType> {
-  const prompt = `סווג את המסמך לאחת מהקטגוריות הבאות: חשבונית, תעודת משלוח, כרטסת, תעודת זיכוי, או "לא רלוונטי".
-החזר רק את המילים, ללא הסבר.
+// Stage-2 fallback router — used ONLY when classifyBySubject is inconclusive.
+// Looks at the document content and returns a TYPE for routing. It NEVER drops a
+// document: an unrecognized/empty answer (or an API error) defaults to "invoice",
+// the fully-handled path whose extractor has its own not_invoice safety net.
+async function classifyDocTypeByContent(
+  doc: { mimeType: string; bytes: Uint8Array },
+): Promise<Exclude<DocType, "unknown">> {
+  let raw = "";
+  try {
+    raw = (await anthropicMessage(
+      ANTHROPIC_MODEL_CLASSIFIER,
+      [{
+        role: "user",
+        content: [
+          buildDocumentBlock(doc.mimeType, doc.bytes),
+          { type: "text", text:
+`סווג את סוג המסמך לפי תוכנו בלבד. ענה במילה אחת בלבד:
+- "חשבונית מס" / "חשבונית מקור" / קבלה            → חשבונית
+- דוח כרטסת / ריכוז תנועות / יתרות                 → כרטסת
+- תעודת משלוח / הזמנה                              → משלוח
+- תעודת זיכוי / חשבונית זיכוי / החזר               → זיכוי` },
+        ],
+      }],
+      16,
+    )).trim();
+  } catch {
+    return "invoice";
+  }
+  if (raw.includes("כרטסת"))                       return "statement";
+  if (raw.includes("זיכוי") || raw.includes("החזר")) return "return_doc";
+  if (raw.includes("משלוח") || raw.includes("הזמנה")) return "delivery_note";
+  return "invoice"; // default safe path
+}
 
-נושא המייל: ${subject}
-תוכן המייל (תחילה): ${bodyPreview.slice(0, 500)}`;
-
-  const text = (await anthropicMessage(
-    ANTHROPIC_MODEL_CLASSIFIER,
-    [{ role: "user", content: [{ type: "text", text: prompt }] }],
-    64,
-  )).trim();
-
-  if (text.includes("לא רלוונטי")) return "skip";
-  if (text.includes("חשבונית"))     return "invoice";
-  if (text.includes("תעודת משלוח")) return "delivery_note";
-  if (text.includes("כרטסת"))        return "statement";
-  if (text.includes("זיכוי"))         return "return_doc";
-  return "unknown";
+// Invoice-path ONLY: separates a real invoice/receipt from an ad/flyer/newsletter/
+// catalog (N8N's "Analyze document2" yes/no). Lenient by construction — only an
+// explicit "לא" (ad/marketing) drops the file; empty/ambiguous/error → keep, so a
+// legitimate invoice is never discarded here (the extractor's not_invoice hatch is
+// the final net). NEVER applied to statements/delivery-notes/returns.
+async function quickInvoiceCheck(doc: { mimeType: string; bytes: Uint8Array }): Promise<boolean> {
+  let raw = "";
+  try {
+    raw = (await anthropicMessage(
+      ANTHROPIC_MODEL_CLASSIFIER,
+      [{
+        role: "user",
+        content: [
+          buildDocumentBlock(doc.mimeType, doc.bytes),
+          { type: "text", text:
+`האם זהו מסמך עסקי (חשבונית / קבלה / תעודה), או חומר פרסומי (פרסומת / דף שיווקי / ניוזלטר / קטלוג)?
+ענה במילה אחת בלבד: "כן" אם מסמך עסקי, "לא" אם חומר פרסומי. אם אינך בטוח — ענה "כן".` },
+        ],
+      }],
+      16,
+    )).trim();
+  } catch {
+    return true; // never drop on error
+  }
+  // Only an explicit negative drops the file.
+  if (raw.startsWith("לא") || raw.toLowerCase().startsWith("no")) return false;
+  return true;
 }
 
 // ─── Invoice extractor (Sonnet) ────────────────────────────────────────────
@@ -1025,86 +1097,12 @@ ${hintLine}`;
   };
 }
 
-// ─── Attachment AI classification — Stage 2 (Haiku, cheap) ───────────────
-
-interface AttachmentClassification {
-  is_invoice:    boolean;
-  document_type: "invoice" | "delivery_note" | "credit_note" | "receipt" | "other";
-  confidence:    "high" | "medium" | "low";
-}
-
-async function classifyAttachmentDoc(
-  doc: { mimeType: string; bytes: Uint8Array },
-): Promise<AttachmentClassification> {
-  const raw = await anthropicMessage(
-    ANTHROPIC_MODEL_CLASSIFIER,
-    [{
-      role:    "user",
-      content: [
-        buildDocumentBlock(doc.mimeType, doc.bytes),
-        {
-          type: "text",
-          text:
-`Classify this Hebrew business document by its content alone. The email subject is intentionally not provided — never guess based on a subject.
-
-Mapping by document text:
-- "חשבונית מס" or "חשבונית מקור" or an invoice number prefixed with "חשבונית" → "invoice"
-- "הזמנה" / "ההזמנה תקפה עד" / "מסמך מחושב" (without "חשבונית מס" or "חשבונית מקור") → "delivery_note". Orders are routed as delivery notes in this system; they are NEVER invoices.
-- "תעודת משלוח" → "delivery_note"
-- "חשבונית זיכוי" or "תעודת זיכוי" → "credit_note"
-- A receipt with no invoice header ("קבלה") → "receipt"
-- Anything else → "other"
-
-Critical: classify as "invoice" ONLY if the document explicitly contains "חשבונית מס" or "חשבונית מקור", or shows an invoice number prefixed with "חשבונית". A document whose header says "הזמנה" is NOT an invoice even when it lists prices and totals.
-
-Answer JSON only: {"is_invoice": true/false, "document_type": "invoice"|"delivery_note"|"credit_note"|"receipt"|"other", "confidence": "high"|"medium"|"low"}`,
-        },
-      ],
-    }],
-    64,
-  );
-  const start = raw.indexOf("{");
-  const end   = raw.lastIndexOf("}");
-  if (start === -1 || end === -1) return { is_invoice: false, document_type: "other", confidence: "low" };
-  try {
-    const p = JSON.parse(raw.slice(start, end + 1));
-    const VALID_TYPES = ["invoice", "delivery_note", "credit_note", "receipt", "other"] as const;
-    const VALID_CONF  = ["high", "medium", "low"] as const;
-    return {
-      is_invoice:    Boolean(p.is_invoice),
-      document_type: VALID_TYPES.includes(p.document_type) ? p.document_type : "other",
-      confidence:    VALID_CONF.includes(p.confidence)     ? p.confidence    : "low",
-    };
-  } catch {
-    return { is_invoice: false, document_type: "other", confidence: "low" };
-  }
-}
-
-// Stage 3 — pick best from classified candidates
-interface ScoredAttachment { att: CandidateAttachment; bytes: Uint8Array; cls: AttachmentClassification }
-
-function selectBestAttachment(scored: ScoredAttachment[]): ScoredAttachment | null {
-  const invoices = scored.filter((s) => s.cls.is_invoice);
-  if (invoices.length === 0) return null; // caller falls through to link scan
-  const rank = (s: ScoredAttachment) => {
-    const conf = s.cls.confidence === "high" ? 2 : s.cls.confidence === "medium" ? 1 : 0;
-    const pdf  = s.att.mimeType === "application/pdf" ? 1 : 0;
-    return conf * 1000 + pdf * 100 + s.att.size / 1_000_000;
-  };
-  return invoices.sort((a, b) => rank(b) - rank(a))[0];
-}
-
-// Pick the most useful DocType from a set of classified attachments. Returns
-// null when the classifier had nothing specific to say (all "receipt"/"other"),
-// in which case the caller keeps the subject-derived docType — important for
-// statement emails, since the classifier vocabulary doesn't include "statement".
-function dominantDocType(scored: ScoredAttachment[]): DocType | null {
-  if (scored.length === 0) return null;
-  if (scored.some((s) => s.cls.document_type === "invoice"))       return "invoice";
-  if (scored.some((s) => s.cls.document_type === "delivery_note")) return "delivery_note";
-  if (scored.some((s) => s.cls.document_type === "credit_note"))   return "return_doc";
-  return null;
-}
+// NOTE: the old AI content classifier (classifyAttachmentDoc / selectBestAttachment /
+// dominantDocType) was removed. It gated documents by is_invoice and dropped
+// anything it didn't recognize — which discarded statements ("other") and link
+// images. Routing now uses Stage 1 (format/logo gate) + Stage 2 (subject →
+// classifyDocTypeByContent), and the invoice path filters ads per-file via
+// quickInvoiceCheck. See sortAttachmentsByFormat and the main ingest loop.
 
 // ─── Fuzzy supplier matching (mirrored from payments-ingest) ───────────────
 
@@ -1182,6 +1180,37 @@ async function resolveInvoiceFolder(
   return { fileFolderId: fileFolder, monthFolderId: monthFolder };
 }
 
+// ─── Alert idempotency (A4) ──────────────────────────────────────────────────
+
+// A concurrent manual run + cron tick both reach an alert insert before either
+// applies the processed label, producing two alerts for one email. Insert only
+// when no same-type alert already exists for this Gmail message. Returns true if
+// a NEW alert row was written (callers gate counters / manager emails on that).
+// `status:"unread"` is always set here so call sites don't repeat it.
+async function insertAlertOnce(
+  supabase: SupabaseClient,
+  log:      Logger,
+  msgId:    string,
+  alert:    { type: string; title: string; message: string; payload: Record<string, unknown> },
+): Promise<boolean> {
+  const { data: existing } = await supabase
+    .from("alerts")
+    .select("id")
+    .eq("type", alert.type)
+    .filter("payload->>gmailMessageId", "eq", msgId)
+    .limit(1);
+  if (existing && existing.length > 0) {
+    await log("info", `alert suppressed (already exists): ${alert.type}`, { existingId: existing[0].id }, msgId);
+    return false;
+  }
+  const { error } = await supabase.from("alerts").insert({ ...alert, status: "unread" });
+  if (error) {
+    await log("error", `alert insert failed (${alert.type}): ${error.message}`, { code: error.code }, msgId);
+    return false;
+  }
+  return true;
+}
+
 // ─── Main ingest ───────────────────────────────────────────────────────────
 
 interface IngestResult {
@@ -1190,6 +1219,283 @@ interface IngestResult {
   skipped:    number;
   errors:     string[];
   ts:         string;
+}
+
+// Context shared by every invoice file in one email (the email-level facts plus
+// the loaded suppliers/categories the helper mutates in place).
+interface InvoiceFileCtx {
+  token:                string;
+  msgId:                string;
+  subject:              string;
+  from:                 string;
+  emailTs:              string;
+  messageLink:          string;
+  labelIds:             string[];
+  partialRefundLabelId: string | null;
+  managerEmail:         string;
+  suppliers:            SupplierRow[];
+  categoryNames:        string[];
+}
+
+type InvoiceFileOutcome = "created" | "skipped" | "alerted" | "error";
+
+// Runs the full invoice pipeline for ONE file: extract → supplier → category →
+// Drive + Storage upload → dedup → insert → category usage. Returns the outcome;
+// the caller owns the Gmail label transition (applied once per email) and tallies.
+// Multiple files from one email each call this independently, producing one
+// invoice record per real invoice.
+async function handleInvoiceFile(
+  supabase: SupabaseClient,
+  log:      Logger,
+  file:     UsableFile,
+  ctx:      InvoiceFileCtx,
+  result:   IngestResult,
+): Promise<InvoiceFileOutcome> {
+  const { token, msgId, subject, from, emailTs, messageLink, managerEmail, suppliers, categoryNames } = ctx;
+
+  const extracted = await extractInvoice(file, categoryNames, null);
+  await log("info", "extracted", { extracted, filename: file.filename }, msgId);
+
+  // not_invoice escape hatch — the extractor refused to fabricate fields for a
+  // non-invoice (order/receipt). Alert, skip the insert. (Belt-and-suspenders
+  // alongside quickInvoiceCheck, which already drops obvious ads upstream.)
+  if (extracted.missing_fields?.includes("not_invoice")) {
+    await log("info", "extractor flagged as not_invoice, skipping ingest",
+      { vendor: extracted.vendor_name, filename: file.filename }, msgId);
+    await insertAlertOnce(supabase, log, msgId, {
+      type:    "document_misclassified",
+      title:   "מסמך לא-חשבונית הגיע לתיבת החשבוניות",
+      message: `המסמך מ-${extracted.vendor_name || "ספק לא ידוע"} זוהה כלא-חשבונית (כנראה הזמנה או קבלה). נא לבדוק במייל המקורי.`,
+      payload: { gmailMessageId: msgId, subject, from, messageLink, extracted },
+    });
+    return "alerted";
+  }
+
+  if (extracted.confidence === "low") {
+    await log("warn", "low confidence extraction — flagging for manual review", { extracted }, msgId);
+    if (managerEmail) {
+      await gmailSendAlertEmail(token, managerEmail,
+        "חשבונית — נדרשת בדיקה ידנית",
+        `נושא: ${subject}\nספק (מזוהה): ${extracted.vendor_name}\nשדות חסרים: ${extracted.missing_fields.join(", ")}\nקישור למייל: ${messageLink}`);
+    }
+    await insertAlertOnce(supabase, log, msgId, {
+      type:    "invoice_low_confidence",
+      title:   "חשבונית בוודאות נמוכה",
+      message: `החשבונית מ-${extracted.vendor_name || "ספק לא ידוע"} נשמרה בסטטוס 'נדרש בירור' — נא לבדוק.`,
+      payload: { gmailMessageId: msgId, subject, from, messageLink, extracted },
+    });
+  }
+
+  // Find or create supplier
+  const matched = findBestSupplier(extracted.vendor_name, suppliers);
+  let supplierId: string | null = matched?.id ?? null;
+  const supplierDefaultCat: string | null = (matched?.category ?? "").trim() || null;
+  let isNewSupplier = false;
+  if (!supplierId && extracted.vendor_name) {
+    const seedCategory = (extracted.category ?? "").trim() || null;
+    const { data: created, error: supErr } = await supabase
+      .from("suppliers")
+      .insert({ name: extracted.vendor_name, category: seedCategory })
+      .select("id, category")
+      .single();
+    if (supErr) {
+      await log("error", `supplier insert failed: ${supErr.message}`, undefined, msgId);
+    } else {
+      supplierId    = created!.id as string;
+      isNewSupplier = true;
+      suppliers.push({ id: supplierId, name: extracted.vendor_name, category: created!.category ?? null });
+      await log("info", `created new supplier ${supplierId} (category: ${seedCategory ?? "(none)"})`,
+        { name: extracted.vendor_name }, msgId);
+      // New supplier created silently from the invoice — prompt the owner to fill
+      // in ח.פ / contact details. Same type + payload shape as payments-ingest so
+      // the frontend handles both identically.
+      await insertAlertOnce(supabase, log, msgId, {
+        type:    "supplier_incomplete",
+        title:   "ספק חדש - השלימי פרטים",
+        message: `נוצר ספק חדש '${extracted.vendor_name}' מתוך חשבונית. השלימי ח.פ ופרטי קשר.`,
+        payload: { supplierId, typedSupplierName: extracted.vendor_name, gmailMessageId: msgId },
+      });
+    }
+  }
+
+  // Category precedence: supplier default → AI.
+  let finalCategory = extracted.category;
+  if (supplierDefaultCat) {
+    finalCategory = supplierDefaultCat;
+    await log("info", `category from supplier default: ${finalCategory}`, undefined, msgId);
+  } else if (isNewSupplier) {
+    await log("info", `category from AI (new supplier, seeded as default): ${finalCategory}`, undefined, msgId);
+  } else {
+    await log("info", `category from AI (no supplier default): ${finalCategory}`, undefined, msgId);
+  }
+
+  // Duplicate invoice-number alert (non-terminal — still insert with is_duplicate)
+  let isDuplicate = false;
+  if (supplierId && extracted.invoice_number) {
+    const { data: dupInv } = await supabase
+      .from("invoices").select("id")
+      .eq("supplier_id", supplierId)
+      .eq("invoice_number", extracted.invoice_number)
+      .limit(1);
+    if (dupInv && dupInv.length > 0) {
+      isDuplicate = true;
+      await log("warn", "duplicate invoice number for supplier", { existingId: dupInv[0].id }, msgId);
+      await insertAlertOnce(supabase, log, msgId, {
+        type:    "invoice_duplicate",
+        title:   "חשבונית כפולה",
+        message: `קיימת כבר חשבונית עם מספר ${extracted.invoice_number} לספק זה.`,
+        payload: { gmailMessageId: msgId, subject, messageLink, supplierId, invoiceNumber: extracted.invoice_number, existingInvoiceId: dupInv[0].id },
+      });
+    }
+  }
+
+  const partialReturn = ctx.partialRefundLabelId !== null && ctx.labelIds.includes(ctx.partialRefundLabelId);
+
+  // Per-file dedup discriminator: invoice_number when present, else the stable
+  // Gmail attachmentId ("link" for link docs). Goes into the Storage key so two
+  // numberless invoices in the same email produce two distinct storage paths.
+  const fileTag = extracted.invoice_number || (file.attachmentId ?? "link");
+
+  // Drive (primary backup) + Supabase Storage (in-app preview)
+  const supplierDisplayName = matched?.name ?? extracted.vendor_name;
+  const invoiceFilename = buildInvoiceFilename(
+    supplierDisplayName, extracted.invoice_number, extracted.invoice_date, file.filename, file.mimeType,
+  );
+  const invoiceDateObj = new Date(extracted.invoice_date || new Date().toISOString().slice(0, 10));
+
+  let driveFileLink = "", monthFolderLink = "";
+  try {
+    const target = await resolveInvoiceFolder(token, extracted.invoice_date || new Date().toISOString().slice(0, 10), partialReturn);
+    const uploaded = await driveUploadFile(token, target.fileFolderId, invoiceFilename, file.mimeType, file.bytes);
+    driveFileLink   = uploaded.webViewLink;
+    monthFolderLink = await driveGetFolderLink(token, target.monthFolderId);
+    await log("info", "uploaded to Drive", { fileId: uploaded.id }, msgId);
+  } catch (e) {
+    await log("error", `Drive upload failed: ${e instanceof Error ? e.message : e}`, undefined, msgId);
+    result.errors.push(`Drive upload failed for ${msgId}`);
+  }
+
+  let storagePath = "";
+  try {
+    const storageKey = buildStorageKey(
+      "invoice", supplierId, fileTag, msgId, pickExtension(file.filename, file.mimeType),
+    );
+    storagePath = await uploadToStorage(supabase, "invoices", invoiceDateObj, storageKey, file.mimeType, file.bytes);
+    await log("info", "uploaded to Storage", { storagePath }, msgId);
+  } catch (e) {
+    await log("error", `Storage upload failed: ${e instanceof Error ? e.message : e}`, undefined, msgId);
+    result.errors.push(`Storage upload failed for ${msgId}`);
+  }
+
+  // Old-date warning (non-terminal)
+  const now = new Date();
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  if (extracted.invoice_date && new Date(extracted.invoice_date) < startOfMonth) {
+    await log("warn", "invoice older than current month", { invoiceDate: extracted.invoice_date }, msgId);
+    await insertAlertOnce(supabase, log, msgId, {
+      type:    "invoice_old_date",
+      title:   "חשבונית מחודש קודם",
+      message: `החשבונית מ-${extracted.vendor_name} מתאריך ${extracted.invoice_date} — בדקי האם להעביר לרו"ח.`,
+      payload: { gmailMessageId: msgId, subject, invoiceDate: extracted.invoice_date, vendor: extracted.vendor_name, messageLink },
+    });
+  }
+
+  // Dedup guard then insert.
+  // Numbered:    gmail_message_id + invoice_number + supplier_id.
+  // Numberless:  gmail_message_id + storage_url (unique per file via fileTag) —
+  //              supports multiple numberless invoices from one email.
+  let existingInv: { id: string } | null = null;
+  if (supplierId && extracted.invoice_number) {
+    const { data } = await supabase.from("invoices").select("id")
+      .eq("gmail_message_id", msgId)
+      .eq("invoice_number", extracted.invoice_number)
+      .eq("supplier_id", supplierId)
+      .limit(1);
+    existingInv = data?.[0] ?? null;
+  } else if (storagePath) {
+    const { data } = await supabase.from("invoices").select("id")
+      .eq("gmail_message_id", msgId)
+      .eq("storage_url", storagePath)
+      .limit(1);
+    existingInv = data?.[0] ?? null;
+  }
+  if (existingInv) {
+    await log("info",
+      `skipped duplicate invoice: ${extracted.invoice_number || "(no number)"} for message ${msgId}`,
+      { existingId: existingInv.id }, msgId);
+    return "skipped";
+  }
+
+  const insertRow: Record<string, unknown> = {
+    supplier_id:        supplierId,
+    supplier_name:      extracted.vendor_name,
+    invoice_number:     extracted.invoice_number,
+    invoice_date:       extracted.invoice_date || null,
+    total_amount:       extracted.total_amount,
+    amount_before_vat:  extracted.amount_before_vat,
+    vat_amount:         extracted.vat_amount,
+    category:           finalCategory,
+    line_items:         extracted.line_items.join("\n"),
+    ai_confidence:      extracted.confidence,
+    status:             extracted.confidence === "low" ? "needs_review" : "ממתין",
+    is_duplicate:       isDuplicate,
+    has_error:          false,
+    partial_return:     partialReturn,
+    drive_file_link:    driveFileLink,
+    storage_url:        storagePath || null,
+    month_folder_link:  monthFolderLink,
+    drive_folder_link:  monthFolderLink,
+    message_link:       messageLink,
+    gmail_message_id:   msgId,
+    email_subject:      subject,
+    gmail_label_source: SOURCE_LABEL_NAME,
+    received_at:        emailTs,
+    sender_name:        from,
+    email_sender:       from,
+  };
+
+  const { error: insErr } = await supabase.from("invoices").insert(insertRow);
+  if (insErr) {
+    if (insErr.code === "23505") {
+      await log("info", "concurrent insert race — skipping", { code: insErr.code }, msgId);
+      return "skipped";
+    }
+    await log("error", `invoice insert failed: ${insErr.message}`, { code: insErr.code }, msgId);
+    result.errors.push(`Invoice insert failed for ${msgId}: ${insErr.message}`);
+    return "error";
+  }
+
+  // Update supplier_categories + categories usage (tracks the FINAL category)
+  if (supplierId && finalCategory) {
+    const { data: existingSc } = await supabase
+      .from("supplier_categories")
+      .select("id, usage_count")
+      .eq("supplier_id", supplierId)
+      .eq("category", finalCategory)
+      .maybeSingle();
+    if (existingSc) {
+      await supabase.from("supplier_categories")
+        .update({ usage_count: (existingSc.usage_count ?? 0) + 1, last_used_at: new Date().toISOString() })
+        .eq("id", existingSc.id);
+    } else {
+      await supabase.from("supplier_categories")
+        .insert({ supplier_id: supplierId, category: finalCategory, usage_count: 1 });
+    }
+
+    if (!categoryNames.includes(finalCategory)) {
+      await supabase.from("categories").insert({ name: finalCategory, usage_count: 1 });
+      categoryNames.push(finalCategory);
+    } else {
+      const { data: cat } = await supabase.from("categories").select("usage_count").eq("name", finalCategory).single();
+      if (cat) {
+        await supabase.from("categories").update({ usage_count: (cat.usage_count ?? 0) + 1 }).eq("name", finalCategory);
+      }
+    }
+  }
+
+  await log("info", "invoice ingested",
+    { supplierId, isNewSupplier, isDuplicate, category: finalCategory, filename: file.filename }, msgId);
+  return "created";
 }
 
 async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
@@ -1241,12 +1547,16 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
 
   for (const msgId of messageIds) {
     try {
-      // Idempotency: skip if already in invoices by gmail_message_id
-      const { data: dup } = await supabase
+      // Idempotency fast-path: if this email already produced any invoice row,
+      // skip it. limit(1) (not maybeSingle) because one email can now legitimately
+      // hold multiple invoice rows; the processed-label Gmail filter is the real
+      // idempotency guard, this is just a cheap re-run short-circuit.
+      const { data: dupRows } = await supabase
         .from("invoices")
         .select("id")
         .eq("gmail_message_id", msgId)
-        .maybeSingle();
+        .limit(1);
+      const dup = dupRows?.[0] ?? null;
       if (dup) {
         await log("info", "already ingested, applying processed label", { invoiceId: dup.id }, msgId);
         await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
@@ -1264,106 +1574,20 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
 
       await log("info", "processing", { subject, from, labelIds: message.labelIds ?? [] }, msgId);
 
-      // 1. Determine doc type
-      let docType = classifyBySubject(subject);
-      if (docType === "unknown") {
-        const cls = await classifyWithAI(subject, bodyText);
-        await log("info", `classifier → ${cls}`, undefined, msgId);
-        docType = cls;
-      }
-
-      if (docType === "skip") {
-        await log("info", "classifier said 'not relevant' — marking processed and skipping", undefined, msgId);
-        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
-        result.skipped++;
-        continue;
-      }
-
-      if (docType === "unknown") {
-        await log("warn", "classifier uncertain — alerting manager and skipping", undefined, msgId);
-        if (managerEmail) {
-          await gmailSendAlertEmail(token, managerEmail,
-            "מייל לא סווג — invoices-ingest",
-            `נושא: ${subject}\nשולח: ${from}\nקישור למייל: ${messageLink}\n\nהמסווג לא הצליח לזהות סוג מסמך. נא לבדוק ידנית.`);
-        }
-        await supabase.from("alerts").insert({
-          type: "invoice_unclassified",
-          title: "מייל חשבונית לא סווג",
-          message: `לא ניתן היה לסווג את המייל "${subject}". יש לבדוק ידנית.`,
-          payload: { gmailMessageId: msgId, subject, from, messageLink },
-          status: "unread",
-        });
-        await gmailModifyLabels(token, msgId, [destNeedsReview, destProcessed], [sourceLabelId, "UNREAD"]);
-        result.alerts++;
-        continue;
-      }
-
-      // 2. Find + filter attachments — Stage 1 heuristic, then Stage 2 AI for multiple candidates
+      // ── Stage 1: sort by FILE FORMAT (logo/size gate; PDFs unconditional) ──
       const rawAtt = findAttachments(message);
-      const { kept: hKept, rejected: hRejected } = heuristicFilterAttachments(rawAtt);
-
-      // Log every heuristic rejection
-      for (const rej of hRejected) {
-        await log("info", `attachment rejected: ${rej.reason}`,
-          { filename: rej.filename, mimeType: rej.mimeType, size: rej.size }, msgId);
+      const { files: attFiles, dropped } = await sortAttachmentsByFormat(token, msgId, rawAtt);
+      for (const d of dropped) {
+        await log("info", `attachment dropped (Stage 1): ${d.reason}`,
+          { filename: d.filename, mimeType: d.mimeType, size: d.size }, msgId);
       }
 
-      type UsableDoc = { mimeType: string; filename: string; bytes: Uint8Array };
-      let usableDoc:  UsableDoc | null = null;
-      let usableDocs: UsableDoc[]      = []; // all docs for multi-doc non-invoice types
+      let usableFiles: UsableFile[] = attFiles;
 
-      // Classify EVERY surviving attachment — even a sole survivor. The customer
-      // often types "חשבונית" in the subject regardless of attachment content,
-      // so the subject-derived docType cannot be trusted on its own; only the
-      // document content can confirm what was actually attached.
-      const scored: ScoredAttachment[] = [];
-      for (const a of hKept) {
-        const bytes = await gmailGetAttachment(token, msgId, a.attachmentId);
-        const cls   = await classifyAttachmentDoc({ mimeType: a.mimeType, bytes });
-        await log("info",
-          `attachment classified: ${a.filename} → ${cls.document_type} (is_invoice=${cls.is_invoice}, confidence=${cls.confidence})`,
-          { filename: a.filename, mimeType: a.mimeType, size: a.size }, msgId);
-        scored.push({ att: a, bytes, cls });
-      }
-
-      // If the classifier identifies a specific doc type, trust it over the subject.
-      // (Skipped for statement emails — classifier vocabulary doesn't include statements
-      // so dominantDocType returns null in that case, leaving docType=statement intact.)
-      const overrideType = dominantDocType(scored);
-      if (overrideType && overrideType !== docType) {
-        await log("info",
-          `overriding subject-derived docType=${docType} with classifier docType=${overrideType}`,
-          undefined, msgId);
-        docType = overrideType;
-      }
-
-      if (docType === "invoice") {
-        // Pick single best candidate by confidence → PDF → size
-        const best = selectBestAttachment(scored);
-        if (best) {
-          usableDoc  = { mimeType: best.att.mimeType, filename: best.att.filename, bytes: best.bytes };
-          usableDocs = [usableDoc];
-          await log("info", `selected: ${best.att.filename}`,
-            { docType: best.cls.document_type, confidence: best.cls.confidence }, msgId);
-        } else {
-          await log("warn", "no attachment classified as invoice — falling through to link scan", undefined, msgId);
-        }
-      } else {
-        // delivery_note / return_doc / statement: keep ALL non-"other" docs
-        const relevant = scored.filter((s) => s.cls.document_type !== "other");
-        if (relevant.length > 0) {
-          usableDocs = relevant.map((s) => ({ mimeType: s.att.mimeType, filename: s.att.filename, bytes: s.bytes }));
-          usableDoc  = usableDocs[0];
-          await log("info", `multi-doc: ${usableDocs.length} document(s) for ${docType}`, undefined, msgId);
-        } else {
-          await log("warn", "no attachment relevant for doc type — falling through to link scan", undefined, msgId);
-        }
-      }
-
-      // Fallback: try body links when no attachment yielded a usable doc
-      let linkFailures: Array<{ url: string; reason: string }> = [];
+      // Link path — only when no usable attachment survived Stage 1.
       let attemptedLinks = false;
-      if (!usableDoc) {
+      let linkFailures: Array<{ url: string; reason: string }> = [];
+      if (usableFiles.length === 0) {
         const candidateLinks = extractInvoiceLinks(bodyText, rawHtml);
         if (candidateLinks.length > 0) {
           attemptedLinks = true;
@@ -1373,80 +1597,69 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
           linkFailures = linkResult.failures;
           if (linkResult.doc) {
             const linked = linkResult.doc;
-            if (linked.mimeType.startsWith("image/")) {
-              // Classify images from links — reject non-invoice images
-              const cls = await classifyAttachmentDoc({ mimeType: linked.mimeType, bytes: linked.bytes });
-              await log("info",
-                `link image classified: ${linked.filename} → ${cls.document_type} (is_invoice=${cls.is_invoice}, confidence=${cls.confidence})`,
-                undefined, msgId);
-              if (cls.is_invoice) {
-                usableDoc = linked;
-              } else {
-                linkFailures.push({ url: linked.filename, reason: `classified as ${cls.document_type}, not an invoice` });
-                await log("info", `link image rejected by classifier: ${cls.document_type}`,
-                  { filename: linked.filename }, msgId);
-              }
-            } else {
-              usableDoc = linked; // PDFs from links accepted without classification
-            }
-            if (usableDoc) {
-              usableDocs = [usableDoc];
-              await log("info", "invoice document obtained from a body link", undefined, msgId);
-            }
+            usableFiles = [{
+              attachmentId: null,
+              filename:     linked.filename,
+              mimeType:     linked.mimeType,
+              bytes:        linked.bytes,
+              format:       linked.mimeType === "application/pdf" ? "pdf" : "image",
+              size:         linked.bytes.length,
+            }];
+            await log("info", "document obtained from a body link", { filename: linked.filename }, msgId);
           }
         }
       }
 
-      if (!usableDoc) {
-        // Stage 4: choose the most specific alert type
-        const hadFiltered    = rawAtt.length > 0 && hKept.length === 0;
-        const hadClassedOut  = hKept.length > 0; // survived heuristic but none is_invoice
-        const noValidAtt     = hadFiltered || hadClassedOut;
-        const alertType      = noValidAtt    ? "invoice_no_valid_attachment"
-                             : attemptedLinks ? "invoice_link_failed"
-                             :                  "invoice_no_attachment";
-        const alertTitle     = noValidAtt    ? "מייל ללא קובץ חשבונית מזוהה"
-                             : attemptedLinks ? "הורדת חשבונית מקישור נכשלה"
-                             :                  "מייל ללא קובץ מצורף";
-        const alertMessage   = hadFiltered
-          ? `במייל "${subject}" נמצאו ${rawAtt.length} קבצים אך אף אחד לא זוהה כחשבונית`
-          : hadClassedOut
-          ? `במייל "${subject}" נמצאו ${hKept.length} קבצים לאחר סינון אך אף אחד לא סווג כחשבונית`
+      // No document at all → alert + mark processed.
+      if (usableFiles.length === 0) {
+        const hadFiltered = rawAtt.length > 0; // had attachments, all dropped by Stage 1
+        const alertType   = hadFiltered    ? "invoice_no_valid_attachment"
+                          : attemptedLinks ? "invoice_link_failed"
+                          :                  "invoice_no_attachment";
+        const alertTitle  = hadFiltered    ? "מייל ללא קובץ חשבונית מזוהה"
+                          : attemptedLinks ? "הורדת חשבונית מקישור נכשלה"
+                          :                  "מייל ללא קובץ מצורף";
+        const alertMessage = hadFiltered
+          ? `במייל "${subject}" נמצאו ${rawAtt.length} קבצים אך כולם סוננו (לוגו/קובץ קטן מ-50KB)`
           : attemptedLinks
-          ? `לא ניתן היה להוריד חשבונית מהקישורים במייל "${subject}". יש לבדוק ידנית.`
+          ? `לא ניתן היה להוריד מסמך מהקישורים במייל "${subject}". יש לבדוק ידנית.`
           : `במייל "${subject}" לא נמצא קובץ PDF/תמונה או קישור להורדה. יש לבדוק ידנית.`;
 
         await log("warn", `no usable document — ${alertType}`,
-          { rawAtt: rawAtt.length, hKept: hKept.length, linkFailures }, msgId);
-        await supabase.from("alerts").insert({
+          { rawAtt: rawAtt.length, dropped, linkFailures }, msgId);
+        await insertAlertOnce(supabase, log, msgId, {
           type:    alertType,
           title:   alertTitle,
           message: alertMessage,
-          payload: {
-            gmailMessageId:      msgId,
-            subject,
-            from,
-            messageLink,
-            linkFailures,
-            rejectedAttachments: hRejected,
-          },
-          status: "unread",
+          payload: { gmailMessageId: msgId, subject, from, messageLink, linkFailures, droppedFiles: dropped },
         });
         await gmailModifyLabels(token, msgId, [destNeedsReview, destProcessed], [sourceLabelId, "UNREAD"]);
         result.alerts++;
         continue;
       }
 
-      // 3. Branch by docType — for non-invoice types process EACH doc as a separate record
+      // ── Stage 2: document TYPE — subject first, AI content only if inconclusive ──
+      let docType = classifyBySubject(subject);
+      if (docType === "unknown") {
+        docType = await classifyDocTypeByContent(usableFiles[0]);
+        await log("info", `subject inconclusive — content router → ${docType}`, undefined, msgId);
+      } else {
+        await log("info", `docType from subject → ${docType}`, undefined, msgId);
+      }
+
+      // ── Routing by type ──
+      // statement / delivery_note / return_doc: route by subject, each file its
+      // own record. These are NEVER subjected to quickInvoiceCheck (that ad-gate
+      // is invoice-only — it's what previously discarded statements).
       if (docType !== "invoice") {
-        for (const doc of usableDocs) {
+        for (const f of usableFiles) {
           await handleNonInvoice(supabase, log, msgId, suppliers, {
             docType,
             subject,
             from,
             emailTs,
             messageLink,
-            doc,
+            doc: { mimeType: f.mimeType, filename: f.filename, bytes: f.bytes },
           });
         }
         await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
@@ -1454,294 +1667,57 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         continue;
       }
 
-      // 4. Invoice flow
-      // a. Supplier-default category hint (best effort — vendor not known until extraction)
-      //    We pass null upfront; after extraction we can refine, but the AI gets categories list.
-      const extracted = await extractInvoice(
-        usableDoc,
+      // Invoice path — per-file ad check; each YES becomes a SEPARATE invoice
+      // record. Multi-invoice emails are fully supported; ads/flyers are dropped.
+      const invoiceCtx: InvoiceFileCtx = {
+        token, msgId, subject, from, emailTs, messageLink,
+        labelIds: message.labelIds ?? [],
+        partialRefundLabelId,
+        managerEmail,
+        suppliers,
         categoryNames,
-        null,
-      );
-      await log("info", "extracted", { extracted }, msgId);
-
-      // not_invoice escape hatch — the extractor identified the document as an
-      // order, receipt or other non-invoice and refused to fabricate fields.
-      // Skip the insert entirely so the invoices table stays clean, alert the
-      // manager, and mark the email processed so it doesn't get retried.
-      if (extracted.missing_fields?.includes("not_invoice")) {
-        await log("info", "extractor flagged as not_invoice, skipping ingest",
-          { vendor: extracted.vendor_name, missing_fields: extracted.missing_fields }, msgId);
-        await supabase.from("alerts").insert({
-          type:    "document_misclassified",
-          title:   "מסמך לא-חשבונית הגיע לתיבת החשבוניות",
-          message: `המסמך מ-${extracted.vendor_name || "ספק לא ידוע"} זוהה כלא-חשבונית (כנראה הזמנה או קבלה). נא לבדוק במייל המקורי.`,
-          payload: { gmailMessageId: msgId, subject, from, messageLink, extracted },
-          status:  "unread",
-        });
-        await gmailModifyLabels(token, msgId, [destNeedsReview, destProcessed], [sourceLabelId, "UNREAD"]);
-        result.alerts++;
-        continue;
-      }
-
-      // Low confidence → needs_review path
-      if (extracted.confidence === "low") {
-        await log("warn", "low confidence extraction — flagging for manual review", { extracted }, msgId);
-        if (managerEmail) {
-          await gmailSendAlertEmail(token, managerEmail,
-            "חשבונית — נדרשת בדיקה ידנית",
-            `נושא: ${subject}\nספק (מזוהה): ${extracted.vendor_name}\nשדות חסרים: ${extracted.missing_fields.join(", ")}\nקישור למייל: ${messageLink}`);
-        }
-        await supabase.from("alerts").insert({
-          type: "invoice_low_confidence",
-          title: "חשבונית בוודאות נמוכה",
-          message: `החשבונית מ-${extracted.vendor_name || "ספק לא ידוע"} נשמרה בסטטוס 'נדרש בירור' — נא לבדוק.`,
-          payload: { gmailMessageId: msgId, subject, from, messageLink, extracted },
-          status: "unread",
-        });
-      }
-
-      // e. Find or flag supplier
-      const matched = findBestSupplier(extracted.vendor_name, suppliers);
-
-      let supplierId:        string | null = matched?.id ?? null;
-      let supplierDefaultCat: string | null = (matched?.category ?? "").trim() || null;
-      let isNewSupplier = false;
-      if (!supplierId && extracted.vendor_name) {
-        // New supplier — seed its category with what the AI just extracted so
-        // future invoices from this vendor skip AI category classification.
-        const seedCategory = (extracted.category ?? "").trim() || null;
-        const { data: created, error: supErr } = await supabase
-          .from("suppliers")
-          .insert({ name: extracted.vendor_name, category: seedCategory })
-          .select("id, category")
-          .single();
-        if (supErr) {
-          await log("error", `supplier insert failed: ${supErr.message}`, undefined, msgId);
-        } else {
-          supplierId    = created!.id as string;
-          isNewSupplier = true;
-          suppliers.push({ id: supplierId, name: extracted.vendor_name, category: created!.category ?? null });
-          await log("info", `created new supplier ${supplierId} (category: ${seedCategory ?? "(none)"})`,
-            { name: extracted.vendor_name }, msgId);
-        }
-      }
-
-      // Choose the invoice category by precedence: supplier default → AI.
-      // New suppliers don't have a "previous" default; we use the AI category
-      // (which was also saved as their default above).
-      let finalCategory = extracted.category;
-      if (supplierDefaultCat) {
-        finalCategory = supplierDefaultCat;
-        await log("info", `category from supplier default: ${finalCategory}`, undefined, msgId);
-      } else if (isNewSupplier) {
-        await log("info", `category from AI (new supplier, seeded as default): ${finalCategory}`, undefined, msgId);
-      } else {
-        await log("info", `category from AI (no supplier default): ${finalCategory}`, undefined, msgId);
-      }
-
-      // d. Duplicate check (supplier_id + invoice_number)
-      let isDuplicate = false;
-      if (supplierId && extracted.invoice_number) {
-        const { data: dupInv } = await supabase
-          .from("invoices")
-          .select("id")
-          .eq("supplier_id", supplierId)
-          .eq("invoice_number", extracted.invoice_number)
-          .maybeSingle();
-        if (dupInv) {
-          isDuplicate = true;
-          await log("warn", "duplicate invoice number for supplier", { existingId: dupInv.id }, msgId);
-          await supabase.from("alerts").insert({
-            type: "invoice_duplicate",
-            title: "חשבונית כפולה",
-            message: `קיימת כבר חשבונית עם מספר ${extracted.invoice_number} לספק זה.`,
-            payload: { gmailMessageId: msgId, subject, messageLink, supplierId, invoiceNumber: extracted.invoice_number, existingInvoiceId: dupInv.id },
-            status: "unread",
-          });
-        }
-      }
-
-      // f. Partial return flag — set by Gmail label, not subject text
-      const partialReturn = partialRefundLabelId !== null &&
-        (message.labelIds ?? []).includes(partialRefundLabelId);
-
-      // g+h. Upload to Drive (primary backup) AND Supabase Storage (in-app preview).
-      const supplierDisplayName = matched?.name ?? extracted.vendor_name;
-      const invoiceFilename = buildInvoiceFilename(
-        supplierDisplayName,
-        extracted.invoice_number,
-        extracted.invoice_date,
-        usableDoc.filename,
-        usableDoc.mimeType,
-      );
-      const invoiceDateObj = new Date(extracted.invoice_date || new Date().toISOString().slice(0, 10));
-
-      let driveFileLink   = "";
-      let monthFolderLink = "";
-      try {
-        const target = await resolveInvoiceFolder(token, extracted.invoice_date || new Date().toISOString().slice(0, 10), partialReturn);
-        const uploaded = await driveUploadFile(
-          token,
-          target.fileFolderId,
-          invoiceFilename,
-          usableDoc.mimeType,
-          usableDoc.bytes,
-        );
-        driveFileLink   = uploaded.webViewLink;
-        monthFolderLink = await driveGetFolderLink(token, target.monthFolderId);
-        await log("info", "uploaded to Drive", { fileId: uploaded.id }, msgId);
-      } catch (e) {
-        await log("error", `Drive upload failed: ${e instanceof Error ? e.message : e}`, undefined, msgId);
-        result.errors.push(`Drive upload failed for ${msgId}`);
-      }
-
-      let storagePath = "";
-      try {
-        // Drive gets the Hebrew display name (invoiceFilename); Storage gets an
-        // ASCII key built from IDs so Supabase Storage's ASCII-only key rule is
-        // never violated.
-        const storageKey = buildStorageKey(
-          "invoice",
-          supplierId,
-          extracted.invoice_number,
-          msgId,
-          pickExtension(usableDoc.filename, usableDoc.mimeType),
-        );
-        storagePath = await uploadToStorage(
-          supabase, "invoices", invoiceDateObj,
-          storageKey, usableDoc.mimeType, usableDoc.bytes,
-        );
-        await log("info", "uploaded to Storage", { storagePath }, msgId);
-      } catch (e) {
-        await log("error", `Storage upload failed: ${e instanceof Error ? e.message : e}`, undefined, msgId);
-        result.errors.push(`Storage upload failed for ${msgId}`);
-      }
-
-      // i. Old-date warning (still save normally)
-      const now = new Date();
-      const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-      if (extracted.invoice_date && new Date(extracted.invoice_date) < startOfMonth) {
-        await log("warn", "invoice older than current month", { invoiceDate: extracted.invoice_date }, msgId);
-        await supabase.from("alerts").insert({
-          type: "invoice_old_date",
-          title: "חשבונית מחודש קודם",
-          message: `החשבונית מ-${extracted.vendor_name} מתאריך ${extracted.invoice_date} — בדקי האם להעביר לרו"ח.`,
-          payload: { gmailMessageId: msgId, subject, invoiceDate: extracted.invoice_date, vendor: extracted.vendor_name, messageLink },
-          status: "unread",
-        });
-      }
-
-      // j. Dedup guard then insert
-      // Primary: gmail_message_id + invoice_number + supplier_id
-      // Fallback (no invoice_number): gmail_message_id alone (1 invoice per email)
-      let existingInv: { id: string } | null = null;
-      if (supplierId && extracted.invoice_number) {
-        const { data } = await supabase.from("invoices").select("id")
-          .eq("gmail_message_id", msgId)
-          .eq("invoice_number", extracted.invoice_number)
-          .eq("supplier_id", supplierId)
-          .limit(1);
-        existingInv = data?.[0] ?? null;
-      } else {
-        const { data } = await supabase.from("invoices").select("id")
-          .eq("gmail_message_id", msgId)
-          .limit(1);
-        existingInv = data?.[0] ?? null;
-      }
-      if (existingInv) {
-        await log("info",
-          `skipped duplicate invoice: ${extracted.invoice_number || "(no number)"} for message ${msgId}`,
-          { existingId: existingInv.id }, msgId);
-        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
-        result.skipped++;
-        continue;
-      }
-
-      const insertRow: Record<string, unknown> = {
-        supplier_id:        supplierId,
-        supplier_name:      extracted.vendor_name,
-        invoice_number:     extracted.invoice_number,
-        invoice_date:       extracted.invoice_date || null,
-        total_amount:       extracted.total_amount,
-        amount_before_vat:  extracted.amount_before_vat,
-        vat_amount:         extracted.vat_amount,
-        category:           finalCategory,
-        line_items:         extracted.line_items.join("\n"),
-        ai_confidence:      extracted.confidence,
-        status:             extracted.confidence === "low" ? "needs_review" : "ממתין",
-        is_duplicate:       isDuplicate,
-        has_error:          false,
-        partial_return:     partialReturn,
-        drive_file_link:    driveFileLink,
-        storage_url:        storagePath || null,
-        month_folder_link:  monthFolderLink,
-        drive_folder_link:  monthFolderLink,
-        message_link:       messageLink,
-        gmail_message_id:   msgId,
-        email_subject:      subject,
-        gmail_label_source: SOURCE_LABEL_NAME,
-        received_at:        emailTs,
-        sender_name:        from,
-        email_sender:       from,
       };
-
-      const { error: insErr } = await supabase.from("invoices").insert(insertRow);
-      if (insErr) {
-        if (insErr.code === "23505") {
-          await log("info", "concurrent insert race — skipping", { code: insErr.code }, msgId);
-          result.skipped++;
-        } else {
-          await log("error", `invoice insert failed: ${insErr.message}`, { code: insErr.code }, msgId);
-          result.errors.push(`Invoice insert failed for ${msgId}: ${insErr.message}`);
+      let created = 0, alerted = 0, skipped = 0, ads = 0, errored = 0;
+      for (const f of usableFiles) {
+        if (!(await quickInvoiceCheck(f))) {
+          ads++;
+          await log("info", "file dropped — quickInvoiceCheck says ad/marketing", { filename: f.filename }, msgId);
+          continue;
         }
+        const outcome = await handleInvoiceFile(supabase, log, f, invoiceCtx, result);
+        if      (outcome === "created") created++;
+        else if (outcome === "alerted") alerted++;
+        else if (outcome === "skipped") skipped++;
+        else                            errored++;
+      }
+
+      // Every file was an ad → surface it so the email isn't lost silently.
+      if (created === 0 && alerted === 0 && skipped === 0 && errored === 0 && ads > 0) {
+        await insertAlertOnce(supabase, log, msgId, {
+          type:    "invoice_no_valid_attachment",
+          title:   "מייל ללא קובץ חשבונית מזוהה",
+          message: `כל ${ads} הקבצים במייל "${subject}" זוהו כפרסומת/חומר שיווקי ולא כחשבונית.`,
+          payload: { gmailMessageId: msgId, subject, from, messageLink, ads },
+        });
+        alerted++;
+      }
+
+      result.processed += created;
+      result.alerts    += alerted;
+      if (created === 0 && alerted === 0 && skipped > 0) result.skipped++;
+
+      // Hard failures only (nothing created/alerted/skipped, no ads) — leave the
+      // source label so the next run retries instead of swallowing the email.
+      if (created === 0 && alerted === 0 && skipped === 0 && ads === 0 && errored > 0) {
+        await log("warn", "all invoice files errored — leaving email for retry", { errored }, msgId);
         continue;
       }
 
-      // k. Update supplier_categories + categories usage (tracks the FINAL category,
-      // whether it came from the supplier default or AI).
-      if (supplierId && finalCategory) {
-        // Upsert supplier_categories
-        const { data: existingSc } = await supabase
-          .from("supplier_categories")
-          .select("id, usage_count")
-          .eq("supplier_id", supplierId)
-          .eq("category", finalCategory)
-          .maybeSingle();
-        if (existingSc) {
-          await supabase
-            .from("supplier_categories")
-            .update({ usage_count: (existingSc.usage_count ?? 0) + 1, last_used_at: new Date().toISOString() })
-            .eq("id", existingSc.id);
-        } else {
-          await supabase
-            .from("supplier_categories")
-            .insert({ supplier_id: supplierId, category: finalCategory, usage_count: 1 });
-        }
-
-        // Bump category usage_count (creating row if new)
-        if (!categoryNames.includes(finalCategory)) {
-          await supabase.from("categories").insert({ name: finalCategory, usage_count: 1 });
-          categoryNames.push(finalCategory);
-        } else {
-          const { data: cat } = await supabase
-            .from("categories")
-            .select("usage_count")
-            .eq("name", finalCategory)
-            .single();
-          if (cat) {
-            await supabase
-              .from("categories")
-              .update({ usage_count: (cat.usage_count ?? 0) + 1 })
-              .eq("name", finalCategory);
-          }
-        }
-      }
-
-      // 5. Apply processed label, remove source
-      await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
-
-      await log("info", "invoice ingested", { supplierId, isNewSupplier, isDuplicate, category: finalCategory }, msgId);
-      result.processed++;
+      // Apply the email's label once: needs-review if anything was flagged.
+      const addLabels = alerted > 0 ? [destNeedsReview, destProcessed] : [destProcessed];
+      await gmailModifyLabels(token, msgId, addLabels, [sourceLabelId, "UNREAD"]);
+      await log("info", "email invoice processing complete",
+        { created, alerted, skipped, ads, errored }, msgId);
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1861,7 +1837,7 @@ async function handleNonInvoice(
   msgId:     string,
   suppliers: SupplierRow[],
   ctx: {
-    docType:     Exclude<DocType, "invoice" | "skip" | "unknown">;
+    docType:     Exclude<DocType, "invoice" | "unknown">;
     subject:     string;
     from:        string;
     emailTs:     string;
@@ -1885,6 +1861,14 @@ async function handleNonInvoice(
     const id = created!.id as string;
     suppliers.push({ id, name: vendorName, category: null });
     await log("info", `created new supplier ${id}`, { name: vendorName }, msgId);
+    // New supplier created silently from the document — prompt the owner to fill
+    // in ח.פ / contact details. Same type + payload shape as payments-ingest.
+    await insertAlertOnce(supabase, log, msgId, {
+      type:    "supplier_incomplete",
+      title:   "ספק חדש - השלימי פרטים",
+      message: `נוצר ספק חדש '${vendorName}' מתוך מסמך. השלימי ח.פ ופרטי קשר.`,
+      payload: { supplierId: id, typedSupplierName: vendorName, gmailMessageId: msgId },
+    });
     return id;
   };
 
@@ -1896,12 +1880,11 @@ async function handleNonInvoice(
       const errMsg = e instanceof Error ? e.message : String(e);
       await log("error", `extractDeliveryNote failed: ${errMsg}`,
         { filename: ctx.doc.filename }, msgId);
-      await supabase.from("alerts").insert({
+      await insertAlertOnce(supabase, log, msgId, {
         type:    "extraction_failed",
         title:   "פענוח מסמך נכשל",
         message: `לא ניתן היה לפענח תעודת משלוח "${ctx.doc.filename}" (מייל: ${msgId})`,
         payload: { gmailMessageId: msgId, subject: ctx.subject, filename: ctx.doc.filename, error: errMsg },
-        status:  "unread",
       });
       return;
     }
@@ -1985,12 +1968,11 @@ async function handleNonInvoice(
       const errMsg = e instanceof Error ? e.message : String(e);
       await log("error", `extractReturn failed: ${errMsg}`,
         { filename: ctx.doc.filename }, msgId);
-      await supabase.from("alerts").insert({
+      await insertAlertOnce(supabase, log, msgId, {
         type:    "extraction_failed",
         title:   "פענוח מסמך נכשל",
         message: `לא ניתן היה לפענח חזרה/זיכוי "${ctx.doc.filename}" (מייל: ${msgId})`,
         payload: { gmailMessageId: msgId, subject: ctx.subject, filename: ctx.doc.filename, error: errMsg },
-        status:  "unread",
       });
       return;
     }
@@ -2020,7 +2002,7 @@ async function handleNonInvoice(
     }
 
     const createUnmatchedAlert = async (reason: string) => {
-      await supabase.from("alerts").insert({
+      await insertAlertOnce(supabase, log, msgId, {
         type:    "unmatched_credit_note",
         title:   "תעודת זיכוי ללא חזרה תואמת",
         message: `תעודת זיכוי מ-${extracted.vendor_name || "ספק לא ידוע"} בסך ${extracted.amount} - אין חזרה תואמת במערכת. יש לבדוק.`,
@@ -2031,7 +2013,6 @@ async function handleNonInvoice(
           creditNoteNumber: extracted.credit_note_number,
           storagePath:       storagePath || null,
         },
-        status: "unread",
       });
       await log("info", `unmatched credit note - alert created (${reason})`,
         { supplierId, vendor: extracted.vendor_name, amount: extracted.amount }, msgId);
@@ -2088,12 +2069,11 @@ async function handleNonInvoice(
 
     if (pct > 0.10) {
       // OUTCOME B — closed, but flag the mismatch for review
-      await supabase.from("alerts").insert({
+      await insertAlertOnce(supabase, log, msgId, {
         type:    "return_amount_mismatch",
         title:   "פער בהחזר - יש לבדוק מול הספק",
         message: `תעודת זיכוי מהספק ${extracted.vendor_name} בסך ${actualAmount} לא תואמת לחזרה שהונפקה בסך ${expectedAmount}. פער: ${diff.toFixed(2)}`,
-        payload: { returnId: existing.id, expectedAmount, actualAmount, supplierId },
-        status:  "unread",
+        payload: { gmailMessageId: msgId, returnId: existing.id, expectedAmount, actualAmount, supplierId },
       });
       await log("warn",
         `return closed with mismatch: ${existing.id} (expected ${expectedAmount}, got ${actualAmount}, diff ${diff.toFixed(2)})`,
