@@ -27,6 +27,44 @@ function isAuthorized(req: Request): boolean {
   return !!expected && key === expected;
 }
 
+// ─── Logger (writes to system_logs + console) ──────────────────────────────────
+
+type LogLevel = "debug" | "info" | "warn" | "error";
+
+function makeLogger(supabase: SupabaseClient) {
+  return async function log(
+    level: LogLevel,
+    message: string,
+    context?: Record<string, unknown>,
+    messageId?: string,
+  ) {
+    const line = `[${level}] ${messageId ? `(${messageId}) ` : ""}${message}`;
+    let contextStr = "";
+    try { contextStr = context ? JSON.stringify(context) : ""; }
+    catch { contextStr = "[unserializable context]"; }
+    console.log(line, contextStr);
+    try {
+      // supabase-js v2 returns { data, error } — a DB error does NOT throw,
+      // so the error must be inspected explicitly or the write fails silently.
+      const { error } = await supabase.from("system_logs").insert({
+        source:     "payments-ingest",
+        level,
+        message,
+        context:    context ?? null,
+        message_id: messageId ?? null,
+      });
+      if (error) {
+        console.error(`[logger] system_logs insert failed: ${error.message}` +
+          (error.code ? ` (code ${error.code})` : ""));
+      }
+    } catch (e) {
+      console.error("[logger] system_logs insert threw:", e instanceof Error ? e.message : String(e));
+    }
+  };
+}
+
+type Logger = ReturnType<typeof makeLogger>;
+
 // ─── Gmail OAuth ───────────────────────────────────────────────────────────────
 
 async function getGmailAccessToken(): Promise<string> {
@@ -344,6 +382,7 @@ interface IngestResult {
 
 async function ingestPayments(
   supabase: SupabaseClient,
+  log: Logger,
 ): Promise<IngestResult> {
   const result: IngestResult = {
     processed: 0,
@@ -354,20 +393,24 @@ async function ingestPayments(
   };
 
   const token = await getGmailAccessToken();
-  console.log("[ingest] gmail token OK");
+  await log("debug", "gmail token OK");
 
   const processedLabelId = await getLabelId(token, "תשלומים שנקלטו");
-  console.log("[ingest] processedLabelId:", processedLabelId);
+  await log("debug", "resolved processed label", { processedLabelId });
 
-  // Fetch unread payment emails not yet tagged as processed
+  // Fetch payment emails not yet tagged as processed.
+  // NOTE: `label:unread` was removed deliberately — a self-sent email is marked
+  // read immediately (and filed under Sent), so requiring unread silently
+  // excluded the very payment emails we need. Idempotency is enforced via the
+  // `-label:"תשלומים שנקלטו"` filter plus the `source_message_id` dedupe below.
   const query =
-    'to:h8420785+payments@gmail.com label:unread -label:"תשלומים שנקלטו"';
+    'to:h8420785+payments@gmail.com -label:"תשלומים שנקלטו"';
   const messageIds = await listMessageIds(token, query);
 
-  console.log("[ingest] messageIds found:", messageIds.length, messageIds);
+  await log("info", `found ${messageIds.length} messages`, { query, messageIds });
 
   if (messageIds.length === 0) {
-    console.log("[ingest] no unread messages — done");
+    await log("info", "no messages to process — done");
     return result;
   }
 
@@ -375,10 +418,11 @@ async function ingestPayments(
     .from("suppliers")
     .select("id, name");
   const suppliers: SupplierRow[] = supplierRows ?? [];
+  await log("debug", `loaded ${suppliers.length} suppliers for matching`);
 
   for (const msgId of messageIds) {
     try {
-      console.log(`[msg ${msgId}] processing`);
+      await log("debug", "processing message", undefined, msgId);
 
       // Idempotency: skip if already ingested
       const { data: dup } = await supabase
@@ -388,7 +432,7 @@ async function ingestPayments(
         .maybeSingle();
 
       if (dup) {
-        console.log(`[msg ${msgId}] SKIP — already in payments table (id=${dup.id})`);
+        await log("info", `skip — already in payments table (id=${dup.id})`, undefined, msgId);
         if (processedLabelId) {
           await modifyLabels(token, msgId, [processedLabelId], ["UNREAD"]);
         }
@@ -401,7 +445,7 @@ async function ingestPayments(
       // Log subject and labels for this message
       const subject = message.payload.headers.find(h => h.name.toLowerCase() === "subject")?.value ?? "(no subject)";
       const labelIds = (message as unknown as { labelIds?: string[] }).labelIds ?? [];
-      console.log(`[msg ${msgId}] subject: "${subject}" | labels: ${JSON.stringify(labelIds)}`);
+      await log("debug", "fetched message", { subject, labelIds }, msgId);
 
       const body     = extractBody(message);
       const emailTs  = new Date(parseInt(message.internalDate, 10)).toISOString();
@@ -414,77 +458,128 @@ async function ingestPayments(
 
       const parsed = parseEmailBody(body);
       if (!parsed) {
-        console.log(`[msg ${msgId}] SKIP — parse failed. body (first 500 chars):`, body.slice(0, 500));
+        await log("warn", "parse failed — not labeled, will retry next run",
+          { bodyPreview: body.slice(0, 500) }, msgId);
         result.errors.push(`Parse failed for message ${msgId}`);
         continue;
       }
-      console.log(`[msg ${msgId}] parsed:`, JSON.stringify(parsed));
+      await log("info", "parsed fields", { parsed }, msgId);
 
       const matched = findBestSupplier(parsed.supplier, suppliers);
       // Log top scores for every supplier to see why matching fails
       const scores = suppliers.map(s => ({ name: s.name, score: similarityScore(parsed.supplier, s.name) }))
         .sort((a, b) => b.score - a.score)
         .slice(0, 5);
-      console.log(`[msg ${msgId}] supplier "${parsed.supplier}" — top matches:`, JSON.stringify(scores));
-      console.log(`[msg ${msgId}] matched supplier:`, matched ? matched.name : "NONE");
+      await log(
+        matched ? "info" : "warn",
+        matched ? `supplier matched: ${matched.name}` : `supplier NOT found for "${parsed.supplier}"`,
+        { typed: parsed.supplier, matched: matched?.name ?? null, topScores: scores },
+        msgId,
+      );
 
-      if (matched) {
-        const { error: insErr } = await supabase.from("payments").insert({
-          supplier_id:       matched.id,
-          amount:            parsed.amount,
-          payment_type:      parsed.paymentType,
-          payment_date:      parsed.paymentDate,
-          value_date:        parsed.valueDate,
-          reference:         parsed.reference,
-          notes:             parsed.notes,
-          status:            "pending",
-          source:            "email",
-          email_received_at: emailTs,
-          source_message_id: msgId,
-        });
+      // Resolve the supplier: fuzzy match → exact-name dedupe → auto-create.
+      // Mirrors invoices-ingest, which auto-creates a supplier rather than
+      // blocking. Payment emails carry no ח.פ, so we create with NAME ONLY
+      // (same as invoices' non-invoice path); the ח.פ / contact details are
+      // filled in later via the "ספק חדש" alert raised below.
+      let supplierId = matched?.id ?? null;
+      let createdNewSupplier = false;
 
-        if (insErr) {
-          if (insErr.code === "23505") {
-            console.log(`[msg ${msgId}] SKIP — unique constraint (already inserted by concurrent run)`);
-            result.skipped++;
+      if (!supplierId) {
+        const typedName = parsed.supplier.trim();
+
+        // Exact-name pre-check (case-insensitive) so we link to an existing
+        // supplier the fuzzy matcher just missed instead of creating a
+        // duplicate. ilike with the wildcards escaped == case-insensitive equals.
+        const escaped = typedName.replace(/([\\%_])/g, "\\$1");
+        const { data: exactRows } = await supabase
+          .from("suppliers")
+          .select("id, name")
+          .ilike("name", escaped)
+          .limit(1);
+        const exact = exactRows?.[0] ?? null;
+
+        if (exact) {
+          supplierId = exact.id;
+          suppliers.push({ id: exact.id, name: exact.name });
+          await log("info", `supplier found by exact name (fuzzy missed): ${exact.name}`, undefined, msgId);
+        } else {
+          const { data: created, error: supErr } = await supabase
+            .from("suppliers")
+            .insert({ name: typedName })
+            .select("id, name")
+            .single();
+
+          if (supErr) {
+            // Unique-name race: another run created it first — read it back.
+            if (supErr.code === "23505") {
+              const { data: raceRows } = await supabase
+                .from("suppliers")
+                .select("id, name")
+                .ilike("name", escaped)
+                .limit(1);
+              const raced = raceRows?.[0] ?? null;
+              if (raced) {
+                supplierId = raced.id;
+                suppliers.push({ id: raced.id, name: raced.name });
+                await log("info", `supplier created by concurrent run — linking to ${raced.id}`, undefined, msgId);
+              }
+            }
+            if (!supplierId) {
+              await log("error", "supplier auto-create failed — not labeled, will retry next run",
+                { code: supErr.code, message: supErr.message, details: supErr.details, typedName }, msgId);
+              result.errors.push(`Supplier create failed for ${msgId}: ${supErr.message}`);
+              continue;
+            }
           } else {
-            console.log(`[msg ${msgId}] ERROR — DB insert failed:`, insErr.message);
-            result.errors.push(
-              `DB insert failed for ${msgId}: ${insErr.message}`,
-            );
+            supplierId         = created!.id as string;
+            createdNewSupplier = true;
+            suppliers.push({ id: supplierId, name: created!.name as string });
+            await log("info", `created new supplier ${supplierId} (name only)`, { name: typedName }, msgId);
           }
-          continue;
         }
+      }
 
-        console.log(`[msg ${msgId}] DONE — payment created, applying label`);
-        if (processedLabelId) {
-          await modifyLabels(token, msgId, [processedLabelId], ["UNREAD"]);
-        }
-        result.processed++;
-      } else {
-        // Idempotency: skip if alert already exists for this Gmail message
-        const { data: existingAlert } = await supabase
-          .from("alerts")
-          .select("id")
-          .eq("type", "supplier_not_found")
-          .filter("payload->>gmailMessageId", "eq", msgId)
-          .maybeSingle();
+      // Insert the payment linked to the matched / found / newly-created supplier.
+      const { error: insErr } = await supabase.from("payments").insert({
+        supplier_id:       supplierId,
+        amount:            parsed.amount,
+        payment_type:      parsed.paymentType,
+        payment_date:      parsed.paymentDate,
+        value_date:        parsed.valueDate,
+        reference:         parsed.reference,
+        notes:             parsed.notes,
+        status:            "pending",
+        source:            "email",
+        email_received_at: emailTs,
+        source_message_id: msgId,
+      });
 
-        if (existingAlert) {
-          console.log(`[msg ${msgId}] SKIP — alert already exists (id=${existingAlert.id}), applying label`);
-          if (processedLabelId) {
-            await modifyLabels(token, msgId, [processedLabelId], ["UNREAD"]);
-          }
+      if (insErr) {
+        if (insErr.code === "23505") {
+          await log("info", "skip — unique constraint (already inserted by concurrent run)", undefined, msgId);
           result.skipped++;
-          continue;
+        } else {
+          await log("error", "payment insert failed — not labeled, will retry next run",
+            { code: insErr.code, message: insErr.message, details: insErr.details }, msgId);
+          result.errors.push(
+            `DB insert failed for ${msgId}: ${insErr.message}`,
+          );
         }
+        continue;
+      }
 
-        // Supplier not found — create alert
+      // For a brand-new supplier, raise a "complete details" alert so the missing
+      // ח.פ / contact info can be filled in later. Non-fatal: the payment is
+      // already inserted, so a failed alert must NOT block labeling or retry the
+      // whole message (which the source_message_id unique index would skip anyway).
+      if (createdNewSupplier) {
         const { error: alertErr } = await supabase.from("alerts").insert({
-          type:    "supplier_not_found",
-          title:   "ספק לא זוהה במייל תשלום",
-          message: `המייל מתאריך ${emailFmt} מכיל תשלום עבור ספק '${parsed.supplier}' שלא נמצא במערכת. צור ספק חדש כדי לשייך את התשלום.`,
+          type:    "supplier_incomplete",
+          title:   "ספק חדש - השלימי פרטים",
+          message: `המייל מתאריך ${emailFmt} יצר ספק חדש '${parsed.supplier}' מתוך תשלום. השלימי ח.פ ופרטי קשר.`,
           payload: {
+            supplierId,
             typedSupplierName: parsed.supplier,
             gmailMessageId:    msgId,
             emailDate:         emailFmt,
@@ -498,26 +593,30 @@ async function ingestPayments(
           },
           status: "unread",
         });
-
         if (alertErr) {
-          console.log(`[msg ${msgId}] ERROR — alert insert failed: code=${alertErr.code} msg=${alertErr.message} details=${alertErr.details}`);
-          result.errors.push(
-            `Alert insert failed for ${msgId}: ${alertErr.message}`,
-          );
+          await log("error", "supplier_incomplete alert insert failed (payment already inserted)",
+            { code: alertErr.code, message: alertErr.message, details: alertErr.details }, msgId);
         } else {
-          console.log(`[msg ${msgId}] DONE — supplier_not_found alert created, applying label`);
-          if (processedLabelId) {
-            await modifyLabels(token, msgId, [processedLabelId], ["UNREAD"]);
-          }
+          await log("info", "raised supplier_incomplete alert for new supplier", { supplierId }, msgId);
           result.alerts++;
         }
       }
+
+      await log("info", "inserted payment — applying label",
+        { supplierId, amount: parsed.amount, createdNewSupplier }, msgId);
+      if (processedLabelId) {
+        await modifyLabels(token, msgId, [processedLabelId], ["UNREAD"]);
+      }
+      result.processed++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      await log("error", `unhandled error processing message: ${msg}`, undefined, msgId);
       result.errors.push(`Error processing ${msgId}: ${msg}`);
     }
   }
 
+  await log("info", "ingest run complete",
+    { processed: result.processed, alerts: result.alerts, skipped: result.skipped, errors: result.errors.length });
   return result;
 }
 
@@ -540,12 +639,16 @@ Deno.serve(async (req: Request) => {
   const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false },
   });
+  const log = makeLogger(supabase);
 
   try {
-    const result = await ingestPayments(supabase);
+    const result = await ingestPayments(supabase, log);
     return json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // Record top-level failures in system_logs too — the per-message catch only
+    // covers individual messages, not setup (token, label, supplier load).
+    await log("error", `ingest run aborted: ${msg}`);
     return json({ error: msg }, 500);
   }
 });
