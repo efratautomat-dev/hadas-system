@@ -224,10 +224,20 @@ const LEGACY_TYPE_MAP: Record<string, string> = {
   אשראי:    "כרטיס אשראי",
 };
 
+// Collapse apostrophe variants (' ’ ‘ ʼ ׳ ` ´) to a single form so "צ'ק" matches
+// regardless of which apostrophe the customer's keyboard/template produced.
+function normalizeApostrophes(s: string): string {
+  return s.replace(/['’‘ʼ׳`´]/g, "'");
+}
+
 function normalizeBizboxType(raw: string): string {
-  const t = raw.trim();
-  if ((BIZBOX_TYPES as readonly string[]).includes(t)) return t;
-  return LEGACY_TYPE_MAP[t] ?? "אחר";
+  const t  = raw.trim();
+  const tn = normalizeApostrophes(t);
+  // Match against the canonical list, comparing apostrophe-insensitively, and
+  // return the canonical BIZBOX spelling (so the stored value is consistent).
+  const canonical = BIZBOX_TYPES.find((b) => normalizeApostrophes(b) === tn);
+  if (canonical) return canonical;
+  return LEGACY_TYPE_MAP[t] ?? LEGACY_TYPE_MAP[tn] ?? "אחר";
 }
 
 function parseIsoDate(raw: string): string {
@@ -242,18 +252,86 @@ function parseIsoDate(raw: string): string {
   return d;
 }
 
-// Returns the value after the first matching keyword on any line.
-// Strips leading separators (colon, dash, en-dash, whitespace).
-function extractField(lines: string[], ...keywords: string[]): string | null {
-  for (const line of lines) {
-    for (const kw of keywords) {
+// All field labels the template uses (incl. tolerated variants). Used both as
+// search keywords and — critically — as boundaries: when a value spills onto the
+// following line(s), collection stops at the next label so one field never
+// swallows the next.
+const ALL_LABELS = [
+  "ספק",
+  "סכום", "סך",
+  "סוג תשלום", "סוג",
+  "תאריך תשלום", "תאריך ערך",
+  "אסמכתא",
+  "הערות", "הערה",
+];
+
+// Strip emoji/pictographs (📌💰💳📅📆🔖📝🪷 …), markdown asterisks, and nbsp BEFORE
+// matching, so labels/values glued to decorations are still found.
+function stripDecorations(s: string): string {
+  return s
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200D}]/gu, "")
+    .replace(/\*/g, "")
+    .replace(/ /g, " ");
+}
+
+function startsWithKnownLabel(line: string): boolean {
+  return ALL_LABELS.some((lbl) => line.startsWith(lbl));
+}
+
+// A line where a spilled value must STOP: another field label, a quote marker,
+// a separator rule, or a forward/reply header (so forwarded headers and the
+// quoted empty template below never leak into a value).
+function isStopLine(line: string): boolean {
+  if (!line) return true;
+  if (startsWithKnownLabel(line)) return true;
+  if (/^>/.test(line)) return true;
+  if (/^-{3,}\s*$/.test(line)) return true;
+  if (/forwarded message|הודעה שהועברה/i.test(line)) return true;
+  if (/^(from|sent|to|subject|cc|bcc|date|מאת|נשלח|אל|נושא|תאריך|בתאריך)\s*:/i.test(line)) return true;
+  return false;
+}
+
+// Find a field value, tolerating: value after a colon, value stuck directly to
+// the label with no separator ("סכום5675"), or the label alone with the value on
+// the following line(s). Returns the first NON-EMPTY value — so on a forwarded
+// email the filled top template wins over a duplicated empty one below. Empty
+// labels are skipped (not returned), so an all-blank template yields null.
+function extractField(lines: string[], keywords: string[]): string | null {
+  // Keyword priority dominates line order: a more-specific keyword (e.g. "סכום")
+  // is searched across ALL lines before falling back to a variant (e.g. "סך").
+  for (const kw of keywords) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const idx = line.indexOf(kw);
       if (idx === -1) continue;
-      const after = line.slice(idx + kw.length).replace(/^[\s:–\-]+/, "").replace(/\*+$/, "").replace(/^\*+/, "").trim();
+
+      // a. value glued / colon-separated on the same line
+      const after = line
+        .slice(idx + kw.length)
+        .replace(/^[\s:：=\-–—]+/, "")
+        .trim();
       if (after) return after;
+
+      // b. label alone → collect following line(s) up to the next boundary
+      const collected: string[] = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        if (isStopLine(lines[j])) break;
+        collected.push(lines[j]);
+      }
+      const joined = collected.join(" ").trim();
+      if (joined) return joined;
+      // label present but empty here — keep scanning further occurrences
     }
   }
   return null;
+}
+
+// Extract the first number after a label, ignoring ₪ and thousands separators.
+function parseAmount(raw: string): number | null {
+  const m = raw.match(/-?\d[\d,]*(?:\.\d+)?/);
+  if (!m) return null;
+  const n = parseFloat(m[0].replace(/,/g, ""));
+  return isNaN(n) ? null : n;
 }
 
 interface ParsedPayment {
@@ -267,29 +345,44 @@ interface ParsedPayment {
 }
 
 function parseEmailBody(raw: string): ParsedPayment | null {
-  // Normalise HTML to plain text
-  const text = raw
+  // 1. Normalise HTML → plain text (block tags become line breaks so label/value
+  //    pairs split across <p>/<div>/table cells don't get glued together).
+  let text = raw
     .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
 
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  // 2. Strip emoji + markdown decorations BEFORE matching.
+  text = stripDecorations(text);
 
-  const supplier   = extractField(lines, "ספק");
-  const amountRaw  = extractField(lines, "סכום");
-  const typeRaw    = extractField(lines, "סוג תשלום");
-  const payDateRaw = extractField(lines, "תאריך תשלום");
-  const valDateRaw = extractField(lines, "תאריך ערך");
-  const refRaw     = extractField(lines, "אסמכתא");
-  const notesRaw   = extractField(lines, "הערות");
+  // 3. Trim to non-empty lines.
+  let lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
 
+  // 4. Forwarded emails: the customer fills a fresh template at the TOP and the
+  //    original (usually empty) template is quoted below a forward separator.
+  //    Keep only the topmost template so the empty copy can't shadow it.
+  const cutIdx = lines.findIndex((l) =>
+    /forwarded message|הודעה שהועברה/i.test(l) || /^-{5,}\s*$/.test(l)
+  );
+  if (cutIdx > 0) lines = lines.slice(0, cutIdx);
+
+  const supplier   = extractField(lines, ["ספק"]);
+  const amountRaw  = extractField(lines, ["סכום", "סך"]);
+  const typeRaw    = extractField(lines, ["סוג תשלום", "סוג"]);
+  const payDateRaw = extractField(lines, ["תאריך תשלום"]);
+  const valDateRaw = extractField(lines, ["תאריך ערך"]);
+  const refRaw     = extractField(lines, ["אסמכתא"]);
+  const notesRaw   = extractField(lines, ["הערות", "הערה"]);
+
+  // Required fields — an empty template (e.g. an unfilled draft) fails here.
   if (!supplier || !amountRaw || !typeRaw || !payDateRaw) return null;
 
-  const amount = parseFloat(amountRaw.replace(/[,\s₪]/g, ""));
-  if (isNaN(amount)) return null;
+  const amount = parseAmount(amountRaw);
+  if (amount === null) return null;
 
   return {
     supplier:    supplier.trim(),
