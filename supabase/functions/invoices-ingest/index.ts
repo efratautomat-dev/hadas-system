@@ -2216,15 +2216,19 @@ async function handleNonInvoice(
 
     // vendor_statements schema has no email_subject / message_link /
     // gmail_message_id / received_at columns — only status, storage_url,
-    // drive_file_link, and a NOT-NULL `month` (+ supplier_id/balances filled in
-    // later by the user). `month` is a text column rendered as-is in the UI; we
+    // drive_file_link, and two NOT-NULL columns without defaults: `month` and
+    // `vendor_balance` (supplier_id + the real balance are filled in later by the
+    // user during review). `month` is a text column rendered as-is in the UI; we
     // default it to the email-received month (YYYY-MM), which the user can correct.
+    // `vendor_balance` is seeded to 0 as a placeholder — the row is needs_review,
+    // so the user enters the real balance when reviewing.
     const statementMonth = ctx.emailTs.slice(0, 7); // "YYYY-MM" from the ISO emailTs
     const { error } = await supabase.from("vendor_statements").insert({
       status:          "needs_review",
       storage_url:     storagePath || null,
       drive_file_link: null,
       month:           statementMonth,
+      vendor_balance:  0,
     });
     if (error) {
       // Only log/alert FAILURE on a real error — never log "recorded" for a row
