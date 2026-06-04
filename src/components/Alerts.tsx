@@ -423,7 +423,7 @@ export default function Alerts({
       {/* Filters */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border space-y-3" style={{ borderColor: '#E2E4E9' }}>
         {/* Type filter */}
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+        <div className="flex items-center gap-2 flex-wrap" style={{ direction: 'rtl' }}>
           <span className="text-xs font-semibold text-gray-400 ml-1">סוג:</span>
           {filterBtn(typeFilter === 'all', 'הכל', () => setTypeFilter('all'))}
           {(Object.keys(TYPE_LABELS) as AlertType[]).map(t =>
@@ -432,7 +432,7 @@ export default function Alerts({
         </div>
 
         {/* Status filter */}
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+        <div className="flex items-center gap-2 flex-wrap" style={{ direction: 'rtl' }}>
           <span className="text-xs font-semibold text-gray-400 ml-1">סטטוס:</span>
           {filterBtn(statusFilter === 'all', 'הכל', () => setStatusFilter('all'))}
           {(Object.keys(STATUS_LABELS) as AlertStatus[]).map(s =>
