@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { usePayments } from '../hooks/usePayments'
+import SectionHeader from './SectionHeader'
 
 function useIsTablet() {
   const [v, setV] = useState(
@@ -211,71 +212,56 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
           { Icon: Hash,  label: 'ח.פ / ע.מ',  value: supplier.hp    ?? '' },
           { Icon: Tag,   label: 'קטגוריה',     value: supplier.category    },
         ].map(({ Icon, label, value }, i) => (
+          // Forced LTR container so flex ordering is immune to inherited direction:
+          // value sits on the LEFT, label + icon group on the RIGHT. Text spans
+          // restore rtl so Hebrew/labels read correctly.
           <div
             key={label}
             style={{
-              display: 'grid',
-              gridTemplateColumns: '28px 110px minmax(0, 1fr)',
+              direction: 'ltr',
+              display: 'flex',
               alignItems: 'center',
-              columnGap: '12px',
+              gap: '12px',
               padding: '14px 24px',
               minHeight: '52px',
               borderTop: i > 0 ? '1px solid #E2E4E9' : undefined,
             }}
           >
-            {/* Col 1 (right edge in RTL): icon */}
-            <div
-              className="w-7 h-7 rounded-lg flex items-center justify-center"
-              style={{ background: '#F8F9FA' }}
-            >
-              <Icon className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
-            </div>
-            {/* Col 2: label — right-aligned within its 110px column */}
-            <span className="text-right text-gray-400" style={{ fontSize: '13px' }}>{label}</span>
-            {/* Col 3: value — right-aligned, so it sits flush with the label column */}
-            <span
-              className="text-right"
-              style={{
-                fontSize: fs('15px', '14px'),
-                color: '#1F2937',
-                fontWeight: 500,
-              }}
-            >
+            {/* LEFT: value */}
+            <span style={{ flex: 1, minWidth: 0, textAlign: 'left', direction: 'rtl', fontSize: fs('15px', '14px'), color: '#1F2937', fontWeight: 500 }}>
               {value}
             </span>
+            {/* RIGHT: label + icon */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+              <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF' }}>{label}</span>
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#F8F9FA' }}>
+                <Icon className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
+              </div>
+            </div>
           </div>
         ))}
 
-        {/* הערות — same grid; value column wraps for long text */}
+        {/* הערות — same flex layout; value wraps for long text */}
         <div
           style={{
-            display: 'grid',
-            gridTemplateColumns: '28px 110px minmax(0, 1fr)',
-            alignItems: 'start',
-            columnGap: '12px',
+            direction: 'ltr',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '12px',
             padding: '14px 24px',
             minHeight: '52px',
             borderTop: '1px solid #E2E4E9',
           }}
         >
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: '#F8F9FA' }}
-          >
-            <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
-          </div>
-          <span className="text-right text-gray-400" style={{ fontSize: '13px', paddingTop: '5px' }}>הערות</span>
-          <span
-            className="text-right leading-relaxed"
-            style={{
-              fontSize: fs('15px', '14px'),
-              color: '#1F2937',
-              whiteSpace: 'pre-wrap',
-              paddingTop: '2px',
-            }}
-          >
+          <span style={{ flex: 1, minWidth: 0, textAlign: 'left', direction: 'rtl', fontSize: fs('15px', '14px'), color: '#1F2937', whiteSpace: 'pre-wrap', lineHeight: 1.6, paddingTop: '2px' }}>
             {supplier.notes}
           </span>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flexShrink: 0 }}>
+            <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF', paddingTop: '5px' }}>הערות</span>
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#F8F9FA' }}>
+              <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -312,21 +298,14 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
       {/* ── כרטסת (ledger) ── */}
       {ledger.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-          <div
-            className="px-5 py-4 border-b flex items-center justify-between gap-2"
+          <SectionHeader
+            className="px-5 py-4 border-b"
             style={{ borderColor: '#E2E4E9', cursor: onViewLedger ? 'pointer' : 'default' }}
             onClick={onViewLedger}
-            onMouseEnter={onViewLedger ? (e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC') : undefined}
-            onMouseLeave={onViewLedger ? (e) => ((e.currentTarget as HTMLElement).style.background = 'transparent') : undefined}
-          >
-            {onViewLedger && (
-              <span className="text-sm font-semibold" style={{ color: '#D32F4A' }}>פתח כרטסת ←</span>
-            )}
-            <div className="flex items-center gap-2">
-              <h2 className="font-bold text-gray-800">כרטסת</h2>
-              <CreditCard className="w-4 h-4 text-gray-400" />
-            </div>
-          </div>
+            hoverBg={onViewLedger ? '#FAFAFC' : undefined}
+            title={<><h2 className="font-bold text-gray-800">כרטסת</h2><CreditCard className="w-4 h-4 text-gray-400" /></>}
+            action={onViewLedger ? <span className="text-sm font-semibold" style={{ color: '#D32F4A' }}>פתח כרטסת ←</span> : undefined}
+          />
           {/* Table header */}
           <div style={{ overflowX: 'auto' }}>
           <div
@@ -366,10 +345,11 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
 
       {/* ── Invoices ── */}
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-        <div className="px-5 py-4 border-b flex items-center justify-end gap-2" style={{ borderColor: '#E2E4E9' }}>
-          <h2 className="font-bold text-gray-800">חשבוניות</h2>
-          <FileText className="w-4 h-4 text-gray-400" />
-        </div>
+        <SectionHeader
+          className="px-5 py-4 border-b"
+          style={{ borderColor: '#E2E4E9' }}
+          title={<><h2 className="font-bold text-gray-800">חשבוניות</h2><FileText className="w-4 h-4 text-gray-400" /></>}
+        />
         {invoices.length === 0 ? (
           <p className="text-center text-gray-400 py-8" style={{ fontSize: '15px' }}>אין חשבוניות עבור ספק זה</p>
         ) : (
@@ -419,21 +399,14 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
 
       {/* ── Payments ── */}
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-        <div
-          className="px-5 py-4 border-b flex items-center justify-between gap-2"
+        <SectionHeader
+          className="px-5 py-4 border-b"
           style={{ borderColor: '#E2E4E9', cursor: onViewPayments ? 'pointer' : 'default' }}
           onClick={onViewPayments}
-          onMouseEnter={onViewPayments ? (e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC') : undefined}
-          onMouseLeave={onViewPayments ? (e) => ((e.currentTarget as HTMLElement).style.background = 'transparent') : undefined}
-        >
-          {onViewPayments && (
-            <span className="text-sm font-semibold" style={{ color: '#D32F4A' }}>פתח דף תשלומים ←</span>
-          )}
-          <div className="flex items-center gap-2">
-            <h2 className="font-bold text-gray-800">תשלומים</h2>
-            <CreditCard className="w-4 h-4 text-gray-400" />
-          </div>
-        </div>
+          hoverBg={onViewPayments ? '#FAFAFC' : undefined}
+          title={<><h2 className="font-bold text-gray-800">תשלומים</h2><CreditCard className="w-4 h-4 text-gray-400" /></>}
+          action={onViewPayments ? <span className="text-sm font-semibold" style={{ color: '#D32F4A' }}>פתח דף תשלומים ←</span> : undefined}
+        />
         {payments.length === 0 ? (
           <p className="text-center text-gray-400 py-8" style={{ fontSize: '15px' }}>אין תשלומים עבור ספק זה</p>
         ) : (

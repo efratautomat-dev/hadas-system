@@ -2,6 +2,7 @@ import { useAuth } from './hooks/useAuth'
 import Login from './components/Login'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
+import EmployeeDashboard from './components/employee/EmployeeDashboard'
 
 function LoadingScreen() {
   return (
@@ -34,6 +35,12 @@ export default function App() {
 
   if (isLoading) return <LoadingScreen />
   if (!user) return <Login unauthorizedError={unauthorizedError} />
+
+  // Employees get a dedicated, restricted dashboard. Everyone else (managers) keeps
+  // the full app. RLS enforces the same boundary at the DB level (defense in depth).
+  if (role === 'employee') {
+    return <EmployeeDashboard userEmail={user.email ?? ''} onLogout={signOut} />
+  }
 
   return (
     <ProtectedRoute

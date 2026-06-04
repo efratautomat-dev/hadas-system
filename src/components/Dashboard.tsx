@@ -1,4 +1,4 @@
-import { Users, FileText, TrendingUp, AlertCircle, Package, AlertTriangle, Bell } from 'lucide-react'
+import { Users, FileText, TrendingUp, AlertCircle, Package, AlertTriangle, Bell, Camera } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { usePayments } from '../hooks/usePayments'
@@ -133,11 +133,25 @@ export default function Dashboard({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>{getGreeting()}</h1>
-        <p className="text-gray-500 text-sm mt-0.5">
-          סקירה כללית של פעילות הספקים · {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-        </p>
+      {/* Greeting (right in RTL) + prominent capture shortcut (left in RTL).
+          Opens the same CaptureDocument screen the sidebar links to. */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>{getGreeting()}</h1>
+          <p className="text-gray-500 text-sm mt-0.5">
+            סקירה כללית של פעילות הספקים · {new Date().toLocaleDateString('he-IL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
+        </div>
+        <button
+          onClick={() => onPageChange?.('capture')}
+          className="flex items-center gap-2 rounded-2xl font-bold text-white transition-all flex-shrink-0"
+          style={{ minHeight: '52px', padding: '0 28px', background: '#D32F4A', fontSize: '16px', boxShadow: '0 4px 14px rgba(211,47,74,0.30)' }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
+        >
+          <Camera className="w-6 h-6" />
+          צלמי מסמך
+        </button>
       </div>
 
       {/* Duplicate invoice alert */}

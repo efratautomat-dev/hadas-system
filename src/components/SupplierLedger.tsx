@@ -4,6 +4,7 @@ import { mockLedgerEntries, supplierOpeningBalances } from '../data/mockData'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { SearchableSelect } from './SearchableSelect'
+import SectionHeader from './SectionHeader'
 
 type EntryType = 'חשבונית' | 'תשלום' | 'זיכוי'
 
@@ -278,16 +279,12 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
 
         {/* Card header */}
-        <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: '#F5EEEE' }}>
-          <div className="flex items-center gap-2 text-gray-400">
-            <BookOpen className="w-4 h-4" />
-            <span style={{ fontSize: '13px' }}>{inPeriod.length} תנועות בתקופה</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-gray-800" style={{ fontSize: '16px' }}>{supplier.name}</span>
-            <BookOpen className="w-4 h-4 text-gray-400" />
-          </div>
-        </div>
+        <SectionHeader
+          className="px-5 py-4 border-b"
+          style={{ borderColor: '#F5EEEE' }}
+          action={<><BookOpen className="w-4 h-4 text-gray-400" /><span className="text-gray-400" style={{ fontSize: '13px' }}>{inPeriod.length} תנועות בתקופה</span></>}
+          title={<><span className="font-bold text-gray-800" style={{ fontSize: '16px' }}>{supplier.name}</span><BookOpen className="w-4 h-4 text-gray-400" /></>}
+        />
 
         {/* Scrollable table */}
         <div style={{ overflowX: 'auto' }}>

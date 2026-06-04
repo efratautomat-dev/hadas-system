@@ -4,6 +4,7 @@ import { useStatements } from '../hooks/useStatements'
 import type { VendorStatementStatus } from '../hooks/useStatements'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { printStatementPDF } from '../utils/pdf'
+import SectionHeader from './SectionHeader'
 
 interface VendorStatement {
   id: string
@@ -463,13 +464,12 @@ export default function StatementReconciliation() {
 
       {/* Main table */}
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
-        <div className="px-6 py-4 border-b flex items-center justify-between" style={{ borderColor: '#EEEEF2' }}>
-          <span className="text-sm text-gray-500">{filtered.length} רשומות</span>
-          <div className="flex items-center gap-2">
-            <h2 className="font-bold text-gray-800">רשימת כרטסות</h2>
-            <ArrowLeftRight className="w-4 h-4 text-gray-400" />
-          </div>
-        </div>
+        <SectionHeader
+          className="px-6 py-4 border-b"
+          style={{ borderColor: '#EEEEF2' }}
+          action={<span className="text-sm text-gray-500">{filtered.length} רשומות</span>}
+          title={<><h2 className="font-bold text-gray-800">רשימת כרטסות</h2><ArrowLeftRight className="w-4 h-4 text-gray-400" /></>}
+        />
 
         <div style={{ overflowX: 'auto' }}>
           {/* Header */}

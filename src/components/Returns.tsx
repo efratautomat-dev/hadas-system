@@ -9,8 +9,9 @@ import { printReturnPDF } from '../utils/pdf'
 import type { ReturnPDFData } from '../utils/pdf'
 import { PdfPreviewButton } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
+import SectionHeader from './SectionHeader'
 
-type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
+export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
 interface ReturnEntry {
   id: string
@@ -31,7 +32,7 @@ interface ReturnEntry {
   supplierCreditNoteAmount?: number | null
 }
 
-interface FormState {
+export interface FormState {
   supplierId: string
   dateIso: string
   amountStr: string
@@ -52,12 +53,12 @@ function fmtILS(n: number | null | undefined) {
   return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
-function isoToDisplay(iso: string): string {
+export function isoToDisplay(iso: string): string {
   const [y, m, d] = iso.split('-')
   return `${d}/${m}/${y}`
 }
 
-function emptyForm(): FormState {
+export function emptyForm(): FormState {
   return {
     supplierId: '',
     dateIso: new Date().toISOString().slice(0, 10),
@@ -128,7 +129,7 @@ interface FormModalProps {
   employees: Employee[]
 }
 
-function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices, employees }: FormModalProps) {
+export function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices, employees }: FormModalProps) {
   const supplierInvoices = invoices.filter(inv => inv.supplierId === form.supplierId)
   const selectedSupplier = suppliers.find(s => s.id === form.supplierId)
   const canSave = !!form.supplierId && !!form.amountStr && Number(form.amountStr) > 0 && !!form.reason.trim() && !!form.dateIso
@@ -631,10 +632,12 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
 
       {/* Table */}
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-        <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: '#E2E4E9' }}>
-          <span className="text-sm text-gray-400">{filtered.length} רשומות</span>
-          <h2 className="font-bold text-gray-800">רשימת חזרות</h2>
-        </div>
+        <SectionHeader
+          className="px-5 py-4 border-b"
+          style={{ borderColor: '#E2E4E9' }}
+          action={<span className="text-sm text-gray-400">{filtered.length} רשומות</span>}
+          title={<h2 className="font-bold text-gray-800">רשימת חזרות</h2>}
+        />
 
         <div style={{ overflowX: 'auto' }}>
           <div
