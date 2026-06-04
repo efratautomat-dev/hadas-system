@@ -11,6 +11,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 // ─── Config ────────────────────────────────────────────────────────────────
 
 const SOURCE_LABEL_NAME         = "מסמכים מספקים";
+const CAPTURE_LABEL_SOURCE      = "צילום ידני";       // stamped on rows captured via the in-app camera (not Gmail)
 const PROCESSED_LABEL_NAME      = "טופל_ממתין במערכת";
 const NEEDS_REVIEW_LABEL_NAME   = "דורש בדיקה ידנית";
 const PARTIAL_REFUND_LABEL_NAME = "החזר חלקי";         // owner applies manually — never created by code
@@ -1027,6 +1028,7 @@ async function quickInvoiceCheck(doc: { mimeType: string; bytes: Uint8Array }): 
 
 interface ExtractedInvoice {
   vendor_name:        string;
+  hp:                 string;   // supplier tax id (ח.פ / ע.מ), digits only, "" if absent
   invoice_number:     string;
   invoice_date:       string;   // YYYY-MM-DD
   total_amount:       number;
@@ -1051,7 +1053,7 @@ async function extractInvoice(
   const prompt = `אתה מנתח חשבוניות מומחה לחשבוניות ישראליות. חלץ את הפרטים הבאים מהחשבונית וחזור ב-JSON בלבד, ללא הסברים, ללא backticks.
 
 מבנה החזרה:
-{"vendor_name":"","invoice_number":"","invoice_date":"","total_amount":0,"amount_before_vat":0,"vat_amount":0,"currency":"ILS","category":"","line_items":[],"confidence":"high","missing_fields":[]}
+{"vendor_name":"","hp":"","invoice_number":"","invoice_date":"","total_amount":0,"amount_before_vat":0,"vat_amount":0,"currency":"ILS","category":"","line_items":[],"confidence":"high","missing_fields":[]}
 
 כללי תאריכים (חשוב מאוד):
 - פורמט הפלט הסופי: YYYY-MM-DD.
@@ -1068,6 +1070,7 @@ async function extractInvoice(
 - confidence: high/medium/low לפי רמת הוודאות שלך
 - missing_fields: רשימת שדות שלא מצאת
 - line_items: רשימת פריטים כטקסט פשוט
+- hp: מספר העוסק המנפיק את החשבונית — ח.פ / ע.מ / עוסק מורשה (בדרך כלל 9 ספרות). החזר ספרות בלבד, ללא מקפים או רווחים. אם אינו מופיע במסמך — השאר "".
 - אם שם עסק מכיל גרשיים (כמו בע"מ), השתמש בגרשיים עבריים: בע״מ
 - אם המסמך הוא חשבונית זיכוי (Credit Note / זיכוי / סכום שלילי) — החזר את הסכומים כשליליים
 
@@ -1102,7 +1105,7 @@ ${hintLine}`;
         content: [
           buildDocumentBlock(doc.mimeType, doc.bytes),
           { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" +
-            '{"vendor_name":"","invoice_number":"","invoice_date":"","total_amount":0,"amount_before_vat":0,"vat_amount":0,"currency":"ILS","category":"","line_items":[],"confidence":"high","missing_fields":[]}' },
+            '{"vendor_name":"","hp":"","invoice_number":"","invoice_date":"","total_amount":0,"amount_before_vat":0,"vat_amount":0,"currency":"ILS","category":"","line_items":[],"confidence":"high","missing_fields":[]}' },
         ],
       }],
       2048,
@@ -1115,6 +1118,7 @@ ${hintLine}`;
   const p = parsed as Record<string, unknown>;
   return {
     vendor_name:       String(p.vendor_name ?? ""),
+    hp:                String(p.hp ?? ""),
     invoice_number:    String(p.invoice_number ?? ""),
     invoice_date:      String(p.invoice_date ?? ""),
     total_amount:      Number(p.total_amount ?? 0),
@@ -1180,7 +1184,7 @@ function similarityScore(a: string, b: string): number {
   return Math.max(editScore, tokenScore, containScore);
 }
 
-interface SupplierRow { id: string; name: string; category: string | null }
+interface SupplierRow { id: string; name: string; category: string | null; hp: string | null }
 
 function findBestSupplier(typed: string, suppliers: SupplierRow[], threshold = 0.85): SupplierRow | null {
   let best: { row: SupplierRow; score: number } | null = null;
@@ -1189,6 +1193,40 @@ function findBestSupplier(typed: string, suppliers: SupplierRow[], threshold = 0
     if (!best || score > best.score) best = { row: s, score };
   }
   return best && best.score >= threshold ? best.row : null;
+}
+
+// Tax-id normalizer — digits only, so "51-423-789 / 0" and "514237890" compare equal.
+function normalizeHp(s: string | null | undefined): string {
+  return (s ?? "").replace(/\D/g, "");
+}
+
+// Best-effort: append a newly-seen vendor spelling to a supplier's alt_names so
+// future invoices match by name too. NEVER throws — a missing column or any DB
+// error is logged and swallowed so invoice ingest is never interrupted.
+async function appendAltName(
+  supabase: SupabaseClient, supplierId: string, newName: string, log: Logger, msgId: string,
+): Promise<void> {
+  const name = (newName ?? "").trim();
+  if (!name) return;
+  try {
+    const { data, error } = await supabase
+      .from("suppliers").select("alt_names").eq("id", supplierId).maybeSingle();
+    if (error) {
+      await log("warn", `alt_names read skipped: ${error.message}`, { supplierId }, msgId);
+      return;
+    }
+    const existing: string[] = Array.isArray(data?.alt_names) ? data!.alt_names : [];
+    if (existing.includes(name)) return;
+    const { error: upErr } = await supabase
+      .from("suppliers").update({ alt_names: [...existing, name] }).eq("id", supplierId);
+    if (upErr) {
+      await log("warn", `alt_names update skipped: ${upErr.message}`, { supplierId }, msgId);
+    } else {
+      await log("info", `alt_names: recorded "${name}" on supplier ${supplierId}`, undefined, msgId);
+    }
+  } catch (e) {
+    await log("warn", `alt_names append threw: ${e instanceof Error ? e.message : e}`, { supplierId }, msgId);
+  }
 }
 
 // ─── Drive path resolution ─────────────────────────────────────────────────
@@ -1224,13 +1262,20 @@ async function insertAlertOnce(
   log:      Logger,
   msgId:    string,
   alert:    { type: string; title: string; message: string; payload: Record<string, unknown> },
+  // Extra payload keys that further narrow the "already exists" check. Default
+  // dedup is (type, gmailMessageId) = one alert of a type per email; pass e.g.
+  // ["supplierId"] so multiple invoices in ONE email each get their own alert.
+  dedupKeys: string[] = [],
 ): Promise<boolean> {
-  const { data: existing } = await supabase
+  let query = supabase
     .from("alerts")
     .select("id")
     .eq("type", alert.type)
-    .filter("payload->>gmailMessageId", "eq", msgId)
-    .limit(1);
+    .filter("payload->>gmailMessageId", "eq", msgId);
+  for (const key of dedupKeys) {
+    query = query.filter(`payload->>${key}`, "eq", String(alert.payload[key] ?? ""));
+  }
+  const { data: existing } = await query.limit(1);
   if (existing && existing.length > 0) {
     await log("info", `alert suppressed (already exists): ${alert.type}`, { existingId: existing[0].id }, msgId);
     return false;
@@ -1267,6 +1312,10 @@ interface InvoiceFileCtx {
   managerEmail:         string;
   suppliers:            SupplierRow[];
   categoryNames:        string[];
+  // Stamped into invoices.gmail_label_source so a row's origin is visible in the
+  // DB/UI. Defaults to the Gmail source label; the camera-capture path overrides
+  // it with CAPTURE_LABEL_SOURCE. Optional so the email call site stays unchanged.
+  labelSource?:         string;
 }
 
 type InvoiceFileOutcome = "created" | "skipped" | "alerted" | "error";
@@ -1318,16 +1367,49 @@ async function handleInvoiceFile(
     });
   }
 
-  // Find or create supplier
-  const matched = findBestSupplier(extracted.vendor_name, suppliers);
+  // Find or create supplier — precedence: ח.פ (hp) exact match → name fuzzy → create new.
+  const extractedHp = normalizeHp(extracted.hp);
+
+  // 1. hp dedupe — a tax-id match is authoritative; never create a second supplier
+  //    for a vendor we already know by ח.פ, even when the name is spelled differently
+  //    (Hebrew vs English, punctuation). Name-only path can't catch those.
+  let matched: SupplierRow | null = extractedHp
+    ? (suppliers.find(s => normalizeHp(s.hp) === extractedHp) ?? null)
+    : null;
+
+  if (matched) {
+    const nameAgrees = similarityScore(extracted.vendor_name, matched.name) >= 0.85;
+    if (extracted.vendor_name && !nameAgrees) {
+      // Same ח.פ, different name → record the new spelling (best-effort) and raise
+      // a "check supplier data" alert. dedupKeys=["supplierId"] so two hp-mismatched
+      // invoices in ONE email each get their own alert (not suppressed).
+      await log("info", `hp dedupe: matched supplier ${matched.id} by ח.פ, name differs`,
+        { extractedName: extracted.vendor_name, existingName: matched.name, hp: extractedHp }, msgId);
+      await appendAltName(supabase, matched.id, extracted.vendor_name, log, msgId);
+      await insertAlertOnce(supabase, log, msgId, {
+        type:    "supplier_details_review",
+        title:   "בדוק האם נתוני הספק תואמים",
+        message: `חשבונית עם ח.פ ${extractedHp} שויכה לספק "${matched.name}", אך השם בחשבונית הוא "${extracted.vendor_name}". יש לוודא שמדובר באותו ספק.`,
+        payload: { gmailMessageId: msgId, subject, messageLink, supplierId: matched.id, hp: extractedHp, existingName: matched.name, extractedName: extracted.vendor_name },
+      }, ["supplierId"]);
+    } else {
+      await log("info", `hp dedupe: matched supplier ${matched.id} by ח.פ (name agrees)`, { hp: extractedHp }, msgId);
+    }
+  } else {
+    // 2. Fall back to name-fuzzy match (unchanged behavior).
+    matched = findBestSupplier(extracted.vendor_name, suppliers);
+  }
+
   let supplierId: string | null = matched?.id ?? null;
   const supplierDefaultCat: string | null = (matched?.category ?? "").trim() || null;
   let isNewSupplier = false;
   if (!supplierId && extracted.vendor_name) {
+    // 3. New supplier — store the extracted ח.פ (if any) so the NEXT invoice from
+    //    this vendor dedupes by hp. Contact/phone still unknown → supplier_incomplete.
     const seedCategory = (extracted.category ?? "").trim() || null;
     const { data: created, error: supErr } = await supabase
       .from("suppliers")
-      .insert({ name: extracted.vendor_name, category: seedCategory })
+      .insert({ name: extracted.vendor_name, category: seedCategory, hp: extractedHp || null })
       .select("id, category")
       .single();
     if (supErr) {
@@ -1335,9 +1417,9 @@ async function handleInvoiceFile(
     } else {
       supplierId    = created!.id as string;
       isNewSupplier = true;
-      suppliers.push({ id: supplierId, name: extracted.vendor_name, category: created!.category ?? null });
+      suppliers.push({ id: supplierId, name: extracted.vendor_name, category: created!.category ?? null, hp: extractedHp || null });
       await log("info", `created new supplier ${supplierId} (category: ${seedCategory ?? "(none)"})`,
-        { name: extracted.vendor_name }, msgId);
+        { name: extracted.vendor_name, hp: extractedHp || null }, msgId);
       // New supplier created silently from the invoice — prompt the owner to fill
       // in ח.פ / contact details. Same type + payload shape as payments-ingest so
       // the frontend handles both identically.
@@ -1480,7 +1562,7 @@ async function handleInvoiceFile(
     message_link:       messageLink,
     gmail_message_id:   msgId,
     email_subject:      subject,
-    gmail_label_source: SOURCE_LABEL_NAME,
+    gmail_label_source: ctx.labelSource ?? SOURCE_LABEL_NAME,
     received_at:        emailTs,
     sender_name:        from,
     email_sender:       from,
@@ -1570,7 +1652,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   if (messageIds.length === 0) return result;
 
   // Load suppliers + categories once
-  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category");
+  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp");
   const suppliers: SupplierRow[] = supplierRows ?? [];
   const { data: catRows } = await supabase.from("categories").select("name");
   const categoryNames: string[] = (catRows ?? []).map((r: { name: string }) => r.name);
@@ -1907,7 +1989,7 @@ async function handleNonInvoice(
       return null;
     }
     const id = created!.id as string;
-    suppliers.push({ id, name: vendorName, category: null });
+    suppliers.push({ id, name: vendorName, category: null, hp: null });
     await log("info", `created new supplier ${id}`, { name: vendorName }, msgId);
     // New supplier created silently from the document — prompt the owner to fill
     // in ח.פ / contact details. Same type + payload shape as payments-ingest.
