@@ -517,15 +517,27 @@ async function ingestPayments(
     try {
       await log("debug", "processing message", undefined, msgId);
 
-      // Idempotency: skip if already ingested
-      const { data: dup } = await supabase
+      // Idempotency: skip if already ingested. Use limit(1) + length, NOT
+      // maybeSingle() — maybeSingle returns an ERROR (not data) when >1 row
+      // matches, which, if its error is ignored, makes the check think the
+      // message is new and re-insert forever once any duplicate exists.
+      const { data: dupRows, error: dupErr } = await supabase
         .from("payments")
         .select("id")
         .eq("source_message_id", msgId)
-        .maybeSingle();
+        .limit(1);
 
-      if (dup) {
-        await log("info", `skip — already in payments table (id=${dup.id})`, undefined, msgId);
+      if (dupErr) {
+        // Can't confirm the message isn't already in — skip rather than risk a
+        // duplicate; the next run retries once the DB is reachable.
+        await log("error", "dedup check failed — skipping to avoid duplicate",
+          { code: dupErr.code, message: dupErr.message }, msgId);
+        result.errors.push(`Dedup check failed for ${msgId}: ${dupErr.message}`);
+        continue;
+      }
+
+      if (dupRows && dupRows.length > 0) {
+        await log("info", `skip — already in payments table (id=${dupRows[0].id})`, undefined, msgId);
         if (processedLabelId) {
           await modifyLabels(token, msgId, [processedLabelId], ["UNREAD"]);
         }
