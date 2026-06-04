@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 
-export type VendorStatementStatus = 'matched' | 'mismatch' | 'pending' | 'investigating'
+export type VendorStatementStatus = 'matched' | 'mismatch' | 'pending' | 'investigating' | 'needs_review'
 
 export interface VendorStatement {
   id: string

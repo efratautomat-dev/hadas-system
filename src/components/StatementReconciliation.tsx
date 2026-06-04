@@ -41,6 +41,9 @@ const statusConfig: Record<VendorStatementStatus, {
   mismatch:      { label: 'אי-התאמה', bg: '#FEE2E2', color: '#DC2626', Icon: AlertTriangle },
   pending:       { label: 'ממתין',     bg: '#FEF9C3', color: '#A16207', Icon: Clock },
   investigating: { label: 'בבדיקה',   bg: '#DBEAFE', color: '#1E40AF', Icon: SearchIcon },
+  // Default status for statements ingested from email (invoices-ingest) — the
+  // user opens the row to fill the real balance and resolve it.
+  needs_review:  { label: 'לבדיקה',    bg: '#FEF3C7', color: '#D97706', Icon: Eye },
 }
 
 
@@ -68,7 +71,9 @@ function formatILS(n: number | null | undefined) {
 }
 
 function StatusBadge({ status }: { status: VendorStatementStatus }) {
-  const cfg = statusConfig[status]
+  // Fallback guards against any status value the UI doesn't know about (e.g. a
+  // new backend status) so the whole page can never crash on an unknown badge.
+  const cfg = statusConfig[status] ?? statusConfig.pending
   const { Icon } = cfg
   return (
     <span
@@ -342,6 +347,7 @@ export default function StatementReconciliation() {
     mismatch:      statements.filter((s) => s.status === 'mismatch').length,
     pending:       statements.filter((s) => s.status === 'pending').length,
     investigating: statements.filter((s) => s.status === 'investigating').length,
+    needs_review:  statements.filter((s) => s.status === 'needs_review').length,
   }
 
   const filtered = statements.filter((s) => {
@@ -380,6 +386,7 @@ export default function StatementReconciliation() {
     iconColor: string
     Icon: React.ElementType
   }[] = [
+    { key: 'needs_review',  label: 'לבדיקה',   iconBg: '#FEF3C7', iconColor: '#D97706', Icon: Eye },
     { key: 'matched',       label: 'תואמות',   iconBg: '#DCFCE7', iconColor: '#166534', Icon: CheckCircle2 },
     { key: 'mismatch',      label: 'אי-התאמה', iconBg: '#FEE2E2', iconColor: '#DC2626', Icon: AlertTriangle },
     { key: 'pending',       label: 'ממתינות',  iconBg: '#FEF9C3', iconColor: '#A16207', Icon: Clock },
@@ -407,7 +414,7 @@ export default function StatementReconciliation() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {statCards.map(({ key, label, iconBg, iconColor, Icon }) => (
           <div
             key={key}
