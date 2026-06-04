@@ -9,6 +9,7 @@ import SupplierLedger from './SupplierLedger'
 import DeliveryNotes from './DeliveryNotes'
 import StatementReconciliation from './StatementReconciliation'
 import Returns from './Returns'
+import CaptureDocument from './CaptureDocument'
 import Alerts from './Alerts'
 import Settings from '../pages/Settings'
 import SystemLogs from '../pages/SystemLogs'
@@ -55,6 +56,7 @@ interface LayoutProps {
 
 const pageLabels: Record<string, string> = {
   dashboard:             'דשבורד',
+  capture:               'צילום מסמך',
   alerts:                'התראות',
   suppliers:             'ספקים',
   ledger:                'כרטסת ספק',
@@ -273,6 +275,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     if (activePage === 'deliveries')     return <DeliveryNotes />
     if (activePage === 'reconciliation') return <StatementReconciliation />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
+    if (activePage === 'capture')        return <CaptureDocument capturedBy={userEmail} />
     if (activePage === 'system-logs')    return <SystemLogs />
     if (activePage === 'settings')       return <Settings />
     return <ComingSoon page={activePage} />

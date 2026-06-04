@@ -2243,6 +2243,127 @@ async function handleNonInvoice(
   }
 }
 
+// ─── Camera capture (shares the email IMAGE pipeline) ───────────────────────
+//
+// A document photographed in the app reaches the SAME per-document logic as an
+// email image: handleInvoiceFile / handleNonInvoice. The only difference is the
+// image arrives as base64 over HTTP instead of from Gmail, and the user picks the
+// doc type explicitly — so we skip Gmail fetch, the Stage-1 logo/size gate, the
+// Stage-2 type classifier, and the invoice-only ad gate (quickInvoiceCheck). The
+// AI extraction, Drive upload, Storage upload, dedup, DB insert and alerts all run
+// unchanged because they ARE the same functions.
+
+type CaptureDocType = "invoice" | "delivery_note" | "return_doc";
+
+interface CaptureRequest {
+  source:      "camera";
+  docType:     CaptureDocType;
+  filename?:   string;
+  mimeType?:   string;
+  imageBase64: string;     // raw base64 or a full data: URL
+  capturedBy?: string;     // employee/manager email, for audit + the `from` field
+}
+
+const MAX_CAPTURE_BYTES = 15 * 1024 * 1024; // 15MB guard — phone photos are ~1-5MB
+
+// Standard (non-url-safe) base64 → bytes; tolerates a leading data: URL prefix.
+function captureBase64ToBytes(b64: string): Uint8Array {
+  const comma = b64.indexOf(",");
+  const raw   = b64.startsWith("data:") && comma !== -1 ? b64.slice(comma + 1) : b64;
+  const bin   = atob(raw.trim());
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+const CAPTURE_TYPE_LABEL: Record<CaptureDocType, string> = {
+  invoice:       "חשבונית",
+  delivery_note: "תעודת משלוח",
+  return_doc:    "חזרה/זיכוי",
+};
+
+async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Promise<Response> {
+  const log = makeLogger(supabase);
+
+  // ── Validate ──
+  const docType = body.docType;
+  if (docType !== "invoice" && docType !== "delivery_note" && docType !== "return_doc") {
+    return json({ error: `invalid docType: ${String(docType)}` }, 400);
+  }
+  if (!body.imageBase64 || typeof body.imageBase64 !== "string") {
+    return json({ error: "imageBase64 is required" }, 400);
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = captureBase64ToBytes(body.imageBase64);
+  } catch {
+    return json({ error: "imageBase64 is not valid base64" }, 400);
+  }
+  if (bytes.length === 0)               return json({ error: "image is empty" }, 400);
+  if (bytes.length > MAX_CAPTURE_BYTES) return json({ error: "image too large (max 15MB)" }, 400);
+
+  // Authoritative MIME from the bytes' magic numbers (same rule the email path
+  // uses) — a wrong declared type would 400 the Anthropic vision call.
+  const mimeType = sniffImageMediaType(bytes)
+    ?? (body.mimeType?.startsWith("image/") ? body.mimeType : "image/jpeg");
+  if (!mimeType.startsWith("image/")) {
+    return json({ error: "capture must be an image (jpeg/png)" }, 400);
+  }
+  const filename = body.filename || `capture.${mimeType === "image/png" ? "png" : "jpg"}`;
+
+  // ── Synthesize the Gmail-shaped context the shared functions expect ──
+  const captureId   = "capture-" + crypto.randomUUID(); // plays the role of msgId
+  const nowIso      = new Date().toISOString();
+  const from        = body.capturedBy || "צילום מהאפליקציה";
+  const subject     = `צילום ידני — ${CAPTURE_TYPE_LABEL[docType]}`;
+  const managerEmail = Deno.env.get("GMAIL_USER_EMAIL") ?? "";
+
+  await log("info", "capture received", { docType, filename, bytes: bytes.length, from }, captureId);
+
+  // Google token (for Drive — generic OAuth, not Gmail-specific) + reference data.
+  const token = await getGoogleAccessToken();
+  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp");
+  const suppliers: SupplierRow[] = supplierRows ?? [];
+  const { data: catRows } = await supabase.from("categories").select("name");
+  const categoryNames: string[] = (catRows ?? []).map((r: { name: string }) => r.name);
+
+  const result: IngestResult = { processed: 0, alerts: 0, skipped: 0, errors: [], ts: nowIso };
+  const doc = { mimeType, filename, bytes };
+
+  try {
+    if (docType === "invoice") {
+      const file: UsableFile = {
+        attachmentId: captureId, filename, mimeType, bytes, format: "image", size: bytes.length,
+      };
+      const ctx: InvoiceFileCtx = {
+        token, msgId: captureId, subject, from, emailTs: nowIso,
+        messageLink: "", labelIds: [], partialRefundLabelId: null,
+        managerEmail, suppliers, categoryNames, labelSource: CAPTURE_LABEL_SOURCE,
+      };
+      const outcome = await handleInvoiceFile(supabase, log, file, ctx, result);
+      await log("info", "capture invoice complete", { outcome }, captureId);
+      return json({
+        ok:       outcome !== "error",
+        outcome,                       // created | alerted | skipped | error
+        docType,
+        captureId,
+        errors:   result.errors,
+      });
+    }
+
+    // delivery_note / return_doc — same handler the email path uses.
+    const ok = await handleNonInvoice(supabase, log, captureId, suppliers, {
+      docType, subject, from, emailTs: nowIso, messageLink: "", doc,
+    });
+    await log("info", "capture non-invoice complete", { docType, ok }, captureId);
+    return json({ ok, outcome: ok ? "created" : "error", docType, captureId });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await log("error", `capture failed: ${msg}`, { docType }, captureId);
+    return json({ ok: false, outcome: "error", docType, captureId, error: msg }, 500);
+  }
+}
+
 // ─── Entry ─────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -2254,6 +2375,22 @@ Deno.serve(async (req: Request) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("HADAS_SERVICE_KEY") ?? "";
   const supabase    = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+
+  // Camera-capture path: a POST with { source: "camera", ... }. Anything else
+  // (the cron tick / manual trigger) falls through to the Gmail pull below.
+  if (req.method === "POST") {
+    let body: unknown = null;
+    try { body = await req.json(); } catch { body = null; }
+    if (body && typeof body === "object" && (body as { source?: string }).source === "camera") {
+      try {
+        return await handleCapture(supabase, body as CaptureRequest);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        try { await makeLogger(supabase)("error", `capture handler aborted: ${msg}`); } catch { /* self-guards */ }
+        return json({ ok: false, error: msg }, 500);
+      }
+    }
+  }
 
   try {
     const result = await ingestInvoices(supabase);

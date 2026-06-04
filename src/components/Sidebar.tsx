@@ -14,6 +14,7 @@ import {
   Settings,
   Bell,
   ScrollText,
+  Camera,
 } from 'lucide-react'
 
 function useIsTablet() {
@@ -41,6 +42,7 @@ interface SidebarProps {
 
 const navItems = [
   { id: 'dashboard', label: 'דשבורד', Icon: LayoutDashboard },
+  { id: 'capture',   label: 'צילום מסמך', Icon: Camera },
   { id: 'alerts',    label: 'התראות',  Icon: Bell },
   { id: 'suppliers', label: 'ספקים', Icon: Users },
   { id: 'ledger',    label: 'כרטסת ספק', Icon: Receipt },
