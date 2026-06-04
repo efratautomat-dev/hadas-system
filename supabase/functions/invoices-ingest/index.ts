@@ -1955,6 +1955,44 @@ async function extractReturn(
   };
 }
 
+interface ExtractedStatement {
+  vendor_name: string;
+}
+
+// Statements (כרטסת / supplier ledgers) only need the vendor name here — enough to
+// resolve a supplier_id so the row shows a name. Balances/period are left for the
+// user to fill during review. Keep the prompt minimal and cheap.
+async function extractStatement(
+  doc: { mimeType: string; bytes: Uint8Array },
+): Promise<ExtractedStatement> {
+  const prompt =
+    "אתה מנתח כרטסות ספק (דפי חשבון / כרטסת הנהלת חשבונות). חלץ את שם הספק בלבד וחזור ב-JSON בלבד, ללא הסברים.\n" +
+    '{"vendor_name":""}\n' +
+    "כללים: vendor_name = שם הספק/החברה שאליו שייכת הכרטסת (לרוב בכותרת המסמך).";
+  const raw = await anthropicMessage(
+    ANTHROPIC_MODEL_EXTRACTOR,
+    [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
+    256,
+  );
+  let parsed = parseJsonRobust(raw);
+  if (parsed === null) {
+    const retryRaw = await anthropicMessage(
+      ANTHROPIC_MODEL_EXTRACTOR,
+      [{ role: "user", content: [
+        buildDocumentBlock(doc.mimeType, doc.bytes),
+        { type: "text", text: 'ענה ב-JSON בלבד ללא markdown וללא הסבר:\n{"vendor_name":""}' },
+      ] }],
+      256,
+    );
+    parsed = parseJsonRobust(retryRaw);
+    if (parsed === null) {
+      throw new Error(`extractStatement failed after retry. Raw: ${raw.slice(0, 500)}`);
+    }
+  }
+  const p = parsed as Record<string, unknown>;
+  return { vendor_name: String(p.vendor_name ?? "") };
+}
+
 // ─── Non-invoice doc handlers ──────────────────────────────────────────────
 
 async function handleNonInvoice(
@@ -2197,11 +2235,30 @@ async function handleNonInvoice(
     return true; // return row updated successfully
 
   } else {
-    // statement — uploaded to Storage only; no Drive upload.
+    // statement — uploaded to Storage only; no Drive upload (Storage-only is by
+    // design for non-invoice docs; the file is viewable via a signed URL in the UI).
+    //
+    // Best-effort vendor extraction → supplier_id so the supplier name shows.
+    // resolveSupplier matches an existing supplier or creates one (with a
+    // "supplier_incomplete" alert). Extraction failure must NEVER block the save —
+    // the statement file is valuable on its own and the user can set the supplier
+    // during review — so we swallow the error and fall back to supplier_id=null.
+    let supplierId: string | null = null;
+    try {
+      const extracted = await extractStatement(ctx.doc);
+      supplierId = await resolveSupplier(extracted.vendor_name);
+      await log("info", "statement vendor resolved",
+        { vendor: extracted.vendor_name, supplierId }, msgId);
+    } catch (e) {
+      await log("warn",
+        `statement vendor extraction failed (saving without supplier): ${e instanceof Error ? e.message : e}`,
+        { filename: ctx.doc.filename }, msgId);
+    }
+
     let storagePath = "";
     try {
       const storageKey = buildStorageKey(
-        "statement", null, null, msgId,
+        "statement", supplierId, null, msgId,
         pickExtension(ctx.doc.filename, ctx.doc.mimeType),
       );
       storagePath = await uploadToStorage(
@@ -2215,15 +2272,15 @@ async function handleNonInvoice(
     }
 
     // vendor_statements schema has no email_subject / message_link /
-    // gmail_message_id / received_at columns — only status, storage_url,
-    // drive_file_link, and two NOT-NULL columns without defaults: `month` and
-    // `vendor_balance` (supplier_id + the real balance are filled in later by the
-    // user during review). `month` is a text column rendered as-is in the UI; we
-    // default it to the email-received month (YYYY-MM), which the user can correct.
-    // `vendor_balance` is seeded to 0 as a placeholder — the row is needs_review,
-    // so the user enters the real balance when reviewing.
+    // gmail_message_id / received_at columns — only supplier_id, status,
+    // storage_url, drive_file_link, and two NOT-NULL columns without defaults:
+    // `month` and `vendor_balance`. `month` is a text column rendered as-is in the
+    // UI; we default it to the email-received month (YYYY-MM), which the user can
+    // correct. `vendor_balance` is seeded to 0 as a placeholder — the row is
+    // needs_review, so the user enters the real balance when reviewing.
     const statementMonth = ctx.emailTs.slice(0, 7); // "YYYY-MM" from the ISO emailTs
     const { error } = await supabase.from("vendor_statements").insert({
+      supplier_id:     supplierId,
       status:          "needs_review",
       storage_url:     storagePath || null,
       drive_file_link: null,

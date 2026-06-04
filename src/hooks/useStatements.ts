@@ -14,6 +14,8 @@ export interface VendorStatement {
   diff: number
   status: VendorStatementStatus
   uploaded_at: string
+  storage_url: string | null     // path in the private "documents" bucket
+  drive_file_link: string | null
 }
 
 export function useStatements() {
@@ -49,6 +51,8 @@ export function useStatements() {
           diff:           Number(r.diff           ?? 0),
           status:         r.status         as VendorStatementStatus ?? 'pending',
           uploaded_at:    r.uploaded_at    ?? '',
+          storage_url:     r.storage_url     ?? null,
+          drive_file_link: r.drive_file_link ?? null,
         })) as VendorStatement[])
         setError(null)
       } else {

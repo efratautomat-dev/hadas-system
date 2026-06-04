@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { CheckCircle2, AlertTriangle, Clock, Search as SearchIcon, X, ArrowLeftRight, Eye, Download } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, Clock, Search as SearchIcon, X, ArrowLeftRight, Eye, Download, FileText, ExternalLink } from 'lucide-react'
 import { useStatements } from '../hooks/useStatements'
 import type { VendorStatementStatus } from '../hooks/useStatements'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { printStatementPDF } from '../utils/pdf'
+import { supabase } from '../lib/supabase'
 import SectionHeader from './SectionHeader'
 
 interface VendorStatement {
@@ -16,6 +17,8 @@ interface VendorStatement {
   diff: number
   status: VendorStatementStatus
   uploaded_at: string
+  storage_url: string | null
+  drive_file_link: string | null
 }
 
 interface LedgerRow {
@@ -68,6 +71,25 @@ function formatILS(n: number | null | undefined) {
   const abs = Math.abs(safe)
   const sign = safe < 0 ? '-' : ''
   return sign + '₪' + abs.toLocaleString('he-IL')
+}
+
+// Opens a stored document. `storage_url` is a PATH in the private "documents"
+// bucket, so we mint a short-lived signed URL on demand. A full http(s) link
+// (e.g. a Drive link) is opened directly. NOTE: signing requires an authenticated
+// read policy on the bucket — see migration 20260605000000_documents_read_policy.sql.
+async function openStoredFile(pathOrUrl: string | null) {
+  if (!pathOrUrl) return
+  if (/^https?:\/\//i.test(pathOrUrl)) {
+    window.open(pathOrUrl, '_blank', 'noopener')
+    return
+  }
+  const { data, error } = await supabase.storage.from('documents').createSignedUrl(pathOrUrl, 120)
+  if (error || !data?.signedUrl) {
+    console.error('[statements] createSignedUrl failed:', error)
+    alert('לא ניתן לפתוח את הקובץ כעת')
+    return
+  }
+  window.open(data.signedUrl, '_blank', 'noopener')
 }
 
 function StatusBadge({ status }: { status: VendorStatementStatus }) {
@@ -553,6 +575,31 @@ export default function StatementReconciliation() {
                     <Eye className="w-3.5 h-3.5" />
                     פירוט
                   </button>
+                  {stmt.storage_url && (
+                    <button
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                      style={{ background: '#E0F2FE', color: '#0369A1' }}
+                      title="צפה בקובץ הכרטסת"
+                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#BAE6FD')}
+                      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#E0F2FE')}
+                      onClick={(e) => { e.stopPropagation(); void openStoredFile(stmt.storage_url) }}
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      צפה בקובץ
+                    </button>
+                  )}
+                  {stmt.drive_file_link && (
+                    <button
+                      className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                      style={{ background: '#FEF3C7', color: '#D97706' }}
+                      title="פתח בדרייב"
+                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDE68A')}
+                      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEF3C7')}
+                      onClick={(e) => { e.stopPropagation(); void openStoredFile(stmt.drive_file_link) }}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <button
                     className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
                     style={{ background: '#FDF2F4', color: '#9CA3AF' }}
