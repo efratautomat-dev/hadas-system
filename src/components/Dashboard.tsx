@@ -413,7 +413,15 @@ export default function Dashboard({
             {payLoading ? <Spinner /> : (
               <div className="divide-y">
                 {payments
-                  .filter(p => p.status === 'pending')
+                  .filter(p => {
+                    // Pending payments whose value date is within [today, today+30d]
+                    // at day granularity. Hides past, >30d-ahead, and null value dates.
+                    if (p.status !== 'pending' || !p.valueDate) return false
+                    const today = new Date(); today.setHours(0, 0, 0, 0)
+                    const vd = new Date(p.valueDate); vd.setHours(0, 0, 0, 0)
+                    const days = Math.round((vd.getTime() - today.getTime()) / 86_400_000)
+                    return days >= 0 && days <= 30
+                  })
                   .sort((a, b) => {
                     // Safeguard mirroring usePayments order: asc by valueDate, nulls last.
                     if (!a.valueDate && !b.valueDate) return 0
