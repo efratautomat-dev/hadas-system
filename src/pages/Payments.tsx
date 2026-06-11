@@ -387,13 +387,21 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
   // ── derived ──────────────────────────────────────────────────────────────
 
-  const filtered = payments.filter((p) => {
-    if (fltSupplier && !p.supplier.includes(fltSupplier)) return false
-    if (fltType && p.type !== fltType) return false
-    if (fltMonth && !p.date.startsWith(fltMonth)) return false
-    if (fltStatus && p.status !== fltStatus) return false
-    return true
-  })
+  const filtered = payments
+    .filter((p) => {
+      if (fltSupplier && !p.supplier.includes(fltSupplier)) return false
+      if (fltType && p.type !== fltType) return false
+      if (fltMonth && !p.date.startsWith(fltMonth)) return false
+      if (fltStatus && p.status !== fltStatus) return false
+      return true
+    })
+    // Safeguard mirroring usePayments order: asc by valueDate, nulls last.
+    .sort((a, b) => {
+      if (!a.valueDate && !b.valueDate) return 0
+      if (!a.valueDate) return 1
+      if (!b.valueDate) return -1
+      return a.valueDate < b.valueDate ? -1 : a.valueDate > b.valueDate ? 1 : 0
+    })
 
   const futurePayments = payments
     .filter((p) => p.status !== 'cancelled' && p.valueDate && daysFromToday(p.valueDate) > 0)
@@ -1251,9 +1259,9 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
             </div>
           ) : viewMode === 'table' ? (() => {
               const pCOL = isMobile
-                ? '85px 1fr 110px 80px 80px 80px'
-                : '85px 1fr 110px 80px 100px 90px 80px 80px'
-              const pMIN = isMobile ? '480px' : '720px'
+                ? '110px 1fr 110px 80px 80px 80px'
+                : '120px 1fr 110px 80px 100px 80px 80px'
+              const pMIN = isMobile ? '505px' : '720px'
               const activeTotal = filtered.filter(p => p.status !== 'cancelled').reduce((s, p) => s + (Number(p.amount) || 0), 0)
               const activeCount = filtered.filter(p => p.status !== 'cancelled').length
               return (
@@ -1268,12 +1276,11 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                         background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right',
                       }}
                     >
-                      <span>תאריך</span>
+                      <span>תאריך ערך</span>
                       <span>ספק</span>
                       <span>סכום</span>
                       <span>סוג</span>
                       {!isMobile && <span>אסמכתא</span>}
-                      {!isMobile && <span>תאריך ערך</span>}
                       <span>סטטוס</span>
                       <span className="text-center">פעולות</span>
                     </div>
@@ -1309,7 +1316,22 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                           onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = isBad ? '#FFF5F5' : 'transparent')}
                           onClick={() => openEdit(p.id)}
                         >
-                          <span style={{ fontSize: isTablet ? '14px' : '13px', color: '#374151' }}>{fmtDate(p.date)}</span>
+                          {/* Primary date column now shows the VALUE date (matches the
+                              value_date sort), with the urgency chip preserved. */}
+                          <span style={{ whiteSpace: 'nowrap' }}>
+                            {p.valueDate ? (
+                              <span style={{ color: valueDateColor, fontWeight: valueDays !== null && valueDays <= 7 ? 700 : 400, fontSize: isTablet ? '14px' : '13px' }}>
+                                {fmtDate(p.valueDate)}
+                                {valueDays !== null && valueDays > 0 && valueDays <= 7 && (
+                                  <span style={{ marginRight: '6px', fontSize: '11px', background: '#FEF2F2', color: '#DC2626', padding: '1px 6px', borderRadius: '5px', fontWeight: 700 }}>
+                                    {valueDays === 1 ? 'מחר' : `${valueDays}י׳`}
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              <span style={{ color: '#D1D5DB' }}>—</span>
+                            )}
+                          </span>
                           <span style={{ fontSize: isTablet ? '14px' : '13px', fontWeight: 700, color: '#1F2937' }}>{p.supplier}</span>
                           <span style={{ fontSize: isTablet ? '14px' : '13px', fontWeight: 800, color: '#1F2937', whiteSpace: 'nowrap' }}>
                             {fmtILS(p.amount)}
@@ -1318,22 +1340,6 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                           {!isMobile && (
                             <span style={{ fontSize: '12px', color: '#6B7280' }}>
                               {p.ref || <span style={{ color: '#D1D5DB' }}>—</span>}
-                            </span>
-                          )}
-                          {!isMobile && (
-                            <span style={{ whiteSpace: 'nowrap' }}>
-                              {p.valueDate ? (
-                                <span style={{ color: valueDateColor, fontWeight: valueDays !== null && valueDays <= 7 ? 700 : 400, fontSize: isTablet ? '14px' : '13px' }}>
-                                  {fmtDate(p.valueDate)}
-                                  {valueDays !== null && valueDays > 0 && valueDays <= 7 && (
-                                    <span style={{ marginRight: '6px', fontSize: '11px', background: '#FEF2F2', color: '#DC2626', padding: '1px 6px', borderRadius: '5px', fontWeight: 700 }}>
-                                      {valueDays === 1 ? 'מחר' : `${valueDays}י׳`}
-                                    </span>
-                                  )}
-                                </span>
-                              ) : (
-                                <span style={{ color: '#D1D5DB' }}>—</span>
-                              )}
                             </span>
                           )}
                           <span><StatusBadge status={p.status} /></span>
@@ -1392,7 +1398,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       <span style={{ fontWeight: 900, fontSize: isTablet ? '16px' : '14px', color: '#8B1A3A' }}>
                         {fmtILS(activeTotal)}
                       </span>
-                      <span style={{ gridColumn: isMobile ? 'span 3' : 'span 5' }} />
+                      <span style={{ gridColumn: isMobile ? 'span 3' : 'span 4' }} />
                     </div>
                   </div>
                 </div>
