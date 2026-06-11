@@ -440,7 +440,7 @@ export default function Dashboard({
                     {/* Bottom row: date on the right (aligns under amount),
                         type on the left (aligns under supplier). */}
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-gray-400 whitespace-nowrap">פירעון: {fmtDate(pay.date)}</span>
+                      <span className="text-xs text-gray-400 whitespace-nowrap">תאריך ערך: {pay.valueDate ? fmtDate(pay.valueDate) : '—'}</span>
                       <span className="text-xs text-gray-400 truncate min-w-0">{pay.type}</span>
                     </div>
                   </div>
