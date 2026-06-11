@@ -6,6 +6,8 @@ import { useReturns } from '../../hooks/useReturns'
 import { useEmployees } from '../../hooks/useEmployees'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import SectionHeader from '../SectionHeader'
+import { InvoiceDetail } from '../Invoices'
+import type { Invoice } from '../../data/mockData'
 import {
   FormModal as ReturnFormModal,
   emptyForm,
@@ -75,7 +77,7 @@ function EmptyRow({ text }: { text: string }) {
 }
 
 export default function EmployeeSupplierView({ supplier, activeSection }: Props) {
-  const { data: allInvoices }      = useInvoices()
+  const { data: allInvoices, update: updateInvoice } = useInvoices()
   const { data: allDeliveries }    = useDeliveryNotes()
   const { data: allReturns, create: createReturn } = useReturns()
   const { data: employees }        = useEmployees()

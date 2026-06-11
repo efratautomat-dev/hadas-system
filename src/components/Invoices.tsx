@@ -256,7 +256,7 @@ function Row2({ children }: { children: React.ReactNode }) {
 
 // ── Invoice Detail ──────────────────────────────────────────────────────────
 
-function InvoiceDetail({
+export function InvoiceDetail({
   invoice, derivedStatus, onBack, onSave, onOpenSupplier,
 }: {
   invoice: Invoice; derivedStatus: string; onBack: () => void; onSave: (inv: Invoice) => void

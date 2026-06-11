@@ -355,12 +355,12 @@ export default function Dashboard({
             <div className="divide-y">
               {[...invoices]
                 .sort((a, b) => {
-                  // Safeguard mirroring useInvoices order: newest first by
-                  // invoiceDate, falling back to emailReceivedAt.
-                  const da = a.invoiceDate || a.emailReceivedAt || ''
-                  const db = b.invoiceDate || b.emailReceivedAt || ''
+                  // Newest-received first by system received date (received_at).
+                  const da = a.emailReceivedAt || ''
+                  const db = b.emailReceivedAt || ''
                   return da === db ? 0 : da < db ? 1 : -1
                 })
+                .slice(0, 10)
                 .map((inv) => {
                 const st = statusStyle[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
                 return (
