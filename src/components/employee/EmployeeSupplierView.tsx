@@ -84,6 +84,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
   const { data: suppliers }        = useSuppliers()
 
   const [invoiceQuery, setInvoiceQuery] = useState('')
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [showReturnForm, setShowReturnForm] = useState(false)
   const [returnForm, setReturnForm] = useState<FormState>(emptyForm())
 
@@ -144,6 +145,27 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
     { Icon: Hash,  label: 'ח.פ / ע.מ',  value: supplier.hp      ?? '' },
     { Icon: Tag,   label: 'קטגוריה',     value: supplier.category ?? '' },
   ]
+
+  // Reuse the manager-side full invoice detail (incl. the eye-icon document
+  // preview). When a row is selected it replaces the whole supplier view; the
+  // built-in "חזרה" button clears the selection back to the list.
+  if (selectedInvoice) {
+    return (
+      <InvoiceDetail
+        invoice={selectedInvoice}
+        derivedStatus={selectedInvoice.status}
+        onBack={() => setSelectedInvoice(null)}
+        onSave={async (updated) => {
+          setSelectedInvoice(null)
+          try {
+            await updateInvoice(updated.id, updated)
+          } catch {
+            // hook surfaces the error
+          }
+        }}
+      />
+    )
+  }
 
   return (
     <div className="space-y-5">
@@ -229,8 +251,11 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
               return (
                 <div
                   key={inv.id}
-                  className="grid items-center border-b"
+                  className="grid items-center border-b cursor-pointer"
                   style={{ gridTemplateColumns: '1fr 80px 120px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                  onClick={() => setSelectedInvoice(inv as Invoice)}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 >
                   <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{num} · {inv.date}</p>
                   <div className="flex justify-center">
