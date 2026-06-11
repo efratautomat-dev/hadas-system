@@ -890,8 +890,14 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
           >
             <div
               className="flex items-center justify-between px-5 py-3 border-b"
-              style={{ borderColor: '#F5EEEE', background: '#F8F9FA' }}
+              style={{ borderColor: '#F5EEEE', background: '#F8F9FA', direction: 'rtl' }}
             >
+              {/* RIGHT (RTL start): title cluster */}
+              <div className="flex items-center gap-2 font-bold text-gray-700">
+                הוספת תשלום חדש
+                <Plus className="w-4 h-4" style={{ color: '#8B1A3A' }} />
+              </div>
+              {/* LEFT (RTL end): show/hide toggle */}
               <button
                 className="text-sm font-medium rounded-lg px-3 py-1.5 transition-colors"
                 style={{ color: '#8B1A3A', background: '#FFF0EF' }}
@@ -899,10 +905,6 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               >
                 {showForm ? 'הסתר' : 'הצג'}
               </button>
-              <div className="flex items-center gap-2 font-bold text-gray-700">
-                הוספת תשלום חדש
-                <Plus className="w-4 h-4" style={{ color: '#8B1A3A' }} />
-              </div>
             </div>
 
             {showForm && (

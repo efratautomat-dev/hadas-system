@@ -17,7 +17,11 @@ export function useInvoices() {
 
   const load = useCallback(async () => {
     try {
-      const { data: rows, error: err } = await supabase.from('invoices').select('*')
+      const { data: rows, error: err } = await supabase
+        .from('invoices')
+        .select('*')
+        .order('invoice_date', { ascending: false, nullsFirst: false })
+        .order('received_at', { ascending: false, nullsFirst: false })
       if (!err && rows && rows.length > 0) {
         setData(rows.map(r => ({
           // Spread raw DB row first so any extra N8N fields are preserved

@@ -36,7 +36,7 @@ export function usePayments() {
         { data: rows,     error: err },
         { data: suppRows },
       ] = await Promise.all([
-        supabase.from('payments').select('*'),
+        supabase.from('payments').select('*').order('value_date', { ascending: true, nullsFirst: false }),
         supabase.from('suppliers').select('id, name'),
       ])
 

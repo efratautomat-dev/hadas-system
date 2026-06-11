@@ -353,7 +353,15 @@ export default function Dashboard({
           </div>
           {invLoading ? <Spinner /> : (
             <div className="divide-y">
-              {invoices.map((inv) => {
+              {[...invoices]
+                .sort((a, b) => {
+                  // Safeguard mirroring useInvoices order: newest first by
+                  // invoiceDate, falling back to emailReceivedAt.
+                  const da = a.invoiceDate || a.emailReceivedAt || ''
+                  const db = b.invoiceDate || b.emailReceivedAt || ''
+                  return da === db ? 0 : da < db ? 1 : -1
+                })
+                .map((inv) => {
                 const st = statusStyle[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
                 return (
                   <div
@@ -404,7 +412,16 @@ export default function Dashboard({
             </div>
             {payLoading ? <Spinner /> : (
               <div className="divide-y">
-                {payments.filter(p => p.status === 'pending').map((pay) => (
+                {payments
+                  .filter(p => p.status === 'pending')
+                  .sort((a, b) => {
+                    // Safeguard mirroring usePayments order: asc by valueDate, nulls last.
+                    if (!a.valueDate && !b.valueDate) return 0
+                    if (!a.valueDate) return 1
+                    if (!b.valueDate) return -1
+                    return a.valueDate < b.valueDate ? -1 : a.valueDate > b.valueDate ? 1 : 0
+                  })
+                  .map((pay) => (
                   <div
                     key={pay.id}
                     className="px-5 py-3.5 cursor-pointer transition-colors"
