@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download } from 'lucide-react'
+import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download, Trash2 } from 'lucide-react'
 import { SearchableSelect } from '../components/SearchableSelect'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { usePayments as usePaymentsData } from '../hooks/usePayments'
@@ -19,6 +19,7 @@ interface Payment {
   valueDate: string | null
   notes: string
   status: PaymentStatus
+  bizboxExportedAt: string | null
 }
 
 interface FormState {
@@ -246,7 +247,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const { data: serverSuppliers, loading: suppliersLoading } = useSuppliers()
-  const { data: serverPayments, loading: paymentsLoading, create: createPayment, update: updatePaymentApi, cancel: cancelPaymentApi } = usePaymentsData()
+  const { data: serverPayments, loading: paymentsLoading, create: createPayment, update: updatePaymentApi, cancel: cancelPaymentApi, remove: deletePaymentApi, markBizboxExported } = usePaymentsData()
   const toastIdRef = useRef(0)
 
   const [payments, setPayments] = useState<Payment[]>([])
@@ -276,28 +277,15 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   }
 
   // ── BizBox export state ───────────────────────────────────────────────────
-  const LS_KEY = 'lastBizboxExport'
-
-  function defaultBizboxRange(): { from: string; to: string } {
-    const to = todayStr()
-    const stored = localStorage.getItem(LS_KEY)
-    if (stored) return { from: stored, to }
-    const now = new Date()
-    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-    return { from, to }
-  }
-
   const [showBizbox, setShowBizbox] = useState(false)
-  const [bizboxFrom, setBizboxFrom] = useState('')
-  const [bizboxTo, setBizboxTo] = useState('')
   const [showBizboxValidation, setShowBizboxValidation] = useState(false)
   const [bizboxIssues, setBizboxIssues] = useState<BizboxIssue[]>([])
   const [highlightedBadIds, setHighlightedBadIds] = useState<Set<string>>(new Set())
 
+  // כל תשלום מיוצא פעם אחת בלבד: רק שורות שטרם נשלחו לביזבוקס ולא בוטלו
+  const bizboxRows = payments.filter(p => p.status !== 'cancelled' && !p.bizboxExportedAt)
+
   function openBizbox() {
-    const range = defaultBizboxRange()
-    setBizboxFrom(range.from)
-    setBizboxTo(range.to)
     setShowBizbox(true)
   }
 
@@ -312,9 +300,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   }
 
   function exportBizbox() {
-    const rows = payments.filter(p =>
-      p.status !== 'cancelled' && p.date >= bizboxFrom && p.date <= bizboxTo
-    )
+    const rows = bizboxRows
 
     const issues: BizboxIssue[] = rows
       .map(p => ({ payment: p, missing: getMissingFields(p) }))
@@ -330,6 +316,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   }
 
   async function doExportBizbox(rows: Payment[]) {
+    if (rows.length === 0) return
     const fileName = `bizbox_${todayStr()}.xlsx`
     try {
       const ExcelJS = (await import('exceljs')).default
@@ -357,6 +344,11 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
         ])
       })
       const buffer = await wb.xlsx.writeBuffer()
+
+      // חותמים קודם ב-DB; רק אם הצליח — מורידים את הקובץ.
+      // (הסדר ההפוך היה מסכן כפילויות בביזבוקס אם החתימה נכשלת אחרי ההורדה)
+      await markBizboxExported(rows.map(p => p.id))
+
       const blob = new Blob([buffer], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       })
@@ -368,7 +360,6 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      localStorage.setItem(LS_KEY, bizboxTo)
       setShowBizbox(false)
       setShowBizboxValidation(false)
       showToast(`✅ ${fileName} הורד (${rows.length} תשלומים)`)
@@ -382,6 +373,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   const [editForm, setEditForm] = useState<EditForm | null>(null)
 
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const [toasts, setToasts] = useState<Toast[]>([])
 
@@ -497,6 +489,18 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
     try {
       await cancelPaymentApi(savedConfirmId)
       showToast('🚫 תשלום בוטל', 'warning')
+    } catch {
+      // hook sets error state
+    }
+  }
+
+  async function doDelete() {
+    if (!confirmDeleteId) return
+    const savedId = confirmDeleteId
+    setConfirmDeleteId(null)
+    try {
+      await deletePaymentApi(savedId)
+      showToast('🗑️ התשלום נמחק', 'warning')
     } catch {
       // hook sets error state
     }
@@ -1681,6 +1685,25 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 >
                   ביטול
                 </button>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-xl font-semibold transition-all"
+                  style={{
+                    border: '1.5px solid #FECACA',
+                    background: '#FEF2F2',
+                    color: '#DC2626',
+                    padding: '12px 20px',
+                    fontSize: isTablet ? '16px' : '14px',
+                    minHeight: '44px',
+                    marginRight: 'auto',
+                  }}
+                  onClick={() => { const id = editId; closeEdit(); if (id) setConfirmDeleteId(id) }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEE2E2')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEF2F2')}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  מחק תשלום
+                </button>
               </div>
             </form>
           </div>
@@ -1800,11 +1823,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               </button>
               <button
                 onClick={() => {
-                  const validRows = payments.filter(p => {
-                    if (p.status === 'cancelled') return false
-                    if (p.date < bizboxFrom || p.date > bizboxTo) return false
-                    return getMissingFields(p).length === 0
-                  })
+                  const validRows = bizboxRows.filter(p => getMissingFields(p).length === 0)
                   doExportBizbox(validRows)
                 }}
                 style={{
@@ -1817,13 +1836,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
               >
                 <Download size={14} />
-                ייצא בכל זאת ({bizboxIssues.length > 0
-                  ? payments.filter(p =>
-                      p.status !== 'cancelled' &&
-                      p.date >= bizboxFrom && p.date <= bizboxTo &&
-                      getMissingFields(p).length === 0
-                    ).length
-                  : 0} שורות תקינות)
+                ייצא בכל זאת ({bizboxRows.filter(p => getMissingFields(p).length === 0).length} שורות תקינות)
               </button>
               <button
                 onClick={() => setShowBizboxValidation(false)}
@@ -1884,53 +1897,10 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
             {/* Body */}
             <div style={{ padding: '22px 20px', direction: 'rtl' }}>
-              {/* Date range */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-                <div>
-                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#6B7280', display: 'block', marginBottom: '5px' }}>
-                    מתאריך
-                  </label>
-                  <input
-                    type="date"
-                    value={bizboxFrom}
-                    onChange={e => setBizboxFrom(e.target.value)}
-                    style={{
-                      ...inputStyle,
-                      borderColor: '#E5D9D9', borderRadius: '10px',
-                      minHeight: '44px', fontSize: '15px',
-                    }}
-                    onFocus={e => (e.target.style.borderColor = '#1D4ED8')}
-                    onBlur={e => (e.target.style.borderColor = '#E5D9D9')}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#6B7280', display: 'block', marginBottom: '5px' }}>
-                    עד תאריך
-                  </label>
-                  <input
-                    type="date"
-                    value={bizboxTo}
-                    onChange={e => setBizboxTo(e.target.value)}
-                    style={{
-                      ...inputStyle,
-                      borderColor: '#E5D9D9', borderRadius: '10px',
-                      minHeight: '44px', fontSize: '15px',
-                    }}
-                    onFocus={e => (e.target.style.borderColor = '#1D4ED8')}
-                    onBlur={e => (e.target.style.borderColor = '#E5D9D9')}
-                  />
-                </div>
-              </div>
-
-              {/* Preview count */}
+              {/* Preview count — כל מה שטרם יוצא לביזבוקס */}
               {(() => {
-                const count = payments.filter(p =>
-                  p.status !== 'cancelled' && bizboxFrom && bizboxTo &&
-                  p.date >= bizboxFrom && p.date <= bizboxTo
-                ).length
-                const total = payments
-                  .filter(p => p.status !== 'cancelled' && bizboxFrom && bizboxTo && p.date >= bizboxFrom && p.date <= bizboxTo)
-                  .reduce((s, p) => s + (Number(p.amount) || 0), 0)
+                const count = bizboxRows.length
+                const total = bizboxRows.reduce((s, p) => s + (Number(p.amount) || 0), 0)
                 return (
                   <div style={{
                     background: count > 0 ? '#EFF6FF' : '#F9FAFB',
@@ -1942,18 +1912,11 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       {count > 0 ? fmtILS(total) : '—'}
                     </span>
                     <span style={{ fontSize: '13px', color: count > 0 ? '#1E40AF' : '#9CA3AF' }}>
-                      {count > 0 ? `${count} תשלומים לייצוא` : 'אין תשלומים בטווח זה'}
+                      {count > 0 ? `${count} תשלומים מוכנים לייצוא` : 'אין תשלומים חדשים לייצוא'}
                     </span>
                   </div>
                 )
               })()}
-
-              {/* Last export note */}
-              {localStorage.getItem(LS_KEY) && (
-                <p style={{ fontSize: '12px', color: '#9CA3AF', textAlign: 'right', marginBottom: '16px' }}>
-                  ייצוא אחרון: {fmtDate(localStorage.getItem(LS_KEY)!)}
-                </p>
-              )}
 
               {/* Columns preview */}
               <div style={{
@@ -1988,17 +1951,17 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button
                   onClick={exportBizbox}
-                  disabled={!bizboxFrom || !bizboxTo || bizboxFrom > bizboxTo}
+                  disabled={bizboxRows.length === 0}
                   style={{
                     flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                     gap: '7px', background: 'linear-gradient(135deg, #1D4ED8, #2563EB)',
                     color: 'white', border: 'none', borderRadius: '12px',
                     padding: '13px', fontSize: '15px', fontWeight: 700,
-                    cursor: (!bizboxFrom || !bizboxTo || bizboxFrom > bizboxTo) ? 'not-allowed' : 'pointer',
-                    opacity: (!bizboxFrom || !bizboxTo || bizboxFrom > bizboxTo) ? 0.5 : 1,
+                    cursor: bizboxRows.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: bizboxRows.length === 0 ? 0.5 : 1,
                   }}
-                  onMouseEnter={e => { if (bizboxFrom && bizboxTo && bizboxFrom <= bizboxTo) (e.currentTarget as HTMLElement).style.opacity = '0.88' }}
-                  onMouseLeave={e => { if (bizboxFrom && bizboxTo && bizboxFrom <= bizboxTo) (e.currentTarget as HTMLElement).style.opacity = '1' }}
+                  onMouseEnter={e => { if (bizboxRows.length > 0) (e.currentTarget as HTMLElement).style.opacity = '0.88' }}
+                  onMouseLeave={e => { if (bizboxRows.length > 0) (e.currentTarget as HTMLElement).style.opacity = '1' }}
                 >
                   <Download size={16} />
                   הורד קובץ xlsx
@@ -2067,6 +2030,64 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   minHeight: '48px',
                 }}
                 onClick={() => setConfirmId(null)}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
+              >
+                חזרה
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm Delete Dialog ─────────────────────────────────────────── */}
+      {confirmDeleteId !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-6"
+          style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(3px)' }}
+          onClick={() => setConfirmDeleteId(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl p-8 text-center"
+            style={{ maxWidth: '380px', width: '100%' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-5xl mb-4">🗑️</div>
+            <h3 className="font-bold text-gray-800 mb-2" style={{ fontSize: '18px' }}>
+              מחיקת תשלום
+            </h3>
+            <p className="text-gray-500 mb-6" style={{ fontSize: '14px' }}>
+              בטוחה שתרצי למחוק את התשלום לספק{' '}
+              <strong>{payments.find((p) => p.id === confirmDeleteId)?.supplier}</strong>?
+              <br />
+              <span style={{ color: '#DC2626', fontWeight: 600 }}>פעולה זו בלתי הפיכה.</span>
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                className="rounded-xl text-white font-semibold transition-all"
+                style={{
+                  background: '#DC2626',
+                  padding: '12px 24px',
+                  fontSize: '15px',
+                  minHeight: '48px',
+                }}
+                onClick={doDelete}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#B91C1C')}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#DC2626')}
+              >
+                כן, מחק
+              </button>
+              <button
+                className="rounded-xl font-semibold transition-all"
+                style={{
+                  border: '1.5px solid #E2E4E9',
+                  background: 'white',
+                  color: '#6B7280',
+                  padding: '12px 20px',
+                  fontSize: '15px',
+                  minHeight: '48px',
+                }}
+                onClick={() => setConfirmDeleteId(null)}
                 onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
               >

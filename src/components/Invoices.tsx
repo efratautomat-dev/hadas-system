@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, Search, ChevronRight, ExternalLink, Save, AlertTriangle, X } from 'lucide-react'
+import { FileText, Search, ChevronRight, ExternalLink, Save, AlertTriangle, X, Trash2 } from 'lucide-react'
 import { type Invoice, type Alert } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
@@ -257,13 +257,16 @@ function Row2({ children }: { children: React.ReactNode }) {
 // ── Invoice Detail ──────────────────────────────────────────────────────────
 
 export function InvoiceDetail({
-  invoice, derivedStatus, onBack, onSave, onOpenSupplier,
+  invoice, derivedStatus, onBack, onSave, onOpenSupplier, onDelete,
 }: {
   invoice: Invoice; derivedStatus: string; onBack: () => void; onSave: (inv: Invoice) => void
   onOpenSupplier?: (supplierId: string) => void
+  // Manager-only: EmployeeSupplierView omits this prop, hiding the button.
+  onDelete?: (id: string) => void
 }) {
   const { data: suppliersData } = useSuppliers()
   const [form, setForm] = useState<Invoice>({ ...invoice })
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const set = (field: keyof Invoice) => (value: any) => {
     setForm(prev => {
@@ -291,19 +294,36 @@ export function InvoiceDetail({
 
       {/* Top bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <button
-          onClick={() => onSave(form)}
-          style={{
-            background: '#D32F4A', color: 'white', border: 'none', borderRadius: '12px',
-            padding: '10px 22px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: '7px',
-          }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
-        >
-          <Save size={16} />
-          שמור
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => onSave(form)}
+            style={{
+              background: '#D32F4A', color: 'white', border: 'none', borderRadius: '12px',
+              padding: '10px 22px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '7px',
+            }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
+          >
+            <Save size={16} />
+            שמור
+          </button>
+          {onDelete && (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              style={{
+                background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA',
+                borderRadius: '12px', padding: '10px 16px', fontSize: '15px',
+                fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px',
+              }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEE2E2')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEF2F2')}
+            >
+              <Trash2 size={16} />
+              מחק
+            </button>
+          )}
+        </div>
 
         <div style={{ textAlign: 'center', flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
@@ -439,6 +459,41 @@ export function InvoiceDetail({
         </Group>
 
       </div>
+
+      {/* Delete confirmation — Drive file is removed too, hence the explicit warning.
+          Deletes by the ORIGINAL invoice.id, never form.id (the id field is editable). */}
+      {confirmDelete && onDelete && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          onClick={() => setConfirmDelete(false)}
+        >
+          <div
+            style={{ background: 'white', borderRadius: '20px', width: '100%', maxWidth: '420px', padding: '32px', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ fontSize: '44px', marginBottom: '12px' }}>🗑️</div>
+            <h3 style={{ margin: '0 0 10px', fontSize: '18px', fontWeight: 700, color: '#1F2937' }}>
+              מחיקת חשבונית
+            </h3>
+            <p style={{ margin: '0 0 24px', fontSize: '14px', color: '#6B7280', lineHeight: 1.6 }}>
+              בטוחה שתרצי למחוק את החשבונית?{' '}
+              <span style={{ color: '#DC2626', fontWeight: 600 }}>
+                הפעולה תמחק גם את הקובץ מהדרייב ולא ניתנת לביטול.
+              </span>
+            </p>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => onDelete(invoice.id)}
+                style={{ flex: 1, height: '44px', borderRadius: '12px', background: '#DC2626', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '15px', fontFamily: 'inherit' }}>
+                כן, מחק
+              </button>
+              <button onClick={() => setConfirmDelete(false)}
+                style={{ flex: 1, height: '44px', borderRadius: '12px', background: '#F3F4F6', color: '#6B7280', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '15px', fontFamily: 'inherit' }}>
+                חזרה
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -611,6 +666,14 @@ export default function Invoices({
         derivedStatus={statusFor(selected)}
         onBack={closeInvoice}
         onOpenSupplier={onOpenSupplier}
+        onDelete={async (id) => {
+          closeInvoice()
+          try {
+            await removeInvoice(id)
+          } catch {
+            // hook sets error state
+          }
+        }}
         onSave={async (updated) => {
           closeInvoice()
           try {

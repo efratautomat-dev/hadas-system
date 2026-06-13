@@ -19,6 +19,46 @@ function validateKey(key: string | null): boolean {
   return !!expectedKey && key === expectedKey;
 }
 
+// ─── Google Drive ─────────────────────────────────────────────────────────────
+// Same OAuth identity as invoices-ingest (project-wide secrets). That identity
+// uploaded the invoice files to Drive, so it is authorized to trash them.
+
+async function getGoogleAccessToken(): Promise<string> {
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id:     Deno.env.get("GMAIL_CLIENT_ID")!,
+      client_secret: Deno.env.get("GMAIL_CLIENT_SECRET")!,
+      refresh_token: Deno.env.get("GMAIL_REFRESH_TOKEN")!,
+      grant_type:    "refresh_token",
+    }),
+  });
+  if (!resp.ok) throw new Error(`Google token exchange failed: ${resp.status} ${await resp.text()}`);
+  const data = await resp.json() as { access_token?: string; error?: string };
+  if (!data.access_token) throw new Error(`No access_token: ${data.error ?? "unknown"}`);
+  return data.access_token;
+}
+
+// Extracts the Drive file id from a stored webViewLink / open?id= / uc?id= URL.
+function driveFileIdFromLink(link: string | null): string | null {
+  if (!link) return null;
+  const m = link.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?(?:[^#]*&)?id=)([\w-]+)/i);
+  return m ? m[1] : null;
+}
+
+// Moves a Drive file to trash (recoverable for 30 days) rather than deleting
+// permanently. 404 is treated as success — the file is already gone.
+async function driveTrashFile(token: string, fileId: string): Promise<void> {
+  const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ trashed: true }),
+  });
+  if (!resp.ok && resp.status !== 404)
+    throw new Error(`drive trash failed: ${resp.status} ${await resp.text()}`);
+}
+
 // ─── Suppliers ────────────────────────────────────────────────────────────────
 // Whitelist: id, name, hp, category, contact, email, phone, opening_balance, notes, alt_names, linked_invoices
 // Excluded (no DB column): opening_balance_date, status, paymentTerms, lastOrderDate, balance
@@ -166,10 +206,58 @@ async function updateInvoiceStatus(req: Request, supabase: SupabaseClient, id: s
   return json({ success: true });
 }
 
+// Full invoice deletion: Drive file → related alerts → Storage copy → DB row.
+// Drive failure ABORTS before any DB change so a retry stays safe; alerts and
+// Storage are best-effort (their absence must not strand the invoice).
 async function deleteInvoice(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { data: inv, error: fetchErr } = await supabase.from("invoices")
+    .select("id, drive_file_link, gmail_message_id, storage_url")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchErr) return json({ error: fetchErr.message }, 500);
+  if (!inv)     return json({ error: "Invoice not found" }, 404);
+
+  // 1. Drive — trash the file (skip when there is no Drive copy, e.g. manual invoices)
+  let drive = "skipped";
+  const fileId = driveFileIdFromLink(inv.drive_file_link);
+  if (fileId) {
+    try {
+      const token = await getGoogleAccessToken();
+      await driveTrashFile(token, fileId);
+      drive = "deleted";
+    } catch (e) {
+      return json({ error: `Drive deletion failed — invoice NOT deleted: ${e instanceof Error ? e.message : e}` }, 500);
+    }
+  }
+
+  // 2. Alerts referencing this invoice (payload JSON keys; best-effort)
+  let alerts = 0;
+  try {
+    const ors = [
+      `payload->>invoiceId.eq.${id}`,
+      `payload->>existingInvoiceId.eq.${id}`,
+      `payload->>duplicateInvoiceId.eq.${id}`,
+    ];
+    if (inv.gmail_message_id) ors.push(`payload->>gmailMessageId.eq.${inv.gmail_message_id}`);
+    const { data: deleted } = await supabase.from("alerts")
+      .delete()
+      .or(ors.join(","))
+      .select("id");
+    alerts = deleted?.length ?? 0;
+  } catch (e) {
+    console.error("[deleteInvoice] alerts cleanup failed:", e instanceof Error ? e.message : e);
+  }
+
+  // 3. Storage preview copy (best-effort)
+  if (inv.storage_url) {
+    const { error: stErr } = await supabase.storage.from("documents").remove([inv.storage_url]);
+    if (stErr) console.error("[deleteInvoice] storage cleanup failed:", stErr.message);
+  }
+
+  // 4. The invoice row itself
   const { error } = await supabase.from("invoices").delete().eq("id", id);
   if (error) return json({ error: error.message }, 500);
-  return json({ success: true });
+  return json({ success: true, drive, alerts });
 }
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
@@ -242,6 +330,33 @@ async function cancelPayment(supabase: SupabaseClient, id: string): Promise<Resp
     status: "cancelled",
     cancelled_at: new Date().toISOString(),
   }).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
+}
+
+// Stamps bizbox_exported_at on the given payments so they are never exported
+// to BizBox again. Touches ONLY the stamp — status is deliberately unchanged
+// (pending payments must keep appearing in upcoming payments until paid).
+// The .is() guard preserves the original stamp if an id is sent twice.
+async function markBizboxExported(req: Request, supabase: SupabaseClient): Promise<Response> {
+  const body = await req.json();
+  const ids = body.ids;
+  if (!Array.isArray(ids) || ids.length === 0 || !ids.every((x) => typeof x === "string"))
+    return json({ error: "ids must be a non-empty array of payment ids" }, 400);
+
+  const { data, error } = await supabase.from("payments")
+    .update({ bizbox_exported_at: new Date().toISOString() })
+    .in("id", ids)
+    .is("bizbox_exported_at", null)
+    .select("id");
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, count: data?.length ?? 0 });
+}
+
+// Hard delete — distinct from the cancel flow (status='cancelled'), which is
+// reversible. Removes the row entirely.
+async function deletePayment(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { error } = await supabase.from("payments").delete().eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true });
 }
@@ -694,6 +809,8 @@ Deno.serve(async (req: Request) => {
     }
     if (path === "/payments/from-alert" && req.method === "POST")
       return await createPaymentFromAlert(req, supabase);
+    if (path === "/payments/mark-bizbox-exported" && req.method === "POST")
+      return await markBizboxExported(req, supabase);
     const paymentCancelMatch = path.match(/^\/payments\/([^/]+)\/cancel$/);
     if (paymentCancelMatch && req.method === "PUT")
       return await cancelPayment(supabase, paymentCancelMatch[1]);
@@ -702,6 +819,7 @@ Deno.serve(async (req: Request) => {
     if (paymentMatch) {
       const id = paymentMatch[1];
       if (req.method === "PUT") return await updatePayment(req, supabase, id);
+      if (req.method === "DELETE") return await deletePayment(supabase, id);
     }
 
     // ── Delivery Notes ────────────────────────────────────────────────────────

@@ -15,14 +15,15 @@ export interface Payment {
   valueDate:  string | null  // DB: value_date
   notes:      string
   status:     PaymentStatus
+  bizboxExportedAt: string | null  // DB: bizbox_exported_at — stamped once on BizBox export
 }
 
 const FALLBACK_PAYMENTS: Payment[] = [
-  { id: '1', supplier_id: '', supplier: 'תנובה',       amount: 45200, type: 'העברה בנקאית', date: '2026-04-24', ref: 'TRF-2026-001', valueDate: null,         notes: 'תשלום חודשי מוצרי חלב', status: 'paid'    },
-  { id: '2', supplier_id: '', supplier: 'תבורי בע"מ',  amount: 12500, type: "צ'ק",          date: '2026-04-29', ref: 'CHK-1042',     valueDate: '2026-05-08', notes: 'משקאות קמעוני',         status: 'pending' },
-  { id: '3', supplier_id: '', supplier: 'מקורות מים',  amount: 8300,  type: 'מזומן',         date: '2026-05-01', ref: 'קבלה 0088',   valueDate: null,         notes: '',                       status: 'paid'    },
-  { id: '4', supplier_id: '', supplier: 'נסטלה ישראל', amount: 23100, type: 'כרטיס אשראי',   date: '2026-05-02', ref: 'CC-5544',      valueDate: '2026-05-26', notes: 'שתייה חמה ומשלימים',   status: 'pending' },
-  { id: '5', supplier_id: '', supplier: 'אסם השקעות',  amount: 6800,  type: 'העברה בנקאית', date: '2026-04-20', ref: 'TRF-2026-005', valueDate: null,         notes: '',                       status: 'paid'    },
+  { id: '1', supplier_id: '', supplier: 'תנובה',       amount: 45200, type: 'העברה בנקאית', date: '2026-04-24', ref: 'TRF-2026-001', valueDate: null,         notes: 'תשלום חודשי מוצרי חלב', status: 'paid',    bizboxExportedAt: null },
+  { id: '2', supplier_id: '', supplier: 'תבורי בע"מ',  amount: 12500, type: "צ'ק",          date: '2026-04-29', ref: 'CHK-1042',     valueDate: '2026-05-08', notes: 'משקאות קמעוני',         status: 'pending', bizboxExportedAt: null },
+  { id: '3', supplier_id: '', supplier: 'מקורות מים',  amount: 8300,  type: 'מזומן',         date: '2026-05-01', ref: 'קבלה 0088',   valueDate: null,         notes: '',                       status: 'paid',    bizboxExportedAt: null },
+  { id: '4', supplier_id: '', supplier: 'נסטלה ישראל', amount: 23100, type: 'כרטיס אשראי',   date: '2026-05-02', ref: 'CC-5544',      valueDate: '2026-05-26', notes: 'שתייה חמה ומשלימים',   status: 'pending', bizboxExportedAt: null },
+  { id: '5', supplier_id: '', supplier: 'אסם השקעות',  amount: 6800,  type: 'העברה בנקאית', date: '2026-04-20', ref: 'TRF-2026-005', valueDate: null,         notes: '',                       status: 'paid',    bizboxExportedAt: null },
 ]
 
 export function usePayments() {
@@ -58,6 +59,7 @@ export function usePayments() {
           valueDate:   r.value_date   ?? null,
           notes:       r.notes        ?? '',
           status:      r.status       as PaymentStatus ?? 'pending',
+          bizboxExportedAt: r.bizbox_exported_at ?? null,
         })) as Payment[])
         setError(null)
       } else {
@@ -73,7 +75,8 @@ export function usePayments() {
 
   useEffect(() => { load() }, [load])
 
-  const create = async (body: Omit<Payment, 'id'>) => {
+  // bizboxExportedAt מוחרג: החותמת נכתבת רק דרך mark-bizbox-exported, לא ביצירה
+  const create = async (body: Omit<Payment, 'id' | 'bizboxExportedAt'>) => {
     console.log('[usePayments] create payload:', body)
     try {
       const res = await api.post('/payments', body)
@@ -115,5 +118,34 @@ export function usePayments() {
     }
   }
 
-  return { data, loading, error, create, update, cancel }
+  const markBizboxExported = async (ids: string[]) => {
+    console.log('[usePayments] markBizboxExported ids:', ids)
+    try {
+      const res = await api.post('/payments/mark-bizbox-exported', { ids })
+      console.log('[usePayments] markBizboxExported response:', res)
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[usePayments] markBizboxExported error:', msg)
+      setError(`שגיאה בסימון ייצוא לביזבוקס: ${msg}`)
+      throw err
+    }
+  }
+
+  // מחיקה קשיחה — שונה מ-cancel (שמסמן סטטוס בלבד); השורה נמחקת מה-DB
+  const remove = async (id: string) => {
+    console.log('[usePayments] delete id:', id)
+    try {
+      const res = await api.delete(`/payments/${id}`)
+      console.log('[usePayments] delete response:', res)
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[usePayments] delete error:', msg)
+      setError(`שגיאה במחיקה: ${msg}`)
+      throw err
+    }
+  }
+
+  return { data, loading, error, create, update, cancel, remove, markBizboxExported }
 }
