@@ -20,6 +20,7 @@ interface Payment {
   notes: string
   status: PaymentStatus
   bizboxExportedAt: string | null
+  createdAt: string | null
 }
 
 interface FormState {
@@ -200,6 +201,20 @@ function StatusBadge({ status }: { status: PaymentStatus }) {
   )
 }
 
+// Informational only — does NOT change status. Shown when a payment has already
+// been exported to BizBox (bizbox_exported_at is set).
+function BizboxBadge() {
+  return (
+    <span
+      className="inline-flex items-center rounded-lg font-semibold"
+      style={{ background: '#EFF6FF', color: '#1D4ED8', fontSize: '11px', padding: '3px 8px', whiteSpace: 'nowrap' }}
+      title="התשלום כבר יוצא לביזבוקס"
+    >
+      ✓ עבר לביזבוקס
+    </span>
+  )
+}
+
 // ─── SupplierSelect ───────────────────────────────────────────────────────────
 
 function SupplierSelect({
@@ -281,11 +296,27 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   const [showBizboxValidation, setShowBizboxValidation] = useState(false)
   const [bizboxIssues, setBizboxIssues] = useState<BizboxIssue[]>([])
   const [highlightedBadIds, setHighlightedBadIds] = useState<Set<string>>(new Set())
+  // אופציונלי: סינון לפי תאריך הוספת התשלום (created_at) בתוך השורות שטרם יוצאו
+  const [bizboxUseRange, setBizboxUseRange] = useState(false)
+  const [bizboxFrom, setBizboxFrom] = useState('')
+  const [bizboxTo, setBizboxTo] = useState('')
 
-  // כל תשלום מיוצא פעם אחת בלבד: רק שורות שטרם נשלחו לביזבוקס ולא בוטלו
-  const bizboxRows = payments.filter(p => p.status !== 'cancelled' && !p.bizboxExportedAt)
+  // כל תשלום מיוצא פעם אחת בלבד: רק שורות שטרם נשלחו לביזבוקס ולא בוטלו.
+  // הסינון לפי טווח תאריכים (אופציונלי) מצמצם בתוך הקבוצה הזו לפי תאריך ההוספה —
+  // לעולם לא מחזיר שורות שכבר יוצאו.
+  const bizboxRows = payments.filter(p => {
+    if (p.status === 'cancelled' || p.bizboxExportedAt) return false
+    if (bizboxUseRange && bizboxFrom && bizboxTo) {
+      const created = (p.createdAt ?? '').slice(0, 10)
+      if (!created || created < bizboxFrom || created > bizboxTo) return false
+    }
+    return true
+  })
 
   function openBizbox() {
+    setBizboxUseRange(false)
+    setBizboxFrom('')
+    setBizboxTo('')
     setShowBizbox(true)
   }
 
@@ -626,6 +657,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               </span>
             )}
             <StatusBadge status={p.status} />
+            {p.bizboxExportedAt && <BizboxBadge />}
             <TypeBadge type={p.type} />
             <p
               className="font-bold text-gray-800 truncate"
@@ -1346,7 +1378,10 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                               {p.ref || <span style={{ color: '#D1D5DB' }}>—</span>}
                             </span>
                           )}
-                          <span><StatusBadge status={p.status} /></span>
+                          <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <StatusBadge status={p.status} />
+                            {p.bizboxExportedAt && <BizboxBadge />}
+                          </span>
                           <div
                             style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}
                             onClick={e => e.stopPropagation()}
@@ -1897,6 +1932,38 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
             {/* Body */}
             <div style={{ padding: '22px 20px', direction: 'rtl' }}>
+              {/* Optional date-range filter (by creation date) */}
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', justifyContent: 'flex-end' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: '#374151' }}>🔎 סינון לפי טווח תאריכים</span>
+                  <input
+                    type="checkbox"
+                    checked={bizboxUseRange}
+                    onChange={e => setBizboxUseRange(e.target.checked)}
+                    style={{ width: '16px', height: '16px', accentColor: '#1D4ED8', cursor: 'pointer' }}
+                  />
+                </label>
+                {bizboxUseRange && (
+                  <>
+                    <p style={{ fontSize: '11px', color: '#9CA3AF', textAlign: 'right', margin: '6px 0 8px' }}>
+                      לפי תאריך הוספת התשלום למערכת
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div>
+                        <label style={{ fontSize: '11px', fontWeight: 700, color: '#6B7280', display: 'block', marginBottom: '4px' }}>מתאריך</label>
+                        <input type="date" value={bizboxFrom} onChange={e => setBizboxFrom(e.target.value)}
+                          style={{ ...inputStyle, borderRadius: '10px', minHeight: '40px', fontSize: '14px' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '11px', fontWeight: 700, color: '#6B7280', display: 'block', marginBottom: '4px' }}>עד תאריך</label>
+                        <input type="date" value={bizboxTo} onChange={e => setBizboxTo(e.target.value)}
+                          style={{ ...inputStyle, borderRadius: '10px', minHeight: '40px', fontSize: '14px' }} />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
               {/* Preview count — כל מה שטרם יוצא לביזבוקס */}
               {(() => {
                 const count = bizboxRows.length

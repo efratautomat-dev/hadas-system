@@ -16,14 +16,15 @@ export interface Payment {
   notes:      string
   status:     PaymentStatus
   bizboxExportedAt: string | null  // DB: bizbox_exported_at — stamped once on BizBox export
+  createdAt:  string | null  // DB: created_at — row-creation timestamp (timestamptz)
 }
 
 const FALLBACK_PAYMENTS: Payment[] = [
-  { id: '1', supplier_id: '', supplier: 'תנובה',       amount: 45200, type: 'העברה בנקאית', date: '2026-04-24', ref: 'TRF-2026-001', valueDate: null,         notes: 'תשלום חודשי מוצרי חלב', status: 'paid',    bizboxExportedAt: null },
-  { id: '2', supplier_id: '', supplier: 'תבורי בע"מ',  amount: 12500, type: "צ'ק",          date: '2026-04-29', ref: 'CHK-1042',     valueDate: '2026-05-08', notes: 'משקאות קמעוני',         status: 'pending', bizboxExportedAt: null },
-  { id: '3', supplier_id: '', supplier: 'מקורות מים',  amount: 8300,  type: 'מזומן',         date: '2026-05-01', ref: 'קבלה 0088',   valueDate: null,         notes: '',                       status: 'paid',    bizboxExportedAt: null },
-  { id: '4', supplier_id: '', supplier: 'נסטלה ישראל', amount: 23100, type: 'כרטיס אשראי',   date: '2026-05-02', ref: 'CC-5544',      valueDate: '2026-05-26', notes: 'שתייה חמה ומשלימים',   status: 'pending', bizboxExportedAt: null },
-  { id: '5', supplier_id: '', supplier: 'אסם השקעות',  amount: 6800,  type: 'העברה בנקאית', date: '2026-04-20', ref: 'TRF-2026-005', valueDate: null,         notes: '',                       status: 'paid',    bizboxExportedAt: null },
+  { id: '1', supplier_id: '', supplier: 'תנובה',       amount: 45200, type: 'העברה בנקאית', date: '2026-04-24', ref: 'TRF-2026-001', valueDate: null,         notes: 'תשלום חודשי מוצרי חלב', status: 'paid',    bizboxExportedAt: null, createdAt: null },
+  { id: '2', supplier_id: '', supplier: 'תבורי בע"מ',  amount: 12500, type: "צ'ק",          date: '2026-04-29', ref: 'CHK-1042',     valueDate: '2026-05-08', notes: 'משקאות קמעוני',         status: 'pending', bizboxExportedAt: null, createdAt: null },
+  { id: '3', supplier_id: '', supplier: 'מקורות מים',  amount: 8300,  type: 'מזומן',         date: '2026-05-01', ref: 'קבלה 0088',   valueDate: null,         notes: '',                       status: 'paid',    bizboxExportedAt: null, createdAt: null },
+  { id: '4', supplier_id: '', supplier: 'נסטלה ישראל', amount: 23100, type: 'כרטיס אשראי',   date: '2026-05-02', ref: 'CC-5544',      valueDate: '2026-05-26', notes: 'שתייה חמה ומשלימים',   status: 'pending', bizboxExportedAt: null, createdAt: null },
+  { id: '5', supplier_id: '', supplier: 'אסם השקעות',  amount: 6800,  type: 'העברה בנקאית', date: '2026-04-20', ref: 'TRF-2026-005', valueDate: null,         notes: '',                       status: 'paid',    bizboxExportedAt: null, createdAt: null },
 ]
 
 export function usePayments() {
@@ -60,6 +61,7 @@ export function usePayments() {
           notes:       r.notes        ?? '',
           status:      r.status       as PaymentStatus ?? 'pending',
           bizboxExportedAt: r.bizbox_exported_at ?? null,
+          createdAt:        r.created_at ?? null,
         })) as Payment[])
         setError(null)
       } else {
@@ -76,7 +78,7 @@ export function usePayments() {
   useEffect(() => { load() }, [load])
 
   // bizboxExportedAt מוחרג: החותמת נכתבת רק דרך mark-bizbox-exported, לא ביצירה
-  const create = async (body: Omit<Payment, 'id' | 'bizboxExportedAt'>) => {
+  const create = async (body: Omit<Payment, 'id' | 'bizboxExportedAt' | 'createdAt'>) => {
     console.log('[usePayments] create payload:', body)
     try {
       const res = await api.post('/payments', body)
