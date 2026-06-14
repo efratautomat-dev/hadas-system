@@ -412,7 +412,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
   const filtered = payments
     .filter((p) => {
-      if (fltSupplier && !p.supplier.includes(fltSupplier)) return false
+      if (fltSupplier && !p.supplier.toLowerCase().includes(fltSupplier.toLowerCase())) return false
       if (fltType && p.type !== fltType) return false
       if (fltMonth && !p.date.startsWith(fltMonth)) return false
       if (fltStatus && p.status !== fltStatus) return false

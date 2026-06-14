@@ -106,6 +106,13 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   const totalCredit  = inPeriod.reduce((s, e) => s + e.credit, 0)
   const finalBalance = running
 
+  // Display newest-first. The running balance above is computed in chronological
+  // order (oldest→newest), so each row already carries its correct accumulated
+  // balance; here we only REVERSE the on-screen order. Result: the latest
+  // transaction (carrying finalBalance) sits at the top, and the opening-balance
+  // row drops to the bottom — reading bottom-up is still chronological.
+  const displayRows = [...rows].reverse()
+
   // ── Print ─────────────────────────────────────────────────────────────────
   const handlePrint = () => {
     if (!supplier) return
@@ -303,7 +310,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           </div>
 
           {/* Rows */}
-          {rows.map((row) => {
+          {displayRows.map((row) => {
             const badge     = typeBadge[row.type] ?? typeBadge['פתיחה']
             const isOpening = row.type === 'פתיחה'
             return (

@@ -473,8 +473,9 @@ export default function Suppliers({
 
   // ── Derived state ──────────────────────────────────────────────────────────
   const filtered = suppliers.filter((s) => {
+    const q = search.toLowerCase()
     const matchSearch =
-      (s.name || '').includes(search) || (s.contact || '').includes(search) || (s.category || '').includes(search)
+      (s.name || '').toLowerCase().includes(q) || (s.contact || '').toLowerCase().includes(q) || (s.category || '').toLowerCase().includes(q)
     const matchStatus = statusFilter === 'all' || s.status === statusFilter
     return matchSearch && matchStatus
   })

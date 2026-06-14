@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw } from 'lucide-react'
+import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import CaptureDocument from '../CaptureDocument'
 import { useSuppliers } from '../../hooks/useSuppliers'
@@ -137,10 +137,22 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
 
         {/* Scoped supplier view, or empty hint */}
         {selectedSupplier ? (
-          <EmployeeSupplierView
-            supplier={selectedSupplier}
-            activeSection={activeSection}
-          />
+          <div className="space-y-4">
+            <button
+              onClick={() => { setSelectedSupplierId(''); setActiveSection('invoices') }}
+              className="flex items-center gap-1.5 font-medium transition-colors"
+              style={{ background: 'white', border: '1.5px solid #DEDFE5', borderRadius: '12px', padding: '10px 16px', fontSize: '14px', color: '#6B7280', cursor: 'pointer' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
+            >
+              <ChevronRight className="w-4 h-4" />
+              חזרה לחיפוש
+            </button>
+            <EmployeeSupplierView
+              supplier={selectedSupplier}
+              activeSection={activeSection}
+            />
+          </div>
         ) : (
           <div
             className="bg-white rounded-2xl border flex flex-col items-center justify-center text-center"

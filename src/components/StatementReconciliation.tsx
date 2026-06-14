@@ -374,7 +374,7 @@ export default function StatementReconciliation() {
 
   const filtered = statements.filter((s) => {
     if (filterStatus !== 'all' && s.status !== filterStatus) return false
-    if (search && !s.supplier_name.includes(search)) return false
+    if (search && !s.supplier_name.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
 

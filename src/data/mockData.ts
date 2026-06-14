@@ -19,6 +19,11 @@ export interface Invoice {
   senderName: string
   senderEmail: string
   driveFileLink: string
+  // Path in the private "documents" storage bucket (DB column: storage_url).
+  // Used to mint a short-lived signed URL for in-app preview, so viewing works
+  // without Drive permissions. Optional: legacy/mock rows omit it and the
+  // preview falls back to driveFileLink.
+  storage_url?: string | null
   monthFolderLink: string
   originalEmailLink: string
   emailReceivedAt: string

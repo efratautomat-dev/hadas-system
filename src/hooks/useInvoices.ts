@@ -39,6 +39,7 @@ export function useInvoices() {
           senderName:        r.sender_name        ?? '',
           senderEmail:       r.email_sender       ?? '',
           driveFileLink:     r.drive_file_link    ?? '',
+          storage_url:       r.storage_url        ?? null,
           monthFolderLink:   r.drive_folder_link  ?? '',
           originalEmailLink: r.message_link       ?? '',
           emailReceivedAt:   r.received_at        ?? '',

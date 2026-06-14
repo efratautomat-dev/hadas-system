@@ -18,11 +18,15 @@ export function toDrivePreview(url: string): string {
 
 interface PdfPreviewModalProps {
   url: string
+  // When provided, used directly as the iframe src (already a final URL, e.g. a
+  // signed storage URL). When omitted, the src is derived from `url` via
+  // toDrivePreview() — the original Drive-link behavior.
+  previewSrc?: string
   onClose: () => void
 }
 
-export function PdfPreviewModal({ url, onClose }: PdfPreviewModalProps) {
-  const previewUrl = toDrivePreview(url)
+export function PdfPreviewModal({ url, previewSrc, onClose }: PdfPreviewModalProps) {
+  const previewUrl = previewSrc ?? toDrivePreview(url)
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -59,7 +63,7 @@ export function PdfPreviewModal({ url, onClose }: PdfPreviewModalProps) {
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              פתח ב-Drive
+              {previewSrc ? 'פתח בכרטיסייה חדשה' : 'פתח ב-Drive'}
             </a>
           </div>
           <h3 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>תצוגה מקדימה</h3>

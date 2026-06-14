@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, Search, ChevronRight, ExternalLink, Save, AlertTriangle, X, Trash2 } from 'lucide-react'
+import { FileText, Search, ChevronRight, ExternalLink, Eye, Save, AlertTriangle, X, Trash2 } from 'lucide-react'
 import { type Invoice, type Alert } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
-import { PdfPreviewButton } from './PdfPreviewModal'
+import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
+import { supabase } from '../lib/supabase'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -268,6 +269,25 @@ export function InvoiceDetail({
   const [form, setForm] = useState<Invoice>({ ...invoice })
   const [confirmDelete, setConfirmDelete] = useState(false)
 
+  // Document preview: resolve a viewable URL on demand. Prefer a signed URL from
+  // the private "documents" bucket (works without Drive permissions); fall back
+  // to the Drive link for legacy rows that have no storage_url. `direct` marks a
+  // ready-to-embed URL so the modal skips the Drive-preview transform.
+  const [docPreview, setDocPreview] = useState<{ url: string; direct: boolean } | null>(null)
+
+  async function openDocument() {
+    const path = (form.storage_url ?? '').trim()
+    if (path) {
+      if (/^https?:\/\//i.test(path)) { setDocPreview({ url: path, direct: true }); return }
+      const { data, error } = await supabase.storage.from('documents').createSignedUrl(path, 120)
+      if (!error && data?.signedUrl) { setDocPreview({ url: data.signedUrl, direct: true }); return }
+      console.error('[invoices] createSignedUrl failed:', error)
+    }
+    const drive = (form.driveFileLink ?? '').trim()
+    if (drive) { setDocPreview({ url: drive, direct: false }); return }
+    alert('לא ניתן לפתוח את הקובץ כעת')
+  }
+
   const set = (field: keyof Invoice) => (value: any) => {
     setForm(prev => {
       const next = { ...prev, [field]: value }
@@ -420,7 +440,26 @@ export function InvoiceDetail({
 
         {/* 4 – קישורי גישה */}
         <Group title="קישורי גישה">
-          <TLink label="קישור לקובץ בדרייב" value={form.driveFileLink} onChange={set('driveFileLink')} showPreview />
+          {(form.storage_url || form.driveFileLink) && (
+            <div>
+              <Lbl t="מסמך מצורף" />
+              <button
+                type="button"
+                onClick={openDocument}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '8px',
+                  padding: '9px 16px', borderRadius: '10px', border: '1.5px solid #DEDFE5',
+                  background: 'white', color: '#D32F4A', cursor: 'pointer', fontSize: '14px', fontWeight: 600,
+                }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
+              >
+                <Eye size={16} />
+                צפייה במסמך
+              </button>
+            </div>
+          )}
+          <TLink label="קישור לקובץ בדרייב" value={form.driveFileLink} onChange={set('driveFileLink')} />
           <TLink label="קישור לתיקיית החודש" value={form.monthFolderLink} onChange={set('monthFolderLink')} />
           <TLink label="קישור למייל המקורי" value={form.originalEmailLink} onChange={set('originalEmailLink')} />
         </Group>
@@ -493,6 +532,14 @@ export function InvoiceDetail({
             </div>
           </div>
         </div>
+      )}
+
+      {docPreview && (
+        <PdfPreviewModal
+          url={docPreview.url}
+          previewSrc={docPreview.direct ? docPreview.url : undefined}
+          onClose={() => setDocPreview(null)}
+        />
       )}
     </div>
   )
@@ -688,8 +735,9 @@ export default function Invoices({
 
   const filtered = invoices
     .filter(inv => {
-      const matchSearch = (inv.supplier || '').includes(search) || (inv.id || '').includes(search) ||
-        (inv.invoiceNumber || '').includes(search)
+      const q = search.toLowerCase()
+      const matchSearch = (inv.supplier || '').toLowerCase().includes(q) || (inv.id || '').toLowerCase().includes(q) ||
+        (inv.invoiceNumber || '').toLowerCase().includes(q)
       const matchFilter = filter === 'all'
         ? true
         : filter === 'כפילויות'
