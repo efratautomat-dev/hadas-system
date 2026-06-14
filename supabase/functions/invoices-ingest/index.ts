@@ -1312,6 +1312,9 @@ interface InvoiceFileCtx {
   managerEmail:         string;
   suppliers:            SupplierRow[];
   categoryNames:        string[];
+  // True when this file is a credit note (חשבונית מס זיכוי) routed through the
+  // invoice pipeline as a negative invoice rather than via the returns flow.
+  isCreditNote:         boolean;
   // Stamped into invoices.gmail_label_source so a row's origin is visible in the
   // DB/UI. Defaults to the Gmail source label; the camera-capture path overrides
   // it with CAPTURE_LABEL_SOURCE. Optional so the email call site stays unchanged.
@@ -1336,6 +1339,18 @@ async function handleInvoiceFile(
 
   const extracted = await extractInvoice(file, categoryNames, null);
   await log("info", "extracted", { extracted, filename: file.filename }, msgId);
+
+  // Credit note: same pipeline, but the amounts are negative so the row nets
+  // against the supplier balance and shows as a minus line in the invoice list.
+  // Force the sign deterministically rather than trusting the extractor.
+  if (ctx.isCreditNote) {
+    extracted.total_amount      = -Math.abs(extracted.total_amount);
+    extracted.amount_before_vat = -Math.abs(extracted.amount_before_vat);
+    extracted.vat_amount        = -Math.abs(extracted.vat_amount);
+    await log("info", "credit note — amounts negated", {
+      total: extracted.total_amount, vendor: extracted.vendor_name,
+    }, msgId);
+  }
 
   // not_invoice escape hatch — the extractor refused to fabricate fields for a
   // non-invoice (order/receipt). Alert, skip the insert. (Belt-and-suspenders
@@ -1542,7 +1557,10 @@ async function handleInvoiceFile(
 
   const insertRow: Record<string, unknown> = {
     supplier_id:        supplierId,
-    supplier_name:      extracted.vendor_name,
+    // Use the matched supplier's official name (from supplier details), not the
+    // AI-read vendor text / logo, so balance nets correctly (it's keyed by
+    // supplier_name). Falls back to extracted.vendor_name for brand-new suppliers.
+    supplier_name:      supplierDisplayName,
     invoice_number:     extracted.invoice_number,
     invoice_date:       extracted.invoice_date || null,
     total_amount:       extracted.total_amount,
@@ -1761,11 +1779,16 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         await log("info", `docType from subject → ${docType}`, undefined, msgId);
       }
 
+      // Credit notes (זיכוי) are ingested as NEGATIVE invoices via the invoice
+      // pipeline — NOT as returns rows — so the balance moves exactly once.
+      const isCreditNote = docType === "return_doc";
+
       // ── Routing by type ──
-      // statement / delivery_note / return_doc: route by subject, each file its
-      // own record. These are NEVER subjected to quickInvoiceCheck (that ad-gate
-      // is invoice-only — it's what previously discarded statements).
-      if (docType !== "invoice") {
+      // statement / delivery_note: route by subject, each file its own record.
+      // These are NEVER subjected to quickInvoiceCheck (that ad-gate is
+      // invoice-only — it's what previously discarded statements). Credit notes
+      // fall through to the invoice path below.
+      if (docType !== "invoice" && !isCreditNote) {
         let allSaved = true;
         for (const f of usableFiles) {
           const ok = await handleNonInvoice(supabase, log, msgId, suppliers, {
@@ -1799,10 +1822,11 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         managerEmail,
         suppliers,
         categoryNames,
+        isCreditNote,
       };
       let created = 0, alerted = 0, skipped = 0, ads = 0, errored = 0;
       for (const f of usableFiles) {
-        if (!(await quickInvoiceCheck(f))) {
+        if (!isCreditNote && !(await quickInvoiceCheck(f))) {
           ads++;
           await log("info", "file dropped — quickInvoiceCheck says ad/marketing", { filename: f.filename }, msgId);
           continue;
@@ -2399,7 +2423,8 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
       const ctx: InvoiceFileCtx = {
         token, msgId: captureId, subject, from, emailTs: nowIso,
         messageLink: "", labelIds: [], partialRefundLabelId: null,
-        managerEmail, suppliers, categoryNames, labelSource: CAPTURE_LABEL_SOURCE,
+        managerEmail, suppliers, categoryNames, isCreditNote: false,
+        labelSource: CAPTURE_LABEL_SOURCE,
       };
       const outcome = await handleInvoiceFile(supabase, log, file, ctx, result);
       await log("info", "capture invoice complete", { outcome }, captureId);
