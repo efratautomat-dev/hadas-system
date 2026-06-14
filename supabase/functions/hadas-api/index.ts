@@ -128,7 +128,25 @@ async function deleteSupplier(supabase: SupabaseClient, id: string): Promise<Res
 function invoiceToRow(body: Record<string, unknown>): Record<string, unknown> {
   const row: Record<string, unknown> = {};
 
-  // camelCase → DB snake_case (frontend)
+  // snake_case passthrough (N8N / direct API). Runs FIRST so the camelCase
+  // mapping below can override it: a frontend edit ships BOTH representations —
+  // the camelCase field the form mutates, plus the original snake_case key that
+  // rides along from the row's ...r spread (see useInvoices load). The edited
+  // frontend value must win, otherwise the update reverts to the stale value.
+  const SNAKE = [
+    "supplier_id", "supplier_name", "invoice_date", "invoice_number",
+    "amount_before_vat", "vat_amount", "total_amount", "line_items",
+    "sender_name", "email_sender", "drive_file_link", "drive_folder_link",
+    "message_link", "received_at", "execution_log_url", "ai_confidence",
+    "is_duplicate", "has_error", "status", "category",
+    "invoice_type", "external_link", "error_reason", "html_content",
+    "ai_missing_fields", "transferred_at",
+  ];
+  for (const col of SNAKE) {
+    if (body[col] !== undefined) row[col] = body[col];
+  }
+
+  // camelCase → DB snake_case (frontend). Runs SECOND and wins over SNAKE.
   const CAMEL: Record<string, string> = {
     supplierId:        "supplier_id",
     supplier:          "supplier_name",
@@ -153,20 +171,6 @@ function invoiceToRow(body: Record<string, unknown>): Record<string, unknown> {
   };
   for (const [fe, db] of Object.entries(CAMEL)) {
     if (body[fe] !== undefined) row[db] = body[fe];
-  }
-
-  // snake_case passthrough (N8N / direct API)
-  const SNAKE = [
-    "supplier_id", "supplier_name", "invoice_date", "invoice_number",
-    "amount_before_vat", "vat_amount", "total_amount", "line_items",
-    "sender_name", "email_sender", "drive_file_link", "drive_folder_link",
-    "message_link", "received_at", "execution_log_url", "ai_confidence",
-    "is_duplicate", "has_error", "status", "category",
-    "invoice_type", "external_link", "error_reason", "html_content",
-    "ai_missing_fields", "transferred_at",
-  ];
-  for (const col of SNAKE) {
-    if (body[col] !== undefined) row[col] = body[col];
   }
 
   // sentToAccountant boolean → transferred_at timestamp
