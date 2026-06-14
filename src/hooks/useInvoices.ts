@@ -30,7 +30,7 @@ export function useInvoices() {
           supplierId:        r.supplier_id        ?? '',
           supplier:          r.supplier_name      ?? '',
           invoiceNumber:     r.invoice_number     ?? '',
-          invoiceDate:       r.invoice_date       ?? '',
+          invoiceDate:       (r.invoice_date       ?? '').slice(0, 10),
           date:              isoToDisplay(r.invoice_date ?? ''),
           amountBeforeVat:   Number(r.amount_before_vat ?? 0),
           vat:               Number(r.vat_amount         ?? 0),
@@ -42,7 +42,7 @@ export function useInvoices() {
           storage_url:       r.storage_url        ?? null,
           monthFolderLink:   r.drive_folder_link  ?? '',
           originalEmailLink: r.message_link       ?? '',
-          emailReceivedAt:   r.received_at        ?? '',
+          emailReceivedAt:   (r.received_at        ?? '').slice(0, 16),
           n8nErrorLink:      r.execution_log_url  ?? '',
           decodeQuality:     r.ai_confidence      ?? '',
           // sentToAccountant derived from transferred_at timestamp
