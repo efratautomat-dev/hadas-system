@@ -1,10 +1,16 @@
+import { supabase } from './supabase'
+
 const BASE = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hadas-api`
-const KEY  = import.meta.env.VITE_HADAS_API_KEY as string
 
 async function call(method: string, path: string, body?: unknown): Promise<unknown> {
+  // hadas-api authenticates the frontend via the logged-in user's Supabase JWT.
+  // Pull a fresh access token from the current session on every request.
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) throw new Error('לא מחוברת — יש להתחבר מחדש כדי לבצע את הפעולה')
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', 'x-hadas-key': KEY },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   const data = await res.json().catch(() => ({}))
@@ -43,9 +49,13 @@ export async function captureDocument(input: {
   filename?:   string
   capturedBy?: string
 }): Promise<CaptureResult> {
+  // invoices-ingest now accepts the logged-in user's Supabase JWT (same as call()).
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) throw new Error('לא מחוברת — יש להתחבר מחדש כדי לבצע את הפעולה')
   const res = await fetch(INGEST_BASE, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json', 'x-hadas-key': KEY },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body:    JSON.stringify({ source: 'camera', ...input }),
   })
   const data = await res.json().catch(() => ({}))
