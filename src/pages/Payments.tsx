@@ -354,6 +354,22 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
       const wb = new ExcelJS.Workbook()
       const ws = wb.addWorksheet('גיליון1')
       ws.addRow(['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'])
+      const F = String.fromCharCode;
+      const HMON = [
+        F(1497,1504,1493,1488,1512),
+        F(1508,1489,1512,1493,1488,1512),
+        F(1502,1512,1509),
+        F(1488,1508,1512,1497,1500),
+        F(1502,1488,1497),
+        F(1497,1493,1504,1497),
+        F(1497,1493,1500,1497),
+        F(1488,1493,1490,1493,1505,1496),
+        F(1505,1508,1496,1502,1489,1512),
+        F(1488,1493,1511,1496,1493,1489,1512),
+        F(1504,1493,1489,1502,1489,1512),
+        F(1491,1510,1502,1489,1512)
+      ];
+      const payMonth = (d: string | null) => { if (!d) return ""; const m = parseInt(d.split("-")[1], 10); return HMON[m-1] || ""; };
       rows.forEach(p => {
         // Bizibox accepts ONLY the literal strings "הוצאה" / "הכנסה" in the
         // סוג_פעולה column. Other values (e.g. "חיוב"/"זיכוי"/"חובה"/"זכות")
@@ -368,10 +384,10 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
         ws.addRow([
           action,
           normalizeBizboxType(p.type),
-          fmtDate(p.date),
+          fmtDate(p.valueDate || p.date),
           p.ref ?? '',
           Math.abs(amount),
-          p.supplier ?? '',
+          [p.supplier ?? '', payMonth(p.date), p.notes ?? ''].filter(Boolean).join(' '),
         ])
       })
       const buffer = await wb.xlsx.writeBuffer()
