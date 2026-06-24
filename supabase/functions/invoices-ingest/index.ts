@@ -13,6 +13,8 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 const SOURCE_LABEL_NAME         = "מסמכים מספקים";
 const CAPTURE_LABEL_SOURCE      = "צילום ידני";       // stamped on rows captured via the in-app camera (not Gmail)
 const PROCESSED_LABEL_NAME      = "טופל_ממתין במערכת";
+const FAILED_LABEL_NAME         = "פענוח נכשל";        // parks emails that keep failing extraction
+const MAX_INGEST_ATTEMPTS       = 2;                   // cap before we stop retrying & alert
 const NEEDS_REVIEW_LABEL_NAME   = "דורש בדיקה ידנית";
 const PARTIAL_REFUND_LABEL_NAME = "החזר חלקי";         // owner applies manually — never created by code
 
@@ -27,6 +29,13 @@ const DRIVE_SUBFOLDERS = {
 
 const ANTHROPIC_MODEL_CLASSIFIER = "claude-haiku-4-5-20251001";
 const ANTHROPIC_MODEL_EXTRACTOR  = "claude-sonnet-4-6";
+// Document extraction with many line_items (esp. Hebrew, which tokenizes
+// heavily) can exceed a small cap and truncate mid-string → unparseable JSON.
+// 8192 is well within claude-sonnet-4-6's 64K output ceiling and stays under the
+// ~16K non-streaming limit (this fn uses plain fetch, not streaming). It's a
+// ceiling, not a cost floor — normal docs stop far earlier, so typical spend is
+// unchanged.
+const EXTRACTION_MAX_TOKENS     = 8192;
 const ANTHROPIC_API             = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION         = "2023-06-01";
 
@@ -62,10 +71,46 @@ function json(data: unknown, status = 200): Response {
 
 // ─── Auth ──────────────────────────────────────────────────────────────────
 
-function isAuthorized(req: Request): boolean {
-  const key = req.headers.get("x-hadas-key");
+function validateKey(key: string | null): boolean {
   const expected = Deno.env.get("HADAS_API_KEY");
   return !!expected && key === expected;
+}
+
+// Two valid auth paths (mirrors hadas-api):
+//   1. x-hadas-key header           — cron / machine-to-machine calls
+//   2. Authorization: Bearer <jwt>  — logged-in browser users in allowed_users
+async function isAuthorized(req: Request, supabase: SupabaseClient): Promise<boolean> {
+  const hadasKey = req.headers.get("x-hadas-key");
+  if (hadasKey) return validateKey(hadasKey);
+
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    // Hard 5s cap on the auth round-trip so a stalled getUser can never hang the
+    // request indefinitely — on timeout/error we fail closed (unauthorized).
+    let timer: number | undefined;
+    try {
+      const { data: { user }, error } = await Promise.race([
+        supabase.auth.getUser(token),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("getUser timeout")), 5000);
+        }),
+      ]);
+      if (error || !user) return false;
+      const { data } = await supabase
+        .from("allowed_users")
+        .select("email")
+        .eq("email", user.email)
+        .maybeSingle();
+      return !!data;
+    } catch {
+      return false;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  return false;
 }
 
 // ─── Logger (writes to system_logs + console) ──────────────────────────────
@@ -895,7 +940,7 @@ interface AnthropicMessage { role: "user"; content: AnthropicContentBlock[] }
 async function anthropicMessage(
   model: string,
   messages: AnthropicMessage[],
-  maxTokens = 2048,
+  maxTokens = EXTRACTION_MAX_TOKENS,
 ): Promise<string> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
@@ -913,7 +958,20 @@ async function anthropicMessage(
     const txt = await resp.text();
     throw new Error(`Anthropic API ${resp.status}: ${txt}`);
   }
-  const data = await resp.json() as { content?: Array<{ type: string; text?: string }> };
+  const data = await resp.json() as {
+    content?:     Array<{ type: string; text?: string }>;
+    stop_reason?: string;
+    usage?:       { output_tokens?: number };
+  };
+  // Truncation guard: stop_reason "max_tokens" means the JSON was cut off
+  // mid-string and every downstream JSON.parse fails. Surface it in the function
+  // logs so it reads as truncation, not a generic parse error.
+  if (data.stop_reason === "max_tokens") {
+    console.warn(
+      `[anthropicMessage] response TRUNCATED at max_tokens=${maxTokens} ` +
+      `(model=${model}, output_tokens=${data.usage?.output_tokens ?? "?"})`,
+    );
+  }
   return data.content?.filter((c) => c.type === "text").map((c) => c.text ?? "").join("") ?? "";
 }
 
@@ -951,9 +1009,17 @@ function parseJsonRobust(raw: string): unknown | null {
   const slice = raw.slice(s, e + 1);
   // 3. As-is
   try { return JSON.parse(slice); } catch { /* continue */ }
-  // 4. Repair: smart/curly quotes → straight, trailing commas before } or ]
+  // 4. Repair: smart/curly quotes → straight, gershayim inside Hebrew runs,
+  //    trailing commas before } or ]
   const repaired = slice
     .replace(/[“”„‟‘’ʼ]/g, '"')
+    // A stray ASCII " flanked by Hebrew letters is a gershayim *inside a word*
+    // (בס״ד, בע״מ, ש״ח) the model emitted as a plain quote — not a JSON string
+    // delimiter. Convert to U+05F4 (״) so it stops terminating the string early.
+    // A structural quote is never Hebrew-on-both-sides (always borders : , { } [ ]
+    // or whitespace), so this can't corrupt valid JSON. The lookahead leaves the
+    // right-hand letter free so runs of consecutive gershayim are all fixed.
+    .replace(/([א-ת])"(?=[א-ת])/g, "$1״")
     .replace(/,(\s*[}\]])/g, "$1");
   try { return JSON.parse(repaired); } catch { return null; }
 }
@@ -1093,7 +1159,7 @@ ${hintLine}`;
         { type: "text", text: prompt },
       ],
     }],
-    2048,
+    EXTRACTION_MAX_TOKENS,
   );
 
   let parsed = parseJsonRobust(raw);
@@ -1108,11 +1174,14 @@ ${hintLine}`;
             '{"vendor_name":"","hp":"","invoice_number":"","invoice_date":"","total_amount":0,"amount_before_vat":0,"vat_amount":0,"currency":"ILS","category":"","line_items":[],"confidence":"high","missing_fields":[]}' },
         ],
       }],
-      2048,
+      EXTRACTION_MAX_TOKENS,
     );
     parsed = parseJsonRobust(retryRaw);
     if (parsed === null) {
-      throw new Error(`extractInvoice failed after retry. Raw: ${raw.slice(0, 500)}`);
+      const looksTruncated = !retryRaw.trimEnd().endsWith("}");
+      throw new Error(
+        `extractInvoice failed after retry${looksTruncated ? " — response appears TRUNCATED (raise max_tokens)" : ""}. ` +
+        `Raw: ${raw.slice(0, 500)}`);
     }
   }
   const p = parsed as Record<string, unknown>;
@@ -1233,21 +1302,59 @@ async function appendAltName(
 
 interface FolderTarget { fileFolderId: string; monthFolderId: string }
 
+// Overflow subfolder name, built from char codes because literal Hebrew/RTL
+// text scrambles the surrounding source on save. Renders as: עודפים
+const OVERFLOW_SUBFOLDER = String.fromCharCode(0x05E2, 0x05D5, 0x05D3, 0x05E4, 0x05D9, 0x05DD);
+
+// Routes an invoice to Drive by UPLOAD date, not just invoice date:
+//   • On time  → the invoice's own month folder.
+//   • Late     → the OVERFLOW_SUBFOLDER of the currently-active month.
+// "Active month" = the previous month before the 15th, otherwise this month.
+// A one-month-old invoice gets a grace window: before the 15th it still files
+// under its own (previous) month rather than overflowing.
 async function resolveInvoiceFolder(
   token:         string,
   invoiceDate:   string,
   partialReturn: boolean,
 ): Promise<FolderTarget> {
-  const d = new Date(invoiceDate);
-  const year  = String(d.getUTCFullYear());
-  const month = HEBREW_MONTHS[d.getUTCMonth()];
-  const invoiceRoot = await driveEnsureFolder(token, DRIVE_ROOT_ID,  DRIVE_SUBFOLDERS.invoice);
-  const yearFolder  = await driveEnsureFolder(token, invoiceRoot,    year);
-  const monthFolder = await driveEnsureFolder(token, yearFolder,     month);
-  const fileFolder  = partialReturn
-    ? await driveEnsureFolder(token, monthFolder, DRIVE_SUBFOLDERS.partialReturn)
-    : monthFolder;
-  return { fileFolderId: fileFolder, monthFolderId: monthFolder };
+  const inv = new Date(invoiceDate);
+  const now = new Date();
+
+  // Calendar months the invoice trails the current month (UTC):
+  // 0 = current, 1 = one month old, >=2 = older, <0 = future-dated.
+  const monthsBehind =
+    (now.getUTCFullYear() - inv.getUTCFullYear()) * 12 +
+    (now.getUTCMonth()    - inv.getUTCMonth());
+
+  const beforeCutoff = now.getUTCDate() < 15;
+  const onTime = monthsBehind <= 0 || (monthsBehind === 1 && beforeCutoff);
+
+  const invoiceRoot = await driveEnsureFolder(token, DRIVE_ROOT_ID, DRIVE_SUBFOLDERS.invoice);
+
+  if (onTime) {
+    // File under the invoice's OWN month.
+    const year        = String(inv.getUTCFullYear());
+    const month       = HEBREW_MONTHS[inv.getUTCMonth()];
+    const yearFolder  = await driveEnsureFolder(token, invoiceRoot, year);
+    const monthFolder = await driveEnsureFolder(token, yearFolder,  month);
+    const fileFolder  = partialReturn
+      ? await driveEnsureFolder(token, monthFolder, DRIVE_SUBFOLDERS.partialReturn)
+      : monthFolder;
+    return { fileFolderId: fileFolder, monthFolderId: monthFolder };
+  }
+
+  // Late: file into the overflow subfolder of the currently-active month.
+  // Date.UTC() normalises a -1 month index back into the prior year correctly.
+  const active = beforeCutoff
+    ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+    : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(),     1));
+  const year        = String(active.getUTCFullYear());
+  const month       = HEBREW_MONTHS[active.getUTCMonth()];
+  const yearFolder  = await driveEnsureFolder(token, invoiceRoot, year);
+  const monthFolder = await driveEnsureFolder(token, yearFolder,  month);
+  // Overflow wins over partial-return: every late doc lands here.
+  const overflowFolder = await driveEnsureFolder(token, monthFolder, OVERFLOW_SUBFOLDER);
+  return { fileFolderId: overflowFolder, monthFolderId: overflowFolder };
 }
 
 // ─── Alert idempotency (A4) ──────────────────────────────────────────────────
@@ -1285,6 +1392,62 @@ async function insertAlertOnce(
     await log("error", `alert insert failed (${alert.type}): ${error.message}`, { code: error.code }, msgId);
     return false;
   }
+  return true;
+}
+
+// Cost guard. Increments this email's failure counter. Below the cap it returns
+// false → caller leaves the email unlabeled so the next tick retries (transient
+// API/network errors recover on their own). At the cap it PARKS the email — adds
+// the FAILED label (which the cron query excludes) + raises a visible alert — and
+// returns true. Nothing is silently dropped: removing the FAILED label in Gmail
+// re-queues the email for another MAX_INGEST_ATTEMPTS.
+async function recordFailureAndMaybePark(
+  supabase: SupabaseClient,
+  log:      Logger,
+  token:    string,
+  msgId:    string,
+  failedLabelId: string,
+  meta:     { subject: string; from: string; messageLink: string },
+  errorMsg: string,
+): Promise<boolean> {
+  const { data: row } = await supabase
+    .from("ingest_failures")
+    .select("attempts")
+    .eq("gmail_message_id", msgId)
+    .maybeSingle();
+  const attempts = (row?.attempts ?? 0) + 1;
+  await supabase.from("ingest_failures").upsert(
+    {
+      gmail_message_id: msgId,
+      attempts,
+      last_error:       errorMsg.slice(0, 500),
+      last_attempt_at:  new Date().toISOString(),
+    },
+    { onConflict: "gmail_message_id" },
+  );
+
+  if (attempts < MAX_INGEST_ATTEMPTS) {
+    await log("warn",
+      `ingest failed (attempt ${attempts}/${MAX_INGEST_ATTEMPTS}) — leaving unlabeled for retry`,
+      { error: errorMsg }, msgId);
+    return false;
+  }
+
+  // Cap reached → park out of the query and surface it.
+  await gmailModifyLabels(token, msgId, [failedLabelId], ["UNREAD"]);
+  await insertAlertOnce(supabase, log, msgId, {
+    type:    "invoice_ingest_failed",
+    title:   "פענוח חשבונית נכשל — דורש טיפול ידני",
+    message: `המייל "${meta.subject}" נכשל בפענוח ${attempts} פעמים ולא יעובד שוב אוטומטית. ` +
+             `להסרת החסימה ולניסיון חוזר — הסר/י את התווית "${FAILED_LABEL_NAME}" מהמייל.`,
+    payload: {
+      gmailMessageId: msgId, subject: meta.subject, from: meta.from,
+      messageLink: meta.messageLink, attempts, lastError: errorMsg.slice(0, 300),
+    },
+  });
+  await log("error",
+    `ingest failed ${attempts}× — parked behind "${FAILED_LABEL_NAME}", will not retry`,
+    { error: errorMsg }, msgId);
   return true;
 }
 
@@ -1653,6 +1816,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   }
   const destProcessed   = await gmailEnsureLabel(token, PROCESSED_LABEL_NAME);
   const destNeedsReview = await gmailEnsureLabel(token, NEEDS_REVIEW_LABEL_NAME);
+  const destFailed      = await gmailEnsureLabel(token, FAILED_LABEL_NAME);
   // Partial-refund label is applied manually by the business owner — look up only, never created
   const partialRefundLabelId = labels.find((l) => l.name === PARTIAL_REFUND_LABEL_NAME)?.id ?? null;
 
@@ -1663,7 +1827,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   // the cron runs.
   const query =
     `label:"${SOURCE_LABEL_NAME}" ` +
-    `-label:"${PROCESSED_LABEL_NAME}" newer_than:14d`;
+    `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d`;
   const messageIds = await gmailListMessages(token, query);
   await log("info", `found ${messageIds.length} candidate messages`, { query });
 
@@ -1678,6 +1842,11 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   const managerEmail = Deno.env.get("GMAIL_USER_EMAIL") ?? "";
 
   for (const msgId of messageIds) {
+    // Hoisted so the per-message catch below can reference them when a failure
+    // (e.g. extractInvoice throwing) unwinds out of the try.
+    let subject     = "(no subject)";
+    let from        = "";
+    let messageLink = `https://mail.google.com/mail/u/0/#all/${msgId}`;
     try {
       // Idempotency fast-path: if this email already produced any invoice row,
       // skip it. limit(1) (not maybeSingle) because one email can now legitimately
@@ -1697,12 +1866,12 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       }
 
       const message    = await gmailGetMessage(token, msgId);
-      const subject    = extractHeader(message, "Subject") || "(no subject)";
-      const from       = extractHeader(message, "From");
+      subject     = extractHeader(message, "Subject") || "(no subject)";
+      from        = extractHeader(message, "From");
       const bodyText   = extractBodyText(message);
       const rawHtml    = extractRawHtml(message);
       const emailTs    = new Date(parseInt(message.internalDate, 10)).toISOString();
-      const messageLink = `https://mail.google.com/mail/u/0/#all/${msgId}`;
+      messageLink = `https://mail.google.com/mail/u/0/#all/${msgId}`;
 
       await log("info", "processing", { subject, from, labelIds: message.labelIds ?? [] }, msgId);
 
@@ -1806,6 +1975,9 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         // dedup-guarded). Without this, a failed insert was silently lost.
         if (!allSaved) {
           await log("warn", "a document write failed — leaving email unlabeled for retry", { docType }, msgId);
+          await recordFailureAndMaybePark(
+            supabase, log, token, msgId, destFailed,
+            { subject, from, messageLink }, "a document write failed");
           continue;
         }
         await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
@@ -1860,6 +2032,9 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       if (errored > 0) {
         await log("warn", `${errored} invoice file(s) errored — leaving email unlabeled for retry`,
           { created, alerted, skipped, ads, errored }, msgId);
+        await recordFailureAndMaybePark(
+          supabase, log, token, msgId, destFailed,
+          { subject, from, messageLink }, `${errored} invoice file(s) errored`);
         continue;
       }
 
@@ -1873,6 +2048,9 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       const msg = err instanceof Error ? err.message : String(err);
       await log("error", `unhandled exception: ${msg}`, undefined, msgId);
       result.errors.push(`Error processing ${msgId}: ${msg}`);
+      await recordFailureAndMaybePark(
+        supabase, log, token, msgId, destFailed,
+        { subject, from, messageLink }, msg);
     }
   }
 
@@ -2456,25 +2634,31 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS });
   }
-  if (!isAuthorized(req)) return json({ error: "Unauthorized" }, 401);
-
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("HADAS_SERVICE_KEY") ?? "";
   const supabase    = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
+  // Drain the request body BEFORE auth. The camera path uploads a multi-MB
+  // base64 image; running the JWT auth round-trips (getUser/allowed_users)
+  // before the body is read stalls the upload and hangs the request. Read
+  // first, THEN authorize — auth still runs and still rejects before any
+  // document is processed or written (handleCapture is downstream of the check).
+  let body: unknown = null;
+  if (req.method === "POST") {
+    try { body = await req.json(); } catch { body = null; }
+  }
+
+  if (!(await isAuthorized(req, supabase))) return json({ error: "Unauthorized" }, 401);
+
   // Camera-capture path: a POST with { source: "camera", ... }. Anything else
   // (the cron tick / manual trigger) falls through to the Gmail pull below.
-  if (req.method === "POST") {
-    let body: unknown = null;
-    try { body = await req.json(); } catch { body = null; }
-    if (body && typeof body === "object" && (body as { source?: string }).source === "camera") {
-      try {
-        return await handleCapture(supabase, body as CaptureRequest);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        try { await makeLogger(supabase)("error", `capture handler aborted: ${msg}`); } catch { /* self-guards */ }
-        return json({ ok: false, error: msg }, 500);
-      }
+  if (body && typeof body === "object" && (body as { source?: string }).source === "camera") {
+    try {
+      return await handleCapture(supabase, body as CaptureRequest);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      try { await makeLogger(supabase)("error", `capture handler aborted: ${msg}`); } catch { /* self-guards */ }
+      return json({ ok: false, error: msg }, 500);
     }
   }
 
