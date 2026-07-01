@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, X, CheckCircle2, Clock, XCircle, RotateCcw, Download } from 'lucide-react'
+import { Plus, Pencil, X, CheckCircle2, RotateCcw, Download } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
 import { useReturns } from '../hooks/useReturns'
@@ -10,6 +10,7 @@ import type { ReturnPDFData } from '../utils/pdf'
 import { PdfPreviewButton } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
+import { StatusBadge } from './StatusBadge'
 
 export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -43,10 +44,12 @@ export interface FormState {
   status: ReturnStatus
 }
 
-const STATUS_CONFIG: Record<ReturnStatus, { bg: string; color: string; Icon: React.ElementType }> = {
-  'אושר':   { bg: '#DCFCE7', color: '#166534', Icon: CheckCircle2 },
-  'בטיפול': { bg: '#FEF3C7', color: '#D97706', Icon: Clock },
-  'נדחה':   { bg: '#FEE2E2', color: '#DC2626', Icon: XCircle },
+// A return maps onto the unified taxonomy (spec/06-RULES.md §2a): it is `closed`
+// once a matching supplier credit note is linked, otherwise `new`. The legacy
+// אושר/בטיפול/נדחה values still drive the screen's filters/totals unchanged.
+function returnStatusInternal(r: ReturnEntry): string {
+  const linked = !!r.supplierCreditNoteNumber || r.supplierCreditNoteAmount != null
+  return linked ? 'closed' : 'new'
 }
 
 function fmtILS(n: number | null | undefined) {
@@ -81,20 +84,6 @@ function useIsTablet() {
     return () => window.removeEventListener('resize', h)
   }, [])
   return v
-}
-
-function StatusBadge({ status }: { status: ReturnStatus }) {
-  const cfg = STATUS_CONFIG[status]
-  const { Icon } = cfg
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold"
-      style={{ backgroundColor: cfg.bg, color: cfg.color }}
-    >
-      <Icon className="w-3.5 h-3.5 flex-shrink-0" />
-      {status}
-    </span>
-  )
 }
 
 const inputBase: React.CSSProperties = {
@@ -689,7 +678,7 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                 <span className="text-sm font-bold" style={{ color: r.supplierCreditNoteAmount != null ? '#166534' : '#D1D5DB' }}>
                   {r.supplierCreditNoteAmount != null ? fmtILS(r.supplierCreditNoteAmount) : '—'}
                 </span>
-                <StatusBadge status={r.status} />
+                <StatusBadge status={returnStatusInternal(r)} />
                 {!isTablet && <span className="text-sm text-gray-500">{r.createdBy}</span>}
                 {!isTablet && (
                   <div

@@ -6,6 +6,7 @@ import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { PdfPreviewButton } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
+import { StatusBadge } from './StatusBadge'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -15,24 +16,16 @@ function formatILS(n: number | null | undefined) {
 
 const statusLabel = { pending: 'ממתינה', archived: 'בארכיון' } as const
 
-const statusBadge = {
-  pending:  { bg: '#FEF9C3', color: '#A16207' },
-  archived: { bg: '#F3F4F6', color: '#6B7280' },
-  fallback: { bg: '#F3F4F6', color: '#9CA3AF' },
-}
-
 function normalizeStatus(status: string): 'pending' | 'archived' {
   if (status === 'pending' || status === 'unlinked' || status === 'ממתינה לשיוך') return 'pending'
   if (status === 'archived' || status === 'משויכת') return 'archived'
   return 'pending'
 }
 
-function getBadge(status: string) {
-  return statusBadge[normalizeStatus(status)] ?? statusBadge.fallback
-}
-
-function getLabel(status: string) {
-  return statusLabel[normalizeStatus(status)]
+// Map the delivery-note status onto the unified taxonomy (spec/06-RULES.md §1):
+// pending → new, archived → done.
+function deliveryStatusInternal(status: string): string {
+  return normalizeStatus(status) === 'archived' ? 'done' : 'new'
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -345,7 +338,6 @@ export default function DeliveryNotes() {
           ) : (
             displayed.map((note) => {
               const isArchived = normalizeStatus(note.status) === 'archived'
-              const badge = getBadge(note.status)
               return (
                 <div
                   key={note.id}
@@ -379,12 +371,7 @@ export default function DeliveryNotes() {
                     {formatILS(note.amount)}
                   </span>
                   <span className="flex justify-center">
-                    <span
-                      className="rounded-lg font-medium"
-                      style={{ fontSize: '11px', padding: '3px 10px', background: badge?.bg, color: badge?.color }}
-                    >
-                      {getLabel(note.status)}
-                    </span>
+                    <StatusBadge status={deliveryStatusInternal(note.status)} style={{ fontSize: '11px', padding: '3px 10px' }} />
                   </span>
                   {!isMobile && (
                     <span className="text-right" style={{ fontSize: '13px', color: '#6B7280' }}>
@@ -423,9 +410,7 @@ export default function DeliveryNotes() {
                     onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '')}
                   ><X className="w-4 h-4" /></button>
                   <div className="flex items-center gap-3">
-                    <span className="rounded-lg font-medium" style={{ fontSize: '12px', padding: '3px 10px', background: statusBadge.pending.bg, color: statusBadge.pending.color }}>
-                      {statusLabel.pending}
-                    </span>
+                    <StatusBadge status="new" style={{ fontSize: '12px', padding: '3px 10px' }} />
                     <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>תעודת משלוח {selected.id}</h2>
                   </div>
                 </div>
@@ -520,9 +505,7 @@ export default function DeliveryNotes() {
                     onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '')}
                   ><X className="w-4 h-4" /></button>
                   <div className="flex items-center gap-3">
-                    <span className="rounded-lg font-medium" style={{ fontSize: '12px', padding: '3px 10px', background: statusBadge.archived.bg, color: statusBadge.archived.color }}>
-                      {statusLabel.archived}
-                    </span>
+                    <StatusBadge status="done" style={{ fontSize: '12px', padding: '3px 10px' }} />
                     <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>תעודת משלוח {selected.id}</h2>
                   </div>
                 </div>

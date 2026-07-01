@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download, Trash2 } from 'lucide-react'
 import { SearchableSelect } from '../components/SearchableSelect'
+import { StatusBadge as SharedStatusBadge } from '../components/StatusBadge'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { usePayments as usePaymentsData } from '../hooks/usePayments'
 
@@ -153,16 +154,11 @@ const TYPE_COLORS: Record<string, { bg: string; color: string; accent: string }>
   'אחר':                    { bg: '#F9FAFB', color: '#374151', accent: '#6B7280' },
 }
 
-const STATUS_LABELS: Record<PaymentStatus, string> = {
-  paid: 'שולם',
-  pending: 'ממתין',
-  cancelled: 'בוטל',
-}
-
-const STATUS_COLORS: Record<PaymentStatus, { bg: string; color: string }> = {
-  paid:      { bg: '#F0FDF4', color: '#16A34A' },
-  pending:   { bg: '#FEF3C7', color: '#92400E' },
-  cancelled: { bg: '#F3F4F6', color: '#6B7280' },
+// Map the payment status vocabulary onto the unified taxonomy (spec/06-RULES.md §1).
+const PAYMENT_STATUS_INTERNAL: Record<PaymentStatus, string> = {
+  paid: 'done',
+  pending: 'new',
+  cancelled: 'cancelled',
 }
 
 const EMPTY_FORM: FormState = {
@@ -190,15 +186,7 @@ function TypeBadge({ type }: { type: string }) {
 }
 
 function StatusBadge({ status }: { status: PaymentStatus }) {
-  const c = STATUS_COLORS[status]
-  return (
-    <span
-      className="inline-flex items-center rounded-lg font-bold"
-      style={{ background: c.bg, color: c.color, fontSize: '12px', padding: '3px 9px' }}
-    >
-      {STATUS_LABELS[status]}
-    </span>
-  )
+  return <SharedStatusBadge status={PAYMENT_STATUS_INTERNAL[status]} />
 }
 
 // Informational only — does NOT change status. Shown when a payment has already

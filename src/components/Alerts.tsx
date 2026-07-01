@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
+import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 
 // Color is keyed to the alert TYPE, grouped into four severity-like buckets.
 // (severity is "info" on every live row, so it can't drive color.) The bucket is
@@ -102,6 +103,15 @@ const STATUS_CONFIG: Record<AlertStatus, {
   resolved: { label: 'טופל', bg: '#DCFCE7', color: '#166534', indicator: '#22C55E' },
 }
 
+// Map the alert status vocabulary onto the unified taxonomy (spec/06-RULES.md §1):
+// new → new, read → in_progress, resolved → done. (STATUS_CONFIG above still drives
+// the per-status row indicator color.)
+const ALERT_STATUS_INTERNAL: Record<AlertStatus, string> = {
+  new:      'new',
+  read:     'in_progress',
+  resolved: 'done',
+}
+
 // Status-filter chip labels. "טופלו" matches the wording on the summary stat card.
 const STATUS_LABELS: Record<AlertStatus, string> = {
   new:      'חדש',
@@ -181,12 +191,7 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
           {/* Col 5: date */}
           <span className="text-xs text-gray-400 whitespace-nowrap">{alert.date}</span>
           {/* Col 6 (leftmost in RTL): status */}
-          <span
-            className="px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap"
-            style={{ background: statusConf.bg, color: statusConf.color }}
-          >
-            {statusConf.label}
-          </span>
+          <SharedStatusBadge status={ALERT_STATUS_INTERNAL[alert.status] ?? alert.status} />
         </div>
 
         {/* Description */}
@@ -230,7 +235,7 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
   )
 }
 
-type TypeFilter   = 'all' | AlertType
+type TypeFilter   = 'all' | Bucket
 type StatusFilter = 'all' | AlertStatus
 
 interface AlertsProps {
@@ -393,7 +398,7 @@ export default function Alerts({
   // shows only unresolved alerts, and resolved ones surface only when the "טופל"
   // status filter is explicitly selected.
   const filtered = alerts.filter(a => {
-    if (typeFilter !== 'all' && a.type !== typeFilter) return false
+    if (typeFilter !== 'all' && getAlertTypeConf(a.type).bucket !== typeFilter) return false
     if (statusFilter === 'all') {
       if (a.status === 'resolved') return false
     } else if (a.status !== statusFilter) {
@@ -465,12 +470,12 @@ export default function Alerts({
 
       {/* Filters */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border space-y-3" style={{ borderColor: '#E2E4E9' }}>
-        {/* Type filter */}
+        {/* Type filter (by severity bucket) */}
         <div className="flex items-center gap-2 flex-wrap" style={{ direction: 'rtl' }}>
           <span className="text-xs font-semibold text-gray-400 ml-1">סוג:</span>
           {filterBtn(typeFilter === 'all', 'הכל', () => setTypeFilter('all'))}
-          {(Object.keys(TYPE_LABELS) as AlertType[]).map(t =>
-            filterBtn(typeFilter === t, TYPE_LABELS[t], () => setTypeFilter(t))
+          {TYPE_BUCKETS.map(t =>
+            filterBtn(typeFilter === t, BUCKET_LABEL[t], () => setTypeFilter(t))
           )}
         </div>
 

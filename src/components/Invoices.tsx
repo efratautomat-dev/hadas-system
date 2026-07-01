@@ -5,6 +5,7 @@ import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
+import { StatusBadge } from './StatusBadge'
 import { supabase } from '../lib/supabase'
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -24,10 +25,12 @@ const STATUS_TRANSFERRED = 'הועבר לרו״ח'
 const STATUS_REVIEW      = 'בבדיקה'
 const STATUS_WAITING     = 'ממתין'
 
-const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
-  [STATUS_WAITING]:     { bg: '#FEF9C3', color: '#A16207' },  // amber
-  [STATUS_REVIEW]:      { bg: '#DBEAFE', color: '#1E40AF' },  // blue
-  [STATUS_TRANSFERRED]: { bg: '#DCFCE7', color: '#166534' },  // green
+// Map the derived Hebrew status onto the unified taxonomy (spec/06-RULES.md §1):
+// waiting → new, under-review → in_progress, transferred-to-accountant → done.
+const INVOICE_STATUS_INTERNAL: Record<string, string> = {
+  [STATUS_WAITING]:     'new',
+  [STATUS_REVIEW]:      'in_progress',
+  [STATUS_TRANSFERRED]: 'done',
 }
 
 // An alert "points at" an invoice when its payload references the invoice id
@@ -307,7 +310,7 @@ export function InvoiceDetail({
   }
 
   const total = (Number(form.amountBeforeVat) || 0) + (Number(form.vat) || 0)
-  const st = STATUS_STYLE[derivedStatus] ?? { bg: '#F3F4F6', color: '#6B7280' }
+  const internalStatus = INVOICE_STATUS_INTERNAL[derivedStatus] ?? derivedStatus
 
   return (
     <div dir="rtl" style={{ maxWidth: '800px', margin: '0 auto' }}>
@@ -347,11 +350,7 @@ export function InvoiceDetail({
 
         <div style={{ textAlign: 'center', flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-            <span
-              style={{ ...st, fontSize: '12px', fontWeight: 600, padding: '4px 12px', borderRadius: '8px' }}
-            >
-              {derivedStatus}
-            </span>
+            <StatusBadge status={internalStatus} style={{ fontWeight: 600, padding: '4px 12px' }} />
             <h2 style={{ margin: 0, fontSize: '19px', fontWeight: 600, color: '#1F2937' }}>{form.id}</h2>
           </div>
           {form.supplier && form.supplierId && onOpenSupplier ? (
@@ -481,9 +480,7 @@ export function InvoiceDetail({
                 manually editable — shown read-only as a badge. */}
             <div>
               <Lbl t="סטטוס טיפול" />
-              <span style={{ ...st, display: 'inline-block', fontSize: '14px', fontWeight: 700, padding: '9px 16px', borderRadius: '10px' }}>
-                {derivedStatus}
-              </span>
+              <StatusBadge status={internalStatus} style={{ fontSize: '14px', fontWeight: 700, padding: '9px 16px', borderRadius: '10px' }} />
             </div>
             <TSelect label="איכות פענוח" value={form.decodeQuality} onChange={set('decodeQuality')} options={QUALITIES} />
           </Row2>
@@ -921,7 +918,6 @@ export default function Invoices({
             {/* Data rows */}
             {filtered.map((inv) => {
               const invStatus = statusFor(inv)
-              const st = STATUS_STYLE[invStatus] ?? { bg: '#F3F4F6', color: '#6B7280' }
               const flags = [
                 inv.isDuplicate      && { label: 'כפילות',       bg: '#FEF3C7', color: '#92400E' },
                 inv.hasError         && { label: 'שגיאה',         bg: '#FEE2E2', color: '#DC2626' },
@@ -1010,9 +1006,10 @@ export default function Invoices({
 
                   {/* Col 5: סטטוס */}
                   <div className="flex justify-center">
-                    <span style={{ ...st, fontSize: '12px', fontWeight: 700, padding: '4px 10px', borderRadius: '8px', whiteSpace: 'nowrap' }}>
-                      {invStatus}
-                    </span>
+                    <StatusBadge
+                      status={INVOICE_STATUS_INTERNAL[invStatus] ?? invStatus}
+                      style={{ fontWeight: 700, padding: '4px 10px' }}
+                    />
                   </div>
                 </div>
               )

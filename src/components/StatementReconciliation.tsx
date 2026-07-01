@@ -6,6 +6,7 @@ import { useSuppliers } from '../hooks/useSuppliers'
 import { printStatementPDF } from '../utils/pdf'
 import { openStoredFile } from '../lib/storage'
 import SectionHeader from './SectionHeader'
+import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 
 interface VendorStatement {
   id: string
@@ -34,19 +35,14 @@ interface StmtDetail {
   vendor_rows: LedgerRow[]
 }
 
-const statusConfig: Record<VendorStatementStatus, {
-  label: string
-  bg: string
-  color: string
-  Icon: React.ElementType
-}> = {
-  matched:       { label: 'תואם',      bg: '#DCFCE7', color: '#166534', Icon: CheckCircle2 },
-  mismatch:      { label: 'אי-התאמה', bg: '#FEE2E2', color: '#DC2626', Icon: AlertTriangle },
-  pending:       { label: 'ממתין',     bg: '#FEF9C3', color: '#A16207', Icon: Clock },
-  investigating: { label: 'בבדיקה',   bg: '#DBEAFE', color: '#1E40AF', Icon: SearchIcon },
-  // Default status for statements ingested from email (invoices-ingest) — the
-  // user opens the row to fill the real balance and resolve it.
-  needs_review:  { label: 'לבדיקה',    bg: '#FEF3C7', color: '#D97706', Icon: Eye },
+// Map the statement status vocabulary onto the unified taxonomy (spec/06-RULES.md §1):
+// pending → new, matched → matched, mismatch → mismatch, investigating/needs_review → in_progress.
+const STATEMENT_STATUS_INTERNAL: Record<VendorStatementStatus, string> = {
+  matched:       'matched',
+  mismatch:      'mismatch',
+  pending:       'new',
+  investigating: 'in_progress',
+  needs_review:  'in_progress',
 }
 
 
@@ -74,19 +70,9 @@ function formatILS(n: number | null | undefined) {
 }
 
 function StatusBadge({ status }: { status: VendorStatementStatus }) {
-  // Fallback guards against any status value the UI doesn't know about (e.g. a
-  // new backend status) so the whole page can never crash on an unknown badge.
-  const cfg = statusConfig[status] ?? statusConfig.pending
-  const { Icon } = cfg
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold"
-      style={{ backgroundColor: cfg.bg, color: cfg.color }}
-    >
-      <Icon className="w-3.5 h-3.5 flex-shrink-0" />
-      {cfg.label}
-    </span>
-  )
+  // Unknown/un-migrated statuses fall through to the shared badge's gray + raw-label
+  // fallback so the page can never crash on a status the UI doesn't know about.
+  return <SharedStatusBadge status={STATEMENT_STATUS_INTERNAL[status] ?? status} />
 }
 
 function TypeBadge({ type }: { type: LedgerRow['type'] }) {
