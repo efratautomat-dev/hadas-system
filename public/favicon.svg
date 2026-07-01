@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- White circle background -->
+  <circle cx="32" cy="32" r="32" fill="#D32F4A"/>
+  <circle cx="32" cy="32" r="28" fill="white"/>
+  <!-- Tulip stem -->
+  <rect x="30" y="38" width="4" height="14" rx="2" fill="#D32F4A"/>
+  <!-- Leaf left -->
+  <path d="M30 46 Q20 40 22 32 Q28 38 30 44Z" fill="#D32F4A" opacity="0.7"/>
+  <!-- Tulip body -->
+  <path d="M32 14 C26 14 20 20 20 28 C20 34 25 38 32 38 C39 38 44 34 44 28 C44 20 38 14 32 14Z" fill="#D32F4A"/>
+  <!-- Tulip petal highlights -->
+  <path d="M32 14 C29 18 28 24 29 30 C30 34 31 36 32 38 C33 36 34 34 35 30 C36 24 35 18 32 14Z" fill="#F2C94C" opacity="0.6"/>
+  <!-- Inner petal line -->
+  <path d="M32 16 C31 20 30 26 31 32" stroke="white" stroke-width="1" fill="none" opacity="0.4"/>
+</svg>

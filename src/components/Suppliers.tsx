@@ -1,0 +1,724 @@
+import { useState, useEffect } from 'react'
+import { Users, Plus, Search, Pencil, ChevronLeft, X } from 'lucide-react'
+import { useSuppliers } from '../hooks/useSuppliers'
+import SupplierDetail, { type Supplier } from './SupplierDetail'
+
+function useIsTablet() {
+  const [v, setV] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= 768 && window.innerWidth <= 1024
+  )
+  useEffect(() => {
+    const h = () => setV(window.innerWidth >= 768 && window.innerWidth <= 1024)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return v
+}
+
+const CATEGORIES = [
+  'ספקים ביגוד',
+  'ספקים כיסויי ראש',
+  'ספקים בגדי ים',
+  'ספקים שונות',
+  'הוצאות ניהול',
+  'הוצאות משרד',
+  'תשלומי מס הכנסה',
+  'משכורות',
+  'שונות',
+]
+
+const categoryColors: Record<string, { bg: string; color: string }> = {
+  'ספקים ביגוד':       { bg: '#EFF6FF', color: '#1D4ED8' },
+  'ספקים כיסויי ראש':  { bg: '#FDF4FF', color: '#9333EA' },
+  'ספקים בגדי ים':     { bg: '#F0FDFA', color: '#0F766E' },
+  'ספקים שונות':       { bg: '#F3F4F6', color: '#4B5563' },
+  'הוצאות ניהול':      { bg: '#FFF7ED', color: '#C2410C' },
+  'הוצאות משרד':       { bg: '#FEF9C3', color: '#92400E' },
+  'תשלומי מס הכנסה':   { bg: '#FFF1F2', color: '#BE123C' },
+  'משכורות':           { bg: '#F0FDF4', color: '#16A34A' },
+  'שונות':             { bg: '#F3F4F6', color: '#6B7280' },
+  // legacy mock categories
+  'מוצרי חלב':         { bg: '#EFF6FF', color: '#1D4ED8' },
+  'משקאות':            { bg: '#F0FDF4', color: '#16A34A' },
+  'מזון יבש':          { bg: '#FFF7ED', color: '#C2410C' },
+  'ממתקים':            { bg: '#FDF4FF', color: '#9333EA' },
+  'שתייה חמה':         { bg: '#FEF3C7', color: '#92400E' },
+  'מאפים':             { bg: '#FFF1F2', color: '#BE123C' },
+}
+
+function formatILS(n: number | null | undefined) {
+  return '₪' + (n ?? 0).toLocaleString('he-IL')
+}
+
+// ─── Form types ─────────────────────────────────────────────────────────────
+
+type EditFormState = {
+  name: string
+  hp: string
+  category: string
+  contact: string
+  email: string
+  phone: string
+  openingBalance: string
+  openingBalanceDate: string
+  notes: string
+}
+
+const emptyForm: EditFormState = {
+  name: '', hp: '', category: CATEGORIES[0],
+  contact: '', email: '', phone: '',
+  openingBalance: '', openingBalanceDate: '',
+  notes: '',
+}
+
+const inputBase: React.CSSProperties = {
+  height: '44px', padding: '0 14px', fontSize: '16px',
+  outline: 'none', border: '1px solid #DEDFE5', borderRadius: '12px',
+  background: 'white', width: '100%', color: '#1F2937', boxSizing: 'border-box',
+}
+
+const textareaBase: React.CSSProperties = {
+  padding: '12px 14px', fontSize: '16px',
+  outline: 'none', border: '1px solid #EEEEF2', borderRadius: '12px',
+  background: 'white', width: '100%', color: '#1F2937',
+  resize: 'vertical', minHeight: '80px', boxSizing: 'border-box',
+}
+
+function focusBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
+  (e.target as HTMLElement).style.borderColor = '#D32F4A'
+}
+function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
+  (e.target as HTMLElement).style.borderColor = '#DEDFE5'
+}
+
+function FormField({
+  label, required, children,
+}: { label: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>
+        {label}
+        {required && <span style={{ color: '#D32F4A' }}> *</span>}
+      </p>
+      {children}
+    </div>
+  )
+}
+
+function GroupHeader({ title }: { title: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-3">
+      <div className="flex-1 h-px" style={{ background: '#EEEEF2' }} />
+      <span style={{ fontSize: '12px', fontWeight: 700, color: '#D32F4A', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
+        {title}
+      </span>
+    </div>
+  )
+}
+
+function SupplierFormCard({
+  title, form, onChange, onSave, onCancel,
+}: {
+  title: string
+  form: EditFormState
+  onChange: (f: EditFormState) => void
+  onSave: () => void
+  onCancel: () => void
+}) {
+  const canSave = form.name.trim().length > 0
+
+  return (
+    <div className="bg-white rounded-2xl flex flex-col" style={{ border: '1px solid #EEEEF2' }}>
+      <div className="p-5 flex flex-col gap-5">
+
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={onCancel}
+            className="text-gray-400 transition-colors rounded-lg p-1"
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#6B7280')}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <h3 className="font-semibold text-right" style={{ fontSize: '16px', color: '#1A1A2E' }}>{title}</h3>
+        </div>
+
+        {/* ── קבוצה 1: פרטי זיהוי ── */}
+        <div>
+          <GroupHeader title="פרטי זיהוי" />
+          <div className="flex flex-col gap-3">
+            <FormField label="שם ספק" required>
+              <input
+                value={form.name}
+                onChange={(e) => onChange({ ...form, name: e.target.value })}
+                placeholder="שם הספק"
+                className="text-right placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+
+            <FormField label="ח.פ / ע.מ">
+              <input
+                value={form.hp}
+                onChange={(e) => onChange({ ...form, hp: e.target.value })}
+                placeholder="000000000"
+                dir="ltr"
+                className="text-left placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+
+            <FormField label="קטגוריה">
+              <select
+                value={form.category}
+                onChange={(e) => onChange({ ...form, category: e.target.value })}
+                style={{ ...inputBase, direction: 'rtl', cursor: 'pointer' }}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              >
+                {CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </FormField>
+          </div>
+        </div>
+
+        {/* ── קבוצה 2: פרטי קשר ── */}
+        <div>
+          <GroupHeader title="פרטי קשר" />
+          <div className="flex flex-col gap-3">
+            <FormField label="שם איש קשר">
+              <input
+                value={form.contact}
+                onChange={(e) => onChange({ ...form, contact: e.target.value })}
+                placeholder="שם מלא"
+                className="text-right placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+
+            <FormField label="מייל">
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => onChange({ ...form, email: e.target.value })}
+                placeholder="name@company.co.il"
+                dir="ltr"
+                className="text-left placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+
+            <FormField label="טלפון">
+              <input
+                value={form.phone}
+                onChange={(e) => onChange({ ...form, phone: e.target.value })}
+                placeholder="0X-XXXXXXX"
+                dir="ltr"
+                className="text-left placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+          </div>
+        </div>
+
+        {/* ── קבוצה 3: כספי ── */}
+        <div>
+          <GroupHeader title="כספי" />
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="יתרת פתיחה">
+              <input
+                type="number"
+                value={form.openingBalance}
+                onChange={(e) => onChange({ ...form, openingBalance: e.target.value })}
+                placeholder="0"
+                dir="ltr"
+                className="text-left placeholder-gray-300"
+                style={inputBase}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+            <FormField label="תאריך יתרת פתיחה">
+              <input
+                type="date"
+                value={form.openingBalanceDate}
+                onChange={(e) => onChange({ ...form, openingBalanceDate: e.target.value })}
+                style={{ ...inputBase, direction: 'ltr' }}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              />
+            </FormField>
+          </div>
+        </div>
+
+        {/* ── קבוצה 4: כללי ── */}
+        <div>
+          <GroupHeader title="כללי" />
+          <FormField label="הערות">
+            <textarea
+              value={form.notes}
+              onChange={(e) => onChange({ ...form, notes: e.target.value })}
+              placeholder="הערות נוספות..."
+              className="text-right placeholder-gray-300"
+              style={textareaBase}
+              onFocus={focusBorder}
+              onBlur={blurBorder}
+            />
+          </FormField>
+        </div>
+      </div>
+
+      {/* Save / Cancel */}
+      <div className="flex gap-2 px-5 pb-5">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!canSave}
+          className="flex-1 rounded-xl font-semibold transition-all"
+          style={{
+            minHeight: '44px', fontSize: '15px',
+            background: canSave ? '#D32F4A' : '#E5E7EB',
+            color: canSave ? 'white' : '#9CA3AF',
+          }}
+        >
+          שמור
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 rounded-xl font-semibold transition-all"
+          style={{ minHeight: '44px', fontSize: '15px', background: '#F3F4F6', color: '#6B7280' }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+        >
+          ביטול
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main component ──────────────────────────────────────────────────────────
+
+type StatusFilter = 'all' | 'פעיל' | 'לא פעיל'
+
+function supplierToForm(sup: Supplier): EditFormState {
+  return {
+    name: sup.name,
+    hp: sup.hp ?? '',
+    category: CATEGORIES.includes(sup.category) ? sup.category : CATEGORIES[0],
+    contact: sup.contact,
+    email: sup.email ?? '',
+    phone: sup.phone,
+    openingBalance: sup.openingBalance !== undefined ? String(sup.openingBalance) : '',
+    openingBalanceDate: sup.openingBalanceDate ?? '',
+    notes: sup.notes ?? '',
+  }
+}
+
+interface AlertPrefill {
+  alertId:      string
+  supplierName: string
+  payload:      Record<string, unknown>
+}
+
+interface SuppliersProps {
+  onViewLedger?: (supplierId: string) => void
+  onViewPayments?: (supplierName: string) => void
+  controlledViewId?: string | null
+  // When set, the supplier whose name matches is opened in detail view.
+  // Used by unmatched_credit_note alerts whose payload only carries the supplier's name.
+  // Falls back to the list view if no matching supplier exists.
+  controlledViewName?: string | null
+  onOpenDetail?: (id: string) => void
+  onCloseDetail?: () => void
+  onOpenInvoice?: (invoiceId: string) => void
+  prefillForAlert?: AlertPrefill | null
+  onAlertSupplierCreated?: (supplierId: string, alertId: string, payload: Record<string, unknown>) => Promise<void>
+  onCancelAlertPrefill?: () => void
+}
+
+export default function Suppliers({
+  onViewLedger,
+  onViewPayments,
+  controlledViewId,
+  controlledViewName,
+  onOpenDetail,
+  onCloseDetail,
+  onOpenInvoice,
+  prefillForAlert,
+  onAlertSupplierCreated,
+  onCancelAlertPrefill,
+}: SuppliersProps) {
+  const isTablet = useIsTablet()
+  const { data: serverSuppliers, loading, error, create: createSupplier, update: updateSupplier, remove: removeSupplier } = useSuppliers()
+
+  const [suppliers, setSuppliers]         = useState<Supplier[]>([])
+  const [internalViewId, setInternalViewId] = useState<string | null>(null)
+  // Resolve viewId from explicit ID first, then from name lookup, then from internal state.
+  const nameMatchId = controlledViewName
+    ? (suppliers.find(s => s.name === controlledViewName)?.id ?? null)
+    : null
+  const viewId    = controlledViewId !== undefined ? controlledViewId
+                  : nameMatchId !== null            ? nameMatchId
+                  : internalViewId
+  const openDetail  = (id: string) => onOpenDetail  ? onOpenDetail(id)  : setInternalViewId(id)
+  const closeDetail = ()           => onCloseDetail ? onCloseDetail()    : setInternalViewId(null)
+  const [editingId,  setEditingId]     = useState<string | null>(null)
+  const [editForm,   setEditForm]      = useState<EditFormState | null>(null)
+  const [showAdd,    setShowAdd]       = useState(false)
+  const [addForm,    setAddForm]       = useState<EditFormState>({ ...emptyForm })
+  const [search,     setSearch]        = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+
+  useEffect(() => {
+    setSuppliers([...serverSuppliers] as Supplier[])
+  }, [serverSuppliers])
+
+  // Auto-open Add form when arriving from an alert with a prefilled supplier name
+  useEffect(() => {
+    if (prefillForAlert?.supplierName) {
+      setAddForm({ ...emptyForm, name: prefillForAlert.supplierName })
+      setShowAdd(true)
+    }
+  }, [prefillForAlert])
+
+  // ── Detail view ───────────────────────────────────────────────────────────
+  if (viewId) {
+    const sup = suppliers.find((s) => s.id === viewId)
+    if (!sup) return null
+    return (
+      <SupplierDetail
+        supplier={sup}
+        onBack={closeDetail}
+        onEdit={() => {
+          closeDetail()
+          setEditingId(sup.id)
+          setEditForm(supplierToForm(sup))
+        }}
+        onDelete={async () => {
+          closeDetail()
+          try {
+            await removeSupplier(sup.id)
+          } catch {
+            // hook sets error state
+          }
+        }}
+        onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
+        onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
+        onOpenInvoice={onOpenInvoice}
+      />
+    )
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const startEdit = (sup: Supplier) => {
+    setEditingId(sup.id)
+    setEditForm(supplierToForm(sup))
+  }
+
+  const saveEdit = async () => {
+    if (!editForm || !editingId) return
+    const balance = editForm.openingBalance ? Number(editForm.openingBalance) : 0
+    const body = {
+      name: editForm.name, hp: editForm.hp, category: editForm.category,
+      contact: editForm.contact, email: editForm.email, phone: editForm.phone,
+      openingBalance: balance, openingBalanceDate: editForm.openingBalanceDate,
+      notes: editForm.notes,
+    }
+    const savedId = editingId
+    setEditingId(null)
+    setEditForm(null)
+    try {
+      await updateSupplier(savedId, body)
+    } catch {
+      // hook sets error state
+    }
+  }
+
+  const saveAdd = async () => {
+    if (!addForm.name.trim()) return
+    const balance = addForm.openingBalance ? Number(addForm.openingBalance) : 0
+    const body = {
+      name: addForm.name, hp: addForm.hp, category: addForm.category,
+      contact: addForm.contact, email: addForm.email, phone: addForm.phone,
+      openingBalance: balance, openingBalanceDate: addForm.openingBalanceDate,
+      notes: addForm.notes,
+    }
+    const pendingAlert = prefillForAlert   // capture before UI resets
+    setShowAdd(false)
+    setAddForm({ ...emptyForm })
+    try {
+      const newId = await createSupplier(body)
+      if (pendingAlert && newId && onAlertSupplierCreated) {
+        await onAlertSupplierCreated(newId, pendingAlert.alertId, pendingAlert.payload)
+      }
+    } catch {
+      // hook sets error state
+    }
+  }
+
+  // ── Derived state ──────────────────────────────────────────────────────────
+  const filtered = suppliers.filter((s) => {
+    const q = search.toLowerCase()
+    const matchSearch =
+      (s.name || '').toLowerCase().includes(q) || (s.contact || '').toLowerCase().includes(q) || (s.category || '').toLowerCase().includes(q)
+    const matchStatus = statusFilter === 'all' || s.status === statusFilter
+    return matchSearch && matchStatus
+  })
+
+  const activeCount  = suppliers.filter((s) => s.status === 'פעיל').length
+  const totalBalance = suppliers.reduce((sum, s) => sum + (Number(s.balance) || 0), 0)
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  if (loading && suppliers.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      {error && (
+        <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
+          לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="text-right">
+          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>ספקים</h1>
+          <p className="text-gray-500 mt-0.5" style={{ fontSize: isTablet ? '16px' : '14px' }}>
+            {suppliers.length} ספקים במערכת
+          </p>
+        </div>
+        <button
+          onClick={() => { setShowAdd(true); setAddForm({ ...emptyForm }) }}
+          className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all flex-shrink-0"
+          style={{
+            background: '#D32F4A',
+            padding: isTablet ? '12px 20px' : '10px 18px',
+            minHeight: '44px',
+            fontSize: isTablet ? '16px' : '14px',
+          }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
+        >
+          <Plus className="w-4 h-4 flex-shrink-0" />
+          הוסף ספק
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'סה"כ ספקים',   value: String(suppliers.length), color: '#1F2937' },
+          { label: 'ספקים פעילים', value: String(activeCount),       color: '#16A34A' },
+          { label: 'יתרה כוללת',   value: formatILS(totalBalance),   color: '#1F2937' },
+        ].map(({ label, value, color }) => (
+          <div
+            key={label}
+            className="bg-white rounded-2xl p-4 shadow-sm border text-center"
+            style={{ borderColor: '#EEEEF2' }}
+          >
+            <p className="text-2xl" style={{ color, fontWeight: 500 }}>{value}</p>
+            <p className="text-gray-500 mt-1" style={{ fontSize: isTablet ? '15px' : '13px' }}>{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#EEEEF2' }}>
+          {(['all', 'פעיל', 'לא פעיל'] as StatusFilter[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setStatusFilter(f)}
+              className="rounded-lg px-3 font-medium transition-all"
+              style={{
+                minHeight: isTablet ? '40px' : '34px',
+                fontSize: isTablet ? '16px' : '13px',
+                background: statusFilter === f ? '#D32F4A' : 'transparent',
+                color: statusFilter === f ? 'white' : '#6B7280',
+              }}
+            >
+              {f === 'all' ? 'הכל' : f}
+            </button>
+          ))}
+        </div>
+        <div
+          className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4"
+          style={{ borderColor: '#EEEEF2', minHeight: '44px' }}
+        >
+          <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
+          <input
+            type="text"
+            placeholder="חיפוש לפי שם, קטגוריה, איש קשר..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1 bg-transparent outline-none text-gray-700 text-right"
+            style={{ fontSize: '16px' }}
+          />
+        </div>
+      </div>
+
+      {/* Card grid */}
+      {filtered.length === 0 && !showAdd ? (
+        <div className="py-16 text-center text-gray-400">
+          <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p style={{ fontSize: '16px' }}>לא נמצאו ספקים</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+          {/* Add form card */}
+          {showAdd && (
+            <SupplierFormCard
+              title="ספק חדש"
+              form={addForm}
+              onChange={setAddForm}
+              onSave={saveAdd}
+              onCancel={() => {
+                setShowAdd(false)
+                if (prefillForAlert) onCancelAlertPrefill?.()
+              }}
+            />
+          )}
+
+          {/* Supplier cards */}
+          {filtered.map((sup) => {
+            if (editingId === sup.id && editForm) {
+              return (
+                <SupplierFormCard
+                  key={sup.id}
+                  title={`עריכת ${sup.name}`}
+                  form={editForm}
+                  onChange={(f) => setEditForm(f)}
+                  onSave={saveEdit}
+                  onCancel={() => { setEditingId(null); setEditForm(null) }}
+                />
+              )
+            }
+
+            const catStyle = categoryColors[sup.category] ?? { bg: '#F3F4F6', color: '#6B7280' }
+            const isActive = sup.status === 'פעיל'
+            const contactLine = [sup.contact, sup.phone].filter(Boolean).join(' · ') || '—'
+
+            return (
+              <div
+                key={sup.id}
+                className="bg-white rounded-2xl shadow-sm border flex flex-col"
+                style={{ borderColor: '#EEEEF2' }}
+              >
+                <div className="p-5 flex-1 flex flex-col gap-4">
+
+                  {/* Status | Category — fixed height row */}
+                  <div className="flex items-center justify-between" style={{ minHeight: '28px' }}>
+                    <span
+                      className="rounded-lg font-bold"
+                      style={{
+                        fontSize: '12px', padding: '4px 12px',
+                        background: isActive ? '#DCFCE7' : '#F3F4F6',
+                        color: isActive ? '#16A34A' : '#6B7280',
+                      }}
+                    >
+                      {sup.status}
+                    </span>
+                    <span
+                      className="rounded-lg font-medium truncate"
+                      style={{
+                        fontSize: '12px', padding: '4px 10px',
+                        backgroundColor: catStyle.bg, color: catStyle.color,
+                        maxWidth: '55%',
+                      }}
+                    >
+                      {sup.category}
+                    </span>
+                  </div>
+
+                  {/* Name + contact — always 2 lines */}
+                  <div className="text-right" style={{ minHeight: isTablet ? '54px' : '48px' }}>
+                    <h3
+                      className="font-semibold truncate"
+                      style={{ color: '#1A1A2E', fontSize: isTablet ? '20px' : '18px' }}
+                    >
+                      {sup.name}
+                    </h3>
+                    <p
+                      className="text-gray-500 mt-1 truncate"
+                      style={{ fontSize: isTablet ? '15px' : '13px' }}
+                    >
+                      {contactLine}
+                    </p>
+                  </div>
+
+                  {/* Balance box — fixed structure */}
+                  <div className="rounded-xl p-3 text-right" style={{ background: '#F5F5F8' }}>
+                    <p style={{ fontSize: '11px', color: '#9CA3AF', minHeight: '16px' }}>
+                      יתרת פתיחה{(sup as any).openingBalanceDate ? ` · ${(sup as any).openingBalanceDate}` : ''}
+                    </p>
+                    <p className="mt-0.5" style={{ fontSize: isTablet ? '24px' : '22px', fontWeight: 500, color: '#1A1A2E' }}>
+                      {formatILS((sup as any).openingBalance ?? 0)}
+                    </p>
+                  </div>
+
+                </div>
+
+                {/* Action buttons — always at bottom */}
+                <div className="flex gap-2 px-5 pb-5 mt-auto">
+                  <button
+                    onClick={() => openDetail(sup.id)}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
+                    style={{
+                      minHeight: '44px',
+                      fontSize: isTablet ? '15px' : '14px',
+                      background: '#D32F4A',
+                      color: 'white',
+                    }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.opacity = '1')}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    פרטים
+                  </button>
+                  <button
+                    onClick={() => startEdit(sup)}
+                    className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
+                    style={{
+                      minHeight: '44px',
+                      fontSize: isTablet ? '15px' : '14px',
+                      background: '#FDF2F4',
+                      color: '#D32F4A',
+                    }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+                  >
+                    <Pencil className="w-4 h-4" />
+                    עריכה
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+
+        </div>
+      )}
+    </div>
+  )
+}

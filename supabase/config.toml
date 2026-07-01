@@ -1,0 +1,25 @@
+
+[functions.test-api]
+enabled = true
+verify_jwt = true
+import_map = "./functions/test-api/deno.json"
+entrypoint = "./functions/test-api/index.ts"
+
+[functions.hadas-api]
+enabled = true
+verify_jwt = false
+import_map = "./functions/hadas-api/deno.json"
+entrypoint = "./functions/hadas-api/index.ts"
+
+[functions.payments-ingest]
+enabled = true
+verify_jwt = false
+import_map = "./functions/payments-ingest/deno.json"
+entrypoint = "./functions/payments-ingest/index.ts"
+
+# verify_jwt = false so the cron trigger AND the in-app camera capture can call it
+# with just x-hadas-key (no Supabase JWT), same as hadas-api / payments-ingest.
+[functions.invoices-ingest]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/invoices-ingest/index.ts"

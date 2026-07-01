@@ -1,0 +1,760 @@
+{
+  "phase": "may-fix",
+  "dryRun": true,
+  "total": 108,
+  "summary": {
+    "copied": 78,
+    "already": 21,
+    "notfound": 9,
+    "toCar": 8
+  },
+  "report": [
+    {
+      "id": "INV-2026-125",
+      "num": "5708",
+      "dest": "MAIN",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-126",
+      "num": "4163",
+      "dest": "MAIN",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-127",
+      "num": "266000241SI",
+      "dest": "MAIN",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-128",
+      "num": "266000242SI",
+      "dest": "MAIN",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-129",
+      "num": "6501698",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-130",
+      "num": "725701",
+      "dest": "CAR",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-131",
+      "num": "20262149606",
+      "dest": "CAR",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-139",
+      "num": "412410914",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-140",
+      "num": "83093",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-141",
+      "num": "3302",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-217",
+      "num": "01/011501",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-310",
+      "num": "0309/4",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-311",
+      "num": "3302",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-132",
+      "num": "20262149851",
+      "dest": "CAR",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-134",
+      "num": "01/002195",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-137",
+      "num": "5393",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-138",
+      "num": "IR2273503",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-142",
+      "num": "94054024",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-144",
+      "num": "378111-12",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-278",
+      "num": "266000257SI",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-297",
+      "num": "0188922",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-216",
+      "num": "70199",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-218",
+      "num": "6199",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-145",
+      "num": "20261018333",
+      "dest": "CAR",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-304",
+      "num": "328069878",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-146",
+      "num": "267000051CR",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-147",
+      "num": "0442",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-177",
+      "num": "8063",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-248",
+      "num": "50641",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-276",
+      "num": "50641",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-149",
+      "num": "1660",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-150",
+      "num": "1661",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-151",
+      "num": "3317",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-152",
+      "num": "20262159293",
+      "dest": "CAR",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-312",
+      "num": "38039",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-313",
+      "num": "3317",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-153",
+      "num": "70130426",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-154",
+      "num": "01/002682",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-155",
+      "num": "01/000160",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-156",
+      "num": "266000273SI",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "matched"
+    },
+    {
+      "id": "INV-2026-165",
+      "num": "6501765",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-166",
+      "num": "8111143",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-167",
+      "num": "29606",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-168",
+      "num": "01/001619",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-169",
+      "num": "03/000206",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-170",
+      "num": "01/002690",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-171",
+      "num": "01/001620",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-172",
+      "num": "76336",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-173",
+      "num": "8163896",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-174",
+      "num": "72300",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-175",
+      "num": "34848",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-176",
+      "num": "3344",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-178",
+      "num": "20262163491",
+      "dest": "CAR",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-181",
+      "num": "111829",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-192",
+      "num": "8144834",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-196",
+      "num": "8116",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-197",
+      "num": "01/030015",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-198",
+      "num": "111829",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-302",
+      "num": "373926354",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-316",
+      "num": "102155",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-179",
+      "num": "4171",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-183",
+      "num": "IR2275998",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-184",
+      "num": "731834",
+      "dest": "CAR",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-186",
+      "num": "5400",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-190",
+      "num": "101682569",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-191",
+      "num": "245220904",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-195",
+      "num": "02/013710",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-298",
+      "num": "8462",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-323",
+      "num": "8462",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-187",
+      "num": "5407",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-188",
+      "num": "20063",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-189",
+      "num": "168923",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-193",
+      "num": "16002143",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-194",
+      "num": "0144",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-232",
+      "num": "61757",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-199",
+      "num": "20262169908",
+      "dest": "CAR",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-200",
+      "num": "5410",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-201",
+      "num": "1666",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-202",
+      "num": "5217",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-203",
+      "num": "267000058CR",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-207",
+      "num": "50646",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-275",
+      "num": "50646",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-204",
+      "num": "20262172174",
+      "dest": "CAR",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-211",
+      "num": "8145301",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-205",
+      "num": "01/002225",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-208",
+      "num": "388043",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-209",
+      "num": "1911",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-210",
+      "num": "20262175327",
+      "dest": "CAR",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-212",
+      "num": "100877",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-214",
+      "num": "071449",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-219",
+      "num": "4613",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-220",
+      "num": "01/002698",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-221",
+      "num": "01/002700",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-225",
+      "num": "26/182/88",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-227",
+      "num": "4618",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-315",
+      "num": "01/011583",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-314",
+      "num": "01/011584",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-222",
+      "num": "20262177544",
+      "dest": "CAR",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-223",
+      "num": "01/002248",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-224",
+      "num": "2002394",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-226",
+      "num": "735995",
+      "dest": "CAR",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-228",
+      "num": "8130",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-229",
+      "num": "739",
+      "dest": "MAIN",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-242",
+      "num": "50306",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-230",
+      "num": "736446",
+      "dest": "CAR",
+      "action": "WILL COPY",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-277",
+      "num": "266000301SI",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-233",
+      "num": "51214",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    },
+    {
+      "id": "INV-2026-249",
+      "num": "14531654",
+      "dest": "MAIN",
+      "action": "SKIP",
+      "how": "db-link"
+    }
+  ]
+}

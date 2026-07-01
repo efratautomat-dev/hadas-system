@@ -1,0 +1,90 @@
+# 07 — Alerts Specification
+
+> The full alerts spec: the **11 live alert types** plus **2 additional** types
+> (`supplier_details_review`, `return_amount_mismatch`). Each has a type key, Hebrew label, and a
+> click action. Severity is shown by color. Super-rules govern lifecycle.
+
+---
+
+## Color code (severity)
+
+| Color | Meaning |
+|---|---|
+| **red** | urgent — broken ingest / duplicates |
+| **orange** | action — a human action is required |
+| **yellow** | check — worth a look / verify |
+| **gray** | info — informational |
+
+Unknown types fall back to a **neutral gray badge showing the raw type string** — never crashes
+(see `06-RULES.md`, StatusBadge fallback rule).
+
+---
+
+## The 11 live alert types
+
+| # | Type key | Hebrew label | Color | Click action |
+|---|---|---|---|---|
+| 1 | `invoice_ingest_failed` | פענוח נכשל — טיפול ידני | red | open the invoice for manual handling / re-queue |
+| 2 | `invoice_duplicate` | כפילות | red | open the existing (original) invoice |
+| 3 | `invoice_link_failed` | הורדה נכשלה | yellow | route to the original Gmail thread (`payload.messageLink`) to re-download manually — **see deferral note below** |
+| 4 | `supplier_incomplete` | ספק – חסר פרטים | orange | open the supplier to fill in missing details |
+| 5 | `unmatched_credit_note` | זיכוי ללא חזרה | orange | open returns for manual review / matching |
+| 6 | `statement_save_failed` | שמירת כרטסת נכשלה | orange | retry / open statement reconciliation |
+| 7 | `invoice_low_confidence` | וודאות נמוכה | yellow | open the invoice to verify AI extraction |
+| 8 | `document_misclassified` | מסמך לא חשבונית | yellow | open the document to re-classify |
+| 9 | `invoice_no_attachment` | ללא קובץ | yellow | open the source email / attach manually |
+| 10 | `invoice_no_valid_attachment` | ללא קובץ תקין | yellow | open the source email / attach a valid file |
+| 11 | `invoice_old_date` | תאריך מוקדם | gray | open the invoice to confirm the date |
+
+> Legacy alias: `duplicate_invoice` routes identically to `invoice_duplicate`.
+
+---
+
+## The 2 additional types
+
+| Type key | Hebrew label | Color | Click action |
+|---|---|---|---|
+| `supplier_details_review` | ספק – לבדיקת פרטים | orange | open the supplier to review AI-suggested detail changes |
+| `return_amount_mismatch` | פער בהחזר | red/urgent | open the return to reconcile the amount against the arrived credit note |
+
+> `statement_mismatch` (אי-התאמת כרטסת, red) is also raised by statement auto-matching (PRD §7);
+> it routes to StatementReconciliation.
+
+---
+
+## Gmail source labels (ingest → alerts)
+
+The ingest pipeline that raises these alerts reads from **exactly two** Gmail labels — **all other
+labels are not relevant** to the rebuild:
+
+| Label | Content | Route |
+|---|---|---|
+| `מסמכים מספקים` | main documents (invoices etc.) | standard invoice ingest pipeline |
+| `החזר חלקי` | partial-credit notes | **same ingest route as invoices**, tagged as **partial-credit**, filed into its **own Drive subfolder** |
+
+> `החזר חלקי` is processed exactly like an invoice (classify → extract → file → dedupe → insert),
+> only tagged as a partial-credit note and routed to a dedicated Drive subfolder. Its arrival
+> drives the return↔credit matching in `06-RULES.md §2a`.
+
+---
+
+## Super-rules (lifecycle)
+
+These apply to all alert types (also in `06-RULES.md`):
+
+- **Opened → read.** Opening an alert marks it `read` (`in_progress`).
+- **Deleted duplicate → resolve both.** Deleting a duplicate resolves the duplicate alert **and**
+  the originating alert.
+- **Resolved → hidden.** Resolved (`done`) alerts drop out of the main alert view (still
+  auditable, just not in the active queue).
+- **Idempotency.** Alerts dedup by `(type, gmailMessageId)`; optional `dedupKeys` (e.g.
+  `["supplierId"]`) allow several invoices in one email to each raise their own alert.
+
+---
+
+## Deferred: browser-automation for failed download links (type 3)
+
+For `invoice_link_failed`, automatically following / re-downloading a broken supplier download
+link via **browser automation is DEFERRED to a separate future phase** (see `09-IDEAS.md`). Until
+then, the **fallback is link-to-email**: the alert routes the user to the original Gmail thread so
+the attachment can be fetched manually.
