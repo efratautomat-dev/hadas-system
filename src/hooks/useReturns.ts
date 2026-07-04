@@ -21,6 +21,11 @@ export interface ReturnEntry {
   supplierCreditNoteNumber?: string | null // DB: supplier_credit_note_number
   supplierCreditNoteDate?:   string | null // DB: supplier_credit_note_date (ISO)
   supplierCreditNoteAmount?: number | null // DB: supplier_credit_note_amount
+  // View split: explicit `source` column when present, else derived from the email
+  // ingest markers below (arrived credit notes carry a gmail id / message link).
+  source?:                  string | null  // DB: source (manual | email) — may be absent
+  gmailMessageId?:          string | null  // DB: gmail_message_id
+  messageLink?:             string | null  // DB: message_link
 }
 
 function isoToDisplay(iso: string): string {
@@ -74,6 +79,9 @@ export function useReturns() {
           supplierCreditNoteNumber:  r.supplier_credit_note_number ?? null,
           supplierCreditNoteDate:    r.supplier_credit_note_date   ?? null,
           supplierCreditNoteAmount:  r.supplier_credit_note_amount != null ? Number(r.supplier_credit_note_amount) : null,
+          source:                    r.source          ?? null,
+          gmailMessageId:            r.gmail_message_id ?? null,
+          messageLink:               r.message_link     ?? null,
         })) as ReturnEntry[])
         setError(null)
       } else {

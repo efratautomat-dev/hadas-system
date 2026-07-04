@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, X, CheckCircle2, RotateCcw, Download } from 'lucide-react'
+import { Plus, Pencil, X, CheckCircle2, RotateCcw, Download, Mail } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
 import { useReturns } from '../hooks/useReturns'
@@ -31,6 +31,9 @@ interface ReturnEntry {
   supplierCreditNoteNumber?: string | null
   supplierCreditNoteDate?: string | null
   supplierCreditNoteAmount?: number | null
+  source?: string | null
+  gmailMessageId?: string | null
+  messageLink?: string | null
 }
 
 export interface FormState {
@@ -51,6 +54,14 @@ export interface FormState {
 function returnStatusInternal(r: ReturnEntry): string {
   const linked = !!r.supplierCreditNoteNumber || r.supplierCreditNoteAmount != null
   return linked ? 'closed' : 'new'
+}
+
+// TWO VIEWS split by SOURCE (spec/01-PRD.md §6). Prefer the explicit `source` column;
+// when it's missing/null, derive from the email-ingest markers (arrived credit notes
+// carry a gmail id / message link). Anything else is treated as a manual entry.
+function returnSource(r: ReturnEntry): 'manual' | 'email' {
+  if (r.source === 'email' || r.source === 'manual') return r.source
+  return (r.gmailMessageId || r.messageLink) ? 'email' : 'manual'
 }
 
 function fmtILS(n: number | null | undefined) {
@@ -297,6 +308,7 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
   const { data: invoicesData } = useInvoices()
   const { data: employees } = useEmployees()
   const [returns, setReturns] = useState<ReturnEntry[]>([])
+  const [view, setView] = useState<'manual' | 'arrived'>('manual')
   const [filterSupplier, setFilterSupplier] = useState('all')
   const [filterMonth, setFilterMonth] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'new' | 'closed'>('all')
@@ -311,7 +323,12 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
     setReturns(serverReturns as ReturnEntry[])
   }, [serverReturns])
 
-  const filtered = returns
+  // TWO VIEWS: (a) arrived credit notes (source=email), (b) manual entries (source=manual).
+  const manualReturns  = returns.filter(r => returnSource(r) === 'manual')
+  const arrivedReturns = [...returns.filter(r => returnSource(r) === 'email')]
+    .sort((a, b) => (b.dateIso || '').localeCompare(a.dateIso || ''))
+
+  const filtered = manualReturns
     .filter(r => {
       if (filterSupplier !== 'all' && r.supplierId !== filterSupplier) return false
       if (filterMonth && !r.dateIso.startsWith(filterMonth)) return false
@@ -322,8 +339,8 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
     .sort((a, b) => (b.dateIso || '').localeCompare(a.dateIso || ''))
 
   // Returns are only new (חדש) → closed (נסגר) — derived from the credit-note link.
-  const countClosed = returns.filter(r => returnStatusInternal(r) === 'closed').length
-  const countOpen   = returns.filter(r => returnStatusInternal(r) === 'new').length
+  const countClosed = manualReturns.filter(r => returnStatusInternal(r) === 'closed').length
+  const countOpen   = manualReturns.filter(r => returnStatusInternal(r) === 'new').length
 
   function openAdd() {
     setEditId(null)
@@ -473,10 +490,10 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
         </button>
       </div>
 
-      {/* Stats */}
+      {/* Stats (manual entries) */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
-          <p className="text-2xl font-black" style={{ color: '#7C3AED' }}>{returns.length}</p>
+          <p className="text-2xl font-black" style={{ color: '#7C3AED' }}>{manualReturns.length}</p>
           <p className="text-gray-500 text-sm mt-1">סה"כ חזרות</p>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
@@ -489,6 +506,28 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
           </p>
           <p className="text-gray-500 text-sm mt-1">פתוחות</p>
         </div>
+      </div>
+
+      {/* View tabs — (b) manual entries · (a) arrived credit notes */}
+      <div className="flex items-center gap-2">
+        {([
+          { key: 'manual' as const,  label: `יצירה ידנית · ${manualReturns.length}` },
+          { key: 'arrived' as const, label: `מסמכים שהגיעו · ${arrivedReturns.length}` },
+        ]).map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            className="rounded-xl font-bold transition-all"
+            style={{
+              minHeight: '40px', padding: '0 18px', fontSize: '14px',
+              background: view === key ? '#7C3AED' : 'white',
+              color:      view === key ? 'white' : '#6B7280',
+              border: `1.5px solid ${view === key ? '#7C3AED' : '#E2E4E9'}`,
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Post-create download banner */}
@@ -517,6 +556,8 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
         </div>
       )}
 
+      {view === 'manual' && (
+      <>
       {/* Filters */}
       <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#E2E4E9' }}>
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
@@ -700,6 +741,61 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
           )}
         </div>
       </div>
+      </>
+      )}
+
+      {/* Arrived documents view — credit notes received by email (source=email) */}
+      {view === 'arrived' && (
+        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+          <SectionHeader
+            className="px-5 py-4 border-b"
+            style={{ borderColor: '#E2E4E9' }}
+            action={<span className="text-sm text-gray-400">{arrivedReturns.length} מסמכים</span>}
+            title={<h2 className="font-bold text-gray-800">מסמכים שהגיעו במייל</h2>}
+          />
+          <div style={{ overflowX: 'auto' }}>
+            <div
+              className="grid text-xs font-bold text-gray-500 border-b"
+              style={{ gridTemplateColumns: '110px 1fr 130px 120px 90px', minWidth: '620px', padding: '10px 16px', background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right' }}
+            >
+              <span>תאריך</span>
+              <span>ספק</span>
+              <span>מס׳ זיכוי</span>
+              <span>סכום</span>
+              <span className="text-center">מסמך</span>
+            </div>
+
+            {arrivedReturns.length === 0 ? (
+              <div className="py-16 text-center">
+                <Mail className="w-10 h-10 mx-auto mb-3" style={{ color: '#E2E4E9' }} />
+                <p className="text-gray-400 text-sm">לא התקבלו מסמכי זיכוי במייל</p>
+              </div>
+            ) : (
+              arrivedReturns.map((r) => (
+                <div
+                  key={r.id}
+                  className="grid items-center border-b"
+                  style={{ gridTemplateColumns: '110px 1fr 130px 120px 90px', minWidth: '620px', padding: '14px 16px', borderColor: '#E2E4E9', textAlign: 'right' }}
+                >
+                  <span className="text-sm text-gray-500">{r.date}</span>
+                  <span className="text-sm font-semibold text-gray-800">{r.supplier}</span>
+                  <span className="text-xs font-mono font-semibold" style={{ color: '#166534' }}>
+                    {r.supplierCreditNoteNumber || '—'}
+                  </span>
+                  <span className="text-sm font-bold" style={{ color: '#7C3AED' }}>
+                    {r.supplierCreditNoteAmount != null ? fmtILS(r.supplierCreditNoteAmount) : (r.amount ? fmtILS(r.amount) : '—')}
+                  </span>
+                  <div className="flex items-center justify-center">
+                    {r.driveFileLink
+                      ? <PdfPreviewButton url={r.driveFileLink} title="תצוגה מקדימה של חשבונית הזיכוי" />
+                      : <span className="text-xs text-gray-300">—</span>}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <FormModal

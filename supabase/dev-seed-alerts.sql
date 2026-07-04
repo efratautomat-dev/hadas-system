@@ -30,11 +30,31 @@ values
   ('dddddddd-0000-4000-8000-000000000001', 'עלית', 'ממתקים', 'שרה גרין', '09-4441111', 'orders@elite.example', 0, 'DEMO seed'),
   ('dddddddd-0000-4000-8000-000000000002', 'נסטלה ישראל', 'שתייה חמה', 'דוד רוזן', '03-7778899', 'ap@nestle.example', 1500, 'DEMO seed');
 
-insert into public.returns (id, supplier_id, amount, reason, date, status, created_by, detail, email_subject)
+-- Returns for the two-view split (spec/01-PRD.md §6). The screen derives the view
+-- from gmail_message_id / message_link (no `source` column yet): rows WITH those
+-- markers are "arrived" (email); rows without are "manual".
+insert into public.returns
+  (id, supplier_id, amount, reason, date, status, created_by, detail, email_subject,
+   drive_file_link, gmail_message_id, message_link,
+   supplier_credit_note_number, supplier_credit_note_date, supplier_credit_note_amount)
 values
+  -- manual entry (also the target of the unmatched_credit_note / return_amount_mismatch alerts)
   ('eeeeeeee-0000-4000-8000-000000000001', 'dddddddd-0000-4000-8000-000000000002',
    4720, 'החזרת סחורה פגומה', '2026-06-22', 'בטיפול', 'עובד דמו',
-   'החזר הממתין לזיכוי תואם מהספק', 'DEMO-RET return');
+   'החזר הממתין לזיכוי תואם מהספק', 'DEMO-RET return',
+   null, null, null, null, null, null),
+  -- second manual entry (tracking-only, amount 0)
+  ('eeeeeeee-0000-4000-8000-000000000002', 'dddddddd-0000-4000-8000-000000000001',
+   0, 'החזרת פריט פגום', '2026-06-28', 'בטיפול', 'עובד דמו',
+   'פריט שהוחזר לספק — ממתין לזיכוי', 'DEMO-RET manual-2',
+   null, null, null, null, null, null),
+  -- arrived credit note (source=email → "מסמכים שהגיעו" view)
+  ('eeeeeeee-0000-4000-8000-000000000003', 'dddddddd-0000-4000-8000-000000000002',
+   1800, 'זיכוי שהתקבל במייל מהספק', '2026-06-18', 'בטיפול', '',
+   'חשבונית זיכוי שנקלטה מהמייל (פענוח AI)', 'DEMO-RET-EMAIL arrived',
+   'https://placehold.co/620x877/dcfce7/166534.png?text=DEMO+CREDIT+NOTE',
+   'demo-ret-email-1', 'https://mail.google.com/mail/u/0/?ogbl#all/FMfcgzQgMgKRBZFMJgzpPHBmSkkpnZlV',
+   'CN-EMAIL-2207', '2026-06-18', 1800);
 
 -- A vendor statement the statement_save_failed alert opens directly (deep-link).
 insert into public.vendor_statements (id, supplier_id, month, vendor_balance, our_balance, diff, status, uploaded_at, resolution_notes)
