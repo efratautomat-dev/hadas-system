@@ -54,7 +54,15 @@ values
    'חשבונית זיכוי שנקלטה מהמייל (פענוח AI)', 'DEMO-RET-EMAIL arrived',
    'https://placehold.co/620x877/dcfce7/166534.png?text=DEMO+CREDIT+NOTE',
    'demo-ret-email-1', 'https://mail.google.com/mail/u/0/?ogbl#all/FMfcgzQgMgKRBZFMJgzpPHBmSkkpnZlV',
-   'CN-EMAIL-2207', '2026-06-18', 1800);
+   'CN-EMAIL-2207', '2026-06-18', 1800),
+  -- MATCHED manual return: closed (נסגר) + linked to CN-EMAIL-2207 (same supplier +
+  -- same amount, 1800). This is the pre-seeded end-state of the §2a match rule; the
+  -- actual auto-match WRITE runs in the ingest/hadas-api backend (verify after deploy).
+  ('eeeeeeee-0000-4000-8000-000000000004', 'dddddddd-0000-4000-8000-000000000002',
+   1800, 'החזרת סחורה — שויכה לזיכוי', '2026-06-16', 'בטיפול', 'עובד דמו',
+   'החזרה ששויכה לחשבונית זיכוי CN-EMAIL-2207', 'DEMO-RET matched',
+   'https://placehold.co/620x877/dcfce7/166534.png?text=DEMO+CREDIT+NOTE',
+   null, null, 'CN-EMAIL-2207', '2026-06-18', 1800);
 
 -- A vendor statement the statement_save_failed alert opens directly (deep-link).
 insert into public.vendor_statements (id, supplier_id, month, vendor_balance, our_balance, diff, status, uploaded_at, resolution_notes)

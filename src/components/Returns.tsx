@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, X, CheckCircle2, RotateCcw, Download, Mail } from 'lucide-react'
+import { Plus, Pencil, X, CheckCircle2, RotateCcw, Download, Mail, Link2 } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
 import { useReturns } from '../hooks/useReturns'
@@ -7,7 +7,7 @@ import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
 import { printReturnPDF } from '../utils/pdf'
 import type { ReturnPDFData } from '../utils/pdf'
-import { PdfPreviewButton } from './PdfPreviewModal'
+import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
 import { StatusBadge } from './StatusBadge'
@@ -62,6 +62,26 @@ function returnStatusInternal(r: ReturnEntry): string {
 function returnSource(r: ReturnEntry): 'manual' | 'email' {
   if (r.source === 'email' || r.source === 'manual') return r.source
   return (r.gmailMessageId || r.messageLink) ? 'email' : 'manual'
+}
+
+// The linked credit-note document URL for a matched (closed) return, if any.
+function creditNoteDocUrl(r: ReturnEntry): string | null {
+  return r.driveFileLink || null
+}
+
+// RETURN ↔ CREDIT-NOTE MATCHING (spec/06-RULES.md §2a): a credit note matches a
+// manual return with the SAME supplier and the SAME amount. This is the read-side
+// of the rule — it finds the manual return a given arrived credit note belongs to.
+// ⚠️ The actual auto-match WRITE (flip status → closed + link the two docs) runs in
+// the ingest/hadas-api backend on credit-note arrival — verify after backend deploy.
+function matchReturnForCreditNote(cn: ReturnEntry, all: ReturnEntry[]): ReturnEntry | null {
+  const cnAmount = cn.supplierCreditNoteAmount ?? cn.amount
+  if (!cnAmount) return null
+  return all.find(r =>
+    returnSource(r) === 'manual' &&
+    r.supplierId === cn.supplierId &&
+    Math.abs(r.amount) === Math.abs(cnAmount),
+  ) ?? null
 }
 
 function fmtILS(n: number | null | undefined) {
@@ -309,6 +329,8 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
   const { data: employees } = useEmployees()
   const [returns, setReturns] = useState<ReturnEntry[]>([])
   const [view, setView] = useState<'manual' | 'arrived'>('manual')
+  // Credit-note document shown in the in-app preview modal (from the link button).
+  const [creditDoc, setCreditDoc] = useState<string | null>(null)
   const [filterSupplier, setFilterSupplier] = useState('all')
   const [filterMonth, setFilterMonth] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'new' | 'closed'>('all')
@@ -674,7 +696,17 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                 <span className="text-sm font-semibold text-gray-800">{r.supplier}</span>
                 <span className="text-sm font-bold" style={{ color: '#7C3AED' }}>{fmtILS(r.amount)}</span>
                 <span className="text-sm text-gray-600 truncate" title={r.reason} style={{ paddingLeft: '8px' }}>{r.reason}</span>
-                {r.supplierCreditNoteNumber ? (
+                {returnStatusInternal(r) === 'closed' && creditNoteDocUrl(r) ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCreditDoc(creditNoteDocUrl(r)) }}
+                    className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg"
+                    style={{ color: '#166534', background: '#F0FDF4', border: '1px solid #BBF7D0', padding: '4px 8px' }}
+                    title={r.supplierCreditNoteNumber ? `חשבונית זיכוי ${r.supplierCreditNoteNumber}` : 'חשבונית זיכוי מקושרת'}
+                  >
+                    <Link2 className="w-3.5 h-3.5 flex-shrink-0" />
+                    קישור לחשבונית זיכוי
+                  </button>
+                ) : r.supplierCreditNoteNumber ? (
                   <span
                     className="inline-flex items-center gap-1 text-xs font-mono font-semibold"
                     style={{ color: '#166534' }}
@@ -756,12 +788,13 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
           <div style={{ overflowX: 'auto' }}>
             <div
               className="grid text-xs font-bold text-gray-500 border-b"
-              style={{ gridTemplateColumns: '110px 1fr 130px 120px 90px', minWidth: '620px', padding: '10px 16px', background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right' }}
+              style={{ gridTemplateColumns: '110px 1fr 130px 120px 150px 90px', minWidth: '720px', padding: '10px 16px', background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right' }}
             >
               <span>תאריך</span>
               <span>ספק</span>
               <span>מס׳ זיכוי</span>
               <span>סכום</span>
+              <span>התאמה להחזרה</span>
               <span className="text-center">מסמך</span>
             </div>
 
@@ -771,11 +804,13 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                 <p className="text-gray-400 text-sm">לא התקבלו מסמכי זיכוי במייל</p>
               </div>
             ) : (
-              arrivedReturns.map((r) => (
+              arrivedReturns.map((r) => {
+                const matchedReturn = matchReturnForCreditNote(r, returns)
+                return (
                 <div
                   key={r.id}
                   className="grid items-center border-b"
-                  style={{ gridTemplateColumns: '110px 1fr 130px 120px 90px', minWidth: '620px', padding: '14px 16px', borderColor: '#E2E4E9', textAlign: 'right' }}
+                  style={{ gridTemplateColumns: '110px 1fr 130px 120px 150px 90px', minWidth: '720px', padding: '14px 16px', borderColor: '#E2E4E9', textAlign: 'right' }}
                 >
                   <span className="text-sm text-gray-500">{r.date}</span>
                   <span className="text-sm font-semibold text-gray-800">{r.supplier}</span>
@@ -785,13 +820,23 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                   <span className="text-sm font-bold" style={{ color: '#7C3AED' }}>
                     {r.supplierCreditNoteAmount != null ? fmtILS(r.supplierCreditNoteAmount) : (r.amount ? fmtILS(r.amount) : '—')}
                   </span>
+                  {/* Read-side of the matching rule; the auto-link WRITE is backend (see helper). */}
+                  {matchedReturn ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: '#166534' }}>
+                      <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                      תואם · {matchedReturn.supplier}
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium" style={{ color: '#9CA3AF' }}>ללא החזרה תואמת</span>
+                  )}
                   <div className="flex items-center justify-center">
                     {r.driveFileLink
                       ? <PdfPreviewButton url={r.driveFileLink} title="תצוגה מקדימה של חשבונית הזיכוי" />
                       : <span className="text-xs text-gray-300">—</span>}
                   </div>
                 </div>
-              ))
+                )
+              })
             )}
           </div>
         </div>
@@ -808,6 +853,11 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
           invoices={invoicesData}
           employees={employees}
         />
+      )}
+
+      {/* Linked credit-note document — opened in the app's in-page preview modal */}
+      {creditDoc && (
+        <PdfPreviewModal url={creditDoc} onClose={() => setCreditDoc(null)} />
       )}
     </div>
   )
