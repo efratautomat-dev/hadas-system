@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Printer, BookOpen } from 'lucide-react'
-import { mockLedgerEntries, supplierOpeningBalances } from '../data/mockData'
 import { useSuppliers } from '../hooks/useSuppliers'
+import { useInvoices } from '../hooks/useInvoices'
+import { usePayments } from '../hooks/usePayments'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
@@ -51,10 +52,12 @@ const COL_M = '80px 1fr 110px'
 
 export default function SupplierLedger({ initialSupplierId }: { initialSupplierId?: string }) {
   const { data: suppliersData, loading } = useSuppliers()
+  const { data: allInvoices } = useInvoices()
+  const { data: allPayments } = usePayments()
   const { logoUrl } = useAppLogo()
   const [selectedSupplierId, setSelectedSupplierId] = useState(initialSupplierId ?? '')
   const [fromDate, setFromDate] = useState('2026-01-01')
-  const [toDate,   setToDate]   = useState('2026-05-31')
+  const [toDate,   setToDate]   = useState('2026-12-31')
   const isMobile = useIsMobile()
   const activeCOL = isMobile ? COL_M : COL_D
 
@@ -65,8 +68,41 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   }, [suppliersData, initialSupplierId, selectedSupplierId])
 
   const supplier      = suppliersData.find(s => s.id === selectedSupplierId)
-  const baseOpening   = supplierOpeningBalances[selectedSupplierId] ?? 0
-  const allEntries    = mockLedgerEntries.filter(e => e.supplierId === selectedSupplierId)
+  // openingBalance is attached at runtime by useSuppliers (not in the mock-derived type).
+  const baseOpening   = Number((supplier as { openingBalance?: number } | undefined)?.openingBalance ?? 0)
+
+  // Real ledger entries for the selected supplier, keyed by SUPPLIER_ID
+  // (spec/06-RULES.md §2b). Invoices are debits; credit notes (negative invoices)
+  // and non-cancelled payments are credits. Returns are excluded — only a matching
+  // credit note (a negative invoice) moves the balance.
+  const allEntries = useMemo(() => {
+    const invEntries = allInvoices
+      .filter(inv => inv.supplierId === selectedSupplierId)
+      .map(inv => {
+        const isCredit = inv.amount < 0
+        return {
+          id: inv.id,
+          date: inv.invoiceDate || '',
+          displayDate: inv.date || '',
+          description: `${isCredit ? 'זיכוי' : 'חשבונית'} ${inv.invoiceNumber || inv.id}`,
+          type: (isCredit ? 'זיכוי' : 'חשבונית') as EntryType,
+          debit:  isCredit ? 0 : inv.amount,
+          credit: isCredit ? -inv.amount : 0,
+        }
+      })
+    const payEntries = allPayments
+      .filter(pay => pay.supplier_id === selectedSupplierId && pay.status !== 'cancelled')
+      .map(pay => ({
+        id: String(pay.id),
+        date: pay.date || '',
+        displayDate: pay.date ? isoToDisplay(pay.date) : '',
+        description: `תשלום · ${pay.type}`,
+        type: 'תשלום' as EntryType,
+        debit: 0,
+        credit: pay.amount,
+      }))
+    return [...invEntries, ...payEntries]
+  }, [allInvoices, allPayments, selectedSupplierId])
 
   // Accumulated balance before the selected period
   const beforePeriod      = allEntries.filter(e => e.date < fromDate)

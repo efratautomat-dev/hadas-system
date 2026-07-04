@@ -491,39 +491,21 @@ async function createReturn(req: Request, supabase: SupabaseClient): Promise<Res
   const { data, error } = await supabase.from("returns").insert(row).select("id").single();
   if (error || !data) return json({ error: error?.message }, 500);
 
-  if (body.status === "אושר") {
-    await supabase.rpc("decrement_supplier_balance", { p_supplier_id: body.supplierId, p_amount: body.amount });
-  }
-
+  // Balance is computed in the frontend (opening + Σ invoices − Σ non-cancelled
+  // payments; credit notes are negative invoices). Returns do NOT move the balance
+  // directly — only a matching credit note does. No balance RPC. (spec/06-RULES.md §2)
   return json({ id: data.id }, 201);
 }
 
 async function updateReturn(req: Request, supabase: SupabaseClient, id: string): Promise<Response> {
   const body = await req.json();
-  const { data: prev } = await supabase.from("returns")
-    .select("status, supplier_id, amount")
-    .eq("id", id)
-    .maybeSingle();
-
   const row = returnToRow(body);
   if (Object.keys(row).length === 0) return json({ error: "No fields to update" }, 400);
 
   const { error } = await supabase.from("returns").update(row).eq("id", id);
   if (error) return json({ error: error.message }, 500);
 
-  if (prev) {
-    const supplierId = body.supplierId ?? prev.supplier_id;
-    const newAmount  = body.amount     ?? prev.amount;
-    if (prev.status !== "אושר" && body.status === "אושר") {
-      await supabase.rpc("decrement_supplier_balance", { p_supplier_id: supplierId, p_amount: newAmount });
-    } else if (prev.status === "אושר" && body.status && body.status !== "אושר") {
-      await supabase.rpc("increment_supplier_balance", { p_supplier_id: supplierId, p_amount: prev.amount });
-    } else if (prev.status === "אושר" && body.status === "אושר" && body.amount !== undefined && body.amount !== prev.amount) {
-      const diff = body.amount - prev.amount;
-      if (diff !== 0) await supabase.rpc("decrement_supplier_balance", { p_supplier_id: supplierId, p_amount: diff });
-    }
-  }
-
+  // No balance mutation — balance is frontend-computed (spec/06-RULES.md §2).
   return json({ success: true });
 }
 
@@ -531,22 +513,10 @@ async function updateReturnStatus(req: Request, supabase: SupabaseClient, id: st
   const { status } = await req.json();
   if (!status) return json({ error: "status is required" }, 400);
 
-  const { data: prev } = await supabase.from("returns")
-    .select("status, supplier_id, amount")
-    .eq("id", id)
-    .maybeSingle();
-
   const { error } = await supabase.from("returns").update({ status }).eq("id", id);
   if (error) return json({ error: error.message }, 500);
 
-  if (prev) {
-    if (prev.status !== "אושר" && status === "אושר") {
-      await supabase.rpc("decrement_supplier_balance", { p_supplier_id: prev.supplier_id, p_amount: prev.amount });
-    } else if (prev.status === "אושר" && status !== "אושר") {
-      await supabase.rpc("increment_supplier_balance", { p_supplier_id: prev.supplier_id, p_amount: prev.amount });
-    }
-  }
-
+  // No balance mutation — balance is frontend-computed (spec/06-RULES.md §2).
   return json({ success: true });
 }
 

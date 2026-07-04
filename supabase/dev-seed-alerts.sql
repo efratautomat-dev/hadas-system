@@ -20,6 +20,7 @@ begin;
 delete from public.alerts            where payload->>'demo_seed' = 'true';
 delete from public.returns           where email_subject like 'DEMO-%';
 delete from public.vendor_statements where resolution_notes like 'DEMO%';
+delete from public.payments          where reference like 'DEMO-LEDGER%';
 delete from public.invoices          where email_subject like 'DEMO-%';
 delete from public.suppliers         where notes like 'DEMO%';
 
@@ -27,7 +28,7 @@ delete from public.suppliers         where notes like 'DEMO%';
 insert into public.suppliers (id, name, category, contact, phone, email, opening_balance, notes)
 values
   ('dddddddd-0000-4000-8000-000000000001', 'עלית', 'ממתקים', 'שרה גרין', '09-4441111', 'orders@elite.example', 0, 'DEMO seed'),
-  ('dddddddd-0000-4000-8000-000000000002', 'נסטלה ישראל', 'שתייה חמה', 'דוד רוזן', '03-7778899', 'ap@nestle.example', 0, 'DEMO seed');
+  ('dddddddd-0000-4000-8000-000000000002', 'נסטלה ישראל', 'שתייה חמה', 'דוד רוזן', '03-7778899', 'ap@nestle.example', 1500, 'DEMO seed');
 
 insert into public.returns (id, supplier_id, amount, reason, date, status, created_by, detail, email_subject)
 values
@@ -76,6 +77,28 @@ values
    true, 'line parsing failed — assign supplier + complete manually',
    'שולח לא מזוהה', 'unknown@example.com', '2026-06-25T14:00:00Z',
    false, 'demo-parsefail', 'DEMO-PARSE parse failed');
+
+-- ── Supplier ledger demo (נסטלה dddd…02): links + a credit note + a payment so the
+--    computed balance & ledger are visible. Balance = 1500 opening + (4720 − 2000)
+--    invoices − 3000 payment = 1220. Returns do NOT move the balance (only the credit
+--    note does). Link key is supplier_id (spec/06-RULES.md §2, §2b).
+update public.invoices set supplier_id = 'dddddddd-0000-4000-8000-000000000002'
+  where id = 'bbbbbbbb-0000-4000-8000-000000000001';
+
+insert into public.invoices
+  (id, supplier_id, supplier_name, invoice_number, invoice_date, total_amount,
+   amount_before_vat, vat_amount, category, status, invoice_type, sender_name,
+   email_sender, received_at, is_duplicate, email_subject)
+values
+  ('bbbbbbbb-0000-4000-8000-000000000003', 'dddddddd-0000-4000-8000-000000000002',
+   'נסטלה ישראל', 'CN-NESTLE-01', '2026-06-10', -2000, -1709.40, -290.60,
+   'ספקים שונות', 'ממתין', 'זיכוי', 'נסטלה חיובים', 'ap@nestle.example',
+   '2026-06-10T09:00:00Z', false, 'DEMO-LEDGER credit note');
+
+insert into public.payments (id, supplier_id, amount, payment_type, payment_date, status, reference)
+values
+  ('cccccccc-0000-4000-8000-000000000010', 'dddddddd-0000-4000-8000-000000000002',
+   3000, 'העברה בנקאית', '2026-06-15', 'paid', 'DEMO-LEDGER');
 
 -- ── 14 alerts (13 types; invoice_duplicate appears twice for the same pair) ──
 -- NB: alerts.title is NOT NULL in the dev DB, so every row sets a short title.

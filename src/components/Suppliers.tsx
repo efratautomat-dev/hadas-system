@@ -668,13 +668,14 @@ export default function Suppliers({
                     </p>
                   </div>
 
-                  {/* Balance box — fixed structure */}
+                  {/* Balance box — CURRENT computed balance (same as the detail page:
+                      opening + Σ invoices − Σ non-cancelled payments), not the opening figure. */}
                   <div className="rounded-xl p-3 text-right" style={{ background: '#F5F5F8' }}>
                     <p style={{ fontSize: '11px', color: '#9CA3AF', minHeight: '16px' }}>
-                      יתרת פתיחה{(sup as any).openingBalanceDate ? ` · ${(sup as any).openingBalanceDate}` : ''}
+                      יתרה עדכנית
                     </p>
                     <p className="mt-0.5" style={{ fontSize: isTablet ? '24px' : '22px', fontWeight: 500, color: '#1A1A2E' }}>
-                      {formatILS((sup as any).openingBalance ?? 0)}
+                      {formatILS(Number(sup.balance) || 0)}
                     </p>
                   </div>
 

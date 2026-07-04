@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { mockSuppliers } from '../data/mockData'
+import { computeSupplierBalance } from '../lib/supplierBalance'
 
 export type SupplierRow = typeof mockSuppliers[number]
 
@@ -18,28 +19,29 @@ export function useSuppliers() {
         { data: paymentRows },
       ] = await Promise.all([
         supabase.from('suppliers').select('*'),
-        supabase.from('invoices').select('supplier_name, total_amount'),
+        supabase.from('invoices').select('supplier_id, total_amount'),
         supabase.from('payments').select('supplier_id, amount, status'),
       ])
 
       if (!err && rows && rows.length > 0) {
-        const invByName: Record<string, number> = {}
+        // Group invoices/payments per supplier by SUPPLIER_ID (the business-number
+        // -derived FK), never by name (spec/06-RULES.md §2b). The balance itself is
+        // computed via the shared computeSupplierBalance helper so the list and the
+        // detail page can never diverge.
+        const invById: Record<string, { total_amount: number }[]> = {}
         for (const inv of invoiceRows ?? []) {
-          const name = (inv.supplier_name as string) ?? ''
-          invByName[name] = (invByName[name] ?? 0) + Number(inv.total_amount ?? 0)
+          const sid = inv.supplier_id as string | null
+          if (sid) (invById[sid] ??= []).push({ total_amount: Number(inv.total_amount ?? 0) })
         }
-        const payById: Record<string, number> = {}
+        const payById: Record<string, { amount: number; status: string }[]> = {}
         for (const pay of paymentRows ?? []) {
-          if (pay.status !== 'cancelled' && pay.supplier_id) {
-            payById[pay.supplier_id] = (payById[pay.supplier_id] ?? 0) + Number(pay.amount ?? 0)
-          }
+          const sid = pay.supplier_id as string | null
+          if (sid) (payById[sid] ??= []).push({ amount: Number(pay.amount ?? 0), status: String(pay.status ?? '') })
         }
 
         setData(rows.map(r => {
           const openingBalance = Number(r.opening_balance ?? 0)
-          const currentBalance = openingBalance
-            + (invByName[r.name] ?? 0)
-            - (payById[r.id]    ?? 0)
+          const currentBalance = computeSupplierBalance(openingBalance, invById[r.id] ?? [], payById[r.id] ?? [])
           return {
             ...r,
             hp:             r.hp      ?? '',

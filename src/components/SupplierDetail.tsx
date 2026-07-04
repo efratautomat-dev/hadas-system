@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { usePayments } from '../hooks/usePayments'
+import { computeSupplierBalance, sumNonCancelledPayments } from '../lib/supplierBalance'
 import SectionHeader from './SectionHeader'
 
 function useIsTablet() {
@@ -86,22 +87,35 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
 
-  const invoices = allInvoices.filter((inv) => inv.supplier === supplier.name)
-  const payments = allPayments.filter((pay) => pay.supplier === supplier.name)
+  // Link invoices/payments to this supplier by SUPPLIER_ID, not by name
+  // (spec/06-RULES.md §2b). Cancelled payments are excluded from the balance.
+  const invoices = allInvoices.filter((inv) => inv.supplierId === supplier.id)
+  const payments = allPayments.filter((pay) => pay.supplier_id === supplier.id && pay.status !== 'cancelled')
 
+  const openingBalance = Number(supplier.openingBalance ?? 0)
   const totalInvoiced = invoices.reduce((s, i) => s + i.amount, 0)
-  const paidAmount    = invoices.filter((i) => i.status === 'שולם').reduce((s, i) => s + i.amount, 0)
-  const pendingAmount = invoices.filter((i) => i.status === 'ממתין').reduce((s, i) => s + i.amount, 0)
+  // Current balance via the SHARED helper — identical to the suppliers list card.
+  const currentBalance = computeSupplierBalance(openingBalance, invoices, payments)
+  // "שולם" = money actually paid out = Σ non-cancelled payments (NOT an invoice flag,
+  // which never carries 'שולם'). "ממתין לתשלום" = outstanding still owed = the balance.
+  const paidAmount    = sumNonCancelledPayments(payments)
+  const pendingAmount = Math.max(0, currentBalance)
 
-  // Build ledger: invoices = debit, payments = credit, sorted by date
-  const rawEntries = [
-    ...invoices.map((inv) => ({
-      id: inv.id,
-      date: inv.date,
-      description: `חשבונית ${inv.id}`,
-      debit: inv.amount,
-      credit: 0,
-    })),
+  // Ledger reflects the balance formula (spec/06-RULES.md §2): opening balance,
+  // then invoices (+, debit), credit notes (negative invoices → −, credit), and
+  // non-cancelled payments (−, credit), with a running total. Returns are NOT here
+  // — only their matching credit note (a negative invoice) moves the balance.
+  const txEntries = [
+    ...invoices.map((inv) => {
+      const isCredit = inv.amount < 0   // credit note = negative invoice
+      return {
+        id: inv.id,
+        date: inv.date,
+        description: `${isCredit ? 'זיכוי' : 'חשבונית'} ${inv.invoiceNumber || inv.id}`,
+        debit:  isCredit ? 0 : inv.amount,
+        credit: isCredit ? -inv.amount : 0,
+      }
+    }),
     ...payments.map((pay) => ({
       id: String(pay.id),
       date: pay.date,
@@ -111,11 +125,22 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
     })),
   ].sort((a, b) => parseDate(a.date) - parseDate(b.date))
 
-  let running = 0
-  const ledger = rawEntries.map((e) => {
-    running += e.debit - e.credit
-    return { ...e, balance: running }
-  })
+  let running = openingBalance
+  const ledger = [
+    ...(openingBalance !== 0
+      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance }]
+      : []),
+    ...txEntries.map((e) => {
+      running += e.debit - e.credit
+      return { ...e, balance: running }
+    }),
+  ]
+  // running (final) equals currentBalance from the shared helper — same formula.
+  const totalDebit  = txEntries.reduce((s, e) => s + e.debit, 0)
+  const totalCredit = txEntries.reduce((s, e) => s + e.credit, 0)
+  // In-card ledger shows NEWEST entry on top (opening row falls to the bottom).
+  const ledgerDisplay = [...ledger].reverse()
+  const todayStr = new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
   const fs = (big: string, small: string) => (isTablet ? big : small)
 
@@ -283,17 +308,25 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
       {/* ── Financial stats ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'סה"כ חשבוניות', value: formatILS(totalInvoiced),    color: '#1F2937' },
-          { label: 'שולם',          value: formatILS(paidAmount),        color: '#166534' },
-          { label: 'ממתין לתשלום', value: formatILS(pendingAmount),      color: '#A16207' },
-          { label: 'יתרה פתוחה',   value: formatILS(supplier.balance),  color: '#E8645A' },
-        ].map(({ label, value, color }) => (
+          { label: 'סה"כ חשבוניות', value: formatILS(totalInvoiced),   sub: '',       color: '#1F2937' },
+          { label: 'שולם',          value: formatILS(paidAmount),       sub: '',       color: '#166534' },
+          { label: 'ממתין לתשלום', value: formatILS(pendingAmount),     sub: '',       color: '#A16207' },
+          // Headline: CURRENT computed balance with today's date (not the opening figure).
+          { label: 'יתרה עדכנית',  value: formatILS(currentBalance),   sub: todayStr, color: '#E8645A' },
+        ].map(({ label, value, sub, color }) => (
           <div key={label} className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
             <p className="text-2xl font-black" style={{ color }}>{value}</p>
             <p className="text-gray-500 mt-1" style={{ fontSize: fs('15px', '13px') }}>{label}</p>
+            {sub && <p className="text-gray-400 mt-0.5" style={{ fontSize: '11px' }}>{sub}</p>}
           </div>
         ))}
       </div>
+
+      {/* Opening balance — separate smaller reference line (headline above is current). */}
+      <p className="text-right text-gray-400" style={{ fontSize: '12px', marginTop: '-8px' }}>
+        יתרת פתיחה: {formatILS(openingBalance)}
+        {supplier.openingBalanceDate ? ` · ${fmtDate(supplier.openingBalanceDate)}` : ''}
+      </p>
 
       {/* ── כרטסת (ledger) ── */}
       {ledger.length > 0 && (
@@ -318,7 +351,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
             <span className="text-center">חובה</span>
             <span className="text-right">תאריך</span>
           </div>
-          {ledger.map((entry) => (
+          {ledgerDisplay.map((entry) => (
             <div
               key={entry.id}
               className="grid items-center"
@@ -339,6 +372,23 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
               <span className="text-right text-gray-400" style={{ fontSize: '12px' }}>{fmtDate(entry.date)}</span>
             </div>
           ))}
+          {/* Summary / total row — final running balance matches the headline. */}
+          <div
+            className="grid items-center"
+            style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', padding: '12px 16px', borderTop: '2px solid #D32F4A', background: '#FDF2F4' }}
+          >
+            <span className="font-black text-right" style={{ color: '#D32F4A', fontSize: fs('16px', '14px') }}>
+              {formatILS(currentBalance)}
+            </span>
+            <span className="font-bold text-right text-gray-600" style={{ fontSize: fs('13px', '12px') }}>סה"כ · יתרה עדכנית</span>
+            <span className="text-center font-semibold" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>
+              {totalCredit > 0 ? formatILS(totalCredit) : '—'}
+            </span>
+            <span className="text-center font-semibold" style={{ color: '#A16207', fontSize: fs('14px', '13px') }}>
+              {totalDebit > 0 ? formatILS(totalDebit) : '—'}
+            </span>
+            <span />
+          </div>
           </div>
         </div>
       )}
