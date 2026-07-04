@@ -590,6 +590,107 @@ async function resolveStatement(req: Request, supabase: SupabaseClient, id: stri
   return json({ success: true });
 }
 
+// ─── Document re-classification (document_misclassified alert) ─────────────────
+// The AI filed a document as "not an invoice". When a human picks the correct type
+// in the re-classify popup, re-FILE the document into the right table so it shows in
+// the correct list, then resolve the originating alert.
+//
+//   docType (Hebrew)  → target table
+//   ─────────────────────────────────────────────────────────────────
+//   חשבונית           → invoices        (invoice_type 'חשבונית')
+//   זיכוי             → invoices        (invoice_type 'זיכוי' — credit note = negative invoice)
+//   תעודת משלוח       → delivery_notes  (status 'unlinked')
+//   כרטסת             → vendor_statements (status 'needs_review')
+//   אחר               → no record; just resolve the alert
+//
+// The document reference (drive_file_link / storage_url / message_link / gmail id)
+// and the typed supplier name ride along from the alert payload. Amounts/numbers are
+// left blank for the owner to complete in the target screen.
+function currentMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+async function resolveOrCreateSupplier(
+  supabase: SupabaseClient,
+  supplierName: string | undefined,
+): Promise<string | null> {
+  if (!supplierName) return null;
+  const existing = await resolveSupplierIdByName(supabase, supplierName);
+  if (existing) return existing;
+  const { data } = await supabase.from("suppliers").insert({ name: supplierName }).select("id").single();
+  return data?.id ?? null;
+}
+
+async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promise<Response> {
+  const body = await req.json();
+  const docType: string = (body.docType ?? body.type ?? "").toString().trim();
+  if (!docType) return json({ error: "docType is required" }, 400);
+
+  const alertId:        string | undefined = body.alertId;
+  const supplierName:   string | undefined = body.supplierName ?? body.typedSupplierName;
+  const driveFileLink:  string | undefined = body.driveFileLink ?? body.documentUrl;
+  const storageUrl:     string | undefined = body.storageUrl ?? body.storagePath;
+  const messageLink:    string | undefined = body.messageLink;
+  const gmailMessageId: string | undefined = body.gmailMessageId;
+
+  let table: string | null = null;
+  let recordId: string | null = null;
+
+  if (docType === "חשבונית" || docType === "זיכוי") {
+    const supplierId = await resolveOrCreateSupplier(supabase, supplierName);
+    const { data, error } = await supabase.from("invoices").insert({
+      supplier_id:     supplierId,
+      supplier_name:   supplierName ?? "",
+      invoice_type:    docType,
+      status:          "ממתין",
+      drive_file_link: driveFileLink ?? null,
+      storage_url:     storageUrl ?? null,
+      message_link:    messageLink ?? null,
+      gmail_message_id: gmailMessageId ?? null,
+    }).select("id").single();
+    if (error || !data) return json({ error: `Failed to create invoice: ${error?.message}` }, 500);
+    table = "invoices"; recordId = data.id;
+  } else if (docType === "תעודת משלוח") {
+    const supplierId = await resolveOrCreateSupplier(supabase, supplierName);
+    const { data, error } = await supabase.from("delivery_notes").insert({
+      supplier_id:     supplierId,
+      supplier_name:   supplierName ?? "",
+      note_number:     "",
+      date:            new Date().toISOString().slice(0, 10),
+      amount:          0,
+      status:          "unlinked",
+      drive_file_link: driveFileLink ?? null,
+      storage_url:     storageUrl ?? null,
+    }).select("id").single();
+    if (error || !data) return json({ error: `Failed to create delivery note: ${error?.message}` }, 500);
+    table = "delivery_notes"; recordId = data.id;
+  } else if (docType === "כרטסת") {
+    const supplierId = await resolveOrCreateSupplier(supabase, supplierName);
+    const { data, error } = await supabase.from("vendor_statements").insert({
+      supplier_id:     supplierId,
+      month:           body.month ?? currentMonth(),
+      vendor_balance:  0,
+      our_balance:     0,
+      diff:            0,
+      status:          "needs_review",
+      uploaded_at:     new Date().toISOString(),
+      drive_file_link: driveFileLink ?? null,
+      storage_url:     storageUrl ?? null,
+    }).select("id").single();
+    if (error || !data) return json({ error: `Failed to create statement: ${error?.message}` }, 500);
+    table = "vendor_statements"; recordId = data.id;
+  }
+  // docType 'אחר' (or anything else) → no record created; the alert is still resolved.
+
+  // Resolve the originating alert so it leaves the active queue.
+  if (alertId) {
+    await supabase.from("alerts").update({ status: "resolved", resolved: true }).eq("id", alertId);
+  }
+
+  return json({ success: true, docType, table, id: recordId }, 201);
+}
+
 // ─── Gmail helpers (used by createPaymentFromAlert) ───────────────────────────
 
 async function gmailAccessToken(): Promise<string> {
@@ -886,6 +987,10 @@ Deno.serve(async (req: Request) => {
 
     // ── Alerts ────────────────────────────────────────────────────────────────
     if (path === "/alerts" && req.method === "POST") return await createAlert(req, supabase);
+
+    // ── Documents ─────────────────────────────────────────────────────────────
+    // Re-classify a misclassified document into the correct table (see document_misclassified).
+    if (path === "/documents/reclassify" && req.method === "POST") return await reclassifyDocument(req, supabase);
 
     return json({ error: "Not Found" }, 404);
   } catch (err: unknown) {

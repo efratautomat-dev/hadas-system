@@ -91,6 +91,7 @@ interface NavEntry {
   invoiceDuplicateId?: string
   paymentsSupplierFilter?: string
   returnsEditId?: string
+  statementViewId?: string
 }
 
 interface AlertPrefillState {
@@ -219,6 +220,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenSupplier={(id)               => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId:     id   }])}
         onOpenSupplierByName={(name)       => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewName:   name }])}
         onOpenReturn={(id)                 => setNavStack(prev => [...prev, { page: 'returns',   returnsEditId:      id   }])}
+        onOpenStatement={(id)              => setNavStack(prev => [...prev, { page: 'reconciliation', statementViewId: id }])}
         onPageChange={handlePageChange}
         savedScrollY={alertsScrollY.current}
         onScrollSave={(y) => { alertsScrollY.current = y }}
@@ -275,7 +277,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     )
     if (activePage === 'payments')       return <Payments initialSupplier={currentNav.paymentsSupplierFilter} />
     if (activePage === 'deliveries')     return <DeliveryNotes />
-    if (activePage === 'reconciliation') return <StatementReconciliation />
+    if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
     if (activePage === 'capture')        return <CaptureDocument capturedBy={userEmail} />
     if (activePage === 'system-logs')    return <SystemLogs />

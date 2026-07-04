@@ -7,6 +7,7 @@ import {
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
 import { supabase } from '../lib/supabase'
+import { api } from '../lib/api'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 
 // Color is keyed to the alert TYPE, grouped into four severity-like buckets.
@@ -272,6 +273,7 @@ interface AlertsProps {
   onOpenSupplier?:                 (supplierId: string)   => void
   onOpenSupplierByName?:           (supplierName: string) => void
   onOpenReturn?:                   (returnId: string)     => void
+  onOpenStatement?:                (statementId: string)  => void
   onPageChange?:                   (page: string)         => void
   // Scroll restoration: parent remembers the list position across navigation.
   // onScrollSave is called right before we navigate away (alert click);
@@ -294,6 +296,7 @@ export function resolveAlertDestination(
     onOpenSupplier?:                (id: string)   => void
     onOpenSupplierByName?:          (name: string) => void
     onOpenReturn?:                  (id: string)   => void
+    onOpenStatement?:               (id: string)   => void
     onPageChange?:                  (page: string) => void
     onCreateSupplierFromAlert?:     (alert: Alert) => void
   },
@@ -305,6 +308,7 @@ export function resolveAlertDestination(
   const messageLink    = p.messageLink    as string | undefined
   const supplierId     = p.supplierId     as string | undefined
   const returnId       = p.returnId       as string | undefined
+  const statementId    = p.statementId    as string | undefined
   const storagePath    = p.storagePath    as string | undefined
 
   // Duplicate invoice → open the side-by-side review popup, not the detail view
@@ -372,25 +376,24 @@ export function resolveAlertDestination(
     return
   }
 
-  // Statement save failed → view the stored statement file directly. The payload
-  // carries a storagePath (private "documents" bucket), not a messageLink, so we
-  // mint a signed URL via the shared viewer. Guard against a missing path so a
-  // malformed alert can't crash the click handler.
-  if (t === 'statement_save_failed') {
+  // Statement save failed / mismatch → open the SPECIFIC statement's detail (by
+  // statementId) rather than the reconciliation list. Falls back to the stored
+  // file, then the reconciliation screen, if no id is available.
+  if (t === 'statement_save_failed' || t === 'statement_mismatch') {
+    if (statementId && handlers.onOpenStatement) { handlers.onOpenStatement(statementId); return }
     if (storagePath) { openStoredFile(storagePath); return }
     handlers.onPageChange?.('reconciliation')
     return
   }
 
   if (t === 'delivery_note')      { handlers.onPageChange?.('deliveries');     return }
-  if (t === 'statement_mismatch') { handlers.onPageChange?.('reconciliation'); return }
   // Unknown type — leave the user on the alerts page (no-op).
 }
 
 export default function Alerts({
   alerts, onMarkRead, onMarkResolved, onDelete,
   onOpenInvoice, onOpenInvoiceDuplicate, onOpenInvoiceByGmailMessageId,
-  onOpenSupplier, onOpenSupplierByName, onOpenReturn, onPageChange,
+  onOpenSupplier, onOpenSupplierByName, onOpenReturn, onOpenStatement, onPageChange,
   savedScrollY, onScrollSave,
 }: AlertsProps) {
   const [typeFilter,   setTypeFilter]   = useState<TypeFilter>('all')
@@ -553,6 +556,7 @@ export default function Alerts({
                   onOpenSupplier,
                   onOpenSupplierByName,
                   onOpenReturn,
+                  onOpenStatement,
                   onPageChange,
                 })
               }}
@@ -565,12 +569,28 @@ export default function Alerts({
         <ReclassifyModal
           alert={reclassifyAlert}
           onClose={() => setReclassifyAlert(null)}
-          onConfirm={() => {
-            // Persisting the corrected type is a backend concern (re-route the
-            // document to the right pipeline); here we clear the alert so it
-            // leaves the active queue once the user has re-classified it.
-            onMarkResolved(reclassifyAlert.id)
+          onConfirm={async (docType) => {
+            const a = reclassifyAlert
+            const p = (a.payload ?? {}) as Record<string, unknown>
             setReclassifyAlert(null)
+            // Re-file the document into the correct table via hadas-api. When the
+            // function is unavailable (e.g. not deployed in dev) this throws — we
+            // still resolve the alert so it leaves the queue; the record move lights
+            // up once hadas-api is deployed. (createAlert path resolves via anon RLS.)
+            try {
+              await api.post('/documents/reclassify', {
+                alertId: a.id,
+                docType,
+                typedSupplierName: p.typedSupplierName,
+                documentUrl:       p.documentUrl,
+                storagePath:       p.storagePath,
+                messageLink:       p.messageLink,
+                gmailMessageId:    p.gmailMessageId,
+              })
+            } catch (e) {
+              console.warn('[reclassify] hadas-api unavailable; resolving alert only:', e)
+            }
+            onMarkResolved(a.id)
           }}
         />
       )}

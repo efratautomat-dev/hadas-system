@@ -17,10 +17,11 @@
 begin;
 
 -- ── Cleanup previous demo rows (idempotent re-run; children before parents) ──
-delete from public.alerts    where payload->>'demo_seed' = 'true';
-delete from public.returns   where email_subject like 'DEMO-%';
-delete from public.invoices  where email_subject like 'DEMO-%';
-delete from public.suppliers where notes like 'DEMO%';
+delete from public.alerts            where payload->>'demo_seed' = 'true';
+delete from public.returns           where email_subject like 'DEMO-%';
+delete from public.vendor_statements where resolution_notes like 'DEMO%';
+delete from public.invoices          where email_subject like 'DEMO-%';
+delete from public.suppliers         where notes like 'DEMO%';
 
 -- ── Deep-link targets: suppliers + a return the alerts open directly ─────────
 insert into public.suppliers (id, name, category, contact, phone, email, opening_balance, notes)
@@ -33,6 +34,12 @@ values
   ('eeeeeeee-0000-4000-8000-000000000001', 'dddddddd-0000-4000-8000-000000000002',
    4720, 'החזרת סחורה פגומה', '2026-06-22', 'בטיפול', 'עובד דמו',
    'החזר הממתין לזיכוי תואם מהספק', 'DEMO-RET return');
+
+-- A vendor statement the statement_save_failed alert opens directly (deep-link).
+insert into public.vendor_statements (id, supplier_id, month, vendor_balance, our_balance, diff, status, uploaded_at, resolution_notes)
+values
+  ('ffffffff-0000-4000-8000-000000000001', 'dddddddd-0000-4000-8000-000000000002',
+   '2026-06', 4720, 4720, 0, 'needs_review', '2026-06-28T10:00:00Z', 'DEMO seed');
 
 -- ── Demo invoices ───────────────────────────────────────────────────────────
 -- drive_file_link is an image URL on purpose: (a) the eye/document viewers show it,
@@ -91,9 +98,9 @@ insert into public.alerts (type, title, message, status, payload) values
   -- 5. orange — deep-links to the SPECIFIC return (not the returns list)
   ('unmatched_credit_note', 'זיכוי ללא חזרה', 'התקבל זיכוי ללא החזרה תואמת — יש לפתוח את ההחזר לבדיקה ושיוך', 'unread',
    '{"typedSupplierName":"נסטלה ישראל","returnId":"eeeeeeee-0000-4000-8000-000000000001","demo_seed":true}'),
-  -- 6. orange — routes to reconciliation
-  ('statement_save_failed', 'שמירת כרטסת נכשלה', 'שמירת כרטסת הספק נכשלה — יש לנסות שוב', 'unread',
-   '{"typedSupplierName":"מקורות מים","demo_seed":true}'),
+  -- 6. orange — deep-links to the SPECIFIC statement's detail
+  ('statement_save_failed', 'שמירת כרטסת נכשלה', 'שמירת כרטסת הספק נכשלה — יש לפתוח את הכרטסת ולנסות שוב', 'unread',
+   '{"typedSupplierName":"נסטלה ישראל","statementId":"ffffffff-0000-4000-8000-000000000001","demo_seed":true}'),
   -- 7. yellow — opens the INVOICE to verify AI extraction
   ('invoice_low_confidence', 'וודאות נמוכה', 'וודאות נמוכה בפענוח — יש לפתוח את החשבונית ולהשוות מול המסמך', 'read',
    '{"typedSupplierName":"נסטלה ישראל","invoiceId":"bbbbbbbb-0000-4000-8000-000000000001","demo_seed":true}'),

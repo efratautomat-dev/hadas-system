@@ -681,15 +681,18 @@ export default function Invoices({
     fromAlert:     !!initialDuplicateInvoiceId,
   })
 
-  // Delete the invoice the user chose to discard (incl. its Drive file — the
-  // backend DELETE /invoices/:id trashes Drive best-effort). resolutionInfo carries
-  // BOTH ids so the parent resolves every alert pointing at the pair.
+  // Delete the invoice the user chose to discard. resolutionInfo carries BOTH ids
+  // so the parent resolves every alert pointing at the pair.
   //
-  // The pair is dropped from the local list immediately, and BOTH paired alerts are
-  // resolved regardless of the backend delete result. Alert resolution goes through
-  // the anon client (RLS: managers manage alerts) and works even when hadas-api is
-  // unavailable; the backend row delete is best-effort so a missing/failed function
-  // can't leave the alerts stuck. On success the list refetch reconciles the row.
+  // Row deletion path:
+  //   1. hadas-api DELETE /invoices/:id — the production path (Drive-aware; Drive
+  //      is now skipped gracefully when unconfigured).
+  //   2. Fallback: if that fails (e.g. hadas-api not deployed in dev), delete the
+  //      row directly via the Supabase client. This requires the manager
+  //      invoices-DELETE RLS policy (migration *_invoices_manager_delete_rls.sql);
+  //      without it the row can't be removed from the browser.
+  // BOTH paired alerts are resolved regardless (alert writes use the anon client +
+  // manager RLS, which work even when hadas-api is down).
   const handleDeleteDuplicate = async () => {
     if (!dupModal || !deleteTarget) return
     const saved  = dupModal
@@ -697,16 +700,17 @@ export default function Invoices({
     setDupModal(null)
     setDeleteTarget(null)
     setDupDocPreview(null)
-    // Optimistic local removal so the UI reflects the choice even if the backend
-    // delete can't be confirmed (e.g. hadas-api not deployed in dev).
+    // Optimistic local removal so the UI reflects the choice immediately.
     setInvoices(prev => prev.filter(i => i.id !== victim.id))
     try {
       await removeInvoice(victim.id)
     } catch (e) {
-      console.warn('[dup delete] backend row delete failed (row may persist until hadas-api is available):', e)
+      console.warn('[dup delete] hadas-api delete unavailable, trying direct delete:', e)
+      const { error } = await supabase.from('invoices').delete().eq('id', victim.id)
+      if (error) console.warn('[dup delete] direct delete failed (needs invoices-delete RLS policy):', error.message)
     }
-    // Always resolve BOTH paired alerts — this is the alerts-domain outcome the
-    // super-rule requires and it works independently of the invoice row delete.
+    // Always resolve BOTH paired alerts — the alerts-domain outcome the super-rule
+    // requires, independent of the invoice row delete.
     onDuplicateResolved?.(resolutionInfo(saved))
   }
 

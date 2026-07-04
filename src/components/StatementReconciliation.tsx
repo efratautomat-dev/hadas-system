@@ -314,7 +314,7 @@ function useIsMobile() {
   return v
 }
 
-export default function StatementReconciliation() {
+export default function StatementReconciliation({ initialStatementId }: { initialStatementId?: string | null }) {
   const { data: serverStatements, loading, error, resolve: resolveStatement } = useStatements()
   const { data: suppliersData } = useSuppliers()
   const [statements, setStatements] = useState<VendorStatement[]>([])
@@ -330,6 +330,14 @@ export default function StatementReconciliation() {
   useEffect(() => {
     setStatements(serverStatements as VendorStatement[])
   }, [serverStatements])
+
+  // Deep-link from a statement_save_failed alert → open that statement's detail
+  // once the list has loaded (once per id).
+  useEffect(() => {
+    if (initialStatementId && serverStatements.some(s => s.id === initialStatementId)) {
+      setSelectedId(initialStatementId)
+    }
+  }, [initialStatementId, serverStatements])
 
   const counts = {
     matched:       statements.filter((s) => s.status === 'matched').length,
