@@ -114,8 +114,9 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
   }
 
   async function handleSaveReturn() {
-    const amount = Number(returnForm.amountStr)
-    if (!returnForm.supplierId || !amount || !returnForm.reason.trim() || !returnForm.dateIso) return
+    // Returns are tracking-only — no amount required at creation.
+    const amount = Number(returnForm.amountStr) || 0
+    if (!returnForm.supplierId || !returnForm.reason.trim() || !returnForm.dateIso) return
     const sup = suppliers.find((s) => s.id === returnForm.supplierId)
     const emp = employees.find((e) => e.id === returnForm.employeeId)
     setShowReturnForm(false)

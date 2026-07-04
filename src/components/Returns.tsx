@@ -44,9 +44,10 @@ export interface FormState {
   status: ReturnStatus
 }
 
-// A return maps onto the unified taxonomy (spec/06-RULES.md §2a): it is `closed`
-// once a matching supplier credit note is linked, otherwise `new`. The legacy
-// אושר/בטיפול/נדחה values still drive the screen's filters/totals unchanged.
+// Returns use ONLY new (חדש) → closed (נסגר) (spec/06-RULES.md §2a): a return is
+// `closed` once a matching supplier credit note is linked, otherwise `new`. The
+// screen's status badge/filter/stats all derive from this — the legacy DB `status`
+// column is no longer surfaced in the UI.
 function returnStatusInternal(r: ReturnEntry): string {
   const linked = !!r.supplierCreditNoteNumber || r.supplierCreditNoteAmount != null
   return linked ? 'closed' : 'new'
@@ -121,7 +122,8 @@ interface FormModalProps {
 export function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices, employees }: FormModalProps) {
   const supplierInvoices = invoices.filter(inv => inv.supplierId === form.supplierId)
   const selectedSupplier = suppliers.find(s => s.id === form.supplierId)
-  const canSave = !!form.supplierId && !!form.amountStr && Number(form.amountStr) > 0 && !!form.reason.trim() && !!form.dateIso
+  // Tracking-only: no amount input; the matching credit note sets the amount later.
+  const canSave = !!form.supplierId && !!form.reason.trim() && !!form.dateIso
 
   const focus = (e: React.FocusEvent<HTMLElement>) => ((e.target as HTMLElement & { style: CSSStyleDeclaration }).style.borderColor = '#7C3AED')
   const blur  = (e: React.FocusEvent<HTMLElement>) => ((e.target as HTMLElement & { style: CSSStyleDeclaration }).style.borderColor = '#E2E4E9')
@@ -167,33 +169,18 @@ export function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, i
             )}
           </div>
 
-          {/* Amount + Date */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label style={labelBase}>סכום (₪) *</label>
-              <input
-                type="number"
-                value={form.amountStr}
-                onChange={(e) => setForm({ ...form, amountStr: e.target.value })}
-                placeholder="0"
-                dir="ltr"
-                style={{ ...inputBase, textAlign: 'left' }}
-                onFocus={focus as React.FocusEventHandler<HTMLInputElement>}
-                onBlur={blur as React.FocusEventHandler<HTMLInputElement>}
-              />
-            </div>
-            <div>
-              <label style={labelBase}>תאריך *</label>
-              <input
-                type="date"
-                value={form.dateIso}
-                onChange={(e) => setForm({ ...form, dateIso: e.target.value })}
-                dir="ltr"
-                style={inputBase}
-                onFocus={focus as React.FocusEventHandler<HTMLInputElement>}
-                onBlur={blur as React.FocusEventHandler<HTMLInputElement>}
-              />
-            </div>
+          {/* Date only — returns are tracking-only (no amount at creation) */}
+          <div>
+            <label style={labelBase}>תאריך *</label>
+            <input
+              type="date"
+              value={form.dateIso}
+              onChange={(e) => setForm({ ...form, dateIso: e.target.value })}
+              dir="ltr"
+              style={inputBase}
+              onFocus={focus as React.FocusEventHandler<HTMLInputElement>}
+              onBlur={blur as React.FocusEventHandler<HTMLInputElement>}
+            />
           </div>
 
           {/* Original invoice */}
@@ -243,49 +230,31 @@ export function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, i
             />
           </div>
 
-          {/* Status + Employee */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label style={labelBase}>סטטוס</label>
-              <select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value as ReturnStatus })}
-                style={inputBase}
-                onFocus={focus as React.FocusEventHandler<HTMLSelectElement>}
-                onBlur={blur as React.FocusEventHandler<HTMLSelectElement>}
-              >
-                <option value="בטיפול">בטיפול</option>
-                <option value="אושר">אושר</option>
-                <option value="נדחה">נדחה</option>
-              </select>
-            </div>
-            <div>
-              <label style={labelBase}>נוצר על ידי</label>
-              <select
-                value={form.employeeId}
-                onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
-                style={inputBase}
-                onFocus={focus as React.FocusEventHandler<HTMLSelectElement>}
-                onBlur={blur as React.FocusEventHandler<HTMLSelectElement>}
-              >
-                <option value="">— בחר עובד —</option>
-                {employees.filter(e => e.active).map(e => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
-                ))}
-              </select>
-            </div>
+          {/* Created by (no status field — a return is חדש until a credit note closes it) */}
+          <div>
+            <label style={labelBase}>נוצר על ידי</label>
+            <select
+              value={form.employeeId}
+              onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
+              style={inputBase}
+              onFocus={focus as React.FocusEventHandler<HTMLSelectElement>}
+              onBlur={blur as React.FocusEventHandler<HTMLSelectElement>}
+            >
+              <option value="">— בחר עובד —</option>
+              {employees.filter(e => e.active).map(e => (
+                <option key={e.id} value={e.id}>{e.name}</option>
+              ))}
+            </select>
           </div>
 
-          {/* Balance notice */}
-          {form.status === 'אושר' && Number(form.amountStr) > 0 && (
-            <div
-              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
-              style={{ background: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0' }}
-            >
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-              יתרת הספק תרד ב-{fmtILS(Number(form.amountStr))} עם השמירה
-            </div>
-          )}
+          {/* Tracking-only notice */}
+          <div
+            className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
+            style={{ background: '#F5F3FF', color: '#5B21B6', border: '1px solid #DDD6FE' }}
+          >
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+            החזרה היא רישום מעקב בלבד — הסכום ייקבע כשתגיע חשבונית זיכוי תואמת.
+          </div>
         </div>
 
         {/* Footer */}
@@ -330,7 +299,7 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
   const [returns, setReturns] = useState<ReturnEntry[]>([])
   const [filterSupplier, setFilterSupplier] = useState('all')
   const [filterMonth, setFilterMonth] = useState('')
-  const [filterStatus, setFilterStatus] = useState<ReturnStatus | 'all'>('all')
+  const [filterStatus, setFilterStatus] = useState<'all' | 'new' | 'closed'>('all')
   const [filterEmployee, setFilterEmployee] = useState('all')
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -346,14 +315,15 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
     .filter(r => {
       if (filterSupplier !== 'all' && r.supplierId !== filterSupplier) return false
       if (filterMonth && !r.dateIso.startsWith(filterMonth)) return false
-      if (filterStatus !== 'all' && r.status !== filterStatus) return false
+      if (filterStatus !== 'all' && returnStatusInternal(r) !== filterStatus) return false
       if (filterEmployee !== 'all' && r.employeeId !== filterEmployee) return false
       return true
     })
     .sort((a, b) => (b.dateIso || '').localeCompare(a.dateIso || ''))
 
-  const totalApproved = returns.filter(r => r.status === 'אושר').reduce((s, r) => s + r.amount, 0)
-  const countPending  = returns.filter(r => r.status === 'בטיפול').length
+  // Returns are only new (חדש) → closed (נסגר) — derived from the credit-note link.
+  const countClosed = returns.filter(r => returnStatusInternal(r) === 'closed').length
+  const countOpen   = returns.filter(r => returnStatusInternal(r) === 'new').length
 
   function openAdd() {
     setEditId(null)
@@ -392,8 +362,9 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
   }, [initialEditId, returns])
 
   async function handleSave() {
-    const amount = Number(form.amountStr)
-    if (!form.supplierId || !amount || !form.reason.trim() || !form.dateIso) return
+    // Tracking-only: amount is not required at creation (0 until a credit note sets it).
+    const amount = Number(form.amountStr) || 0
+    if (!form.supplierId || !form.reason.trim() || !form.dateIso) return
 
     const sup = suppliersData.find(s => s.id === form.supplierId)
     const supplierName = sup?.name ?? ''
@@ -440,7 +411,7 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
         id: '—',
         date: isoToDisplay(form.dateIso),
         dateIso: form.dateIso,
-        status: form.status,
+        status: 'חדש',
         amount,
         reason: form.reason,
         detail: form.detail,
@@ -509,14 +480,14 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
           <p className="text-gray-500 text-sm mt-1">סה"כ חזרות</p>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
-          <p className="text-2xl font-black" style={{ color: '#166534' }}>{fmtILS(totalApproved)}</p>
-          <p className="text-gray-500 text-sm mt-1">זוכה מאושר</p>
+          <p className="text-2xl font-black" style={{ color: '#166534' }}>{countClosed}</p>
+          <p className="text-gray-500 text-sm mt-1">נסגרו (זוכה)</p>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
-          <p className="text-2xl font-black" style={{ color: countPending > 0 ? '#D97706' : '#6B7280' }}>
-            {countPending}
+          <p className="text-2xl font-black" style={{ color: countOpen > 0 ? '#1E40AF' : '#6B7280' }}>
+            {countOpen}
           </p>
-          <p className="text-gray-500 text-sm mt-1">בטיפול</p>
+          <p className="text-gray-500 text-sm mt-1">פתוחות</p>
         </div>
       </div>
 
@@ -580,13 +551,12 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
             <p className="text-right mb-1.5 text-xs font-semibold text-gray-500">סטטוס</p>
             <select
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as ReturnStatus | 'all')}
+              onChange={(e) => setFilterStatus(e.target.value as 'all' | 'new' | 'closed')}
               style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', border: '1px solid #E2E4E9', fontSize: '14px', background: 'white', direction: 'rtl', color: '#1A1D23', cursor: 'pointer', outline: 'none' }}
             >
               <option value="all">כל הסטטוסים</option>
-              <option value="אושר">אושר</option>
-              <option value="בטיפול">בטיפול</option>
-              <option value="נדחה">נדחה</option>
+              <option value="new">חדש</option>
+              <option value="closed">נסגר</option>
             </select>
           </div>
 
@@ -703,7 +673,7 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                           id: r.id,
                           date: r.date,
                           dateIso: r.dateIso,
-                          status: r.status,
+                          status: returnStatusInternal(r) === 'closed' ? 'נסגר' : 'חדש',
                           amount: r.amount,
                           reason: r.reason,
                           detail: r.detail,
