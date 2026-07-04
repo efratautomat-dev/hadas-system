@@ -1,0 +1,119 @@
+-- dev-seed-alerts.sql — DEV-ONLY sample data for visually testing the Alerts screen.
+-- Inserts one alert of EACH of the 13 live alert types (spec/07-ALERTS.md) — with a
+-- SECOND invoice_duplicate alert for the same pair (14 alerts total) so the
+-- "delete duplicate → resolve both" rule is testable — plus 4 demo invoices:
+--   • a duplicate PAIR (INV-DUP-77) for the side-by-side popup, and
+--   • two "problem" invoices (low-confidence + parse-failed) that the invoice-opening
+--     alerts point at, so clicking them lands on a real invoice with a viewable document.
+--
+-- Safe to re-run: it first removes its own previous rows (cleanup below).
+-- Alert payloads carry "demo_seed": true; demo invoices are tagged email_subject LIKE 'DEMO-%'.
+--
+-- Document links use placehold.co images so the 👁 eye / document viewers open something.
+-- messageLink (missing-attachment alerts) uses a harmless real Gmail thread URL.
+--
+-- Run: paste into the Supabase SQL editor (dev project) and execute.
+
+begin;
+
+-- ── Cleanup previous demo rows (idempotent re-run; children before parents) ──
+delete from public.alerts    where payload->>'demo_seed' = 'true';
+delete from public.returns   where email_subject like 'DEMO-%';
+delete from public.invoices  where email_subject like 'DEMO-%';
+delete from public.suppliers where notes like 'DEMO%';
+
+-- ── Deep-link targets: suppliers + a return the alerts open directly ─────────
+insert into public.suppliers (id, name, category, contact, phone, email, opening_balance, notes)
+values
+  ('dddddddd-0000-4000-8000-000000000001', 'עלית', 'ממתקים', 'שרה גרין', '09-4441111', 'orders@elite.example', 0, 'DEMO seed'),
+  ('dddddddd-0000-4000-8000-000000000002', 'נסטלה ישראל', 'שתייה חמה', 'דוד רוזן', '03-7778899', 'ap@nestle.example', 0, 'DEMO seed');
+
+insert into public.returns (id, supplier_id, amount, reason, date, status, created_by, detail, email_subject)
+values
+  ('eeeeeeee-0000-4000-8000-000000000001', 'dddddddd-0000-4000-8000-000000000002',
+   4720, 'החזרת סחורה פגומה', '2026-06-22', 'בטיפול', 'עובד דמו',
+   'החזר הממתין לזיכוי תואם מהספק', 'DEMO-RET return');
+
+-- ── Demo invoices ───────────────────────────────────────────────────────────
+-- drive_file_link is an image URL on purpose: (a) the eye/document viewers show it,
+-- and (b) the backend delete skips Drive trashing for non-drive.google.com links
+-- (hadas-api driveFileIdFromLink → null), so the duplicate popup's "delete one" works.
+insert into public.invoices
+  (id, supplier_name, invoice_number, invoice_date, total_amount, amount_before_vat,
+   vat_amount, category, status, invoice_type, drive_file_link, ai_confidence,
+   has_error, error_reason, sender_name, email_sender, received_at, is_duplicate,
+   gmail_message_id, email_subject)
+values
+  -- duplicate pair (same supplier + invoice number → getDupPair matches)
+  ('aaaaaaaa-0000-4000-8000-000000000001', 'תבורי בע"מ', 'INV-DUP-77', '2026-05-01',
+   8300, 7094.02, 1205.98, 'ספקים ביגוד', 'ממתין', 'חשבונית',
+   'https://placehold.co/620x877/e2e8f0/1f2937.png?text=DEMO+INVOICE+A', '',
+   false, '', 'הנהלת חשבונות תבורי', 'billing@tavori.example', '2026-05-01T09:00:00Z',
+   true, 'demo-dup-a', 'DEMO-DUP A'),
+  ('aaaaaaaa-0000-4000-8000-000000000002', 'תבורי בע"מ', 'INV-DUP-77', '2026-05-03',
+   8300, 7094.02, 1205.98, 'ספקים ביגוד', 'ממתין', 'חשבונית',
+   'https://placehold.co/620x877/e2e8f0/1f2937.png?text=DEMO+INVOICE+B', '',
+   false, '', 'תבורי בוט חיובים', 'noreply@tavori.example', '2026-05-03T11:30:00Z',
+   true, 'demo-dup-b', 'DEMO-DUP B'),
+  -- low-confidence invoice (invoice_low_confidence + invoice_old_date point here)
+  ('bbbbbbbb-0000-4000-8000-000000000001', 'נסטלה ישראל', 'INV-LC-01', '2026-06-20',
+   4720, 4034.19, 685.81, 'ספקים שונות', 'ממתין', 'חשבונית',
+   'https://placehold.co/620x877/fef9c3/a16207.png?text=DEMO+LOW+CONFIDENCE', 'נמוכה',
+   false, '', 'נסטלה חיובים', 'ap@nestle.example', '2026-06-20T08:00:00Z',
+   false, 'demo-lowconf', 'DEMO-LC low confidence'),
+  -- parse-failed invoice — file in Drive, NO supplier yet (invoice_ingest_failed +
+  -- invoice_link_failed point here so the owner can assign a supplier + complete details)
+  ('bbbbbbbb-0000-4000-8000-000000000002', '', '', '2026-06-25',
+   0, 0, 0, '', 'ממתין', 'חשבונית',
+   'https://placehold.co/620x877/fee2e2/b91c1c.png?text=DEMO+PARSE+FAILED', '',
+   true, 'line parsing failed — assign supplier + complete manually',
+   'שולח לא מזוהה', 'unknown@example.com', '2026-06-25T14:00:00Z',
+   false, 'demo-parsefail', 'DEMO-PARSE parse failed');
+
+-- ── 14 alerts (13 types; invoice_duplicate appears twice for the same pair) ──
+-- NB: alerts.title is NOT NULL in the dev DB, so every row sets a short title.
+insert into public.alerts (type, title, message, status, payload) values
+  -- 1. urgent (red) — parse-failed → opens the INVOICE (assign supplier + complete)
+  ('invoice_ingest_failed', 'פענוח נכשל — טיפול ידני', 'פענוח החשבונית נכשל — נדרש טיפול ידני (הקובץ קיים ב-Drive)', 'unread',
+   '{"typedSupplierName":"שולח לא מזוהה","invoiceId":"bbbbbbbb-0000-4000-8000-000000000002","demo_seed":true}'),
+  -- 2. urgent (red) — duplicate popup (points at the seeded pair)
+  ('invoice_duplicate', 'כפילות', 'נמצאה חשבונית כפולה אפשרית — יש לבחור איזו לשמור', 'unread',
+   '{"typedSupplierName":"תבורי בע\"מ","invoiceNumber":"INV-DUP-77","supplierId":"","existingInvoiceId":"aaaaaaaa-0000-4000-8000-000000000001","invoiceId":"aaaaaaaa-0000-4000-8000-000000000002","demo_seed":true}'),
+  -- 2b. urgent (red) — SECOND alert for the SAME pair (delete-one resolves BOTH)
+  ('invoice_duplicate', 'כפילות', 'התראת כפילות תואמת עבור החשבונית השנייה בזוג — פתרון אחד יסגור את שתי ההתראות', 'unread',
+   '{"typedSupplierName":"תבורי בע\"מ","invoiceNumber":"INV-DUP-77","supplierId":"","existingInvoiceId":"aaaaaaaa-0000-4000-8000-000000000002","invoiceId":"aaaaaaaa-0000-4000-8000-000000000001","demo_seed":true}'),
+  -- 3. yellow — parse-failed → opens the INVOICE (file IS in Drive)
+  ('invoice_link_failed', 'הורדה נכשלה', 'פענוח שורות נכשל — יש לפתוח את החשבונית, לשייך ספק ולהשלים פרטים', 'unread',
+   '{"typedSupplierName":"שולח לא מזוהה","invoiceId":"bbbbbbbb-0000-4000-8000-000000000002","demo_seed":true}'),
+  -- 4. orange — deep-links to the SPECIFIC supplier
+  ('supplier_incomplete', 'ספק – חסר פרטים', 'פרטי ספק חסרים — יש להשלים את הפרטים', 'unread',
+   '{"typedSupplierName":"עלית","supplierId":"dddddddd-0000-4000-8000-000000000001","demo_seed":true}'),
+  -- 5. orange — deep-links to the SPECIFIC return (not the returns list)
+  ('unmatched_credit_note', 'זיכוי ללא חזרה', 'התקבל זיכוי ללא החזרה תואמת — יש לפתוח את ההחזר לבדיקה ושיוך', 'unread',
+   '{"typedSupplierName":"נסטלה ישראל","returnId":"eeeeeeee-0000-4000-8000-000000000001","demo_seed":true}'),
+  -- 6. orange — routes to reconciliation
+  ('statement_save_failed', 'שמירת כרטסת נכשלה', 'שמירת כרטסת הספק נכשלה — יש לנסות שוב', 'unread',
+   '{"typedSupplierName":"מקורות מים","demo_seed":true}'),
+  -- 7. yellow — opens the INVOICE to verify AI extraction
+  ('invoice_low_confidence', 'וודאות נמוכה', 'וודאות נמוכה בפענוח — יש לפתוח את החשבונית ולהשוות מול המסמך', 'read',
+   '{"typedSupplierName":"נסטלה ישראל","invoiceId":"bbbbbbbb-0000-4000-8000-000000000001","demo_seed":true}'),
+  -- 8. yellow — opens the RE-CLASSIFY popup (document image + type picker)
+  ('document_misclassified', 'מסמך לא חשבונית', 'המסמך אינו חשבונית — יש לפתוח, לצפות בתמונה ולסווג מחדש', 'read',
+   '{"typedSupplierName":"תנובה","documentUrl":"https://placehold.co/620x877/fef9c3/a16207.png?text=DEMO+DOCUMENT+TO+RECLASSIFY","demo_seed":true}'),
+  -- 9. yellow — opens the source email (messageLink)
+  ('invoice_no_attachment', 'ללא קובץ', 'המייל התקבל ללא קובץ מצורף — יש לפתוח את המייל ולצרף ידנית', 'unread',
+   '{"typedSupplierName":"תבורי בע\"מ","messageLink":"https://mail.google.com/mail/u/0/?ogbl#all/FMfcgzQgMgKRBZFMJgzpPHBmSkkpnZlV","demo_seed":true}'),
+  -- 10. yellow — opens the source email (messageLink)
+  ('invoice_no_valid_attachment', 'ללא קובץ תקין', 'הקובץ המצורף אינו תקין — יש לפתוח את המייל ולצרף קובץ תקין', 'unread',
+   '{"typedSupplierName":"אסם השקעות","messageLink":"https://mail.google.com/mail/u/0/?ogbl#all/FMfcgzQgMgKRBZFMJgzpPHBmSkkpnZlV","demo_seed":true}'),
+  -- 11. gray (info) — opens the INVOICE to confirm the date
+  ('invoice_old_date', 'תאריך מוקדם', 'תאריך החשבונית מוקדם מהצפוי — יש לפתוח את החשבונית ולאמת את התאריך', 'read',
+   '{"typedSupplierName":"נסטלה ישראל","invoiceId":"bbbbbbbb-0000-4000-8000-000000000001","demo_seed":true}'),
+  -- 12. orange — deep-links to the SPECIFIC supplier (AI-suggested detail changes)
+  ('supplier_details_review', 'ספק – לבדיקת פרטים', 'המערכת מציעה עדכון פרטי ספק — נדרש אישור', 'unread',
+   '{"typedSupplierName":"נסטלה ישראל","supplierId":"dddddddd-0000-4000-8000-000000000002","demo_seed":true}'),
+  -- 13. urgent (red) — deep-links to the SPECIFIC return
+  ('return_amount_mismatch', 'פער בהחזר', 'פער בין סכום ההחזר לזיכוי שהתקבל — יש לפתוח את ההחזר להתאמה', 'unread',
+   '{"typedSupplierName":"שטראוס גרופ","returnId":"eeeeeeee-0000-4000-8000-000000000001","demo_seed":true}');
+
+commit;

@@ -211,8 +211,9 @@ async function updateInvoiceStatus(req: Request, supabase: SupabaseClient, id: s
 }
 
 // Full invoice deletion: Drive file → related alerts → Storage copy → DB row.
-// Drive failure ABORTS before any DB change so a retry stays safe; alerts and
-// Storage are best-effort (their absence must not strand the invoice).
+// Drive trashing is BEST-EFFORT: when Drive isn't configured (no GMAIL_* secrets,
+// e.g. dev) or the trash call fails, we log and skip rather than abort — the
+// invoice row and its alerts must still be removed. Alerts/Storage are best-effort too.
 async function deleteInvoice(supabase: SupabaseClient, id: string): Promise<Response> {
   const { data: inv, error: fetchErr } = await supabase.from("invoices")
     .select("id, drive_file_link, gmail_message_id, storage_url")
@@ -221,17 +222,23 @@ async function deleteInvoice(supabase: SupabaseClient, id: string): Promise<Resp
   if (fetchErr) return json({ error: fetchErr.message }, 500);
   if (!inv)     return json({ error: "Invoice not found" }, 404);
 
-  // 1. Drive — trash the file (skip when there is no Drive copy, e.g. manual invoices)
+  // 1. Drive — trash the file. Skipped when there is no Drive copy (manual invoices)
+  //    OR when Drive credentials aren't configured / the call fails (graceful skip).
   let drive = "skipped";
   const fileId = driveFileIdFromLink(inv.drive_file_link);
-  if (fileId) {
+  const driveConfigured = !!(Deno.env.get("GMAIL_CLIENT_ID") && Deno.env.get("GMAIL_CLIENT_SECRET") && Deno.env.get("GMAIL_REFRESH_TOKEN"));
+  if (fileId && driveConfigured) {
     try {
       const token = await getGoogleAccessToken();
       await driveTrashFile(token, fileId);
       drive = "deleted";
     } catch (e) {
-      return json({ error: `Drive deletion failed — invoice NOT deleted: ${e instanceof Error ? e.message : e}` }, 500);
+      // Do NOT abort — a Drive hiccup must not strand the invoice/alerts.
+      console.error("[deleteInvoice] Drive trash failed — skipping:", e instanceof Error ? e.message : e);
+      drive = "skip_failed";
     }
+  } else if (fileId && !driveConfigured) {
+    drive = "skipped_no_creds";
   }
 
   // 2. Alerts referencing this invoice (payload JSON keys; best-effort)

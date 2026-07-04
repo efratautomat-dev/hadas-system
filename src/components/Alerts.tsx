@@ -2,10 +2,11 @@ import { useState, useLayoutEffect } from 'react'
 import {
   Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus,
   HelpCircle, FileX, Paperclip, Unlink, AlertTriangle, Clock,
-  FileWarning, Receipt, AlertCircle, Tag,
+  FileWarning, Receipt, AlertCircle, Tag, Mail, X,
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
+import { supabase } from '../lib/supabase'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 
 // Color is keyed to the alert TYPE, grouped into four severity-like buckets.
@@ -54,6 +55,7 @@ export const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   invoice_ingest_failed:       b('פענוח נכשל — טיפול ידני', FileWarning,   'urgent'),
   invoice_duplicate:           b('כפילות',                  Copy,          'urgent'),
   duplicate_invoice:           b('כפילות',                  Copy,          'urgent'), // legacy alias
+  return_amount_mismatch:      b('פער בהחזר',               AlertCircle,   'urgent'),
 
   // ── Action (orange): a human action is required ──
   supplier_incomplete:         b('ספק – חסר פרטים',         UserPlus,      'action'),
@@ -77,7 +79,6 @@ export const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   statement_mismatch:          { label: 'אי-התאמת כרטסת', Icon: Scale,         bg: '#FEE2E2', color: '#DC2626' },
   invoice_unclassified:        { label: 'לא סווג',         Icon: HelpCircle,    bg: '#F3F4F6', color: '#4B5563' },
   extraction_failed:           { label: 'פענוח נכשל',      Icon: FileWarning,   bg: '#FEE2E2', color: '#B91C1C' },
-  return_amount_mismatch:      { label: 'פער בהחזר',       Icon: AlertCircle,   bg: '#FCE7F3', color: '#BE185D' },
 }
 
 // Resolve config for any alert type. Unknown types get a neutral gray badge
@@ -112,11 +113,13 @@ const ALERT_STATUS_INTERNAL: Record<AlertStatus, string> = {
   resolved: 'done',
 }
 
-// Status-filter chip labels. "טופלו" matches the wording on the summary stat card.
+// Status-filter chip labels — the unified taxonomy (spec/06-RULES.md §1):
+// new=חדש, read→in_progress=בטיפול, resolved→done=טופל. (Selecting טופל is the
+// only way to surface resolved alerts, which are hidden from the default view.)
 const STATUS_LABELS: Record<AlertStatus, string> = {
   new:      'חדש',
-  read:     'נקרא',
-  resolved: 'טופלו',
+  read:     'בטיפול',
+  resolved: 'טופל',
 }
 
 interface AlertCardProps {
@@ -133,6 +136,9 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
   const typeConf   = getAlertTypeConf(alert.type)
   const statusConf = STATUS_CONFIG[alert.status] ?? STATUS_CONFIG.new
   const TypeIcon   = typeConf.Icon
+  // When the alert carries a link to the original Gmail thread, expose a direct
+  // "פתח מייל מקורי" action (used by link-failed / missing-attachment / etc.).
+  const messageLink = (alert.payload as Record<string, unknown> | undefined)?.messageLink as string | undefined
   const isResolved = alert.status === 'resolved'
   const clickable  = !!onClick
 
@@ -199,10 +205,22 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
           {alert.description}
         </p>
 
-        {/* Actions — stop click bubbling so action buttons don't trigger row navigation */}
-        {!isResolved && (
+        {/* Actions — stop click bubbling so action buttons don't trigger row navigation.
+            The email button shows whenever a messageLink exists (even for resolved
+            alerts); mark/resolve/delete only while the alert is still active. */}
+        {(!isResolved || messageLink) && (
           <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
-            {alert.status === 'new' && (
+            {messageLink && (
+              <button
+                onClick={() => window.open(messageLink, '_blank', 'noopener,noreferrer')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+                style={{ background: '#EFF6FF', color: '#1D4ED8' }}
+              >
+                <Mail className="w-3 h-3" />
+                פתח מייל מקורי
+              </button>
+            )}
+            {!isResolved && alert.status === 'new' && (
               <button
                 onClick={() => onMarkRead(alert.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
@@ -212,22 +230,26 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
                 סמן כנקרא
               </button>
             )}
-            <button
-              onClick={() => onMarkResolved(alert.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
-              style={{ background: '#DCFCE7', color: '#166534' }}
-            >
-              <Check className="w-3 h-3" />
-              סמן כטופל
-            </button>
-            <button
-              onClick={() => onDelete(alert.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
-              style={{ background: '#FEE2E2', color: '#DC2626' }}
-            >
-              <Trash2 className="w-3 h-3" />
-              מחק
-            </button>
+            {!isResolved && (
+              <button
+                onClick={() => onMarkResolved(alert.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+                style={{ background: '#DCFCE7', color: '#166534' }}
+              >
+                <Check className="w-3 h-3" />
+                סמן כטופל
+              </button>
+            )}
+            {!isResolved && (
+              <button
+                onClick={() => onDelete(alert.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+                style={{ background: '#FEE2E2', color: '#DC2626' }}
+              >
+                <Trash2 className="w-3 h-3" />
+                מחק
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -282,7 +304,6 @@ export function resolveAlertDestination(
   const gmailMessageId = p.gmailMessageId as string | undefined
   const messageLink    = p.messageLink    as string | undefined
   const supplierId     = p.supplierId     as string | undefined
-  const supplierName   = p.supplierName   as string | undefined
   const returnId       = p.returnId       as string | undefined
   const storagePath    = p.storagePath    as string | undefined
 
@@ -293,30 +314,26 @@ export function resolveAlertDestination(
     return
   }
 
-  // Link-download failures: the invoice was never saved, so route the user to the original
-  // Gmail thread (payload.messageLink) where the attachment can be re-downloaded manually.
-  if (t === 'invoice_link_failed') {
-    if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
-    handlers.onPageChange?.('alerts')
-    return
-  }
-
-  // Misclassified document — the extractor refused to ingest it as an invoice.
-  // Open the original email so the user can decide what to do with it.
+  // Misclassified document (07-ALERTS #8) → re-classify in an in-page popup that shows
+  // the document image + a type picker (handled by the Alerts onClick). This path is
+  // only reached from the Dashboard card, so send the user to the alerts queue.
   if (t === 'document_misclassified') {
-    if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
     handlers.onPageChange?.('alerts')
     return
   }
 
-  // Needs-review flavor → open the specific invoice's detail page. The backend writes the
-  // invoice AFTER these alerts but with the same gmail_message_id, so prefer a payload
-  // invoiceId, then resolve by gmailMessageId, then fall back to the invoices list.
-  // NOTE: invoice_low_confidence is NOT here — its payload has no invoiceId, so it
-  // routes to the source email below.
+  // Open the INVOICE detail so the owner can compare the source document against the
+  // parsed data. Prefer a payload invoiceId, then resolve by gmail_message_id (the
+  // invoice row can be written after the alert), else fall back to the invoices list.
+  //   • invoice_low_confidence → verify AI extraction         (07-ALERTS #7)
+  //   • invoice_ingest_failed  → manual handling / re-queue   (07-ALERTS #1)
+  //   • invoice_link_failed    → file IS in Drive; assign a supplier + complete details
+  //   • invoice_old_date       → confirm the date             (07-ALERTS #11)
   if (
-    t === 'needs_review'         || t === 'invoice_unclassified' ||
-    t === 'invoice_old_date'     || t === 'extraction_failed'
+    t === 'invoice_low_confidence' || t === 'invoice_ingest_failed' ||
+    t === 'invoice_link_failed'    || t === 'invoice_old_date'      ||
+    t === 'needs_review'           || t === 'invoice_unclassified'  ||
+    t === 'extraction_failed'
   ) {
     if (invoiceId       && handlers.onOpenInvoice)                { handlers.onOpenInvoice(invoiceId);                 return }
     if (gmailMessageId  && handlers.onOpenInvoiceByGmailMessageId){ handlers.onOpenInvoiceByGmailMessageId(gmailMessageId); return }
@@ -324,12 +341,9 @@ export function resolveAlertDestination(
     return
   }
 
-  // No invoice in DB (missing/invalid attachment, low-confidence extraction, or a
-  // hard ingest failure) → send the user to the source email to handle it manually.
-  if (
-    t === 'invoice_no_attachment'  || t === 'invoice_no_valid_attachment' ||
-    t === 'invoice_low_confidence' || t === 'invoice_ingest_failed'
-  ) {
+  // Genuinely no file/invoice yet (missing or invalid attachment) → open the source
+  // email so the user can attach a valid file manually (07-ALERTS #9, #10).
+  if (t === 'invoice_no_attachment' || t === 'invoice_no_valid_attachment') {
     if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
     handlers.onPageChange?.('alerts')
     return
@@ -343,15 +357,15 @@ export function resolveAlertDestination(
     return
   }
 
-  // Unmatched credit note → open THAT supplier's detail page (by ID if we have one, else by name)
+  // Unmatched credit note (זיכוי ללא חזרה, 07-ALERTS #5) → open the RETURN for manual
+  // review / matching, NOT the supplier page.
   if (t === 'unmatched_credit_note') {
-    if (supplierId   && handlers.onOpenSupplier)        { handlers.onOpenSupplier(supplierId);        return }
-    if (supplierName && handlers.onOpenSupplierByName)  { handlers.onOpenSupplierByName(supplierName); return }
-    handlers.onPageChange?.('suppliers')
+    if (returnId && handlers.onOpenReturn) { handlers.onOpenReturn(returnId); return }
+    handlers.onPageChange?.('returns')
     return
   }
 
-  // Return amount mismatch → open THAT return's edit modal directly
+  // Return amount mismatch → open THAT return to reconcile the amount.
   if (t === 'return_amount_mismatch') {
     if (returnId && handlers.onOpenReturn) { handlers.onOpenReturn(returnId); return }
     handlers.onPageChange?.('returns')
@@ -381,6 +395,8 @@ export default function Alerts({
 }: AlertsProps) {
   const [typeFilter,   setTypeFilter]   = useState<TypeFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // document_misclassified opens an in-page re-classify popup (not a page nav).
+  const [reclassifyAlert, setReclassifyAlert] = useState<Alert | null>(null)
 
   // Restore the remembered scroll position after the list has rendered. Using
   // useLayoutEffect (pre-paint) avoids a visible jump from 0 to the saved spot.
@@ -445,9 +461,9 @@ export default function Alerts({
       {/* Summary stat cards */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { value: newCount,      label: 'חדשות',  bg: '#FEE2E2', color: '#DC2626', iconBg: '#FCA5A5' },
-          { value: readCount,     label: 'נקראו',  bg: '#F3F4F6', color: '#6B7280', iconBg: '#D1D5DB' },
-          { value: resolvedCount, label: 'טופלו',  bg: '#DCFCE7', color: '#166534', iconBg: '#86EFAC' },
+          { value: newCount,      label: 'חדש',    bg: '#FEE2E2', color: '#DC2626', iconBg: '#FCA5A5' },
+          { value: readCount,     label: 'בטיפול', bg: '#F3F4F6', color: '#6B7280', iconBg: '#D1D5DB' },
+          { value: resolvedCount, label: 'טופל',   bg: '#DCFCE7', color: '#166534', iconBg: '#86EFAC' },
         ].map(({ value, label, bg, color, iconBg }) => (
           <div
             key={label}
@@ -524,6 +540,9 @@ export default function Alerts({
               onClick={() => {
                 // Opening an alert auto-marks it read (persisted as status='read').
                 if (alert.status === 'new') onMarkRead(alert.id)
+                // Misclassified documents open an in-page re-classify popup instead
+                // of navigating away (spec 07-ALERTS #8).
+                if ((alert.type as string) === 'document_misclassified') { setReclassifyAlert(alert); return }
                 // Remember where we are so we can return here after the alert
                 // is handled (e.g. resolving a duplicate in the popup).
                 onScrollSave?.(window.scrollY)
@@ -541,6 +560,124 @@ export default function Alerts({
           ))}
         </div>
       )}
+
+      {reclassifyAlert && (
+        <ReclassifyModal
+          alert={reclassifyAlert}
+          onClose={() => setReclassifyAlert(null)}
+          onConfirm={() => {
+            // Persisting the corrected type is a backend concern (re-route the
+            // document to the right pipeline); here we clear the alert so it
+            // leaves the active queue once the user has re-classified it.
+            onMarkResolved(reclassifyAlert.id)
+            setReclassifyAlert(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Re-classify popup (document_misclassified) ──────────────────────────────
+// Shows the source document alongside a document-type picker so the owner can
+// correct the AI's classification (spec 07-ALERTS #8: "open the document to
+// re-classify"). The image comes from payload.documentUrl (direct URL) or a
+// signed URL minted from payload.storagePath (private "documents" bucket).
+const DOC_TYPES = ['חשבונית', 'זיכוי', 'תעודת משלוח', 'כרטסת', 'אחר'] as const
+
+function ReclassifyModal({
+  alert, onClose, onConfirm,
+}: {
+  alert: Alert
+  onClose: () => void
+  onConfirm: (docType: string) => void
+}) {
+  const p = (alert.payload ?? {}) as Record<string, unknown>
+  const directUrl  = p.documentUrl as string | undefined
+  const storagePath = p.storagePath as string | undefined
+  const [docUrl, setDocUrl]   = useState<string | null>(directUrl ?? null)
+  const [choice, setChoice]   = useState<string>('')
+
+  useLayoutEffect(() => {
+    if (docUrl || !storagePath) return
+    let alive = true
+    supabase.storage.from('documents').createSignedUrl(storagePath, 120).then(({ data }) => {
+      if (alive && data?.signedUrl) setDocUrl(data.signedUrl)
+    })
+    return () => { alive = false }
+  // storagePath is stable for the lifetime of this modal
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        dir="rtl"
+        style={{ background: 'white', borderRadius: '20px', width: '100%', maxWidth: '560px', maxHeight: '90vh', overflowY: 'auto' }}
+      >
+        {/* Header */}
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid #EEEEF2', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: '4px' }}>
+            <X className="w-5 h-5" />
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h2 style={{ fontSize: '17px', fontWeight: 600, color: '#1F2937', margin: 0 }}>סיווג מחדש של המסמך</h2>
+            <FileX className="w-5 h-5" style={{ color: '#B45309' }} />
+          </div>
+        </div>
+
+        {/* Document image */}
+        <div style={{ padding: '16px 22px 8px' }}>
+          {docUrl ? (
+            <iframe
+              src={docUrl}
+              title="מסמך מקור"
+              style={{ width: '100%', height: '340px', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB' }}
+            />
+          ) : (
+            <div style={{ height: '340px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB', color: '#9CA3AF', fontSize: '13px' }}>
+              אין תצוגת מסמך זמינה
+            </div>
+          )}
+        </div>
+
+        {/* Type picker */}
+        <div style={{ padding: '8px 22px 22px' }}>
+          <p style={{ fontSize: '13px', fontWeight: 600, color: '#374151', textAlign: 'right', margin: '0 0 10px' }}>בחר את סוג המסמך הנכון:</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
+            {DOC_TYPES.map(dt => (
+              <button
+                key={dt}
+                onClick={() => setChoice(dt)}
+                style={{
+                  padding: '8px 14px', borderRadius: '10px', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                  background: choice === dt ? '#8B1A3A' : 'white',
+                  color:      choice === dt ? 'white'   : '#6B7280',
+                  border: `1.5px solid ${choice === dt ? '#8B1A3A' : '#E2E4E9'}`,
+                }}
+              >
+                {dt}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => choice && onConfirm(choice)}
+            disabled={!choice}
+            style={{
+              width: '100%', height: '46px', borderRadius: '12px', border: 'none', fontWeight: 700, fontSize: '15px', fontFamily: 'inherit',
+              cursor: choice ? 'pointer' : 'not-allowed',
+              background: choice ? '#D32F4A' : '#F3F4F6',
+              color:      choice ? 'white'   : '#9CA3AF',
+            }}
+          >
+            שמור סיווג
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

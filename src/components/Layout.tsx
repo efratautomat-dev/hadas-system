@@ -125,9 +125,10 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const handleDeleteAlert  = (id: string) => removeAlert(id)
 
   // Called by Invoices once a duplicate pair has been resolved (deleted /
-  // marked primary / approved). Cleans up every alert that still points at the
-  // pair — the one the user clicked AND any orphaned twin referencing the same
-  // pair — then, if we got here from a duplicate alert, returns to the alerts page.
+  // approved). Super-rule "deleted duplicate → resolve both": every alert that
+  // points at the pair — the one the user clicked AND any twin referencing the
+  // same pair — is marked RESOLVED (not deleted, so it stays auditable and drops
+  // off the active queue). Then, if we came from a duplicate alert, go back.
   const handleDuplicateResolved = (info: DuplicateResolution) => {
     for (const a of alerts) {
       const t = a.type as string
@@ -137,7 +138,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
       const matchesId   = !!refId && info.ids.includes(refId)
       const matchesPair = !!info.invoiceNumber &&
         p.invoiceNumber === info.invoiceNumber && p.supplierId === info.supplierId
-      if (matchesId || matchesPair) removeAlert(a.id)
+      if (matchesId || matchesPair) markResolved(a.id)
     }
     if (info.fromAlert) goBack()
   }

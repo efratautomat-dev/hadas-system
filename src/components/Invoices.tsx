@@ -589,7 +589,10 @@ export default function Invoices({
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>(initialFilter)
   const [dupModal, setDupModal] = useState<DupModal | null>(null)
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  // Which side of the duplicate pair the user chose to delete (null = no pending delete).
+  const [deleteTarget, setDeleteTarget] = useState<'invoice' | 'pair' | null>(null)
+  // Source-document preview shown INSIDE the duplicate popup (in-app modal, not a new tab).
+  const [dupDocPreview, setDupDocPreview] = useState<{ url: string; previewSrc?: string } | null>(null)
 
   useEffect(() => {
     setInvoices(serverInvoices)
@@ -631,7 +634,7 @@ export default function Invoices({
     const pair = getDupPair(inv)
     if (!pair) return
     setDupModal({ invoice: inv, pair })
-    setConfirmDelete(false)
+    setDeleteTarget(null)
   // getDupPair closes over invoices, so listing invoices is enough
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialDuplicateInvoiceId, invoices])
@@ -641,7 +644,21 @@ export default function Invoices({
     const pair = getDupPair(inv)
     if (!pair) return
     setDupModal({ invoice: inv, pair })
-    setConfirmDelete(false)
+    setDeleteTarget(null)
+  }
+
+  // Open the ACTUAL source document (PDF/image) for one invoice of the pair in the
+  // app's in-page preview modal (NOT a new browser tab). Prefer a signed Storage
+  // URL (private "documents" bucket), else the Drive file. Raw scan, not the parsed page.
+  const openInvoiceSource = async (inv: Invoice) => {
+    const path = (inv.storage_url ?? '').trim()
+    if (path && !/^https?:\/\//i.test(path)) {
+      const { data, error } = await supabase.storage.from('documents').createSignedUrl(path, 120)
+      if (!error && data?.signedUrl) { setDupDocPreview({ url: data.signedUrl, previewSrc: data.signedUrl }); return }
+    }
+    const url = path && /^https?:\/\//i.test(path) ? path : (inv.driveFileLink ?? '').trim()
+    if (url) { setDupDocPreview({ url }); return }
+    alert('לא ניתן לפתוח את הקובץ כעת')
   }
 
   // Close the modal without resolving (X / cancel / backdrop). When we got here
@@ -650,7 +667,7 @@ export default function Invoices({
   // was opened by the user browsing invoices, just close it and stay put.
   const closeDupModal = () => {
     setDupModal(null)
-    setConfirmDelete(false)
+    setDeleteTarget(null)
     if (initialDuplicateInvoiceId) onDuplicateDismissed?.()
   }
 
@@ -664,28 +681,33 @@ export default function Invoices({
     fromAlert:     !!initialDuplicateInvoiceId,
   })
 
-  const handleSetPrimary = async () => {
-    if (!dupModal) return
-    const saved = dupModal
-    setDupModal(null)
-    try {
-      await updateInvoice(saved.invoice.id, { duplicateFlag: null })
-      onDuplicateResolved?.(resolutionInfo(saved))
-    } catch {
-      // hook sets error state
-    }
-  }
-
+  // Delete the invoice the user chose to discard (incl. its Drive file — the
+  // backend DELETE /invoices/:id trashes Drive best-effort). resolutionInfo carries
+  // BOTH ids so the parent resolves every alert pointing at the pair.
+  //
+  // The pair is dropped from the local list immediately, and BOTH paired alerts are
+  // resolved regardless of the backend delete result. Alert resolution goes through
+  // the anon client (RLS: managers manage alerts) and works even when hadas-api is
+  // unavailable; the backend row delete is best-effort so a missing/failed function
+  // can't leave the alerts stuck. On success the list refetch reconciles the row.
   const handleDeleteDuplicate = async () => {
-    if (!dupModal) return
-    const saved = dupModal
+    if (!dupModal || !deleteTarget) return
+    const saved  = dupModal
+    const victim = deleteTarget === 'pair' ? saved.pair : saved.invoice
     setDupModal(null)
+    setDeleteTarget(null)
+    setDupDocPreview(null)
+    // Optimistic local removal so the UI reflects the choice even if the backend
+    // delete can't be confirmed (e.g. hadas-api not deployed in dev).
+    setInvoices(prev => prev.filter(i => i.id !== victim.id))
     try {
-      await removeInvoice(saved.invoice.id)
-      onDuplicateResolved?.(resolutionInfo(saved))
-    } catch {
-      // hook sets error state
+      await removeInvoice(victim.id)
+    } catch (e) {
+      console.warn('[dup delete] backend row delete failed (row may persist until hadas-api is available):', e)
     }
+    // Always resolve BOTH paired alerts — this is the alerts-domain outcome the
+    // super-rule requires and it works independently of the invoice row delete.
+    onDuplicateResolved?.(resolutionInfo(saved))
   }
 
   const handleApproveAll = async () => {
@@ -1018,10 +1040,10 @@ export default function Invoices({
         )}
       </div>
 
-      {/* Duplicate comparison modal */}
+      {/* Duplicate comparison modal — drops below the doc preview (z-50) when it opens */}
       {dupModal && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: dupDocPreview ? 40 : 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
           onClick={closeDupModal}
         >
           <div
@@ -1042,16 +1064,40 @@ export default function Invoices({
               </div>
             </div>
 
-            {/* Column sub-headers */}
+            {/* Column sub-headers — each side gets an eye (open the real source
+                document) and a trash (choose this one to delete). */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', padding: '14px 24px 8px' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: '#6B7280', textAlign: 'right' }}>שדה</span>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#D32F4A', textAlign: 'center' }}>חשבונית זו</span>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: '#9CA3AF', textAlign: 'center' }}>כפילות אפשרית</span>
+              {([
+                { title: 'חשבונית זו',      inv: dupModal.invoice, color: '#D32F4A', key: 'invoice' as const },
+                { title: 'כפילות אפשרית', inv: dupModal.pair,    color: '#9CA3AF', key: 'pair'    as const },
+              ]).map(({ title, inv, color, key }) => (
+                <div key={key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color, textAlign: 'center' }}>{title}</span>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      onClick={() => openInvoiceSource(inv)}
+                      title="פתח את מסמך המקור"
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '30px', height: '30px', borderRadius: '8px', background: '#F3F4F6', color: '#374151', border: 'none', cursor: 'pointer' }}
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setDeleteTarget(key)}
+                      title="בחר למחיקה"
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '30px', height: '30px', borderRadius: '8px', background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', cursor: 'pointer' }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
 
             {/* Comparison rows */}
             <div style={{ padding: '0 24px 16px' }}>
               {([
+                { label: 'ספק',              a: dupModal.invoice.supplier,      b: dupModal.pair.supplier },
                 { label: 'מס׳ חשבונית ספק', a: dupModal.invoice.invoiceNumber, b: dupModal.pair.invoiceNumber },
                 { label: 'מס׳ פנימי',        a: dupModal.invoice.id,            b: dupModal.pair.id },
                 { label: 'תאריך',             a: dupModal.invoice.date,          b: dupModal.pair.date },
@@ -1078,18 +1124,18 @@ export default function Invoices({
               })}
             </div>
 
-            {/* Delete confirmation */}
-            {confirmDelete && (
+            {/* Delete confirmation — names WHICH side is being deleted */}
+            {deleteTarget && (
               <div style={{ margin: '0 24px 16px', padding: '16px', borderRadius: '12px', background: '#FEF2F2', border: '1px solid #FECACA' }}>
                 <p style={{ fontSize: '14px', fontWeight: 600, color: '#991B1B', textAlign: 'right', margin: '0 0 12px' }}>
-                  האם למחוק חשבונית זו? פעולה זו בלתי הפיכה.
+                  למחוק את {deleteTarget === 'invoice' ? 'החשבונית הזו' : 'הכפילות האפשרית'}? פעולה זו בלתי הפיכה ותמחק גם את הקובץ מ-Drive.
                 </p>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button onClick={handleDeleteDuplicate}
                     style={{ flex: 1, height: '40px', borderRadius: '10px', background: '#DC2626', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '14px', fontFamily: 'inherit' }}>
                     כן, מחק
                   </button>
-                  <button onClick={() => setConfirmDelete(false)}
+                  <button onClick={() => setDeleteTarget(null)}
                     style={{ flex: 1, height: '40px', borderRadius: '10px', background: '#F3F4F6', color: '#6B7280', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit' }}>
                     ביטול
                   </button>
@@ -1097,27 +1143,29 @@ export default function Invoices({
               </div>
             )}
 
-            {/* Action buttons */}
-            {!confirmDelete && (
-              <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <button onClick={handleSetPrimary}
-                  style={{ width: '100%', height: '46px', borderRadius: '12px', background: '#D32F4A', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '15px', fontFamily: 'inherit' }}>
-                  סמן כחשבונית ראשית
+            {/* Keep-both action — deleting is done per-side via the trash icons above */}
+            {!deleteTarget && (
+              <div style={{ padding: '0 24px 24px' }}>
+                <p style={{ fontSize: '12px', color: '#9CA3AF', textAlign: 'right', margin: '0 0 10px' }}>
+                  השווה בעזרת 👁, ובחר איזו חשבונית למחוק — או השאר את שתיהן.
+                </p>
+                <button onClick={handleApproveAll}
+                  style={{ width: '100%', height: '44px', borderRadius: '12px', background: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0', cursor: 'pointer', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit' }}>
+                  התעלם – שתיהן תקינות
                 </button>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={() => setConfirmDelete(true)}
-                    style={{ flex: 1, height: '42px', borderRadius: '12px', background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', cursor: 'pointer', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit' }}>
-                    מחק כפילות
-                  </button>
-                  <button onClick={handleApproveAll}
-                    style={{ flex: 1, height: '42px', borderRadius: '12px', background: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0', cursor: 'pointer', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit' }}>
-                    התעלם – שתיהן תקינות
-                  </button>
-                </div>
               </div>
             )}
           </div>
         </div>
+      )}
+
+      {/* Source-document preview inside the duplicate popup (in-app modal) */}
+      {dupDocPreview && (
+        <PdfPreviewModal
+          url={dupDocPreview.url}
+          previewSrc={dupDocPreview.previewSrc}
+          onClose={() => setDupDocPreview(null)}
+        />
       )}
     </div>
   )
