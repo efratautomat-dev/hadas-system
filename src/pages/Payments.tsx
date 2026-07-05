@@ -422,12 +422,15 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
       if (fltStatus && p.status !== fltStatus) return false
       return true
     })
-    // Safeguard mirroring usePayments order: asc by valueDate, nulls last.
+    // Sort by the order/creation date (payment_date), NEWEST on top; blanks last.
+    // Future value_date rows are NOT excluded — they appear ordered by when the
+    // payment instruction was given.
     .sort((a, b) => {
-      if (!a.valueDate && !b.valueDate) return 0
-      if (!a.valueDate) return 1
-      if (!b.valueDate) return -1
-      return a.valueDate < b.valueDate ? -1 : a.valueDate > b.valueDate ? 1 : 0
+      const da = a.date || '', db = b.date || ''
+      if (!da && !db) return 0
+      if (!da) return 1
+      if (!db) return -1
+      return db.localeCompare(da)
     })
 
   const futurePayments = payments
@@ -1299,9 +1302,9 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
             </div>
           ) : viewMode === 'table' ? (() => {
               const pCOL = isMobile
-                ? '110px 1fr 110px 80px 80px 80px'
-                : '120px 1fr 110px 80px 100px 80px 80px'
-              const pMIN = isMobile ? '505px' : '720px'
+                ? '110px 110px 1fr 100px 80px 80px 80px'
+                : '120px 120px 1fr 110px 80px 100px 80px 80px'
+              const pMIN = isMobile ? '620px' : '840px'
               const activeTotal = filtered.filter(p => p.status !== 'cancelled').reduce((s, p) => s + (Number(p.amount) || 0), 0)
               const activeCount = filtered.filter(p => p.status !== 'cancelled').length
               return (
@@ -1316,6 +1319,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                         background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right',
                       }}
                     >
+                      <span>תאריך מתן הוראה</span>
                       <span>תאריך ערך</span>
                       <span>ספק</span>
                       <span>סכום</span>
@@ -1356,8 +1360,11 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                           onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = isBad ? '#FFF5F5' : 'transparent')}
                           onClick={() => openEdit(p.id)}
                         >
-                          {/* Primary date column now shows the VALUE date (matches the
-                              value_date sort), with the urgency chip preserved. */}
+                          {/* Order/creation date (payment_date) — the table is sorted by this. */}
+                          <span style={{ whiteSpace: 'nowrap', fontSize: isTablet ? '14px' : '13px', color: '#374151' }}>
+                            {p.date ? fmtDate(p.date) : <span style={{ color: '#D1D5DB' }}>—</span>}
+                          </span>
+                          {/* Value date (when money leaves the account), with the urgency chip. */}
                           <span style={{ whiteSpace: 'nowrap' }}>
                             {p.valueDate ? (
                               <span style={{ color: valueDateColor, fontWeight: valueDays !== null && valueDays <= 7 ? 700 : 400, fontSize: isTablet ? '14px' : '13px' }}>

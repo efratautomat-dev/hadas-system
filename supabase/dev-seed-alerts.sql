@@ -20,7 +20,7 @@ begin;
 delete from public.alerts            where payload->>'demo_seed' = 'true';
 delete from public.returns           where email_subject like 'DEMO-%';
 delete from public.vendor_statements where resolution_notes like 'DEMO%';
-delete from public.payments          where reference like 'DEMO-LEDGER%';
+delete from public.payments          where source = 'demo';
 delete from public.invoices          where email_subject like 'DEMO-%';
 delete from public.suppliers         where notes like 'DEMO%';
 
@@ -28,7 +28,8 @@ delete from public.suppliers         where notes like 'DEMO%';
 insert into public.suppliers (id, name, category, contact, phone, email, opening_balance, notes)
 values
   ('dddddddd-0000-4000-8000-000000000001', 'עלית', 'ממתקים', 'שרה גרין', '09-4441111', 'orders@elite.example', 0, 'DEMO seed'),
-  ('dddddddd-0000-4000-8000-000000000002', 'נסטלה ישראל', 'שתייה חמה', 'דוד רוזן', '03-7778899', 'ap@nestle.example', 1500, 'DEMO seed');
+  ('dddddddd-0000-4000-8000-000000000002', 'נסטלה ישראל', 'שתייה חמה', 'דוד רוזן', '03-7778899', 'ap@nestle.example', 1500, 'DEMO seed'),
+  ('dddddddd-0000-4000-8000-000000000003', 'מוטי', 'שירותים', 'מוטי לוי', '052-1112233', 'moti@example.com', 0, 'DEMO seed');
 
 -- Returns for the two-view split (spec/01-PRD.md §6). The screen derives the view
 -- from gmail_message_id / message_link (no `source` column yet): rows WITH those
@@ -123,10 +124,27 @@ values
    'ספקים שונות', 'ממתין', 'זיכוי', 'נסטלה חיובים', 'ap@nestle.example',
    '2026-06-10T09:00:00Z', false, 'DEMO-LEDGER credit note');
 
-insert into public.payments (id, supplier_id, amount, payment_type, payment_date, status, reference)
+-- Payments: the ledger payment + the "מוטי" example (immediate + 3 post-dated cheques).
+-- Immediate payments carry value_date = payment_date (order date). Post-dated cheques
+-- keep their order date = today and a future value_date (+1/+2/+3 months) so future-dated
+-- rows are visible in the table. All tagged source='demo' for idempotent cleanup.
+insert into public.payments
+  (id, supplier_id, amount, payment_type, payment_date, value_date, status, reference, notes, source)
 values
   ('cccccccc-0000-4000-8000-000000000010', 'dddddddd-0000-4000-8000-000000000002',
-   3000, 'העברה בנקאית', '2026-06-15', 'paid', 'DEMO-LEDGER');
+   3000, 'העברה בנקאית', '2026-06-15', '2026-06-15', 'paid', 'DEMO-LEDGER', null, 'demo'),
+  -- מוטי · immediate (value_date = today = order date)
+  ('cccccccc-0000-4000-8000-000000000011', 'dddddddd-0000-4000-8000-000000000003',
+   4200, 'העברה בנקאית', current_date, current_date, 'paid', 'העברה 7788', 'תשלום מיידי — העברה בנקאית', 'demo'),
+  -- מוטי · post-dated cheque +1 month
+  ('cccccccc-0000-4000-8000-000000000012', 'dddddddd-0000-4000-8000-000000000003',
+   3100, 'צ''ק', current_date, (current_date + interval '1 month')::date, 'pending', 'שיק 5001', 'שיק דחוי לחודש הבא — סחורת יוני', 'demo'),
+  -- מוטי · post-dated cheque +2 months
+  ('cccccccc-0000-4000-8000-000000000013', 'dddddddd-0000-4000-8000-000000000003',
+   2750, 'צ''ק', current_date, (current_date + interval '2 months')::date, 'pending', 'שיק 5002', 'שיק דחוי חודשיים — יתרת חשבון', 'demo'),
+  -- מוטי · post-dated cheque +3 months
+  ('cccccccc-0000-4000-8000-000000000014', 'dddddddd-0000-4000-8000-000000000003',
+   1980, 'צ''ק', current_date, (current_date + interval '3 months')::date, 'pending', 'שיק 5003', 'שיק דחוי שלושה חודשים — תשלום מרוכז', 'demo');
 
 -- ── 14 alerts (13 types; invoice_duplicate appears twice for the same pair) ──
 -- NB: alerts.title is NOT NULL in the dev DB, so every row sets a short title.
