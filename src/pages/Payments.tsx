@@ -289,14 +289,16 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   const [bizboxFrom, setBizboxFrom] = useState('')
   const [bizboxTo, setBizboxTo] = useState('')
 
-  // כל תשלום מיוצא פעם אחת בלבד: רק שורות שטרם נשלחו לביזבוקס ולא בוטלו.
-  // הסינון לפי טווח תאריכים (אופציונלי) מצמצם בתוך הקבוצה הזו לפי תאריך ההוספה —
-  // לעולם לא מחזיר שורות שכבר יוצאו.
+  // כל תשלום מיוצא פעם אחת בלבד: רק שורות שטרם נשלחו לביזבוקס ולא בוטלו (זו ברירת
+  // המחדל בלחיצה על "הורד" — כל מה שהצטבר מאז הייצוא האחרון). הסינון לפי טווח תאריכים
+  // (אופציונלי) מצמצם בתוך הקבוצה הזו לפי תאריך מתן ההוראה (payment_date) — אותו שדה
+  // שהטבלה מציגה כ"תאריך מתן הוראה", כך שהטווח שהמשתמשת רואה תואם למה שמיוצא בפועל.
+  // ההכללה לעולם אינה לפי value_date — צ'ק דחוי שהוזן היום ייכלל בייצוא של היום.
   const bizboxRows = payments.filter(p => {
     if (p.status === 'cancelled' || p.bizboxExportedAt) return false
     if (bizboxUseRange && bizboxFrom && bizboxTo) {
-      const created = (p.createdAt ?? '').slice(0, 10)
-      if (!created || created < bizboxFrom || created > bizboxTo) return false
+      const orderDate = p.date || ''   // payment_date — the "order date" the table shows
+      if (!orderDate || orderDate < bizboxFrom || orderDate > bizboxTo) return false
     }
     return true
   })
