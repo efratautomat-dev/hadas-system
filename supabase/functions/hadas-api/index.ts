@@ -98,6 +98,8 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
     openingBalance: "opening_balance",
     notes:          "notes",
     active:         "active",   // active/inactive toggle (deactivation replaces hard delete)
+    needsDetails:   "needs_details",   // PART 3C: completing details clears the flag
+    needs_details:  "needs_details",
   };
   const updates: Record<string, unknown> = {};
   for (const [key, col] of Object.entries(ALLOWED)) {
@@ -107,6 +109,16 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
 
   const { error } = await supabase.from("suppliers").update(updates).eq("id", id);
   if (error) return json({ error: error.message }, 500);
+
+  // PART 3C: completing details (needs_details=false) resolves the supplier_incomplete
+  // alert(s) for this supplier — same "resolved → hidden" super-rule as other alerts.
+  if (body.needs_details === false || body.needsDetails === false) {
+    await supabase.from("alerts")
+      .update({ status: "resolved", resolved_at: new Date().toISOString() })
+      .eq("type", "supplier_incomplete")
+      .eq("payload->>supplierId", id)
+      .neq("status", "resolved");
+  }
   return json({ success: true });
 }
 
@@ -634,8 +646,35 @@ async function resolveOrCreateSupplier(
   const { data, error } = await supabase.from("suppliers")
     .insert({ name: supplierName || "ספק ללא שם", hp: normHp || null, needs_details: true, notes: INCOMPLETE_SUPPLIER_NOTE })
     .select("id").single();
-  if (error) return null;
-  return data?.id ?? null;
+  if (error || !data) return null;
+  // PART 3C: raise the "השלם פרטים" alert for the freshly-created incomplete supplier.
+  await raiseSupplierIncompleteAlert(supabase, data.id as string, supplierName || "ספק ללא שם");
+  return data.id as string;
+}
+
+// ─── Supplier "השלם פרטים" alert (Suppliers PART 3C) ───────────────────────────
+// Raised when a supplier is auto-created (needs_details=true). Idempotent per the
+// alert super-rules (07-ALERTS.md): skips if an unresolved supplier_incomplete alert
+// already exists for this supplier. Clicking it opens the supplier (payload.supplierId).
+async function raiseSupplierIncompleteAlert(
+  supabase: SupabaseClient,
+  supplierId: string,
+  supplierName: string,
+): Promise<void> {
+  const { data: existing } = await supabase.from("alerts")
+    .select("id")
+    .eq("type", "supplier_incomplete")
+    .eq("payload->>supplierId", supplierId)
+    .neq("status", "resolved")
+    .limit(1);
+  if (existing && existing.length) return;
+  await supabase.from("alerts").insert({
+    type:    "supplier_incomplete",
+    title:   "ספק – חסר פרטים",
+    message: "ספק חדש נוצר — יש להשלים פרטים",
+    status:  "unread",
+    payload: { supplierId, typedSupplierName: supplierName },
+  });
 }
 
 async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promise<Response> {
