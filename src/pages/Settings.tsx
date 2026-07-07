@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
-import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
+import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw, Tag, GitMerge, X } from 'lucide-react'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
+import { useCategories } from '../hooks/useCategories'
 import { supabase } from '../lib/supabase'
 import { useAppLogo } from '../hooks/useAppLogo'
 
@@ -12,7 +13,7 @@ function useIsTablet() {
   return v
 }
 
-type Tab = 'profile' | 'preferences' | 'notifications' | 'backup' | 'employees'
+type Tab = 'profile' | 'preferences' | 'notifications' | 'backup' | 'employees' | 'categories'
 
 interface ProfileState {
   businessName: string
@@ -42,6 +43,7 @@ const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ className?: st
   { id: 'notifications', label: 'התראות',        Icon: Bell },
   { id: 'backup',        label: 'גיבוי',          Icon: Download },
   { id: 'employees',     label: 'עובדים',         Icon: Users },
+  { id: 'categories',    label: 'קטגוריות',       Icon: Tag },
 ]
 
 const DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'DD.MM.YYYY']
@@ -143,6 +145,151 @@ function Toggle({ value, onChange, label, sub }: { value: boolean; onChange: (v:
         <p className="text-sm font-semibold text-gray-800">{label}</p>
         {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
       </div>
+    </div>
+  )
+}
+
+// ── Category management (Settings → categories, MANAGER-only screen) ──────────
+// Add / rename / delete / merge. Rename & merge re-point every tagged record via
+// hadas-api; delete of an in-use category prompts for reassignment (never orphans).
+function CategoriesManager() {
+  const { data: categories, loading, error, create, rename, remove, merge } = useCategories()
+  const [newName, setNewName] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [mergeFrom, setMergeFrom] = useState('')
+  const [mergeInto, setMergeInto] = useState('')
+  const [reassign, setReassign] = useState<{ id: string; name: string } | null>(null)
+  const [reassignTo, setReassignTo] = useState('')
+
+  const A = '#A91D3A'
+  const flash = (type: 'ok' | 'err', text: string) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 3500) }
+  const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+  async function run(fn: () => Promise<void>, ok: string) {
+    setBusy(true)
+    try { await fn(); flash('ok', ok) } catch (e) { flash('err', errText(e)); throw e } finally { setBusy(false) }
+  }
+
+  async function handleAdd() {
+    const n = newName.trim(); if (!n) return
+    try { await run(() => create(n), 'הקטגוריה נוספה'); setNewName('') } catch { /* flashed */ }
+  }
+  async function handleRename(id: string) {
+    const n = editName.trim(); if (!n) return
+    try { await run(() => rename(id, n), 'השם עודכן'); setEditingId(null) } catch { /* flashed */ }
+  }
+  async function handleDelete(cat: { id: string; name: string; usage_count: number }) {
+    if (cat.usage_count > 0) { setReassign({ id: cat.id, name: cat.name }); setReassignTo(''); return }
+    try { await run(() => remove(cat.id), 'הקטגוריה נמחקה') }
+    catch (e) { if (/in use/i.test(errText(e))) { setReassign({ id: cat.id, name: cat.name }); setReassignTo('') } }
+  }
+  async function confirmReassign() {
+    if (!reassign || !reassignTo) return
+    try { await run(() => remove(reassign.id, reassignTo), 'הרשומות שויכו מחדש והקטגוריה נמחקה'); setReassign(null) } catch { /* flashed */ }
+  }
+  async function handleMerge() {
+    if (!mergeFrom || !mergeInto || mergeFrom === mergeInto) return
+    try { await run(() => merge(mergeFrom, mergeInto), 'הקטגוריות מוזגו'); setMergeFrom(''); setMergeInto('') } catch { /* flashed */ }
+  }
+
+  const selectStyle: React.CSSProperties = { padding: '10px 14px', borderRadius: '12px', border: '1px solid #E2E4E9', background: 'white', fontSize: '14px', color: '#1F2937', outline: 'none', cursor: 'pointer' }
+
+  return (
+    <div className="space-y-5">
+      {msg && (
+        <div className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: msg.type === 'ok' ? '#DCFCE7' : '#FEE2E2', color: msg.type === 'ok' ? '#166534' : '#DC2626' }}>
+          {msg.text}
+        </div>
+      )}
+
+      {/* Add */}
+      <SectionCard title="הוספת קטגוריה">
+        <div className="flex items-end gap-3">
+          <div className="flex-1"><FieldLabel>שם קטגוריה</FieldLabel><TextInput value={newName} onChange={setNewName} placeholder="לדוגמה: ספקים ביגוד" /></div>
+          <button onClick={handleAdd} disabled={busy || !newName.trim()} className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 transition-all" style={{ background: A }}>
+            <Plus className="w-4 h-4" /> הוסף
+          </button>
+        </div>
+      </SectionCard>
+
+      {/* Merge */}
+      <SectionCard title="מיזוג קטגוריות">
+        <p className="text-xs text-gray-400 mb-3">מיזוג ישייך מחדש את כל הרשומות מהקטגוריה הראשונה לשנייה, וימחק את הראשונה.</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <select value={mergeFrom} onChange={e => setMergeFrom(e.target.value)} style={selectStyle}>
+            <option value="">מזג מ…</option>
+            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <span className="text-gray-400">←</span>
+          <select value={mergeInto} onChange={e => setMergeInto(e.target.value)} style={selectStyle}>
+            <option value="">אל…</option>
+            {categories.filter(c => c.id !== mergeFrom).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <button onClick={handleMerge} disabled={busy || !mergeFrom || !mergeInto} className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 transition-all" style={{ background: '#7C3AED' }}>
+            <GitMerge className="w-4 h-4" /> מזג
+          </button>
+        </div>
+      </SectionCard>
+
+      {/* List */}
+      <SectionCard title={`קטגוריות${categories.length ? ` (${categories.length})` : ''}`}>
+        {loading ? (
+          <div className="py-10 text-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 mx-auto" style={{ borderColor: A }} /></div>
+        ) : error ? (
+          <p className="py-8 text-center text-sm" style={{ color: '#DC2626' }}>שגיאה בטעינת קטגוריות: {error}</p>
+        ) : categories.length === 0 ? (
+          <div className="py-10 text-center"><Tag className="w-10 h-10 mx-auto mb-2 text-gray-200" /><p className="text-gray-400 text-sm">אין קטגוריות — הוסף קטגוריה ראשונה</p></div>
+        ) : (
+          <div className="space-y-2">
+            {categories.map(cat => (
+              <div key={cat.id} className="flex items-center justify-between p-3.5 rounded-xl border" style={{ borderColor: '#E2E4E9' }}>
+                {editingId === cat.id ? (
+                  <div className="flex items-center gap-2 flex-1">
+                    <button onClick={() => handleRename(cat.id)} disabled={busy} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white" style={{ background: A }}>שמור</button>
+                    <button onClick={() => setEditingId(null)} className="px-3 py-1.5 rounded-lg text-xs font-bold border" style={{ borderColor: '#E2E4E9', color: '#6B7280' }}>ביטול</button>
+                    <div className="flex-1"><TextInput value={editName} onChange={setEditName} /></div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button onClick={() => { setEditingId(cat.id); setEditName(cat.name) }} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#F3F4F6', color: '#6B7280' }} title="שנה שם"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => handleDelete(cat)} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#FEE2E2', color: '#DC2626' }} title="מחק"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                    <div className="flex items-center gap-2 text-right">
+                      <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: '#F3F4F6', color: '#6B7280' }} title="שימושים">{cat.usage_count}</span>
+                      <span className="text-sm font-semibold text-gray-800">{cat.name}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      {/* Reassign-on-delete modal */}
+      {reassign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={e => { if (e.target === e.currentTarget) setReassign(null) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full p-6" style={{ maxWidth: '440px', direction: 'rtl' }}>
+            <div className="flex items-center justify-between mb-2">
+              <button onClick={() => setReassign(null)} className="text-gray-400"><X className="w-5 h-5" /></button>
+              <h3 className="font-bold text-gray-800">מחיקת "{reassign.name}"</h3>
+            </div>
+            <p className="text-sm text-gray-500 mb-4 text-right">לקטגוריה זו יש רשומות משויכות. בחרי קטגוריה שאליה ישויכו הרשומות לפני המחיקה (לא ניתן להשאיר רשומות ללא קטגוריה).</p>
+            <select value={reassignTo} onChange={e => setReassignTo(e.target.value)} style={{ ...selectStyle, width: '100%' }}>
+              <option value="">שייך רשומות אל…</option>
+              {categories.filter(c => c.id !== reassign.id).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setReassign(null)} className="px-4 py-2 rounded-xl text-sm font-bold border" style={{ borderColor: '#E2E4E9', color: '#6B7280' }}>ביטול</button>
+              <button onClick={confirmReassign} disabled={busy || !reassignTo} className="px-5 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-50" style={{ background: '#DC2626' }}>שייך ומחק</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -891,6 +1038,8 @@ export default function Settings() {
         </SectionCard>
       </div>
     ),
+
+    categories: <CategoriesManager />,
   }
 
   return (

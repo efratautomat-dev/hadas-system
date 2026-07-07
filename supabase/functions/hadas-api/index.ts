@@ -920,6 +920,93 @@ async function isAuthorized(req: Request, supabase: SupabaseClient): Promise<boo
   return false;
 }
 
+// ─── Categories (Settings → category management) ───────────────────────────────
+// Master pool = `categories` (name, usage_count). The category is stored as TEXT on
+// invoices.category / suppliers.category / supplier_categories.category, so rename,
+// merge and delete-with-reassign must RE-POINT those text columns — never orphaning
+// a record. The AI extraction list reads from `categories` (invoices-ingest), so any
+// change here feeds the picker AND the AI automatically. Manager-only at the UI level
+// (Settings screen); DB role enforcement is the deferred RLS audit.
+
+async function repointCategory(supabase: SupabaseClient, oldName: string, newName: string): Promise<void> {
+  await supabase.from("invoices").update({ category: newName }).eq("category", oldName);
+  await supabase.from("suppliers").update({ category: newName }).eq("category", oldName);
+  await supabase.from("supplier_categories").update({ category: newName }).eq("category", oldName);
+}
+
+async function categoryUsage(supabase: SupabaseClient, name: string): Promise<number> {
+  const inv = await supabase.from("invoices").select("id", { count: "exact", head: true }).eq("category", name);
+  const sup = await supabase.from("suppliers").select("id", { count: "exact", head: true }).eq("category", name);
+  return (inv.count ?? 0) + (sup.count ?? 0);
+}
+
+async function listCategories(supabase: SupabaseClient): Promise<Response> {
+  const { data, error } = await supabase.from("categories").select("id, name, usage_count").order("name");
+  if (error) return json({ error: error.message }, 500);
+  return json(data ?? []);
+}
+
+async function createCategory(req: Request, supabase: SupabaseClient): Promise<Response> {
+  const body = await req.json();
+  const clean = String(body.name ?? "").trim();
+  if (!clean) return json({ error: "name is required" }, 400);
+  const { data: existing } = await supabase.from("categories").select("id").eq("name", clean).maybeSingle();
+  if (existing) return json({ error: "Category already exists", code: "DUPLICATE" }, 409);
+  const { data, error } = await supabase.from("categories").insert({ name: clean, usage_count: 0 }).select("id").single();
+  if (error || !data) return json({ error: error?.message }, 500);
+  return json({ id: data.id }, 201);
+}
+
+async function renameCategory(req: Request, supabase: SupabaseClient, id: string): Promise<Response> {
+  const body = await req.json();
+  const clean = String(body.name ?? "").trim();
+  if (!clean) return json({ error: "name is required" }, 400);
+  const { data: cat } = await supabase.from("categories").select("name").eq("id", id).maybeSingle();
+  if (!cat) return json({ error: "Category not found" }, 404);
+  if (cat.name === clean) return json({ success: true });
+  const { data: dup } = await supabase.from("categories").select("id").eq("name", clean).maybeSingle();
+  if (dup) return json({ error: "A category with that name already exists — use merge", code: "DUPLICATE" }, 409);
+  const { error } = await supabase.from("categories").update({ name: clean }).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  await repointCategory(supabase, cat.name, clean);   // cascade rename to all tagged records
+  return json({ success: true });
+}
+
+async function deleteCategory(supabase: SupabaseClient, id: string, url: URL): Promise<Response> {
+  const { data: cat } = await supabase.from("categories").select("name").eq("id", id).maybeSingle();
+  if (!cat) return json({ error: "Category not found" }, 404);
+  const reassignTo = (url.searchParams.get("reassignTo") ?? "").trim();
+  const usage = await categoryUsage(supabase, cat.name);
+  if (usage > 0 && !reassignTo) {
+    // Never silently orphan — block and report usage so the UI can offer reassignment.
+    return json({ error: "Category is in use", code: "IN_USE", usage }, 409);
+  }
+  if (reassignTo) {
+    if (reassignTo === cat.name) return json({ error: "reassignTo must differ" }, 400);
+    const { data: target } = await supabase.from("categories").select("id").eq("name", reassignTo).maybeSingle();
+    if (!target) return json({ error: "reassignTo category not found" }, 400);
+    await repointCategory(supabase, cat.name, reassignTo);
+  }
+  const { error } = await supabase.from("categories").delete().eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
+}
+
+async function mergeCategory(req: Request, supabase: SupabaseClient): Promise<Response> {
+  const body = await req.json();
+  const fromId = body.fromId as string, intoId = body.intoId as string;
+  if (!fromId || !intoId || fromId === intoId) return json({ error: "fromId and intoId (distinct) are required" }, 400);
+  const { data: from } = await supabase.from("categories").select("name, usage_count").eq("id", fromId).maybeSingle();
+  const { data: into } = await supabase.from("categories").select("name, usage_count").eq("id", intoId).maybeSingle();
+  if (!from || !into) return json({ error: "Category not found" }, 404);
+  // Re-point every record from `from` → `into` (no orphans), sum usage, remove `from`.
+  await repointCategory(supabase, from.name, into.name);
+  await supabase.from("categories").update({ usage_count: (into.usage_count ?? 0) + (from.usage_count ?? 0) }).eq("id", intoId);
+  const { error } = await supabase.from("categories").delete().eq("id", fromId);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, into: into.name });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
@@ -1042,6 +1129,18 @@ Deno.serve(async (req: Request) => {
 
     // ── Alerts ────────────────────────────────────────────────────────────────
     if (path === "/alerts" && req.method === "POST") return await createAlert(req, supabase);
+
+    // ── Categories (Settings → category management) ────────────────────────────
+    if (path === "/categories") {
+      if (req.method === "GET")  return await listCategories(supabase);
+      if (req.method === "POST") return await createCategory(req, supabase);
+    }
+    if (path === "/categories/merge" && req.method === "POST") return await mergeCategory(req, supabase);
+    const categoryMatch = path.match(/^\/categories\/([^/]+)$/);
+    if (categoryMatch && categoryMatch[1] !== "merge") {
+      if (req.method === "PUT")    return await renameCategory(req, supabase, categoryMatch[1]);
+      if (req.method === "DELETE") return await deleteCategory(supabase, categoryMatch[1], url);
+    }
 
     // ── Documents ─────────────────────────────────────────────────────────────
     // Re-classify a misclassified document into the correct table (see document_misclassified).

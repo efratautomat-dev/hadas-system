@@ -3,6 +3,7 @@ import { FileText, Search, ChevronRight, ExternalLink, Eye, Save, AlertTriangle,
 import { type Invoice, type Alert } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
+import { useCategories } from '../hooks/useCategories'
 import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge } from './StatusBadge'
@@ -291,6 +292,13 @@ export function InvoiceDetail({
     alert('לא ניתן לפתוח את הקובץ כעת')
   }
 
+  // Category options from the managed pool (Settings → categories), with fallback
+  // to the built-in list and the current value always selectable.
+  const { data: cats } = useCategories()
+  const managedCats = cats.map(c => c.name)
+  const baseCats = managedCats.length ? managedCats : CATEGORIES
+  const catOptions = form.category && !baseCats.includes(form.category) ? [form.category, ...baseCats] : baseCats
+
   const set = (field: keyof Invoice) => (value: any) => {
     setForm(prev => {
       const next = { ...prev, [field]: value }
@@ -409,7 +417,7 @@ export function InvoiceDetail({
             </div>
             <TInput label="שם ספק" value={form.supplier} onChange={set('supplier')} />
           </Row2>
-          <TSelect label="קטגוריה" value={form.category} onChange={set('category')} options={CATEGORIES} />
+          <TSelect label="קטגוריה" value={form.category} onChange={set('category')} options={catOptions} />
           <TCheckbox label="האם החזר חלקי" checked={form.isPartialReturn} onChange={set('isPartialReturn')} />
           <TTextarea label="פירוט שורות" value={form.lineDetails} onChange={set('lineDetails')} />
         </Group>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Users, Plus, Search, Pencil, ChevronLeft, X } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
+import { useCategories } from '../hooks/useCategories'
 import SupplierDetail, { type Supplier } from './SupplierDetail'
 
 function useIsTablet() {
@@ -127,6 +128,14 @@ function SupplierFormCard({
 }) {
   const canSave = form.name.trim().length > 0
 
+  // Category options come from the managed pool (Settings → categories); fall back
+  // to the built-in list if the pool is empty/unavailable, and always keep the
+  // current value selectable.
+  const { data: cats } = useCategories()
+  const managed = cats.map(c => c.name)
+  const base = managed.length ? managed : CATEGORIES
+  const catOptions = form.category && !base.includes(form.category) ? [form.category, ...base] : base
+
   return (
     <div className="bg-white rounded-2xl flex flex-col" style={{ border: '1px solid #EEEEF2' }}>
       <div className="p-5 flex flex-col gap-5">
@@ -181,7 +190,7 @@ function SupplierFormCard({
                 onFocus={focusBorder}
                 onBlur={blurBorder}
               >
-                {CATEGORIES.map((cat) => (
+                {catOptions.map((cat) => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
