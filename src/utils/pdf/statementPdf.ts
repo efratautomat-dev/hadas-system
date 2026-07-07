@@ -62,13 +62,13 @@ export function printStatementPDF(data: StatementPDFData): void {
     .balance-lbl  { font-size: 10px; color: #9CA3AF; font-weight: 600; margin-bottom: 4px; }
     .balance-val  { font-size: 15px; font-weight: 700; color: #1F2937; direction: ltr; text-align: right; }
     .tbl          { width: 100%; border-collapse: collapse; font-size: 12px; }
-    .tbl thead tr { background: #D32F4A; }
+    .tbl thead tr { background: #A91D3A; }
     .tbl th       { padding: 8px 10px; color: white; font-weight: 700; text-align: right; font-size: 11px; }
     .tbl th.num   { text-align: left; }
     .tbl td       { padding: 8px 10px; border-bottom: 1px solid #EEEEF2; vertical-align: middle; }
     .tbl td.num   { text-align: left; font-weight: 500; }
     .tbl tr:nth-child(even) td { background: #FAFAFC; }
-    .tbl tfoot tr td { background: #FDF2F4; font-weight: 700; border-top: 2px solid #D32F4A; }
+    .tbl tfoot tr td { background: #FDF2F4; font-weight: 700; border-top: 2px solid #A91D3A; }
     .type-badge   { display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 700; }
   </style>
 </head>
@@ -215,7 +215,7 @@ function buildActivityTable(rows: StatementActivityRow[] | undefined): string {
           <td colspan="4" style="color:#6B7280;font-size:12px">סה"כ</td>
           <td class="num" style="color:#A16207">${fmtILS(rows.reduce((s, r) => s + r.debit, 0))}</td>
           <td class="num" style="color:#166534">${fmtILS(rows.reduce((s, r) => s + r.credit, 0))}</td>
-          <td class="num" style="color:#D32F4A;font-size:14px">${fmtILS(runningBalance)}</td>
+          <td class="num" style="color:#A91D3A;font-size:14px">${fmtILS(runningBalance)}</td>
         </tr>
       </tfoot>
     </table>

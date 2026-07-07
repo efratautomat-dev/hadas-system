@@ -45,7 +45,7 @@ const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ className?: st
 ]
 
 const DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'DD.MM.YYYY']
-const COLOR_PRESETS = ['#E8645A', '#8B1A3A', '#E8A020', '#22C55E', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6']
+const COLOR_PRESETS = ['#E8645A', '#8C1733', '#E8A020', '#22C55E', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6']
 
 function SaveToast({ visible }: { visible: boolean }) {
   return (
@@ -444,12 +444,12 @@ export default function Settings() {
                   onClick={() => sysLogoInputRef.current?.click()}
                   disabled={logoUploading}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all"
-                  style={{ borderColor: '#D32F4A', color: '#D32F4A' }}
+                  style={{ borderColor: '#A91D3A', color: '#A91D3A' }}
                   onMouseEnter={e => { if (!logoUploading) (e.currentTarget as HTMLElement).style.background = '#FDF2F4' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
                   {logoUploading ? (
-                    <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: '#D32F4A', borderTopColor: 'transparent' }} />
+                    <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: '#A91D3A', borderTopColor: 'transparent' }} />
                   ) : (
                     <Upload className="w-4 h-4" />
                   )}
@@ -634,7 +634,7 @@ export default function Settings() {
                 onClick={handleExportAll}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all"
                 style={{ background: '#E8645A' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#8B1A3A' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#8C1733' }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
               >
                 <Download className="w-4 h-4" />
@@ -770,7 +770,7 @@ export default function Settings() {
                 disabled={!empForm.name.trim()}
                 className="px-5 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 style={{ background: '#E8645A' }}
-                onMouseEnter={e => { if (empForm.name.trim()) (e.currentTarget as HTMLElement).style.background = '#8B1A3A' }}
+                onMouseEnter={e => { if (empForm.name.trim()) (e.currentTarget as HTMLElement).style.background = '#8C1733' }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
               >
                 {editingEmpId ? 'שמור שינויים' : 'הוסף עובד'}
@@ -786,7 +786,7 @@ export default function Settings() {
               onClick={openEmpAdd}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-all"
               style={{ background: '#E8645A' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#8B1A3A' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#8C1733' }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
             >
               <Plus className="w-4 h-4" />

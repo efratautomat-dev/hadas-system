@@ -58,7 +58,7 @@ export function PdfPreviewModal({ url, previewSrc, onClose }: PdfPreviewModalPro
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 rounded-lg font-semibold transition-colors"
-              style={{ background: '#FDF2F4', color: '#D32F4A', padding: '8px 14px', fontSize: '13px' }}
+              style={{ background: '#FDF2F4', color: '#A91D3A', padding: '8px 14px', fontSize: '13px' }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
             >
@@ -114,7 +114,7 @@ export function PdfPreviewButton({ url, title = 'תצוגה מקדימה', size 
           borderRadius: '8px',
           border: '1px solid #DEDFE5',
           background: 'white',
-          color: '#D32F4A',
+          color: '#A91D3A',
           cursor: 'pointer',
           flexShrink: 0,
         }}

@@ -87,12 +87,12 @@ export default function Login({ unauthorizedError = false }: Props) {
               width: '56px',
               height: '56px',
               borderRadius: '16px',
-              background: 'linear-gradient(135deg, #8B1A3A, #E8645A)',
+              background: 'linear-gradient(135deg, #8C1733, #E8645A)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               marginBottom: '14px',
-              boxShadow: '0 4px 12px rgba(139,26,58,0.25)',
+              boxShadow: '0 4px 12px rgba(140,23,51,0.25)',
             }}
           >
             <img src="/logo.png" alt="הדס" style={{ width: '40px', height: '40px', objectFit: 'contain' }} />
@@ -134,7 +134,7 @@ export default function Login({ unauthorizedError = false }: Props) {
                 marginTop: '24px',
                 background: 'none',
                 border: 'none',
-                color: '#8B1A3A',
+                color: '#8C1733',
                 fontSize: '13px',
                 textDecoration: 'underline',
                 cursor: 'pointer',
@@ -168,7 +168,7 @@ export default function Login({ unauthorizedError = false }: Props) {
                 boxSizing: 'border-box',
                 transition: 'border-color 0.15s',
               }}
-              onFocus={e => (e.currentTarget.style.borderColor = '#8B1A3A')}
+              onFocus={e => (e.currentTarget.style.borderColor = '#8C1733')}
               onBlur={e => (e.currentTarget.style.borderColor = '#E2E4E9')}
             />
 
@@ -196,7 +196,7 @@ export default function Login({ unauthorizedError = false }: Props) {
                 boxSizing: 'border-box',
                 transition: 'border-color 0.15s',
               }}
-              onFocus={e => (e.currentTarget.style.borderColor = '#8B1A3A')}
+              onFocus={e => (e.currentTarget.style.borderColor = '#8C1733')}
               onBlur={e => (e.currentTarget.style.borderColor = '#E2E4E9')}
             />
 
@@ -216,7 +216,7 @@ export default function Login({ unauthorizedError = false }: Props) {
                 background:
                   busy !== null || !email.trim()
                     ? '#D1D5DB'
-                    : 'linear-gradient(135deg, #8B1A3A, #E8645A)',
+                    : 'linear-gradient(135deg, #8C1733, #E8645A)',
                 color: 'white',
                 fontSize: '14px',
                 fontWeight: 700,
@@ -242,8 +242,8 @@ export default function Login({ unauthorizedError = false }: Props) {
                 padding: '12px',
                 borderRadius: '12px',
                 background: 'white',
-                border: `1.5px solid ${busy !== null || !email.trim() || !password ? '#E2E4E9' : '#8B1A3A'}`,
-                color: busy !== null || !email.trim() || !password ? '#B4B8C0' : '#8B1A3A',
+                border: `1.5px solid ${busy !== null || !email.trim() || !password ? '#E2E4E9' : '#8C1733'}`,
+                color: busy !== null || !email.trim() || !password ? '#B4B8C0' : '#8C1733',
                 fontSize: '14px',
                 fontWeight: 700,
                 cursor: busy !== null || !email.trim() || !password ? 'not-allowed' : 'pointer',

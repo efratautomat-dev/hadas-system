@@ -22,7 +22,7 @@ const TYPE_OPTIONS: TypeOption[] = [
   { key: 'credit',    label: 'זיכוי',        docType: 'return_doc',    Icon: RotateCcw },
 ]
 
-const ACCENT = '#D32F4A'
+const ACCENT = '#A91D3A'
 const ACCENT_BG = '#FDF2F4'
 
 function readAsDataUrl(file: File): Promise<string> {

@@ -158,7 +158,7 @@ export default function Sidebar({
       )}
 
       {/* Navigation */}
-      <nav className="flex-1 py-3 overflow-y-auto overflow-x-hidden">
+      <nav className="flex-1 py-3 px-2 overflow-y-auto overflow-x-hidden">
         {navItems.map(({ id, label, Icon }) => {
           const isActive = activePage === id
           return (
@@ -167,24 +167,25 @@ export default function Sidebar({
               onClick={() => onPageChange(id)}
               className="w-full flex items-center transition-all relative"
               style={{
-                padding: collapsed ? '12px 0' : '11px 16px',
+                padding: collapsed ? '12px 0' : '11px 14px',
                 justifyContent: collapsed ? 'center' : 'flex-start',
                 gap: collapsed ? '0' : '10px',
                 minHeight: isTablet ? '44px' : undefined,
-                color: isActive ? '#D32F4A' : '#6B7280',
-                background: isActive ? '#FDF2F4' : 'transparent',
-                borderRight: isActive ? '3px solid #D32F4A' : '3px solid transparent',
+                borderRadius: '10px',
+                marginBottom: '2px',
+                color: isActive ? '#FFFFFF' : '#6B6E73',
+                background: isActive ? '#A91D3A' : 'transparent',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {
-                  (e.currentTarget as HTMLButtonElement).style.background = '#F5F5F8'
-                  ;(e.currentTarget as HTMLButtonElement).style.color = '#1A1A2E'
+                  (e.currentTarget as HTMLButtonElement).style.background = '#FDEEEC'
+                  ;(e.currentTarget as HTMLButtonElement).style.color = '#1F2125'
                 }
               }}
               onMouseLeave={(e) => {
                 if (!isActive) {
                   (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-                  ;(e.currentTarget as HTMLButtonElement).style.color = '#6B7280'
+                  ;(e.currentTarget as HTMLButtonElement).style.color = '#6B6E73'
                 }
               }}
             >
@@ -255,7 +256,7 @@ export default function Sidebar({
           <div className="flex items-center gap-2.5 px-2 mb-2">
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center font-medium text-white flex-shrink-0"
-              style={{ background: '#D32F4A', fontSize: '14px' }}
+              style={{ background: '#A91D3A', fontSize: '14px' }}
             >
               {initials}
             </div>

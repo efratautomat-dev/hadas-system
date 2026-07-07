@@ -330,7 +330,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
               <button
                 onClick={() => setMobileMenuOpen(true)}
                 className="flex items-center justify-center rounded-xl flex-shrink-0"
-                style={{ width: '40px', height: '40px', background: '#FDF2F4', color: '#D32F4A', border: 'none', cursor: 'pointer' }}
+                style={{ width: '40px', height: '40px', background: '#FDF2F4', color: '#A91D3A', border: 'none', cursor: 'pointer' }}
               >
                 <Menu className="w-5 h-5" />
               </button>
@@ -338,7 +338,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
             <button
               className="flex items-center gap-2 rounded-xl text-gray-400 border transition-all"
               style={{ borderColor: '#EEEEF2', minHeight: '40px', padding: '0 12px', fontSize: '14px' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#D32F4A')}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#A91D3A')}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#EEEEF2')}
             >
               {!isMobile && <span>חיפוש...</span>}
@@ -363,7 +363,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
               onClick={() => handlePageChange('alerts')}
               className="relative rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
               style={{ background: '#FDF2F4', color: '#9CA3AF', width: '36px', height: '36px' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#D32F4A')}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#A91D3A')}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
             >
               <Bell className="w-5 h-5" />
@@ -388,7 +388,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
 
             <div
               className="rounded-xl flex items-center justify-center text-white font-medium cursor-pointer select-none flex-shrink-0"
-              style={{ background: '#D32F4A', width: '36px', height: '36px', fontSize: '14px' }}
+              style={{ background: '#A91D3A', width: '36px', height: '36px', fontSize: '14px' }}
               title={userEmail}
             >
               {userEmail.charAt(0).toUpperCase()}
@@ -411,7 +411,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
                   borderRadius: '50%',
                   background: 'white',
                   border: '1px solid #EEEEF2',
-                  color: '#D32F4A',
+                  color: '#A91D3A',
                   cursor: 'pointer',
                   boxShadow: 'none',
                   transition: 'box-shadow 0.15s',

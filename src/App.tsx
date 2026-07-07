@@ -21,7 +21,7 @@ function LoadingScreen() {
           height: '40px',
           borderRadius: '50%',
           border: '3px solid #E2E4E9',
-          borderTopColor: '#8B1A3A',
+          borderTopColor: '#8C1733',
           animation: 'spin 0.8s linear infinite',
         }}
       />

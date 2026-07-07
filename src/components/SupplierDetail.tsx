@@ -286,7 +286,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
               <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF' }}>{label}</span>
               <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#F8F9FA' }}>
-                <Icon className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
+                <Icon className="w-3.5 h-3.5" style={{ color: '#8C1733' }} />
               </div>
             </div>
           </div>
@@ -310,7 +310,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flexShrink: 0 }}>
             <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF', paddingTop: '5px' }}>הערות</span>
             <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#F8F9FA' }}>
-              <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
+              <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8C1733' }} />
             </div>
           </div>
         </div>
@@ -363,7 +363,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
             onClick={onViewLedger}
             hoverBg={onViewLedger ? '#FAFAFC' : undefined}
             title={<><h2 className="font-bold text-gray-800">כרטסת</h2><CreditCard className="w-4 h-4 text-gray-400" /></>}
-            action={onViewLedger ? <span className="text-sm font-semibold" style={{ color: '#D32F4A' }}>פתח כרטסת ←</span> : undefined}
+            action={onViewLedger ? <span className="text-sm font-semibold" style={{ color: '#A91D3A' }}>פתח כרטסת ←</span> : undefined}
           />
           {/* Table header */}
           <div style={{ overflowX: 'auto' }}>
@@ -401,9 +401,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
           {/* Summary / total row — final running balance matches the headline. */}
           <div
             className="grid items-center"
-            style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', padding: '12px 16px', borderTop: '2px solid #D32F4A', background: '#FDF2F4' }}
+            style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', padding: '12px 16px', borderTop: '2px solid #A91D3A', background: '#FDF2F4' }}
           >
-            <span className="font-black text-right" style={{ color: '#D32F4A', fontSize: fs('16px', '14px') }}>
+            <span className="font-black text-right" style={{ color: '#A91D3A', fontSize: fs('16px', '14px') }}>
               {formatILS(currentBalance)}
             </span>
             <span className="font-bold text-right text-gray-600" style={{ fontSize: fs('13px', '12px') }}>סה"כ · יתרה עדכנית</span>
@@ -481,7 +481,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
           onClick={onViewPayments}
           hoverBg={onViewPayments ? '#FAFAFC' : undefined}
           title={<><h2 className="font-bold text-gray-800">תשלומים</h2><CreditCard className="w-4 h-4 text-gray-400" /></>}
-          action={onViewPayments ? <span className="text-sm font-semibold" style={{ color: '#D32F4A' }}>פתח דף תשלומים ←</span> : undefined}
+          action={onViewPayments ? <span className="text-sm font-semibold" style={{ color: '#A91D3A' }}>פתח דף תשלומים ←</span> : undefined}
         />
         {payments.length === 0 ? (
           <p className="text-center text-gray-400 py-8" style={{ fontSize: '15px' }}>אין תשלומים עבור ספק זה</p>

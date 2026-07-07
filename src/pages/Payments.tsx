@@ -866,7 +866,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
             </div>
             <div
               className="rounded-xl px-4 py-2 font-semibold"
-              style={{ background: '#FFF0EF', color: '#8B1A3A' }}
+              style={{ background: '#FFF0EF', color: '#8C1733' }}
             >
               {futurePayments.length} תשלומים ממתינים
             </div>
@@ -910,7 +910,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               fontSize: isTablet ? '15px' : '14px',
               minHeight: isTablet ? '44px' : '38px',
               background: activeTab === id ? 'white' : 'transparent',
-              color: activeTab === id ? '#8B1A3A' : '#6B7280',
+              color: activeTab === id ? '#8C1733' : '#6B7280',
               boxShadow: activeTab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
             }}
           >
@@ -948,12 +948,12 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               {/* RIGHT (RTL start): title cluster */}
               <div className="flex items-center gap-2 font-bold text-gray-700">
                 הוספת תשלום חדש
-                <Plus className="w-4 h-4" style={{ color: '#8B1A3A' }} />
+                <Plus className="w-4 h-4" style={{ color: '#8C1733' }} />
               </div>
               {/* LEFT (RTL end): show/hide toggle */}
               <button
                 className="text-sm font-medium rounded-lg px-3 py-1.5 transition-colors"
-                style={{ color: '#8B1A3A', background: '#FFF0EF' }}
+                style={{ color: '#8C1733', background: '#FFF0EF' }}
                 onClick={() => setShowForm((v) => !v)}
               >
                 {showForm ? 'הסתר' : 'הצג'}
@@ -995,7 +995,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       value={form.amount}
                       onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
                       required
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     />
                   </div>
@@ -1016,7 +1016,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                         }))
                       }
                       required
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     >
                       <option value="">— בחר סוג —</option>
@@ -1035,7 +1035,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       value={form.date}
                       onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
                       required
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     />
                   </div>
@@ -1049,7 +1049,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       placeholder="מס' צ'ק / אסמכתא..."
                       value={form.ref}
                       onChange={(e) => setForm((f) => ({ ...f, ref: e.target.value }))}
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     />
                   </div>
@@ -1066,7 +1066,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                         value={form.valueDate}
                         onChange={(e) => setForm((f) => ({ ...f, valueDate: e.target.value }))}
                         required
-                        onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                        onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                         onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                       />
                     </div>
@@ -1081,7 +1081,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       placeholder="הערות נוספות..."
                       value={form.notes}
                       onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     />
                   </div>
@@ -1170,7 +1170,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   style={{ ...inputStyle, minHeight: isTablet ? '44px' : '38px' }}
                   value={fltType}
                   onChange={(e) => setFltType(e.target.value)}
-                  onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                  onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                   onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                 >
                   <option value="">הכל</option>
@@ -1185,7 +1185,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   style={{ ...inputStyle, minHeight: isTablet ? '44px' : '38px' }}
                   value={fltMonth}
                   onChange={(e) => setFltMonth(e.target.value)}
-                  onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                  onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                   onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                 >
                   <option value="">כל החודשים</option>
@@ -1211,7 +1211,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   style={{ ...inputStyle, minHeight: isTablet ? '44px' : '38px' }}
                   value={fltStatus}
                   onChange={(e) => setFltStatus(e.target.value)}
-                  onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                  onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                   onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                 >
                   <option value="">הכל</option>
@@ -1263,7 +1263,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   padding: '7px 13px', borderRadius: '8px', fontSize: '13px',
                   fontWeight: 600, border: 'none', cursor: 'pointer',
                   background: viewMode === 'table' ? 'white' : 'transparent',
-                  color: viewMode === 'table' ? '#8B1A3A' : '#6B7280',
+                  color: viewMode === 'table' ? '#8C1733' : '#6B7280',
                   boxShadow: viewMode === 'table' ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
                 }}
               >
@@ -1277,7 +1277,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   padding: '7px 13px', borderRadius: '8px', fontSize: '13px',
                   fontWeight: 600, border: 'none', cursor: 'pointer',
                   background: viewMode === 'cards' ? 'white' : 'transparent',
-                  color: viewMode === 'cards' ? '#8B1A3A' : '#6B7280',
+                  color: viewMode === 'cards' ? '#8C1733' : '#6B7280',
                   boxShadow: viewMode === 'cards' ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
                 }}
               >
@@ -1447,7 +1447,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       <span style={{ gridColumn: 'span 2', fontWeight: 700, color: '#6B7280', fontSize: isTablet ? '14px' : '13px' }}>
                         סה"כ ({activeCount} פעילים)
                       </span>
-                      <span style={{ fontWeight: 900, fontSize: isTablet ? '16px' : '14px', color: '#8B1A3A' }}>
+                      <span style={{ fontWeight: 900, fontSize: isTablet ? '16px' : '14px', color: '#8C1733' }}>
                         {fmtILS(activeTotal)}
                       </span>
                       <span style={{ gridColumn: isMobile ? 'span 3' : 'span 4' }} />
@@ -1613,7 +1613,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     value={editForm.amount}
                     onChange={(e) => setEditForm((f) => f && { ...f, amount: e.target.value })}
                     required
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   />
                 </div>
@@ -1627,7 +1627,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                         f && { ...f, type: e.target.value as PaymentType, valueDate: '' }
                       )
                     }
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   >
                     {BIZBOX_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1641,7 +1641,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     value={editForm.date}
                     onChange={(e) => setEditForm((f) => f && { ...f, date: e.target.value })}
                     required
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   />
                 </div>
@@ -1652,7 +1652,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     type="text"
                     value={editForm.ref}
                     onChange={(e) => setEditForm((f) => f && { ...f, ref: e.target.value })}
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   />
                 </div>
@@ -1664,7 +1664,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       type="date"
                       value={editForm.valueDate}
                       onChange={(e) => setEditForm((f) => f && { ...f, valueDate: e.target.value })}
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     />
                   </div>
@@ -1677,7 +1677,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     onChange={(e) =>
                       setEditForm((f) => f && { ...f, status: e.target.value as PaymentStatus })
                     }
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   >
                     <option value="paid">✅ שולם</option>
@@ -1692,7 +1692,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     type="text"
                     value={editForm.notes}
                     onChange={(e) => setEditForm((f) => f && { ...f, notes: e.target.value })}
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = '#8C1733')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   />
                 </div>
@@ -1859,7 +1859,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 }}
                 style={{
                   flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  gap: '6px', background: '#8B1A3A', color: 'white', border: 'none',
+                  gap: '6px', background: '#8C1733', color: 'white', border: 'none',
                   borderRadius: '12px', padding: '12px 16px', fontSize: '14px', fontWeight: 700,
                   cursor: 'pointer',
                 }}

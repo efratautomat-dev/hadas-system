@@ -15,7 +15,7 @@ function getGreeting(): string {
   return 'לילה טוב'
 }
 
-const ACCENT = '#D32F4A'
+const ACCENT = '#A91D3A'
 const ACCENT_BG = '#FDF2F4'
 
 interface Props {
@@ -46,8 +46,8 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
         style={{
           height: '60px',
           padding: '0 16px',
-          background: 'linear-gradient(90deg, #8B1A3A 0%, #D32F4A 100%)',
-          boxShadow: '0 1px 10px rgba(139,26,58,0.25)',
+          background: 'linear-gradient(90deg, #8C1733 0%, #A91D3A 100%)',
+          boxShadow: '0 1px 10px rgba(140,23,51,0.25)',
         }}
       >
         {/* First child → RIGHT in RTL: greeting, no name */}
@@ -76,8 +76,8 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
           <button
             onClick={() => setShowCapture(true)}
             className="flex items-center gap-2 rounded-2xl font-bold text-white transition-all"
-            style={{ minHeight: '52px', padding: '0 28px', background: ACCENT, fontSize: '16px', boxShadow: '0 4px 14px rgba(211,47,74,0.30)' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
+            style={{ minHeight: '52px', padding: '0 28px', background: ACCENT, fontSize: '16px', boxShadow: '0 4px 14px rgba(169,29,58,0.30)' }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#8C1733')}
             onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = ACCENT)}
           >
             <Camera className="w-6 h-6" />

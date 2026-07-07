@@ -126,7 +126,7 @@ function TInput({
         readOnly={readOnly}
         onFocus={f.onFocus}
         onBlur={f.onBlur}
-        style={{ ...BASE, borderColor: f.on && !readOnly ? '#D32F4A' : '#DEDFE5', background: readOnly ? '#F8F8FA' : 'white' }}
+        style={{ ...BASE, borderColor: f.on && !readOnly ? '#A91D3A' : '#DEDFE5', background: readOnly ? '#F8F8FA' : 'white' }}
       />
     </div>
   )
@@ -150,7 +150,7 @@ function TSelect({
         onChange={e => onChange(e.target.value)}
         onFocus={f.onFocus}
         onBlur={f.onBlur}
-        style={{ ...BASE, borderColor: f.on ? '#D32F4A' : '#DEDFE5', cursor: 'pointer' }}
+        style={{ ...BASE, borderColor: f.on ? '#A91D3A' : '#DEDFE5', cursor: 'pointer' }}
       >
         <option value="">-- בחר --</option>
         {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -168,8 +168,8 @@ function TCheckbox({ label, checked, onChange }: { label: string; checked: boole
       <span style={{ fontSize: '15px', color: '#374151' }}>{label}</span>
       <div style={{
         width: '22px', height: '22px', borderRadius: '6px', flexShrink: 0,
-        border: checked ? '2px solid #D32F4A' : '2px solid #D1C4C4',
-        background: checked ? '#D32F4A' : 'white',
+        border: checked ? '2px solid #A91D3A' : '2px solid #D1C4C4',
+        background: checked ? '#A91D3A' : 'white',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         transition: 'all 0.15s',
       }}>
@@ -194,7 +194,7 @@ function TTextarea({ label, value, onChange }: { label: string; value: string; o
         onFocus={f.onFocus}
         onBlur={f.onBlur}
         rows={4}
-        style={{ ...BASE, borderColor: f.on ? '#D32F4A' : '#DEDFE5', resize: 'vertical', lineHeight: 1.6 }}
+        style={{ ...BASE, borderColor: f.on ? '#A91D3A' : '#DEDFE5', resize: 'vertical', lineHeight: 1.6 }}
       />
     </div>
   )
@@ -214,7 +214,7 @@ function TLink({ label, value, onChange, showPreview = false }: { label: string;
           onBlur={f.onBlur}
           placeholder="https://..."
           dir="ltr"
-          style={{ ...BASE, flex: 1, textAlign: 'left', borderColor: f.on ? '#D32F4A' : '#DEDFE5' }}
+          style={{ ...BASE, flex: 1, textAlign: 'left', borderColor: f.on ? '#A91D3A' : '#DEDFE5' }}
         />
         {value && showPreview && <PdfPreviewButton url={value} />}
         {value && (
@@ -224,7 +224,7 @@ function TLink({ label, value, onChange, showPreview = false }: { label: string;
             rel="noopener noreferrer"
             style={{
               padding: '9px 11px', borderRadius: '10px', border: '1.5px solid #DEDFE5',
-              color: '#D32F4A', display: 'flex', alignItems: 'center', flexShrink: 0, textDecoration: 'none',
+              color: '#A91D3A', display: 'flex', alignItems: 'center', flexShrink: 0, textDecoration: 'none',
             }}
           >
             <ExternalLink size={16} />
@@ -241,7 +241,7 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   return (
     <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #EEEEF2', overflow: 'hidden' }}>
       <div style={{ padding: '12px 18px', borderBottom: '1px solid #EEEEF2', background: '#FAFAFC' }}>
-        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#D32F4A', textAlign: 'right' }}>{title}</h3>
+        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#A91D3A', textAlign: 'right' }}>{title}</h3>
       </div>
       <div style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
         {children}
@@ -321,12 +321,12 @@ export function InvoiceDetail({
           <button
             onClick={() => onSave(form)}
             style={{
-              background: '#D32F4A', color: 'white', border: 'none', borderRadius: '12px',
+              background: '#A91D3A', color: 'white', border: 'none', borderRadius: '12px',
               padding: '10px 22px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
               display: 'flex', alignItems: 'center', gap: '7px',
             }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#8C1733')}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#A91D3A')}
           >
             <Save size={16} />
             שמור
@@ -358,7 +358,7 @@ export function InvoiceDetail({
               type="button"
               onClick={() => onOpenSupplier(form.supplierId)}
               style={{
-                margin: '3px 0 0', padding: 0, fontSize: '13px', color: '#D32F4A',
+                margin: '3px 0 0', padding: 0, fontSize: '13px', color: '#A91D3A',
                 background: 'transparent', border: 'none', cursor: 'pointer',
                 textDecoration: 'underline', fontFamily: 'inherit',
               }}
@@ -424,7 +424,7 @@ export function InvoiceDetail({
             background: '#FAFAFC', border: '1.5px solid #F0D4DA', borderRadius: '12px',
             padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           }}>
-            <span style={{ fontSize: '24px', fontWeight: 600, color: '#D32F4A' }}>{formatILS(total)}</span>
+            <span style={{ fontSize: '24px', fontWeight: 600, color: '#A91D3A' }}>{formatILS(total)}</span>
             <span style={{ fontSize: '14px', color: '#9CA3AF' }}>סכום כולל (מחושב אוטומטית)</span>
           </div>
         </Group>
@@ -448,7 +448,7 @@ export function InvoiceDetail({
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: '8px',
                   padding: '9px 16px', borderRadius: '10px', border: '1.5px solid #DEDFE5',
-                  background: 'white', color: '#D32F4A', cursor: 'pointer', fontSize: '14px', fontWeight: 600,
+                  background: 'white', color: '#A91D3A', cursor: 'pointer', fontSize: '14px', fontWeight: 600,
                 }}
                 onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
@@ -801,7 +801,7 @@ export default function Invoices({
   if (loading && invoices.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#A91D3A' }} />
       </div>
     )
   }
@@ -854,7 +854,7 @@ export default function Invoices({
               style={{
                 borderRadius: '8px', padding: '7px 12px', fontSize: '14px', fontWeight: 600,
                 border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                background: filter === f ? (f === 'כפילויות' ? '#D97706' : '#D32F4A') : 'transparent',
+                background: filter === f ? (f === 'כפילויות' ? '#D97706' : '#A91D3A') : 'transparent',
                 color: filter === f ? 'white' : f === 'כפילויות' ? '#D97706' : '#6B7280',
                 display: 'flex', alignItems: 'center', gap: '5px',
               }}
@@ -1073,7 +1073,7 @@ export default function Invoices({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', padding: '14px 24px 8px' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: '#6B7280', textAlign: 'right' }}>שדה</span>
               {([
-                { title: 'חשבונית זו',      inv: dupModal.invoice, color: '#D32F4A', key: 'invoice' as const },
+                { title: 'חשבונית זו',      inv: dupModal.invoice, color: '#A91D3A', key: 'invoice' as const },
                 { title: 'כפילות אפשרית', inv: dupModal.pair,    color: '#9CA3AF', key: 'pair'    as const },
               ]).map(({ title, inv, color, key }) => (
                 <div key={key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
