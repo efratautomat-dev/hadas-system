@@ -139,3 +139,30 @@ These govern alert lifecycle regardless of type (full catalog in `07-ALERTS.md`)
   the originating alert are both **resolved**.
 - **Resolved → hidden:** resolved (`done`) alerts are hidden from the main alert view (still
   queryable / auditable, just not in the active queue).
+
+---
+
+## 6. Employee visibility
+
+Role split (`01-PRD.md §1b`): employees get a **supplier-search home**, never the manager
+dashboard or global lists. Within a selected supplier they see only that supplier's invoices,
+delivery notes and returns — **document/operational data, not the app's financial data**.
+
+**Hidden from employees (the app's own money data):**
+- Supplier **balance** and any financial summaries / totals.
+- **Payment** amounts and totals.
+- The invoice **VAT breakdown** (before-VAT / VAT / total) and per-document amount columns.
+- The **editable** invoice page — employees get a **read-only** invoice view (no edit / save).
+
+**Visible to employees (operational):**
+- Invoice metadata (number, supplier, date, category, status).
+- **Line items** — item names + quantities (needed for goods receipt).
+- The **original document** image / PDF (viewing the scanned source is fine).
+
+**DECISION (2026-07-07) — line items stay AS-IS; amounts are NOT stripped from them.**
+AI-parsed `line_items` is **free text whose format varies per supplier**, so programmatically
+stripping monetary values out of it is fragile and unreliable and would risk hiding item names or
+quantities the employee needs. Because the real cost data (balance, payment totals, VAT breakdown,
+editable invoice page) is **already** hidden, an **incidental number inside a free-text line item
+is acceptable** and we deliberately do **not** attempt to strip it. Likewise, if an amount is
+printed on the document image itself, that is just the source document, not app data.
