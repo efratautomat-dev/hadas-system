@@ -215,4 +215,29 @@ insert into public.alerts (type, title, message, status, payload) values
   ('invoice_duplicate', 'כפילות', 'התראת כפילות תואמת עבור החשבונית השנייה בזוג (INV-DUP-88)', 'unread',
    '{"typedSupplierName":"עלית","invoiceNumber":"INV-DUP-88","supplierId":"dddddddd-0000-4000-8000-000000000001","existingInvoiceId":"aaaaaaaa-0000-4000-8000-000000000012","invoiceId":"aaaaaaaa-0000-4000-8000-000000000011","demo_seed":true}');
 
+-- ── English-named supplier WITH hp + two documents carrying line items ──────────
+-- Tests employee hp-search and the read-only line-items detail (names + quantities,
+-- NO prices). Cleaned by the cleanup above (notes LIKE 'DEMO%', email_subject LIKE 'DEMO-%').
+insert into public.suppliers (id, name, hp, category, contact, phone, email, opening_balance, active, notes)
+values
+  ('dddddddd-0000-4000-8000-000000000005', 'Global Foods Ltd', '514789632', 'ספקים שונות',
+   'David Cohen', '03-7654321', 'orders@globalfoods.example', 0, true,
+   'DEMO seed — English name + hp for search/item testing');
+
+insert into public.invoices
+  (id, supplier_id, supplier_name, invoice_number, invoice_date, total_amount,
+   amount_before_vat, vat_amount, category, status, invoice_type, line_items,
+   drive_file_link, gmail_message_id, email_subject, sender_name, email_sender, received_at)
+values
+  ('aaaaaaaa-0000-4000-8000-000000000021', 'dddddddd-0000-4000-8000-000000000005',
+   'Global Foods Ltd', 'GF-2201', '2026-06-15', 3400, 2905.98, 494.02, 'ספקים שונות', 'ממתין',
+   'חשבונית', E'קמח לבן 1 ק"ג - 40 יח׳\nסוכר לבן 1 ק"ג - 25 יח׳\nשמן קנולה 1 ליטר - 18 יח׳',
+   'https://placehold.co/620x877/e0f2fe/075985.png?text=DEMO+GF+2201',
+   'demo-gf-a', 'DEMO-GF A', 'Global Foods Billing', 'billing@globalfoods.example', '2026-06-15T09:00:00Z'),
+  ('aaaaaaaa-0000-4000-8000-000000000022', 'dddddddd-0000-4000-8000-000000000005',
+   'Global Foods Ltd', 'GF-2202', '2026-06-28', 1890, 1615.38, 274.62, 'ספקים שונות', 'ממתין',
+   'חשבונית', E'אורז בסמטי 5 ק"ג - 12 יח׳\nעדשים כתומות 1 ק"ג - 30 יח׳\nפסטה 500 גרם - 48 יח׳',
+   'https://placehold.co/620x877/e0f2fe/075985.png?text=DEMO+GF+2202',
+   'demo-gf-b', 'DEMO-GF B', 'Global Foods Billing', 'billing@globalfoods.example', '2026-06-28T10:00:00Z');
+
 commit;

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight } from 'lucide-react'
+import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight, List } from 'lucide-react'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { useReturns } from '../../hooks/useReturns'
@@ -112,6 +112,22 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
           </div>
         ))}
       </div>
+
+      {/* Line items — names + quantities ONLY (operational goods-receipt info).
+          No per-item prices or money; lineDetails is free text "name - qty". */}
+      {invoice.lineDetails?.trim() && (
+        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+          <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#E2E4E9', background: '#FDFAFA' }}>
+            <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>פירוט פריטים</h2>
+            <List className="w-4 h-4 text-gray-400" />
+          </div>
+          {invoice.lineDetails.split('\n').filter((l) => l.trim()).map((line, i) => (
+            <div key={i} className="text-right" style={{ padding: '12px 24px', borderTop: i > 0 ? '1px solid #F1F2F4' : undefined, fontSize: '14px', color: '#1F2937' }}>
+              {line.trim()}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Original document (image/PDF) — viewing only, no download of app data */}
       <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#E2E4E9' }}>
