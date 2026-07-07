@@ -216,7 +216,7 @@ async function updateInvoiceStatus(req: Request, supabase: SupabaseClient, id: s
 // invoice row and its alerts must still be removed. Alerts/Storage are best-effort too.
 async function deleteInvoice(supabase: SupabaseClient, id: string): Promise<Response> {
   const { data: inv, error: fetchErr } = await supabase.from("invoices")
-    .select("id, drive_file_link, gmail_message_id, storage_url")
+    .select("id, drive_file_link, gmail_message_id, storage_url, invoice_number, supplier_id")
     .eq("id", id)
     .maybeSingle();
   if (fetchErr) return json({ error: fetchErr.message }, 500);
@@ -268,7 +268,25 @@ async function deleteInvoice(supabase: SupabaseClient, id: string): Promise<Resp
   // 4. The invoice row itself
   const { error } = await supabase.from("invoices").delete().eq("id", id);
   if (error) return json({ error: error.message }, 500);
-  return json({ success: true, drive, alerts });
+
+  // 5. Duplicate cleanup: after deleting one of a duplicate pair, if exactly ONE
+  //    invoice now remains sharing this invoice number, it is no longer a duplicate —
+  //    clear its is_duplicate flag so the "כפילות" tag disappears. Prefer the
+  //    (invoice_number, supplier_id) key; when supplier_id is NULL/empty (supplier not
+  //    resolved), fall back to matching by invoice_number ALONE. Numberless invoices
+  //    are skipped (they dedupe by storage_url, not number).
+  let unflagged = 0;
+  if (inv.invoice_number) {
+    let q = supabase.from("invoices").select("id").eq("invoice_number", inv.invoice_number);
+    if (inv.supplier_id) q = q.eq("supplier_id", inv.supplier_id);
+    const { data: siblings } = await q;
+    if (siblings && siblings.length === 1) {
+      await supabase.from("invoices").update({ is_duplicate: false }).eq("id", siblings[0].id);
+      unflagged = 1;
+    }
+  }
+
+  return json({ success: true, drive, alerts, unflagged });
 }
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
@@ -472,7 +490,7 @@ function returnToRow(body: Record<string, unknown>): Record<string, unknown> {
   const row: Record<string, unknown> = {};
   if (body.supplierId        !== undefined) row.supplier_id = body.supplierId;
   if (body.dateIso           !== undefined) row.date        = body.dateIso;   // ISO value → date column
-  if (body.amount            !== undefined) row.amount      = body.amount;
+  row.amount = body.amount ?? 0;   // tracking-only returns have no amount → default 0 (NOT NULL)
   if (body.reason            !== undefined) row.reason      = body.reason;
   if (body.detail            !== undefined) row.detail      = body.detail;
   if (body.originalInvoiceId !== undefined) row.invoice_id  = body.originalInvoiceId;
@@ -484,8 +502,10 @@ function returnToRow(body: Record<string, unknown>): Record<string, unknown> {
 
 async function createReturn(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
-  if (!body.supplierId || !body.amount || !body.reason)
-    return json({ error: "supplierId, amount, reason are required" }, 400);
+  // Returns are tracking-only: amount is NOT required (defaults to 0; the matching
+  // credit note sets it later). Only supplier + reason are mandatory (spec/01-PRD.md §6).
+  if (!body.supplierId || !body.reason)
+    return json({ error: "supplierId and reason are required" }, 400);
 
   const row = returnToRow(body);
   const { data, error } = await supabase.from("returns").insert(row).select("id").single();

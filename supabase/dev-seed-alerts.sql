@@ -192,4 +192,27 @@ insert into public.alerts (type, title, message, status, payload) values
   ('return_amount_mismatch', 'פער בהחזר', 'פער בין סכום ההחזר לזיכוי שהתקבל — יש לפתוח את ההחזר להתאמה', 'unread',
    '{"typedSupplierName":"שטראוס גרופ","returnId":"eeeeeeee-0000-4000-8000-000000000001","demo_seed":true}');
 
+-- ── Fresh duplicate pair WITH supplier_id (like real ingest) + its two alerts ──
+-- Exercises the full flow: delete one → both alerts resolve → survivor's is_duplicate
+-- cleared via the (invoice_number, supplier_id) key in deleteInvoice.
+insert into public.invoices
+  (id, supplier_id, supplier_name, invoice_number, invoice_date, total_amount,
+   amount_before_vat, vat_amount, category, status, invoice_type, drive_file_link,
+   is_duplicate, gmail_message_id, email_subject, sender_name, email_sender, received_at)
+values
+  ('aaaaaaaa-0000-4000-8000-000000000011', 'dddddddd-0000-4000-8000-000000000001',
+   'עלית', 'INV-DUP-88', '2026-07-01', 5500, 4700.85, 799.15, 'ספקים שונות', 'ממתין',
+   'חשבונית', 'https://placehold.co/620x877/e2e8f0/1f2937.png?text=DEMO+DUP2+A',
+   true, 'demo-dup2-a', 'DEMO-DUP2 A', 'עלית חיובים', 'billing@elite.example', '2026-07-01T09:00:00Z'),
+  ('aaaaaaaa-0000-4000-8000-000000000012', 'dddddddd-0000-4000-8000-000000000001',
+   'עלית', 'INV-DUP-88', '2026-07-02', 5500, 4700.85, 799.15, 'ספקים שונות', 'ממתין',
+   'חשבונית', 'https://placehold.co/620x877/e2e8f0/1f2937.png?text=DEMO+DUP2+B',
+   true, 'demo-dup2-b', 'DEMO-DUP2 B', 'עלית בוט חיובים', 'noreply@elite.example', '2026-07-02T11:00:00Z');
+
+insert into public.alerts (type, title, message, status, payload) values
+  ('invoice_duplicate', 'כפילות', 'נמצאה חשבונית כפולה אפשרית (INV-DUP-88) — יש לבחור איזו לשמור', 'unread',
+   '{"typedSupplierName":"עלית","invoiceNumber":"INV-DUP-88","supplierId":"dddddddd-0000-4000-8000-000000000001","existingInvoiceId":"aaaaaaaa-0000-4000-8000-000000000011","invoiceId":"aaaaaaaa-0000-4000-8000-000000000012","demo_seed":true}'),
+  ('invoice_duplicate', 'כפילות', 'התראת כפילות תואמת עבור החשבונית השנייה בזוג (INV-DUP-88)', 'unread',
+   '{"typedSupplierName":"עלית","invoiceNumber":"INV-DUP-88","supplierId":"dddddddd-0000-4000-8000-000000000001","existingInvoiceId":"aaaaaaaa-0000-4000-8000-000000000012","invoiceId":"aaaaaaaa-0000-4000-8000-000000000011","demo_seed":true}');
+
 commit;
