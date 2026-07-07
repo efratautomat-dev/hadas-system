@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search } from 'lucide-react'
+import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight } from 'lucide-react'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { useReturns } from '../../hooks/useReturns'
 import { useEmployees } from '../../hooks/useEmployees'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import SectionHeader from '../SectionHeader'
-import { InvoiceDetail } from '../Invoices'
+import { PdfPreviewModal } from '../PdfPreviewModal'
 import type { Invoice } from '../../data/mockData'
 import {
   FormModal as ReturnFormModal,
@@ -34,10 +34,6 @@ interface SupplierLike {
 interface Props {
   supplier: SupplierLike
   activeSection: EmployeeSection
-}
-
-function fmtILS(n: number | null | undefined) {
-  return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
 const invoiceStatusStyle: Record<string, { bg: string; color: string }> = {
@@ -76,8 +72,72 @@ function EmptyRow({ text }: { text: string }) {
   return <p className="text-center text-gray-400 py-10" style={{ fontSize: '15px' }}>{text}</p>
 }
 
+// Read-only invoice view for employees: non-financial metadata + the original
+// document (image/PDF). NO before-VAT / VAT / total, NO inputs, NO save — the
+// employee can view the scanned source but never edit the app's invoice data.
+function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: () => void }) {
+  const [showDoc, setShowDoc] = useState(false)
+  const docUrl = (invoice.driveFileLink || invoice.storage_url || '').trim()
+  const st = invoiceStatusStyle[invoice.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
+  const rows = [
+    { label: 'מספר חשבונית', value: invoice.invoiceNumber || invoice.id },
+    { label: 'ספק',          value: invoice.supplier || '' },
+    { label: 'תאריך',        value: invoice.date || '' },
+    { label: 'קטגוריה',      value: invoice.category || '' },
+  ]
+  return (
+    <div className="space-y-4">
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1.5 font-medium transition-colors"
+        style={{ background: 'white', border: '1.5px solid #DEDFE5', borderRadius: '12px', padding: '10px 16px', fontSize: '14px', color: '#6B7280', cursor: 'pointer' }}
+        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
+      >
+        <ChevronRight className="w-4 h-4" />
+        חזרה
+      </button>
+
+      {/* Non-financial metadata (read-only text, no inputs) */}
+      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#E2E4E9', background: '#FDFAFA' }}>
+          <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>פרטי חשבונית</h2>
+          <FileText className="w-4 h-4 text-gray-400" />
+          <span className="rounded-lg font-bold" style={{ ...st, fontSize: '12px', padding: '4px 10px', marginInlineStart: 'auto' }}>{invoice.status || '—'}</span>
+        </div>
+        {rows.map(({ label, value }, i) => (
+          <div key={label} style={{ direction: 'ltr', display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 24px', minHeight: '52px', borderTop: i > 0 ? '1px solid #E2E4E9' : undefined }}>
+            <span style={{ flex: 1, minWidth: 0, textAlign: 'left', direction: 'rtl', fontSize: '14px', color: '#1F2937', fontWeight: 500 }}>{value || '—'}</span>
+            <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF' }}>{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Original document (image/PDF) — viewing only, no download of app data */}
+      <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#E2E4E9' }}>
+        {docUrl ? (
+          <button
+            onClick={() => setShowDoc(true)}
+            className="flex items-center gap-2 rounded-xl font-bold text-white w-full justify-center transition-all"
+            style={{ minHeight: '48px', background: '#D32F4A', fontSize: '15px' }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
+          >
+            <Eye className="w-5 h-5" />
+            צפייה במסמך המקורי
+          </button>
+        ) : (
+          <p className="text-center text-gray-400 py-2" style={{ fontSize: '14px' }}>אין מסמך מצורף</p>
+        )}
+      </div>
+
+      {showDoc && docUrl && <PdfPreviewModal url={docUrl} onClose={() => setShowDoc(false)} />}
+    </div>
+  )
+}
+
 export default function EmployeeSupplierView({ supplier, activeSection }: Props) {
-  const { data: allInvoices, update: updateInvoice } = useInvoices()
+  const { data: allInvoices } = useInvoices()
   const { data: allDeliveries }    = useDeliveryNotes()
   const { data: allReturns, create: createReturn } = useReturns()
   const { data: employees }        = useEmployees()
@@ -147,25 +207,12 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
     { Icon: Tag,   label: 'קטגוריה',     value: supplier.category ?? '' },
   ]
 
-  // Reuse the manager-side full invoice detail (incl. the eye-icon document
-  // preview). When a row is selected it replaces the whole supplier view; the
-  // built-in "חזרה" button clears the selection back to the list.
+  // Employees get a READ-ONLY invoice view: NO financial fields (before-VAT / VAT /
+  // total), NO edit or save controls — only non-money metadata plus the original
+  // document image/PDF (viewing the scanned source is allowed). When a row is
+  // selected it replaces the whole supplier view; its "חזרה" button clears it.
   if (selectedInvoice) {
-    return (
-      <InvoiceDetail
-        invoice={selectedInvoice}
-        derivedStatus={selectedInvoice.status}
-        onBack={() => setSelectedInvoice(null)}
-        onSave={async (updated) => {
-          setSelectedInvoice(null)
-          try {
-            await updateInvoice(updated.id, updated)
-          } catch {
-            // hook surfaces the error
-          }
-        }}
-      />
-    )
+    return <EmployeeInvoiceView invoice={selectedInvoice} onBack={() => setSelectedInvoice(null)} />
   }
 
   return (
@@ -253,7 +300,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
                 <div
                   key={inv.id}
                   className="grid items-center border-b cursor-pointer"
-                  style={{ gridTemplateColumns: '1fr 80px 120px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                  style={{ gridTemplateColumns: '1fr 90px 28px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px' }}
                   onClick={() => setSelectedInvoice(inv as Invoice)}
                   onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
                   onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
@@ -262,7 +309,8 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
                   <div className="flex justify-center">
                     <span className="rounded-lg font-bold" style={{ ...st, fontSize: '12px', padding: '4px 10px' }}>{inv.status || '—'}</span>
                   </div>
-                  <span className="text-left font-black text-gray-800" style={{ fontSize: '14px' }}>{fmtILS(inv.amount)}</span>
+                  {/* No amount — employees see the document, not the app's money data */}
+                  <Eye className="w-4 h-4" style={{ color: '#9CA3AF' }} />
                 </div>
               )
             })
@@ -280,13 +328,12 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
               <div
                 key={dn.id}
                 className="grid items-center border-b"
-                style={{ gridTemplateColumns: '1fr 100px 120px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                style={{ gridTemplateColumns: '1fr 100px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px' }}
               >
                 <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{dn.id} · {dn.date}</p>
                 <span className="text-center text-gray-400" style={{ fontSize: '12px' }}>
                   {dn.status === 'archived' ? 'בארכיון' : 'ממתין'}
                 </span>
-                <span className="text-left font-black text-gray-800" style={{ fontSize: '14px' }}>{fmtILS(dn.amount)}</span>
               </div>
             ))
           )}
@@ -321,11 +368,10 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
                 <div
                   key={r.id}
                   className="grid items-center border-b"
-                  style={{ gridTemplateColumns: '90px 1fr 90px 90px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px', textAlign: 'right' }}
+                  style={{ gridTemplateColumns: '90px 1fr 90px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px', textAlign: 'right' }}
                 >
                   <span className="text-gray-500" style={{ fontSize: '13px' }}>{r.date}</span>
                   <span className="text-gray-600 truncate" style={{ fontSize: '13px', paddingLeft: '8px' }} title={r.reason}>{r.reason}</span>
-                  <span className="font-bold" style={{ color: '#7C3AED', fontSize: '14px' }}>{fmtILS(r.amount)}</span>
                   <span className="rounded-lg font-bold text-center" style={{ ...st, fontSize: '12px', padding: '4px 8px' }}>{r.status}</span>
                 </div>
               )
