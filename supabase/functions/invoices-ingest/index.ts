@@ -1574,7 +1574,8 @@ async function handleInvoiceFile(
       await log("info", `hp dedupe: matched supplier ${matched.id} by ח.פ (name agrees)`, { hp: extractedHp }, msgId);
     }
   } else {
-    // 2. Fall back to name-fuzzy match (unchanged behavior).
+    // 2. NAME-FALLBACK (secondary) — used ONLY when hp is absent/unmatched. ח.פ (step 1
+    //    above) is the primary key; name-fuzzy stays as the documented secondary fallback.
     matched = findBestSupplier(extracted.vendor_name, suppliers);
   }
 
@@ -2218,19 +2219,27 @@ async function handleNonInvoice(
   // Non-invoice docs are NOT uploaded to Drive — they are viewable via the
   // Gmail message link stored on the row.
 
-  const resolveSupplier = async (vendorName: string): Promise<string | null> => {
-    if (!vendorName) return null;
-    const matched = findBestSupplier(vendorName, suppliers);
+  // Supplier link key (spec/06-RULES.md §2b): business number (ח.פ) is the PRIMARY
+  // join key; fuzzy NAME is only a secondary fallback when hp is missing/unmatched.
+  const resolveSupplier = async (vendorName: string, hp = ""): Promise<string | null> => {
+    const normHp = normalizeHp(hp);
+    // 1. PRIMARY — ח.פ exact match (authoritative across name-spelling differences).
+    let matched: SupplierRow | null = normHp
+      ? (suppliers.find(s => normalizeHp(s.hp) === normHp) ?? null)
+      : null;
+    // 2. NAME-FALLBACK (secondary) — used ONLY when hp gave no match.
+    if (!matched && vendorName) matched = findBestSupplier(vendorName, suppliers);
     if (matched) return matched.id;
+    if (!vendorName) return null;
     const { data: created, error: supErr } = await supabase
-      .from("suppliers").insert({ name: vendorName }).select("id").single();
+      .from("suppliers").insert({ name: vendorName, hp: normHp || null }).select("id").single();
     if (supErr) {
       await log("error", `supplier insert failed: ${supErr.message}`, undefined, msgId);
       return null;
     }
     const id = created!.id as string;
-    suppliers.push({ id, name: vendorName, category: null, hp: null });
-    await log("info", `created new supplier ${id}`, { name: vendorName }, msgId);
+    suppliers.push({ id, name: vendorName, category: null, hp: normHp || null });
+    await log("info", `created new supplier ${id}`, { name: vendorName, hp: normHp || null }, msgId);
     // New supplier created silently from the document — prompt the owner to fill
     // in ח.פ / contact details. Same type + payload shape as payments-ingest.
     await insertAlertOnce(supabase, log, msgId, {
@@ -2249,6 +2258,8 @@ async function handleNonInvoice(
     // alerting + labeling and losing the document. (No clean "not a delivery
     // note" verdict exists here; the doc was already routed by subject/content.)
     const extracted = await extractDeliveryNote(ctx.doc);
+    // NAME-FALLBACK: extractDeliveryNote does not capture ח.פ yet, so this links by
+    // name only. Add `hp` to the delivery-note prompt + pass it here to make it hp-primary.
     const supplierId = await resolveSupplier(extracted.vendor_name);
 
     // Dedup: primary = gmail_message_id + note_number + supplier_id
@@ -2326,6 +2337,8 @@ async function handleNonInvoice(
     // As with delivery notes — a thrown extraction error propagates so the email
     // stays unlabeled and the next run retries, rather than escalating + labeling.
     const extracted = await extractReturn(ctx.doc);
+    // NAME-FALLBACK: extractReturn (credit note) does not capture ח.פ yet, so this
+    // links by name only. Add `hp` to the credit-note prompt + pass it here for hp-primary.
     const supplierId = await resolveSupplier(extracted.vendor_name);
 
     // Upload the credit-note file to Storage up front so it's available whether
@@ -2448,6 +2461,8 @@ async function handleNonInvoice(
     let supplierId: string | null = null;
     try {
       const extracted = await extractStatement(ctx.doc);
+      // NAME-FALLBACK: extractStatement captures vendor_name only (minimal-by-design
+      // prompt), so this links by name only. Add `hp` to the statement prompt for hp-primary.
       supplierId = await resolveSupplier(extracted.vendor_name);
       await log("info", "statement vendor resolved",
         { vendor: extracted.vendor_name, supplierId }, msgId);
