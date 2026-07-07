@@ -46,8 +46,10 @@ export function useSuppliers() {
             ...r,
             hp:             r.hp      ?? '',
             contact:        r.contact ?? '',
-            // Fields not in DB — provide safe defaults so UI doesn't break
-            status:         'פעיל',
+            // Active/inactive: derived from the `active` column. Until that column
+            // exists (r.active === undefined) everyone defaults to active ('פעיל');
+            // only an explicit active=false marks a supplier inactive ('לא פעיל').
+            status:         r.active === false ? 'לא פעיל' : 'פעיל',
             paymentTerms:   '',
             lastOrderDate:  '',
             openingBalance,

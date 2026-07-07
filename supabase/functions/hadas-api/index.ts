@@ -97,6 +97,7 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
     phone:          "phone",
     openingBalance: "opening_balance",
     notes:          "notes",
+    active:         "active",   // active/inactive toggle (deactivation replaces hard delete)
   };
   const updates: Record<string, unknown> = {};
   for (const [key, col] of Object.entries(ALLOWED)) {

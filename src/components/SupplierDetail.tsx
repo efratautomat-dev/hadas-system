@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle } from 'lucide-react'
+import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { usePayments } from '../hooks/usePayments'
 import { computeSupplierBalance, sumNonCancelledPayments } from '../lib/supplierBalance'
@@ -52,6 +52,7 @@ interface Props {
   onViewLedger?: () => void
   onViewPayments?: () => void
   onOpenInvoice?: (invoiceId: string) => void
+  onToggleActive?: (nextActive: boolean) => void
 }
 
 const invoiceStatusStyle: Record<string, { bg: string; color: string }> = {
@@ -80,7 +81,7 @@ function fmtDate(d: string): string {
   return `${day}/${m}/${y}`
 }
 
-export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger, onViewPayments, onOpenInvoice }: Props) {
+export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive }: Props) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
@@ -171,6 +172,31 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
               כרטסת ספק
             </button>
           )}
+          {onToggleActive && (() => {
+            const isActive = supplier.status === 'פעיל'
+            // Clear active⇄inactive toggle: colored switch + current-state label.
+            // Click flips the `active` column via hadas-api.
+            return (
+              <button
+                onClick={() => onToggleActive(!isActive)}
+                title={isActive ? 'לחצי כדי להשבית את הספק' : 'לחצי כדי להפעיל את הספק מחדש'}
+                className="flex items-center gap-2 rounded-xl font-semibold transition-all"
+                style={{
+                  minHeight: '44px', padding: '0 14px', fontSize: fs('16px', '14px'),
+                  background: isActive ? '#DCFCE7' : '#F3F4F6',
+                  color: isActive ? '#15803D' : '#6B7280',
+                  border: `1px solid ${isActive ? '#BBF7D0' : '#E5E7EB'}`,
+                }}
+              >
+                <Power className="w-4 h-4" />
+                <span>{isActive ? 'פעיל' : 'לא פעיל'}</span>
+                {/* switch track (green=active / gray=inactive); knob slides on toggle */}
+                <span style={{ position: 'relative', width: '38px', height: '22px', borderRadius: '999px', flexShrink: 0, transition: 'background .2s', background: isActive ? '#16A34A' : '#CBD5E1' }}>
+                  <span style={{ position: 'absolute', top: '2px', left: '2px', width: '18px', height: '18px', borderRadius: '50%', background: 'white', transition: 'transform .2s', transform: isActive ? 'translateX(16px)' : 'translateX(0)' }} />
+                </span>
+              </button>
+            )
+          })()}
           <button
             onClick={onEdit}
             className="flex items-center gap-2 rounded-xl font-semibold transition-all"

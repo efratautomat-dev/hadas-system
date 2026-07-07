@@ -382,7 +382,9 @@ export default function Suppliers({
   const [showAdd,    setShowAdd]       = useState(false)
   const [addForm,    setAddForm]       = useState<EditFormState>({ ...emptyForm })
   const [search,     setSearch]        = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // Default to active-only: inactive suppliers are hidden until the user picks
+  // the "לא פעילים" filter (deactivation replaces hard delete — spec/01-PRD.md §2).
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('פעיל')
 
   useEffect(() => {
     setSuppliers([...serverSuppliers] as Supplier[])
@@ -420,6 +422,13 @@ export default function Suppliers({
         onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
         onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
         onOpenInvoice={onOpenInvoice}
+        onToggleActive={async (nextActive: boolean) => {
+          try {
+            await updateSupplier(sup.id, { active: nextActive })
+          } catch {
+            // hook sets error state
+          }
+        }}
       />
     )
   }
@@ -558,7 +567,7 @@ export default function Suppliers({
                 color: statusFilter === f ? 'white' : '#6B7280',
               }}
             >
-              {f === 'all' ? 'הכל' : f}
+              {f === 'all' ? 'הכל' : f === 'פעיל' ? 'פעילים' : 'לא פעילים'}
             </button>
           ))}
         </div>
