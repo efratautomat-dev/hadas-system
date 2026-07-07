@@ -327,8 +327,10 @@ async function createPayment(req: Request, supabase: SupabaseClient): Promise<Re
   let supplierId: string | null = null;
   if (body.supplier_id) {
     supplierId = body.supplier_id as string;
-  } else if (body.supplier) {
-    supplierId = await resolveSupplierIdByName(supabase, body.supplier as string);
+  } else if (body.supplier || body.hp) {
+    // Auto-create (PART 3B): a payment for a supplier that does not exist yet
+    // creates one from whatever is available (name and/or ח.פ), flagged incomplete.
+    supplierId = await resolveOrCreateSupplier(supabase, body.supplier as string | undefined, body.hp as string | undefined);
   }
 
   const row = paymentToRow(body, supplierId);
@@ -343,8 +345,9 @@ async function updatePayment(req: Request, supabase: SupabaseClient, id: string)
   let supplierId: string | null = null;
   if (body.supplier_id) {
     supplierId = body.supplier_id as string;
-  } else if (body.supplier) {
-    supplierId = await resolveSupplierIdByName(supabase, body.supplier as string);
+  } else if (body.supplier || body.hp) {
+    // Auto-create (PART 3B): same as createPayment — resolve by ח.פ/name or create.
+    supplierId = await resolveOrCreateSupplier(supabase, body.supplier as string | undefined, body.hp as string | undefined);
   }
 
   const row = paymentToRow(body, supplierId);
@@ -401,15 +404,9 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
   if (!supplier_name || !note_number || !date || amount == null)
     return json({ error: "Missing required fields" }, 400);
 
-  let supplierId: string;
-  const { data: existing } = await supabase.from("suppliers").select("id").eq("name", supplier_name).maybeSingle();
-  if (existing) {
-    supplierId = existing.id;
-  } else {
-    const { data: created, error: createErr } = await supabase.from("suppliers").insert({ name: supplier_name }).select("id").single();
-    if (createErr || !created) return json({ error: "Failed to create supplier", details: createErr?.message }, 500);
-    supplierId = created.id;
-  }
+  // Auto-create (PART 3B): resolve by ח.פ / name, else create a supplier flagged incomplete.
+  const supplierId = await resolveOrCreateSupplier(supabase, supplier_name, body.hp as string | undefined);
+  if (!supplierId) return json({ error: "Failed to resolve/create supplier" }, 500);
 
   const { data: note, error: noteErr } = await supabase.from("delivery_notes")
     .insert({
@@ -602,14 +599,42 @@ function currentMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+// ─── Supplier auto-create (Suppliers PART 3B) ──────────────────────────────────
+// Resolve a supplier by ח.פ (PRIMARY) then name; if NEITHER matches, AUTO-CREATE a
+// minimal supplier from whatever is available (name and/or hp) and mark it incomplete
+// via the `needs_details` flag (the SOURCE OF TRUTH), keeping a short human note too.
+// NOTE: the "השלם פרטים" ALERT is piece C — deliberately NOT raised here.
+const INCOMPLETE_SUPPLIER_NOTE = "נוצר אוטומטית — יש להשלים פרטי ספק (ח.פ / איש קשר / טלפון)";
+
+// Tax-id normalizer — digits only, so "51-423-789 / 0" and "514237890" compare equal.
+function normalizeHp(s: string | null | undefined): string {
+  return (s ?? "").replace(/\D/g, "");
+}
+
 async function resolveOrCreateSupplier(
   supabase: SupabaseClient,
   supplierName: string | undefined,
+  hp?: string | undefined,
 ): Promise<string | null> {
-  if (!supplierName) return null;
-  const existing = await resolveSupplierIdByName(supabase, supplierName);
-  if (existing) return existing;
-  const { data } = await supabase.from("suppliers").insert({ name: supplierName }).select("id").single();
+  const normHp = normalizeHp(hp);
+  // 1. PRIMARY — match by ח.פ (business number).
+  if (normHp) {
+    const { data } = await supabase.from("suppliers").select("id").eq("hp", normHp).maybeSingle();
+    if (data?.id) return data.id as string;
+  }
+  // 2. Secondary — match by name.
+  if (supplierName) {
+    const existing = await resolveSupplierIdByName(supabase, supplierName);
+    if (existing) return existing;
+  }
+  // 3. Nothing to match on or create from.
+  if (!supplierName && !normHp) return null;
+  // 4. AUTO-CREATE from whatever is available (name and/or hp), flagged incomplete
+  //    via needs_details=true (source of truth) + a short human note.
+  const { data, error } = await supabase.from("suppliers")
+    .insert({ name: supplierName || "ספק ללא שם", hp: normHp || null, needs_details: true, notes: INCOMPLETE_SUPPLIER_NOTE })
+    .select("id").single();
+  if (error) return null;
   return data?.id ?? null;
 }
 
