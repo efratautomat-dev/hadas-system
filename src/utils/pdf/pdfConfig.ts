@@ -11,7 +11,9 @@ export const PDF_GRAY_4      = '#6B7280'
 export const PDF_GRAY_5      = '#9CA3AF'
 
 export function getPdfLogoUrl(): string {
-  return `${window.location.origin}/store-logo.png.jpeg`
+  // Same source as the rest of the app — the brand config's logoPath. Resolved to
+  // an absolute URL because PDFs render in a standalone print window.
+  return `${window.location.origin}${brand.logoPath}`
 }
 
 export function fmtILS(n: number | null | undefined): string {
