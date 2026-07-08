@@ -736,7 +736,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
           </div>
 
           {/* Row 2 — value-date chip · type · days-until chip */}
-          <div className="flex items-center gap-2 flex-wrap justify-end" style={{ marginTop: '12px' }}>
+          <div className="flex items-center gap-2 flex-wrap justify-start" style={{ marginTop: '12px' }}>
             <span className="rounded-lg font-medium" style={{ background: '#FEF3C7', color: '#92400E', fontSize: '11px', padding: '3px 9px' }}>
               📅 ערך {fmtDate(p.valueDate)}
             </span>
@@ -1410,7 +1410,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
           style={{ borderColor: '#E2E4E9' }}
         >
           <div
-            className="px-5 py-3 border-b font-bold text-gray-700 flex items-center justify-end gap-2"
+            className="px-5 py-3 border-b font-bold text-gray-700 flex items-center justify-start gap-2"
             style={{ borderColor: '#F5EEEE', background: '#F8F9FA', fontSize: isTablet ? '16px' : '14px' }}
           >
             תשלומים עתידיים — צ'קים ואשראי
@@ -1430,7 +1430,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 {urgentList.length > 0 && (
                   <div>
                     <div
-                      className="flex items-center justify-end gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
+                      className="flex items-center justify-start gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
                       style={{ borderColor: '#FEE2E2', color: '#DC2626', fontSize: '12px' }}
                     >
                       דחוף — תוך 7 ימים ({urgentList.length})
@@ -1447,7 +1447,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 {soonList.length > 0 && (
                   <div>
                     <div
-                      className="flex items-center justify-end gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
+                      className="flex items-center justify-start gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
                       style={{ borderColor: '#FEF3C7', color: '#D97706', fontSize: '12px' }}
                     >
                       בקרוב — 8–30 ימים ({soonList.length})
@@ -1464,7 +1464,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 {laterList.length > 0 && (
                   <div>
                     <div
-                      className="flex items-center justify-end gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
+                      className="flex items-center justify-start gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
                       style={{ borderColor: '#DCFCE7', color: '#16A34A', fontSize: '12px' }}
                     >
                       מאוחר יותר — מעל 30 יום ({laterList.length})
@@ -1478,16 +1478,16 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   </div>
                 )}
 
-                {/* Total */}
+                {/* Total — label on the RIGHT (RTL start), amount on the LEFT */}
                 <div
                   className="flex items-center justify-between rounded-xl px-5 py-4 mt-2"
-                  style={{ background: '#F8F9FA', border: '1.5px solid #E2E4E9' }}
+                  style={{ background: '#F8F9FA', border: '1.5px solid #E2E4E9', direction: 'rtl' }}
                 >
-                  <p className="font-black text-gray-900" style={{ fontSize: isTablet ? '22px' : '20px' }}>
-                    {fmtILS(futureTotal)}
-                  </p>
                   <p className="font-semibold text-gray-500" style={{ fontSize: isTablet ? '15px' : '14px' }}>
                     סה"כ תשלומים עתידיים
+                  </p>
+                  <p className="font-black text-gray-900" style={{ fontSize: isTablet ? '22px' : '20px' }}>
+                    {fmtILS(futureTotal)}
                   </p>
                 </div>
               </>
