@@ -1000,27 +1000,56 @@ async function deleteEmployee(supabase: SupabaseClient, id: string): Promise<Res
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 
+// Result of authenticating a request. `role` is the SERVER-DERIVED role
+// ('manager' | 'employee') — read from allowed_users by the JWT's verified email,
+// NEVER from anything the client can set. `viaKey` marks trusted machine calls.
+interface AuthResult {
+  ok: boolean;
+  role?: "manager" | "employee";
+  viaKey?: boolean;
+}
+
 // Two valid auth paths:
-//   1. x-hadas-key header  — N8N server-to-server calls (unchanged)
-//   2. Authorization: Bearer <jwt> — frontend user calls (new)
-async function isAuthorized(req: Request, supabase: SupabaseClient): Promise<boolean> {
+//   1. x-hadas-key header  — N8N / cron server-to-server calls (trusted → manager)
+//   2. Authorization: Bearer <jwt> — frontend user calls; role from allowed_users
+async function authenticate(req: Request, supabase: SupabaseClient): Promise<AuthResult> {
   const hadasKey = req.headers.get("x-hadas-key");
-  if (hadasKey) return validateKey(hadasKey);
+  if (hadasKey) {
+    // Machine/cron identity — full trust, treated as manager.
+    return validateKey(hadasKey) ? { ok: true, role: "manager", viaKey: true } : { ok: false };
+  }
 
   const authHeader = req.headers.get("authorization");
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice(7);
+    // getUser() verifies the JWT signature server-side — the email below is
+    // therefore trustworthy and cannot be forged by the caller.
     const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) return false;
+    if (error || !user) return { ok: false };
     const { data } = await supabase
       .from("allowed_users")
-      .select("email")
+      .select("role")
       .eq("email", user.email)
       .maybeSingle();
-    return !!data;
+    if (!data) return { ok: false };
+    // Mirrors src/hooks/useAuth.ts: 'employee' is the only restricted role;
+    // anything else (incl. 'manager' / null) is treated as manager.
+    const role = (data.role as string) === "employee" ? "employee" : "manager";
+    return { ok: true, role };
   }
 
-  return false;
+  return { ok: false };
+}
+
+// Employee WRITE allowlist. hadas-api runs with the service-role key, which
+// bypasses RLS, so role enforcement MUST live here — otherwise any authenticated
+// employee JWT could create/update/delete anything. Employees legitimately need
+// exactly one write: creating a return from the employee return form
+// (EmployeeSupplierView → useReturns.create → POST /returns). Every other write —
+// and every GET (employees read via the anon client under RLS, never through this
+// API) — is manager-only. CaptureDocument posts to invoices-ingest, not here.
+function employeeMayAccess(method: string, path: string): boolean {
+  return method === "POST" && path === "/returns";
 }
 
 // ─── Categories (Settings → category management) ───────────────────────────────
@@ -1126,11 +1155,19 @@ Deno.serve(async (req: Request) => {
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("HADAS_SERVICE_KEY") ?? "";
   const supabase    = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
-  if (!(await isAuthorized(req, supabase))) {
+  const auth = await authenticate(req, supabase);
+  if (!auth.ok) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { ...CORS, "Content-Type": "application/json" },
     });
+  }
+
+  // Role gate (Gap #1): employees are limited to their allowlisted writes.
+  // Everything else — payments, invoices, deletes, statement reconcile, bizbox
+  // stamp, reclassify, category/employee/supplier admin, and all GETs — is 403.
+  if (auth.role === "employee" && !employeeMayAccess(req.method, path)) {
+    return json({ error: "Forbidden — manager role required", role: "employee" }, 403);
   }
 
   try {
