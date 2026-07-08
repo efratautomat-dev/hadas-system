@@ -11,6 +11,7 @@ import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
 import { StatusBadge } from './StatusBadge'
+import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 
 export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -653,28 +654,28 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+      <div style={tableWrap}>
         <SectionHeader
           className="px-5 py-4 border-b"
-          style={{ borderColor: '#E2E4E9' }}
+          style={{ borderColor: '#EEEEF2' }}
           action={<span className="text-sm text-gray-400">{filtered.length} רשומות</span>}
           title={<h2 className="font-bold text-gray-800">רשימת חזרות</h2>}
         />
 
         <div style={{ overflowX: 'auto' }}>
           <div
-            className="grid text-xs font-bold text-gray-500 border-b"
-            style={{ gridTemplateColumns: COL, minWidth: MIN_W, padding: '10px 16px', background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right' }}
+            className="grid"
+            style={{ ...tableHeadRow, display: 'grid', gridTemplateColumns: COL, minWidth: MIN_W }}
           >
-            <span>תאריך</span>
-            <span>ספק</span>
-            <span>סכום</span>
-            <span>סיבה</span>
-            <span>תעודת זיכוי מספק</span>
-            <span>סכום זיכוי</span>
-            <span>סטטוס</span>
-            {!isTablet && <span>נוצר ע"י</span>}
-            {!isTablet && <span className="text-center">פעולות</span>}
+            <span style={tableHeadCell}>תאריך</span>
+            <span style={tableHeadCell}>ספק</span>
+            <span style={tableHeadCell}>סכום</span>
+            <span style={tableHeadCell}>סיבה</span>
+            <span style={tableHeadCell}>תעודת זיכוי מספק</span>
+            <span style={tableHeadCell}>סכום זיכוי</span>
+            <span style={tableHeadCell}>סטטוס</span>
+            {!isTablet && <span style={tableHeadCell}>נוצר ע"י</span>}
+            {!isTablet && <span className="text-center" style={tableHeadCell}>פעולות</span>}
           </div>
 
           {filtered.length === 0 ? (
@@ -683,12 +684,12 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
               <p className="text-gray-400 text-sm">לא נמצאו חזרות</p>
             </div>
           ) : (
-            filtered.map((r) => (
+            filtered.map((r, index) => (
               <div
                 key={r.id}
-                className="grid items-center border-b transition-colors cursor-pointer"
-                style={{ gridTemplateColumns: COL, minWidth: MIN_W, padding: '14px 16px', borderColor: '#E2E4E9', textAlign: 'right' }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+                className="grid items-center transition-colors cursor-pointer"
+                style={{ ...tableRow(index === 0), display: 'grid', gridTemplateColumns: COL, minWidth: MIN_W }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 onClick={() => openEdit(r.id)}
               >
@@ -778,24 +779,24 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
 
       {/* Arrived documents view — credit notes received by email (source=email) */}
       {view === 'arrived' && (
-        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+        <div style={tableWrap}>
           <SectionHeader
             className="px-5 py-4 border-b"
-            style={{ borderColor: '#E2E4E9' }}
+            style={{ borderColor: '#EEEEF2' }}
             action={<span className="text-sm text-gray-400">{arrivedReturns.length} מסמכים</span>}
             title={<h2 className="font-bold text-gray-800">מסמכים שהגיעו במייל</h2>}
           />
           <div style={{ overflowX: 'auto' }}>
             <div
-              className="grid text-xs font-bold text-gray-500 border-b"
-              style={{ gridTemplateColumns: '110px 1fr 130px 120px 150px 90px', minWidth: '720px', padding: '10px 16px', background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right' }}
+              className="grid"
+              style={{ ...tableHeadRow, display: 'grid', gridTemplateColumns: '110px 1fr 130px 120px 150px 90px', minWidth: '720px' }}
             >
-              <span>תאריך</span>
-              <span>ספק</span>
-              <span>מס׳ זיכוי</span>
-              <span>סכום</span>
-              <span>התאמה להחזרה</span>
-              <span className="text-center">מסמך</span>
+              <span style={tableHeadCell}>תאריך</span>
+              <span style={tableHeadCell}>ספק</span>
+              <span style={tableHeadCell}>מס׳ זיכוי</span>
+              <span style={tableHeadCell}>סכום</span>
+              <span style={tableHeadCell}>התאמה להחזרה</span>
+              <span className="text-center" style={tableHeadCell}>מסמך</span>
             </div>
 
             {arrivedReturns.length === 0 ? (
@@ -804,13 +805,15 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                 <p className="text-gray-400 text-sm">לא התקבלו מסמכי זיכוי במייל</p>
               </div>
             ) : (
-              arrivedReturns.map((r) => {
+              arrivedReturns.map((r, index) => {
                 const matchedReturn = matchReturnForCreditNote(r, returns)
                 return (
                 <div
                   key={r.id}
-                  className="grid items-center border-b"
-                  style={{ gridTemplateColumns: '110px 1fr 130px 120px 150px 90px', minWidth: '720px', padding: '14px 16px', borderColor: '#E2E4E9', textAlign: 'right' }}
+                  className="grid items-center transition-colors"
+                  style={{ ...tableRow(index === 0), display: 'grid', gridTemplateColumns: '110px 1fr 130px 120px 150px 90px', minWidth: '720px' }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 >
                   <span className="text-sm text-gray-500">{r.date}</span>
                   <span className="text-sm font-semibold text-gray-800">{r.supplier}</span>

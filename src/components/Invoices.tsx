@@ -8,6 +8,7 @@ import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge } from './StatusBadge'
 import { supabase } from '../lib/supabase'
+import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -929,7 +930,7 @@ export default function Invoices({
       )}
 
       {/* List — same shape as the Returns table */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+      <div style={{ ...tableWrap }}>
         {filtered.length === 0 ? (
           <div className="py-16 text-center text-gray-400">
             <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -939,18 +940,17 @@ export default function Invoices({
           <div style={{ overflowX: 'auto' }}>
             {/* Column headers */}
             <div
-              className="grid text-xs font-bold text-gray-500 border-b"
-              style={{ gridTemplateColumns: COL, minWidth: MIN_W, padding: '10px 16px', background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right' }}
+              style={{ ...tableHeadRow, display: 'grid', gridTemplateColumns: COL, minWidth: MIN_W }}
             >
-              <span>ספק</span>
-              {!isMobile && <span>מסמך · תאריך</span>}
-              {!isMobile && !isTablet && <span>קטגוריה</span>}
-              <span>סכום</span>
-              <span className="text-center">סטטוס</span>
+              <span style={tableHeadCell}>ספק</span>
+              {!isMobile && <span style={tableHeadCell}>מסמך · תאריך</span>}
+              {!isMobile && !isTablet && <span style={tableHeadCell}>קטגוריה</span>}
+              <span style={tableHeadCell}>סכום</span>
+              <span className="text-center" style={tableHeadCell}>סטטוס</span>
             </div>
 
             {/* Data rows */}
-            {filtered.map((inv) => {
+            {filtered.map((inv, index) => {
               const invStatus = statusFor(inv)
               const flags = [
                 inv.isDuplicate      && { label: 'כפילות',       bg: '#FEF3C7', color: '#92400E' },
@@ -961,10 +961,10 @@ export default function Invoices({
               return (
                 <div
                   key={inv.id}
-                  className="grid items-center border-b transition-colors cursor-pointer"
-                  style={{ gridTemplateColumns: COL, minWidth: MIN_W, padding: '14px 16px', borderColor: '#E2E4E9', textAlign: 'right' }}
+                  className="grid items-center transition-colors cursor-pointer"
+                  style={{ ...tableRow(index === 0), display: 'grid', gridTemplateColumns: COL, minWidth: MIN_W }}
                   onClick={() => openInvoice(inv)}
-                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
                   onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 >
                   {/* Col 1: ספק. Eye icon FIRST in document order = rightmost

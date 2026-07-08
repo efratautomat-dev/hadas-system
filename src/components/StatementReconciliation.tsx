@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase'
 import SectionHeader from './SectionHeader'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 import { PdfPreviewModal } from './PdfPreviewModal'
+import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 
 interface VendorStatement {
   id: string
@@ -485,7 +486,7 @@ export default function StatementReconciliation({ initialStatementId }: { initia
       </div>
 
       {/* Main table */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
+      <div style={{ ...tableWrap, overflow: 'hidden' }}>
         <SectionHeader
           className="px-6 py-4 border-b"
           style={{ borderColor: '#EEEEF2' }}
@@ -496,42 +497,42 @@ export default function StatementReconciliation({ initialStatementId }: { initia
         <div style={{ overflowX: 'auto' }}>
           {/* Header */}
           <div
-            className="grid text-xs font-bold text-gray-500 px-4 py-3 border-b"
+            className="grid"
             style={{
-              borderColor: '#EEEEF2',
-              background: '#FAFAFC',
+              ...tableHeadRow,
+              display: 'grid',
               gridTemplateColumns: gridCOL,
               minWidth: gridMin,
-              textAlign: 'right',
             }}
           >
-            {!isMobile && <span>מזהה</span>}
-            <span>ספק</span>
-            {!isMobile && <span>חודש</span>}
-            {!isMobile && <span>יתרה שלנו</span>}
-            {!isMobile && <span>יתרת ספק</span>}
-            <span>הפרש</span>
-            <span>סטטוס</span>
-            <span>פעולות</span>
+            {!isMobile && <span style={tableHeadCell}>מזהה</span>}
+            <span style={tableHeadCell}>ספק</span>
+            {!isMobile && <span style={tableHeadCell}>חודש</span>}
+            {!isMobile && <span style={tableHeadCell}>יתרה שלנו</span>}
+            {!isMobile && <span style={tableHeadCell}>יתרת ספק</span>}
+            <span style={tableHeadCell}>הפרש</span>
+            <span style={tableHeadCell}>סטטוס</span>
+            <span style={tableHeadCell}>פעולות</span>
           </div>
 
           {/* Rows */}
           {filtered.length === 0 ? (
             <div className="text-center py-12 text-gray-400 text-sm">לא נמצאו רשומות</div>
           ) : (
-            filtered.map((stmt) => (
+            filtered.map((stmt, index) => (
               <div
                 key={stmt.id}
-                className="grid items-center border-b transition-colors"
+                className="grid items-center transition-colors"
                 style={{
-                  borderColor: '#EEEEF2',
+                  ...tableRow(index === 0),
+                  display: 'grid',
                   gridTemplateColumns: gridCOL,
                   minWidth: gridMin,
-                  textAlign: 'right',
                   minHeight: '56px',
-                  padding: '12px 16px',
+                  cursor: 'pointer',
                 }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}
+                onClick={() => setSelectedId(stmt.id)}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
               >
                 {!isMobile && <span className="text-xs text-gray-400 font-mono">{stmt.id}</span>}

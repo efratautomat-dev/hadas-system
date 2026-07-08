@@ -4,6 +4,7 @@ import { SearchableSelect } from '../components/SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from '../components/StatusBadge'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { usePayments as usePaymentsData } from '../hooks/usePayments'
+import { tableWrap, tableHeadRow, tableHeadCell, tableRow } from '../components/ui/tableStyles'
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -1310,29 +1311,29 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               const activeTotal = filtered.filter(p => p.status !== 'cancelled').reduce((s, p) => s + (Number(p.amount) || 0), 0)
               const activeCount = filtered.filter(p => p.status !== 'cancelled').length
               return (
-                <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+                <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={tableWrap}>
                   <div style={{ overflowX: 'auto' }}>
                     {/* Column headers */}
                     <div
                       className="grid font-bold text-gray-500 border-b"
                       style={{
+                        ...tableHeadRow,
+                        display: 'grid',
                         gridTemplateColumns: pCOL, minWidth: pMIN,
-                        padding: '10px 16px', fontSize: '12px',
-                        background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right',
                       }}
                     >
-                      <span>תאריך מתן הוראה</span>
-                      <span>תאריך ערך</span>
-                      <span>ספק</span>
-                      <span>סכום</span>
-                      <span>סוג</span>
-                      {!isMobile && <span>אסמכתא</span>}
-                      <span>סטטוס</span>
-                      <span className="text-center">פעולות</span>
+                      <span style={tableHeadCell}>תאריך מתן הוראה</span>
+                      <span style={tableHeadCell}>תאריך ערך</span>
+                      <span style={tableHeadCell}>ספק</span>
+                      <span style={tableHeadCell}>סכום</span>
+                      <span style={tableHeadCell}>סוג</span>
+                      {!isMobile && <span style={tableHeadCell}>אסמכתא</span>}
+                      <span style={tableHeadCell}>סטטוס</span>
+                      <span className="text-center" style={tableHeadCell}>פעולות</span>
                     </div>
 
                     {/* Data rows */}
-                    {filtered.map((p) => {
+                    {filtered.map((p, index) => {
                       const isCancelled = p.status === 'cancelled'
                       const isBad = highlightedBadIds.has(p.id)
                       const valueDays = p.valueDate ? daysFromToday(p.valueDate) : null
@@ -1345,18 +1346,21 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                           key={p.id}
                           className="grid items-center"
                           style={{
+                            ...tableRow(index === 0),
+                            display: 'grid',
                             gridTemplateColumns: pCOL,
-                            borderBottom: `1px solid ${isBad ? '#FECACA' : '#E2E4E9'}`,
-                            background: isBad ? '#FFF5F5' : undefined,
-                            outline: isBad ? '2px solid #DC2626' : undefined,
-                            outlineOffset: isBad ? '-2px' : undefined,
-                            opacity: isCancelled ? 0.6 : 1,
+                            minWidth: pMIN,
+                            alignItems: 'center',
+                            minHeight: '56px',
                             cursor: 'pointer',
                             transition: 'background 0.1s',
-                            minHeight: '56px',
-                            padding: '12px 16px',
-                            minWidth: pMIN,
-                            textAlign: 'right',
+                            opacity: isCancelled ? 0.6 : 1,
+                            ...(isBad ? {
+                              borderTop: index === 0 ? undefined : '1px solid #FECACA',
+                              background: '#FFF5F5',
+                              outline: '2px solid #DC2626',
+                              outlineOffset: '-2px',
+                            } : {}),
                           }}
                           onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = isBad ? '#FEE2E2' : '#F8F9FA')}
                           onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = isBad ? '#FFF5F5' : 'transparent')}

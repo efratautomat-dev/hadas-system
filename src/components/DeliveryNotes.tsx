@@ -8,6 +8,7 @@ import { useEmployees } from '../hooks/useEmployees'
 import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge } from './StatusBadge'
+import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -373,20 +374,20 @@ export default function DeliveryNotes() {
       </div>
 
       {/* ── Table ── */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#DEDFE5' }}>
-        <div style={{ overflowX: 'auto' }}>
+      <div style={tableWrap}>
+        <div>
 
           {/* Column headers */}
           <div
-            className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
-            style={{ gridTemplateColumns: COL, borderColor: '#EEEEF2', fontSize: '11px', minWidth: isMobile ? '300px' : MIN_W, padding: '10px 16px' }}
+            className="grid"
+            style={{ ...tableHeadRow, display: 'grid', gridTemplateColumns: COL, minWidth: isMobile ? '300px' : MIN_W }}
           >
-            {!isMobile && <span className="text-right">מספר תעודה</span>}
-            <span className="text-right">ספק</span>
-            {!isMobile && <span className="text-right">תאריך</span>}
-            <span className="text-left">סכום</span>
-            <span className="text-center">סטטוס</span>
-            {!isMobile && <span className="text-right">חשבונית</span>}
+            {!isMobile && <span className="text-right" style={tableHeadCell}>מספר תעודה</span>}
+            <span className="text-right" style={tableHeadCell}>ספק</span>
+            {!isMobile && <span className="text-right" style={tableHeadCell}>תאריך</span>}
+            <span className="text-left" style={tableHeadCell}>סכום</span>
+            <span className="text-center" style={tableHeadCell}>סטטוס</span>
+            {!isMobile && <span className="text-right" style={tableHeadCell}>חשבונית</span>}
             <span />
           </div>
 
@@ -397,23 +398,21 @@ export default function DeliveryNotes() {
               <p style={{ fontSize: '15px' }}>{view === 'manual' ? 'אין קליטות ידניות — לחצי "קליטת סחורה ידנית"' : 'לא נמצאו מסמכים שהגיעו'}</p>
             </div>
           ) : (
-            displayed.map((note) => {
+            displayed.map((note, index) => {
               const isArchived = normalizeStatus(note.status) === 'archived'
               return (
                 <div
                   key={note.id}
                   className="grid items-center cursor-pointer transition-colors"
                   style={{
+                    ...tableRow(index === 0),
+                    display: 'grid',
                     gridTemplateColumns: COL,
-                    borderBottom: '1px solid #EEEEF2',
-                    background: isArchived ? '#FAFAFA' : 'white',
                     minWidth: isMobile ? '300px' : MIN_W,
-                    minHeight: '56px',
-                    padding: '12px 16px',
                   }}
                   onClick={() => openNote(note)}
-                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = isArchived ? '#F4F4F5' : '#FFF8F7')}
-                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = isArchived ? '#FAFAFA' : 'white')}
+                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
+                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 >
                   {!isMobile && (
                     <span className="text-right font-bold" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#1F2937' }}>
