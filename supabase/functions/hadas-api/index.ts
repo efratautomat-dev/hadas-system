@@ -1044,12 +1044,15 @@ async function authenticate(req: Request, supabase: SupabaseClient): Promise<Aut
 // Employee WRITE allowlist. hadas-api runs with the service-role key, which
 // bypasses RLS, so role enforcement MUST live here — otherwise any authenticated
 // employee JWT could create/update/delete anything. Employees legitimately need
-// exactly one write: creating a return from the employee return form
-// (EmployeeSupplierView → useReturns.create → POST /returns). Every other write —
-// and every GET (employees read via the anon client under RLS, never through this
-// API) — is manager-only. CaptureDocument posts to invoices-ingest, not here.
+// exactly TWO operational writes, both from the employee view (EmployeeSupplierView):
+//   • POST /returns        — create a manual return   (useReturns.create)
+//   • POST /delivery-notes — create a manual goods-receipt (useDeliveryNotes.create)
+// Every other write — and every GET (employees read via the anon client under RLS,
+// never through this API) — is manager-only. CaptureDocument posts to
+// invoices-ingest, not here. Note these are creates only: PUT/DELETE on the same
+// paths stay blocked (e.g. no editing/deleting delivery notes, no status changes).
 function employeeMayAccess(method: string, path: string): boolean {
-  return method === "POST" && path === "/returns";
+  return method === "POST" && (path === "/returns" || path === "/delivery-notes");
 }
 
 // ─── Categories (Settings → category management) ───────────────────────────────

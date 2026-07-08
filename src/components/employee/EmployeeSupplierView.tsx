@@ -6,6 +6,7 @@ import { useReturns } from '../../hooks/useReturns'
 import { useEmployees } from '../../hooks/useEmployees'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import SectionHeader from '../SectionHeader'
+import { SearchableSelect } from '../SearchableSelect'
 import { PdfPreviewModal } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
 import type { Invoice } from '../../data/mockData'
@@ -222,9 +223,82 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
   )
 }
 
+// Manual goods-receipt form (employee operational write). Supplier is fixed to the
+// currently-viewed supplier; the employee records who received it, the date, an
+// optional supplier note number, and the item list. NO monetary amount field —
+// goods receipts carry none, consistent with the employee no-financials rule.
+interface ReceiptFormState { isoDate: string; items: string; noteNumber: string; employeeId: string }
+
+function ReceiptFormModal({ form, setForm, supplierName, employees, onSave, onClose }: {
+  form: ReceiptFormState
+  setForm: (f: ReceiptFormState) => void
+  supplierName: string
+  employees: { id: string; name: string }[]
+  onSave: () => void
+  onClose: () => void
+}) {
+  const valid = form.items.trim().length > 0
+  const labelStyle: React.CSSProperties = { display: 'block', fontSize: '13px', color: '#6B7280', marginBottom: '5px', fontWeight: 500 }
+  const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #DEDFE5', borderRadius: '10px', padding: '10px 12px', fontSize: '14px', direction: 'rtl', outline: 'none', background: 'white' }
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)', overflowY: 'auto', padding: '32px 12px' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full" style={{ maxWidth: '520px', direction: 'rtl' }}>
+        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 20px', borderColor: '#E2E4E9', background: '#FDFAFA' }}>
+          <Truck className="w-4 h-4 text-gray-400" />
+          <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>קליטת סחורה ידנית</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600" style={{ background: 'none', border: 'none', cursor: 'pointer', marginInlineStart: 'auto' }} title="סגירה">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div className="text-right" style={{ fontSize: '14px', color: '#1F2937' }}>
+            <span style={{ color: '#9CA3AF', fontSize: '13px' }}>ספק: </span>{supplierName}
+          </div>
+          <div>
+            <label style={labelStyle}>מי קלט/ה</label>
+            <SearchableSelect
+              value={form.employeeId}
+              onChange={(v) => setForm({ ...form, employeeId: v })}
+              placeholder="— בחירת עובד/ת —"
+              allowClear
+              options={employees.map((e) => ({ value: e.id, label: e.name }))}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>תאריך</label>
+            <input type="date" value={form.isoDate} onChange={(e) => setForm({ ...form, isoDate: e.target.value })} style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>מספר תעודה (אופציונלי)</label>
+            <input value={form.noteNumber} onChange={(e) => setForm({ ...form, noteNumber: e.target.value })} placeholder="ריק אם אין תעודה" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>פירוט הסחורה שהתקבלה</label>
+            <textarea value={form.items} onChange={(e) => setForm({ ...form, items: e.target.value })} placeholder={'שם פריט וכמות בכל שורה'} rows={5} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }} />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t" style={{ padding: '14px 20px', borderColor: '#E2E4E9' }}>
+          <button onClick={onClose} style={{ padding: '10px 18px', borderRadius: '10px', border: '1.5px solid #DEDFE5', background: 'white', color: '#6B7280', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>ביטול</button>
+          <button
+            onClick={onSave}
+            disabled={!valid}
+            style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: valid ? '#0D9488' : '#CBD5E1', color: 'white', fontSize: '14px', fontWeight: 700, cursor: valid ? 'pointer' : 'not-allowed' }}
+          >
+            שמירה
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function EmployeeSupplierView({ supplier, activeSection }: Props) {
   const { data: allInvoices } = useInvoices()
-  const { data: allDeliveries }    = useDeliveryNotes()
+  const { data: allDeliveries, create: createDeliveryNote } = useDeliveryNotes()
   const { data: allReturns, create: createReturn } = useReturns()
   const { data: employees }        = useEmployees()
   const { data: suppliers }        = useSuppliers()
@@ -233,6 +307,8 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [showReturnForm, setShowReturnForm] = useState(false)
   const [returnForm, setReturnForm] = useState<FormState>(emptyForm())
+  const [showReceiptForm, setShowReceiptForm] = useState(false)
+  const [receiptForm, setReceiptForm] = useState<ReceiptFormState>({ isoDate: '', items: '', noteNumber: '', employeeId: '' })
   // Document image/PDF popup (arrived records) and metadata popup (manual records).
   const [docView, setDocView] = useState<{ url: string; previewSrc?: string } | null>(null)
   const [metaModal, setMetaModal] = useState<MetaModalData | null>(null)
@@ -270,6 +346,29 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
   function openAddReturn() {
     setReturnForm({ ...emptyForm(), supplierId: supplier.id })
     setShowReturnForm(true)
+  }
+
+  // ── Manual goods-receipt (delivery note) — persists via useDeliveryNotes.create ──
+  function openAddReceipt() {
+    setReceiptForm({ isoDate: new Date().toISOString().slice(0, 10), items: '', noteNumber: '', employeeId: '' })
+    setShowReceiptForm(true)
+  }
+
+  async function handleSaveReceipt() {
+    if (!receiptForm.items.trim()) return
+    setShowReceiptForm(false)
+    try {
+      await createDeliveryNote({
+        supplierId:   supplier.id,
+        supplierName: supplier.name,
+        isoDate:      receiptForm.isoDate || new Date().toISOString().slice(0, 10),
+        lineItems:    receiptForm.items.trim(),
+        noteNumber:   receiptForm.noteNumber.trim() || undefined,
+        employeeId:   receiptForm.employeeId || undefined,
+      })
+    } catch {
+      // hook surfaces the error
+    }
   }
 
   async function handleSaveReturn() {
@@ -419,7 +518,23 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
 
       {/* ── Delivery notes ── */}
       {activeSection === 'deliveries' && (
-        <SectionShell title="תעודות משלוח" Icon={Truck} count={deliveries.length}>
+        <SectionShell
+          title="תעודות משלוח"
+          Icon={Truck}
+          count={deliveries.length}
+          action={
+            <button
+              onClick={openAddReceipt}
+              className="flex items-center gap-1.5 rounded-xl font-bold text-white transition-all"
+              style={{ minHeight: '38px', padding: '0 16px', background: '#0D9488', fontSize: '14px' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#0B7C71')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#0D9488')}
+            >
+              <Plus className="w-4 h-4" />
+              קליטת סחורה
+            </button>
+          }
+        >
           {deliveries.length === 0 ? (
             <EmptyRow text="אין תעודות משלוח עבור ספק זה" />
           ) : (
@@ -539,6 +654,18 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
           suppliers={suppliers}
           invoices={allInvoices}
           employees={employees}
+        />
+      )}
+
+      {/* Manual goods-receipt creation (employee operational write → POST /delivery-notes) */}
+      {showReceiptForm && (
+        <ReceiptFormModal
+          form={receiptForm}
+          setForm={setReceiptForm}
+          supplierName={supplier.name}
+          employees={employees}
+          onSave={handleSaveReceipt}
+          onClose={() => setShowReceiptForm(false)}
         />
       )}
 
