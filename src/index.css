@@ -2,24 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Hadas brand tokens (spec/04-DESIGN.md). Colors + font only. ── */
+/* ── Brand tokens ── SOURCE OF TRUTH = src/brand.config.ts, applied to these
+   variables at runtime by src/lib/applyBrand.ts. The values below are only a
+   pre-JS FALLBACK (default client: Hadas); they are overridden on load. To
+   rebrand, edit brand.config.ts — not this file. */
 :root {
   --brand-primary:      #A91D3A;   /* burgundy */
   --brand-primary-dark: #8C1733;   /* hover / pressed */
-  --brand-coral:        #F5847C;
+  --brand-coral:        #F5847C;   /* secondary */
   --brand-coral-tint:   #F9BAB5;
   --brand-coral-bg:     #FDEEEC;
-  --brand-mustard:      #F3B335;
+  --brand-mustard:      #F3B335;   /* accent */
+  --brand-active-bg:    #FDF2F4;
   --brand-bg:           #F8F8FA;
   --brand-surface:      #FFFFFF;
   --brand-text:         #1F2125;
   --brand-text-muted:   #6B6E73;
   --brand-border:       #ECECEF;
+
+  /* ── Functional status tokens — FIXED, brand-independent (see src/theme/status.ts).
+     Never change per client. */
+  --status-new:      #1E40AF;  --status-new-bg:      #DBEAFE;  /* blue   */
+  --status-progress: #C2410C;  --status-progress-bg: #FFEDD5;  /* orange */
+  --status-pending:  #A16207;  --status-pending-bg:  #FEF9C3;  /* yellow */
+  --status-done:     #166534;  --status-done-bg:     #DCFCE7;  /* green  */
+  --status-urgent:   #DC2626;  --status-urgent-bg:   #FEE2E2;  /* red    */
 }
 
 *, *::before, *::after {
   box-sizing: border-box;
-  font-family: 'Rubik', system-ui, sans-serif;
+  font-family: 'Heebo', system-ui, sans-serif;
 }
 
 body {

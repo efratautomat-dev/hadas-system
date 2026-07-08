@@ -1,34 +1,28 @@
 import type { CSSProperties } from 'react'
+import { STATUS, SEMANTIC, type Swatch } from '../theme/status'
 
 // ── Shared status badge ─────────────────────────────────────────────────────
 // Single source of truth for the unified status taxonomy (spec/06-RULES.md §1).
-// Maps every INTERNAL status key to its Hebrew label + color. Every status-bearing
-// screen renders through this component so labels/colors stay consistent.
-//
-// Color legend (per taxonomy):
-//   new         → blue
-//   in_progress → orange
-//   done        → green
-//   cancelled   → gray
-//   mismatch    → red
-//   matched     → green
-//   closed      → green
+// Maps every INTERNAL status key to its Hebrew label + FUNCTIONAL color. Colors
+// come from the fixed, brand-independent tokens in src/theme/status.ts — they are
+// the same for every client (blue/orange/yellow/green/red/gray), never reskinned.
 //
 // FALLBACK (mandatory): any status NOT in the map renders GRAY with its RAW value
 // as the label and never crashes — protects un-migrated rows and future statuses.
 
 type StatusStyle = { label: string; bg: string; color: string }
 
-const GRAY = { bg: '#F3F4F6', color: '#6B7280' }
+const GRAY = { bg: STATUS.gray.bg, color: STATUS.gray.fg }
+const badge = (label: string, sw: Swatch): StatusStyle => ({ label, bg: sw.bg, color: sw.fg })
 
 const STATUS_MAP: Record<string, StatusStyle> = {
-  new:         { label: 'חדש', bg: '#DBEAFE', color: '#1E40AF' },
-  in_progress: { label: 'בטיפול', bg: '#FEF3C7', color: '#D97706' },
-  done:        { label: 'טופל', bg: '#DCFCE7', color: '#166534' },
-  cancelled:   { label: 'בוטל', bg: GRAY.bg, color: GRAY.color },
-  mismatch:    { label: 'אי-התאמה', bg: '#FEE2E2', color: '#DC2626' },
-  matched:     { label: 'תואם', bg: '#DCFCE7', color: '#166534' },
-  closed:      { label: 'נסגר', bg: '#DCFCE7', color: '#166534' },
+  new:         badge('חדש', SEMANTIC.new),
+  in_progress: badge('בטיפול', SEMANTIC.in_progress),
+  done:        badge('טופל', SEMANTIC.done),
+  cancelled:   badge('בוטל', SEMANTIC.cancelled),
+  mismatch:    badge('אי-התאמה', SEMANTIC.mismatch),
+  matched:     badge('תואם', SEMANTIC.matched),
+  closed:      badge('נסגר', SEMANTIC.closed),
 }
 
 export function StatusBadge({

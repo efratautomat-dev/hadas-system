@@ -7,26 +7,27 @@ export default {
   theme: {
     extend: {
       colors: {
-        // ── Hadas brand palette (spec/04-DESIGN.md) ──
-        primary:        '#A91D3A',   // burgundy — primary buttons, active nav, headers
-        'primary-dark': '#8C1733',   // hover / pressed
-        'primary-soft': '#F9BAB5',   // = coral-tint
-        coral:          '#F5847C',   // secondary accents, highlights, tags
-        'coral-tint':   '#F9BAB5',   // soft fills, hover backgrounds
-        'coral-bg':     '#FDEEEC',   // light section backgrounds
-        mustard:        '#F3B335',   // small highlights / attention
-        accent:         '#F3B335',   // = mustard
-        background:     '#F8F8FA',
-        surface:        '#FFFFFF',
-        border:         '#ECECEF',
-        'border-input': '#DEDFE5',
-        'active-bg':    '#FDF2F4',
-        'text-primary': '#1F2125',
-        'text-muted':   '#6B6E73',
+        // ── Brand palette → CSS vars (set from src/brand.config.ts at runtime).
+        //    Editing brand.config.ts reskins every `bg-primary`/`text-primary`/… utility.
+        primary:        'var(--brand-primary)',      // primary buttons, active nav, headers
+        'primary-dark': 'var(--brand-primary-dark)', // hover / pressed
+        'primary-soft': 'var(--brand-coral-tint)',
+        coral:          'var(--brand-coral)',        // secondary accents, highlights, tags
+        'coral-tint':   'var(--brand-coral-tint)',   // soft fills, hover backgrounds
+        'coral-bg':     'var(--brand-coral-bg)',     // light section backgrounds
+        mustard:        'var(--brand-mustard)',      // small highlights / attention
+        accent:         'var(--brand-mustard)',
+        background:     'var(--brand-bg)',
+        surface:        'var(--brand-surface)',
+        border:         'var(--brand-border)',
+        'border-input': '#DEDFE5',                   // functional input hairline (not brand)
+        'active-bg':    'var(--brand-active-bg)',
+        'text-primary': 'var(--brand-text)',
+        'text-muted':   'var(--brand-text-muted)',
       },
       fontFamily: {
-        rubik: ['Rubik', 'system-ui', 'sans-serif'],
-        sans:  ['Rubik', 'system-ui', 'sans-serif'],
+        heebo: ['Heebo', 'system-ui', 'sans-serif'],
+        sans:  ['Heebo', 'system-ui', 'sans-serif'],
       },
       // ── Approved type scale (spec/04-DESIGN.md · design-preview) ──
       fontSize: {

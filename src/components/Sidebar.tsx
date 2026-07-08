@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAppLogo } from '../hooks/useAppLogo'
+import { brand } from '../brand.config'
 import {
   LayoutDashboard,
   Users,
@@ -94,13 +95,13 @@ export default function Sidebar({
           <div className="flex items-center gap-3">
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: '#FDF2F4' }}
+              style={{ background: 'var(--brand-active-bg)' }}
             >
-              <img src={logoUrl} alt="הדס לוגו" className="w-7 h-7 object-contain" />
+              <img src={logoUrl} alt={`${brand.appName} לוגו`} className="w-7 h-7 object-contain" />
             </div>
             <div>
               <h1 className="text-lg leading-tight" style={{ color: '#1A1A2E', fontWeight: 600 }}>
-                הדס
+                {brand.appName}
               </h1>
               <p className="text-xs leading-none" style={{ color: '#9CA3AF' }}>
                 ניהול ספקים
@@ -112,9 +113,9 @@ export default function Sidebar({
         {collapsed && (
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{ background: '#FDF2F4' }}
+            style={{ background: 'var(--brand-active-bg)' }}
           >
-            <img src={logoUrl} alt="הדס לוגו" className="w-7 h-7 object-contain" />
+            <img src={logoUrl} alt={`${brand.appName} לוגו`} className="w-7 h-7 object-contain" />
           </div>
         )}
 
@@ -174,11 +175,11 @@ export default function Sidebar({
                 borderRadius: '10px',
                 marginBottom: '2px',
                 color: isActive ? '#FFFFFF' : '#6B6E73',
-                background: isActive ? '#A91D3A' : 'transparent',
+                background: isActive ? 'var(--brand-primary)' : 'transparent',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {
-                  (e.currentTarget as HTMLButtonElement).style.background = '#FDEEEC'
+                  (e.currentTarget as HTMLButtonElement).style.background = 'var(--brand-coral-bg)'
                   ;(e.currentTarget as HTMLButtonElement).style.color = '#1F2125'
                 }
               }}
@@ -256,7 +257,7 @@ export default function Sidebar({
           <div className="flex items-center gap-2.5 px-2 mb-2">
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center font-medium text-white flex-shrink-0"
-              style={{ background: '#A91D3A', fontSize: '14px' }}
+              style={{ background: 'var(--brand-primary)', fontSize: '14px' }}
             >
               {initials}
             </div>

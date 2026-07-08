@@ -7,11 +7,13 @@ import { useReturns } from '../hooks/useReturns'
 import { useStatements } from '../hooks/useStatements'
 import { resolveAlertDestination, getAlertTypeConf } from './Alerts'
 import type { Alert } from '../data/mockData'
+import { brand } from '../brand.config'
+import { STATUS } from '../theme/status'
 
 const ALERT_STATUS: Record<string, { bg: string; color: string; label: string }> = {
-  new:      { bg: '#FEE2E2', color: '#DC2626', label: 'חדש'  },
-  read:     { bg: '#F3F4F6', color: '#6B7280', label: 'נקרא' },
-  resolved: { bg: '#DCFCE7', color: '#166534', label: 'טופל' },
+  new:      { bg: STATUS.blue.bg, color: STATUS.blue.fg, label: 'חדש'  },   // fixed: new = blue
+  read:     { bg: STATUS.gray.bg, color: STATUS.gray.fg, label: 'נקרא' },
+  resolved: { bg: STATUS.green.bg, color: STATUS.green.fg, label: 'טופל' },
 }
 
 const statusStyle: Record<string, { bg: string; color: string }> = {
@@ -70,10 +72,10 @@ function StatCard({ title, value, sub, icon, iconBg, iconColor, subColor, loadin
 
 function getGreeting(): string {
   const hour = new Date().getHours()
-  if (hour >= 5 && hour < 12) return 'בוקר טוב הדס'
-  if (hour >= 12 && hour < 17) return 'צהריים טובים הדס'
-  if (hour >= 17 && hour < 21) return 'ערב טוב הדס'
-  return 'לילה טוב הדס'
+  if (hour >= 5 && hour < 12) return `בוקר טוב ${brand.appName}`
+  if (hour >= 12 && hour < 17) return `צהריים טובים ${brand.appName}`
+  if (hour >= 17 && hour < 21) return `ערב טוב ${brand.appName}`
+  return `לילה טוב ${brand.appName}`
 }
 
 interface DashboardProps {
@@ -92,7 +94,7 @@ interface DashboardProps {
 function Spinner() {
   return (
     <div className="flex items-center justify-center h-32">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#A91D3A' }} />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--brand-primary)' }} />
     </div>
   )
 }
@@ -150,9 +152,9 @@ export default function Dashboard({
         <button
           onClick={() => onPageChange?.('capture')}
           className="flex items-center gap-2 rounded-2xl font-bold text-white transition-all flex-shrink-0"
-          style={{ minHeight: '52px', padding: '0 28px', background: '#A91D3A', fontSize: '16px', boxShadow: '0 4px 14px rgba(169,29,58,0.30)' }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#8C1733')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#A91D3A')}
+          style={{ minHeight: '52px', padding: '0 28px', background: 'var(--brand-primary)', fontSize: '16px', boxShadow: '0 4px 14px rgba(169,29,58,0.30)' }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
         >
           <Camera className="w-6 h-6" />
           צלמי מסמך
@@ -216,7 +218,7 @@ export default function Dashboard({
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="ספקים פעילים" value={statsLoading ? '...' : String(activeSuppliers)} sub="+3 החודש"
-          icon={<Users className="w-5 h-5" />} iconBg="#FDF2F4" iconColor="#A91D3A" subColor="#A91D3A" loading={statsLoading} />
+          icon={<Users className="w-5 h-5" />} iconBg="var(--brand-active-bg)" iconColor="var(--brand-primary)" subColor="var(--brand-primary)" loading={statsLoading} />
         <StatCard title="חשבוניות ממתינות" value={statsLoading ? '...' : String(pendingInvoices)} sub="4 דחופות לטיפול"
           icon={<FileText className="w-5 h-5" />} iconBg="#FEF6E4" iconColor="#F2C94C" subColor="#D97706" loading={statsLoading} />
         <StatCard title="תשלומים החודש" value={statsLoading ? '...' : formatILS(monthlyPayments)} sub="+12% מחודש קודם"
@@ -252,9 +254,9 @@ export default function Dashboard({
             <button
               onClick={() => onPageChange?.('alerts')}
               className="text-sm font-semibold transition-colors"
-              style={{ color: '#A91D3A' }}
-              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#8C1733')}
-              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#A91D3A')}
+              style={{ color: 'var(--brand-primary)' }}
+              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary-dark)')}
+              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary)')}
             >
               לכל ההתראות ←
             </button>
@@ -349,9 +351,9 @@ export default function Dashboard({
             <button
               onClick={() => onPageChange?.('invoices')}
               className="text-sm font-semibold transition-colors"
-              style={{ color: '#A91D3A' }}
-              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#8C1733')}
-              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#A91D3A')}
+              style={{ color: 'var(--brand-primary)' }}
+              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary-dark)')}
+              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary)')}
             >
               הצג הכל ←
             </button>
@@ -408,9 +410,9 @@ export default function Dashboard({
               <button
                 onClick={() => onPageChange?.('payments')}
                 className="text-sm font-semibold transition-colors"
-                style={{ color: '#A91D3A' }}
-                onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#8C1733')}
-                onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#A91D3A')}
+                style={{ color: 'var(--brand-primary)' }}
+                onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary-dark)')}
+                onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary)')}
               >
                 הצג הכל ←
               </button>
@@ -486,9 +488,9 @@ export default function Dashboard({
                   <button
                     onClick={() => onPageChange?.('deliveries')}
                     className="text-sm font-semibold transition-colors whitespace-nowrap"
-                    style={{ color: '#A91D3A' }}
-                    onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#8C1733')}
-                    onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#A91D3A')}
+                    style={{ color: 'var(--brand-primary)' }}
+                    onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary-dark)')}
+                    onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary)')}
                   >
                     הצג הכל ←
                   </button>

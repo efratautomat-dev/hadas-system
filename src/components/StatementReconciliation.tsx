@@ -234,9 +234,9 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
               <>
                 <button
                   className="px-4 py-2 rounded-xl text-sm font-bold text-white transition-colors"
-                  style={{ background: '#A91D3A' }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#8C1733')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#A91D3A')}
+                  style={{ background: 'var(--brand-primary)' }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
                   onClick={() => {
                     const val = parseFloat(manualBalance)
                     if (!isNaN(val)) {
@@ -255,7 +255,7 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
                   placeholder="יתרה חדשה..."
                   dir="ltr"
                   className="border-2 rounded-xl px-3 py-2 text-sm w-36"
-                  style={{ borderColor: '#A91D3A' }}
+                  style={{ borderColor: 'var(--brand-primary)' }}
                   autoFocus
                 />
                 <span className="text-sm text-gray-500">עדכן יתרה ידנית:</span>
@@ -265,8 +265,8 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
                 className="px-4 py-2 rounded-xl text-sm font-bold border-2 transition-colors"
                 style={{ borderColor: '#EEEEF2', color: '#6B7280' }}
                 onMouseEnter={(e) => {
-                  ;(e.currentTarget as HTMLElement).style.borderColor = '#A91D3A'
-                  ;(e.currentTarget as HTMLElement).style.color = '#A91D3A'
+                  ;(e.currentTarget as HTMLElement).style.borderColor = 'var(--brand-primary)'
+                  ;(e.currentTarget as HTMLElement).style.color = 'var(--brand-primary)'
                 }}
                 onMouseLeave={(e) => {
                   ;(e.currentTarget as HTMLElement).style.borderColor = '#EEEEF2'
@@ -411,7 +411,7 @@ export default function StatementReconciliation({ initialStatementId }: { initia
   if (loading && statements.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#A91D3A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--brand-primary)' }} />
       </div>
     )
   }
@@ -474,7 +474,7 @@ export default function StatementReconciliation({ initialStatementId }: { initia
           <button
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border-2 transition-colors"
             style={{ borderColor: '#EEEEF2', color: '#6B7280' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#A91D3A')}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'var(--brand-primary)')}
             onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#EEEEF2')}
             onClick={() => setFilterStatus('all')}
           >
@@ -608,9 +608,9 @@ export default function StatementReconciliation({ initialStatementId }: { initia
                   )}
                   <button
                     className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-                    style={{ background: '#FDF2F4', color: '#9CA3AF' }}
+                    style={{ background: 'var(--brand-active-bg)', color: '#9CA3AF' }}
                     title="הורד מסמך"
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#A91D3A')}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--brand-primary)')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
                     onClick={(e) => {
                       e.stopPropagation()

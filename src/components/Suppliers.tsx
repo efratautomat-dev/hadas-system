@@ -86,7 +86,7 @@ const textareaBase: React.CSSProperties = {
 }
 
 function focusBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = '#A91D3A'
+  (e.target as HTMLElement).style.borderColor = 'var(--brand-primary)'
 }
 function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
   (e.target as HTMLElement).style.borderColor = '#DEDFE5'
@@ -99,7 +99,7 @@ function FormField({
     <div>
       <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>
         {label}
-        {required && <span style={{ color: '#A91D3A' }}> *</span>}
+        {required && <span style={{ color: 'var(--brand-primary)' }}> *</span>}
       </p>
       {children}
     </div>
@@ -110,7 +110,7 @@ function GroupHeader({ title }: { title: string }) {
   return (
     <div className="flex items-center gap-3 mb-3">
       <div className="flex-1 h-px" style={{ background: '#EEEEF2' }} />
-      <span style={{ fontSize: '12px', fontWeight: 700, color: '#A91D3A', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
+      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--brand-primary)', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
         {title}
       </span>
     </div>
@@ -299,7 +299,7 @@ function SupplierFormCard({
           className="flex-1 rounded-xl font-semibold transition-all"
           style={{
             minHeight: '44px', fontSize: '15px',
-            background: canSave ? '#A91D3A' : '#E5E7EB',
+            background: canSave ? 'var(--brand-primary)' : '#E5E7EB',
             color: canSave ? 'white' : '#9CA3AF',
           }}
         >
@@ -505,7 +505,7 @@ export default function Suppliers({
   if (loading && suppliers.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#A91D3A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--brand-primary)' }} />
       </div>
     )
   }
@@ -530,13 +530,13 @@ export default function Suppliers({
           onClick={() => { setShowAdd(true); setAddForm({ ...emptyForm }) }}
           className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all flex-shrink-0"
           style={{
-            background: '#A91D3A',
+            background: 'var(--brand-primary)',
             padding: isTablet ? '12px 20px' : '10px 18px',
             minHeight: '44px',
             fontSize: isTablet ? '16px' : '14px',
           }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#8C1733')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#A91D3A')}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
         >
           <Plus className="w-4 h-4 flex-shrink-0" />
           הוסף ספק
@@ -572,7 +572,7 @@ export default function Suppliers({
               style={{
                 minHeight: isTablet ? '40px' : '34px',
                 fontSize: isTablet ? '16px' : '13px',
-                background: statusFilter === f ? '#A91D3A' : 'transparent',
+                background: statusFilter === f ? 'var(--brand-primary)' : 'transparent',
                 color: statusFilter === f ? 'white' : '#6B7280',
               }}
             >
@@ -707,7 +707,7 @@ export default function Suppliers({
                     style={{
                       minHeight: '44px',
                       fontSize: isTablet ? '15px' : '14px',
-                      background: '#A91D3A',
+                      background: 'var(--brand-primary)',
                       color: 'white',
                     }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
@@ -722,11 +722,11 @@ export default function Suppliers({
                     style={{
                       minHeight: '44px',
                       fontSize: isTablet ? '15px' : '14px',
-                      background: '#FDF2F4',
-                      color: '#A91D3A',
+                      background: 'var(--brand-active-bg)',
+                      color: 'var(--brand-primary)',
                     }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
                   >
                     <Pencil className="w-4 h-4" />
                     עריכה

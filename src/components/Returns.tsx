@@ -565,9 +565,9 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
             <button
               onClick={() => printReturnPDF(justSaved)}
               className="flex items-center gap-1.5 rounded-xl font-bold text-white transition-all"
-              style={{ padding: '6px 14px', background: '#A91D3A', fontSize: '13px', border: 'none', cursor: 'pointer' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#8C1733')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#A91D3A')}
+              style={{ padding: '6px 14px', background: 'var(--brand-primary)', fontSize: '13px', border: 'none', cursor: 'pointer' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
             >
               <Download className="w-3.5 h-3.5" />
               הורד מסמך
@@ -759,9 +759,9 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                         })
                       }}
                       className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-                      style={{ background: '#FDF2F4', color: '#9CA3AF' }}
+                      style={{ background: 'var(--brand-active-bg)', color: '#9CA3AF' }}
                       title="הורד מסמך"
-                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#A91D3A')}
+                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--brand-primary)')}
                       onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
                     >
                       <Download className="w-3.5 h-3.5" />

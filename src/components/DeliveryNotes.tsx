@@ -36,7 +36,7 @@ const fieldStyle: React.CSSProperties = {
 }
 
 function focusBdr(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = '#A91D3A'
+  (e.target as HTMLElement).style.borderColor = 'var(--brand-primary)'
 }
 function blurBdr(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
   (e.target as HTMLElement).style.borderColor = '#DEDFE5'
@@ -45,7 +45,7 @@ function blurBdr(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTML
 function FieldLabel({ text, required }: { text: string; required?: boolean }) {
   return (
     <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>
-      {text}{required && <span style={{ color: '#A91D3A' }}> *</span>}
+      {text}{required && <span style={{ color: 'var(--brand-primary)' }}> *</span>}
     </p>
   )
 }
@@ -218,7 +218,7 @@ export default function DeliveryNotes() {
   if (loading && notes.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#A91D3A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--brand-primary)' }} />
       </div>
     )
   }
@@ -243,7 +243,7 @@ export default function DeliveryNotes() {
           <button
             onClick={() => { setForm({ ...emptyForm, isoDate: new Date().toISOString().slice(0, 10) }); setModalType('add') }}
             className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
-            style={{ background: '#A91D3A', minHeight: '44px', padding: '0 20px', fontSize: '16px' }}
+            style={{ background: 'var(--brand-primary)', minHeight: '44px', padding: '0 20px', fontSize: '16px' }}
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
           >
@@ -283,7 +283,7 @@ export default function DeliveryNotes() {
                 className="rounded-lg px-4 font-medium transition-all"
                 style={{
                   minHeight: '36px', fontSize: '14px',
-                  background: view === v ? '#A91D3A' : 'transparent',
+                  background: view === v ? 'var(--brand-primary)' : 'transparent',
                   color: view === v ? 'white' : '#6B7280',
                 }}
               >
@@ -304,7 +304,7 @@ export default function DeliveryNotes() {
                 className="rounded-lg px-4 font-medium transition-all"
                 style={{
                   minHeight: '36px', fontSize: '14px',
-                  background: showAll === v ? '#A91D3A' : 'transparent',
+                  background: showAll === v ? 'var(--brand-primary)' : 'transparent',
                   color: showAll === v ? 'white' : '#6B7280',
                 }}
               >
@@ -347,7 +347,7 @@ export default function DeliveryNotes() {
                   className="rounded-lg px-3 font-medium transition-all"
                   style={{
                     minHeight: '36px', fontSize: '13px',
-                    background: filterStat === s ? '#A91D3A' : 'transparent',
+                    background: filterStat === s ? 'var(--brand-primary)' : 'transparent',
                     color: filterStat === s ? 'white' : '#6B7280',
                   }}
                 >
@@ -561,7 +561,7 @@ export default function DeliveryNotes() {
                             onClick={doMatch}
                             disabled={!matchPick}
                             className="rounded-xl font-semibold text-white transition-all flex items-center gap-1 flex-shrink-0"
-                            style={{ background: matchPick ? '#A91D3A' : '#E5E7EB', minHeight: '44px', padding: '0 16px', fontSize: '14px' }}
+                            style={{ background: matchPick ? 'var(--brand-primary)' : '#E5E7EB', minHeight: '44px', padding: '0 16px', fontSize: '14px' }}
                           >
                             <Link2 className="w-4 h-4" /> התאם
                           </button>
@@ -608,7 +608,7 @@ export default function DeliveryNotes() {
                     className="flex-1 rounded-xl font-semibold transition-all"
                     style={{
                       minHeight: '44px', fontSize: '15px',
-                      background: selectedInvId ? '#A91D3A' : '#E5E7EB',
+                      background: selectedInvId ? 'var(--brand-primary)' : '#E5E7EB',
                       color: selectedInvId ? 'white' : '#9CA3AF',
                     }}
                   >
@@ -730,9 +730,9 @@ export default function DeliveryNotes() {
                     <button
                       onClick={() => setConfirmUnlink(true)}
                       className="flex-1 rounded-xl font-semibold transition-all"
-                      style={{ minHeight: '44px', fontSize: '15px', background: '#FDF2F4', color: '#A91D3A' }}
+                      style={{ minHeight: '44px', fontSize: '15px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
                       onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
-                      onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+                      onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
                     >
                       בטל שיוך
                     </button>
@@ -835,7 +835,7 @@ export default function DeliveryNotes() {
                     className="flex-1 rounded-xl font-semibold transition-all"
                     style={{
                       minHeight: '44px', fontSize: '15px',
-                      background: canAdd ? '#A91D3A' : '#E5E7EB',
+                      background: canAdd ? 'var(--brand-primary)' : '#E5E7EB',
                       color: canAdd ? 'white' : '#9CA3AF',
                     }}
                   >

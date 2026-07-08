@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
+import { brand } from '../brand.config'
 
-const DEFAULT_LOGO = '/favicon.png'
+// Default comes from the brand config; the DB app_logo_url (if set) overrides it.
+const DEFAULT_LOGO = brand.logoPath
 
 interface AppLogoCtx {
   logoUrl: string

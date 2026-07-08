@@ -81,8 +81,8 @@ function IconBtn({ title, onClick, children }: { title: string; onClick: () => v
       type="button"
       onClick={onClick}
       title={title}
-      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #DEDFE5', background: 'white', color: '#A91D3A', cursor: 'pointer', flexShrink: 0 }}
-      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #DEDFE5', background: 'white', color: 'var(--brand-primary)', cursor: 'pointer', flexShrink: 0 }}
+      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
       onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
     >
       {children}
@@ -206,9 +206,9 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
           <button
             onClick={() => setShowDoc(true)}
             className="flex items-center gap-2 rounded-xl font-bold text-white w-full justify-center transition-all"
-            style={{ minHeight: '48px', background: '#A91D3A', fontSize: '15px' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#8C1733')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#A91D3A')}
+            style={{ minHeight: '48px', background: 'var(--brand-primary)', fontSize: '15px' }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
           >
             <Eye className="w-5 h-5" />
             צפייה במסמך המקורי
@@ -448,7 +448,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
               <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF' }}>{label}</span>
               <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#F8F9FA' }}>
-                <Icon className="w-3.5 h-3.5" style={{ color: '#8C1733' }} />
+                <Icon className="w-3.5 h-3.5" style={{ color: 'var(--brand-primary-dark)' }} />
               </div>
             </div>
           </div>
@@ -467,7 +467,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flexShrink: 0 }}>
               <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF', paddingTop: '5px' }}>הערות</span>
               <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#F8F9FA' }}>
-                <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8C1733' }} />
+                <MessageSquare className="w-3.5 h-3.5" style={{ color: 'var(--brand-primary-dark)' }} />
               </div>
             </div>
           </div>

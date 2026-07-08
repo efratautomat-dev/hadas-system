@@ -36,7 +36,7 @@ export interface SearchableSelectProps {
   style?: React.CSSProperties
 }
 
-const ACCENT = '#A91D3A'
+const ACCENT = 'var(--brand-primary)'
 const BORDER = '#DEDFE5'
 
 const FIELD: React.CSSProperties = {
@@ -288,7 +288,7 @@ export function SearchableSelect({
                   justifyContent: 'flex-end',
                   gap: '6px',
                   background: highlight === filtered.length ? '#FCE9ED' : 'transparent',
-                  color: '#8C1733',
+                  color: 'var(--brand-primary-dark)',
                   fontWeight: 600,
                   borderTop: filtered.length > 0 ? `1px solid ${BORDER}` : undefined,
                   marginTop: filtered.length > 0 ? '4px' : undefined,

@@ -15,8 +15,8 @@ function getGreeting(): string {
   return 'לילה טוב'
 }
 
-const ACCENT = '#A91D3A'
-const ACCENT_BG = '#FDF2F4'
+const ACCENT = 'var(--brand-primary)'
+const ACCENT_BG = 'var(--brand-active-bg)'
 
 interface Props {
   userEmail: string
@@ -46,7 +46,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
         style={{
           height: '60px',
           padding: '0 16px',
-          background: 'linear-gradient(90deg, #8C1733 0%, #A91D3A 100%)',
+          background: 'linear-gradient(90deg, var(--brand-primary-dark) 0%, var(--brand-primary) 100%)',
           boxShadow: '0 1px 10px rgba(140,23,51,0.25)',
         }}
       >
@@ -77,7 +77,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             onClick={() => setShowCapture(true)}
             className="flex items-center gap-2 rounded-2xl font-bold text-white transition-all"
             style={{ minHeight: '52px', padding: '0 28px', background: ACCENT, fontSize: '16px', boxShadow: '0 4px 14px rgba(169,29,58,0.30)' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#8C1733')}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
             onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = ACCENT)}
           >
             <Camera className="w-6 h-6" />

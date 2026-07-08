@@ -158,7 +158,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
     const rowsHtml = rows.map(row => {
       const bs = typeBadge[row.type] ?? typeBadge['פתיחה']
       const isOpening = row.type === 'פתיחה'
-      return `<tr style="border-bottom:1px solid #EEEEF2;background:${isOpening ? '#FDF2F4' : 'white'}">
+      return `<tr style="border-bottom:1px solid #EEEEF2;background:${isOpening ? 'var(--brand-active-bg)' : 'white'}">
         <td style="padding:9px 12px">${row.displayDate}</td>
         <td style="padding:9px 12px">${row.description}</td>
         <td style="padding:9px 6px;text-align:center">
@@ -178,13 +178,13 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   <style>
     *{box-sizing:border-box;font-family:Arial,sans-serif}
     body{margin:24px;color:#1F2937;direction:rtl}
-    .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;margin-bottom:20px;border-bottom:2px solid #A91D3A}
+    .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;margin-bottom:20px;border-bottom:2px solid var(--brand-primary)}
     .logo{height:56px;object-fit:contain}
     table{width:100%;border-collapse:collapse}
-    thead tr{background:#A91D3A}
+    thead tr{background:var(--brand-primary)}
     th{padding:10px 12px;color:white;font-size:13px;text-align:right;font-weight:600}
     th.num{text-align:left}
-    .foot-row{background:#FDF2F4;border-top:2px solid #A91D3A}
+    .foot-row{background:var(--brand-active-bg);border-top:2px solid var(--brand-primary)}
     .foot-row td{padding:10px 12px;font-weight:700}
     @media print{@page{margin:1cm}}
   </style>
@@ -197,7 +197,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   </div>
   <div style="text-align:right">
     <div style="font-size:12px;color:#9CA3AF;margin-bottom:4px">כרטסת ספק</div>
-    <div style="font-size:22px;font-weight:900;color:#A91D3A">${supplier.name}</div>
+    <div style="font-size:22px;font-weight:900;color:var(--brand-primary)">${supplier.name}</div>
     <div style="font-size:12px;color:#6B7280;margin-top:2px">${supplier.contact} · ${supplier.phone}</div>
   </div>
   <img src="${logoUrl}" class="logo" alt="לוגו" onerror="this.style.display='none'"/>
@@ -215,7 +215,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       <td colspan="3" style="color:#6B7280;font-size:13px">סיכום תקופה</td>
       <td style="text-align:left;color:#A16207">${formatILS(totalDebit)}</td>
       <td style="text-align:left;color:#166534">${formatILS(totalCredit)}</td>
-      <td style="text-align:left;color:#A91D3A;font-size:15px">${formatILS(finalBalance)}</td>
+      <td style="text-align:left;color:var(--brand-primary);font-size:15px">${formatILS(finalBalance)}</td>
     </tr>
   </tfoot>
 </table>
@@ -232,7 +232,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   if (loading && suppliersData.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#A91D3A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--brand-primary)' }} />
       </div>
     )
   }
@@ -251,9 +251,9 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
         <button
           onClick={handlePrint}
           className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-          style={{ minHeight: '44px', padding: '0 18px', background: '#FDF2F4', color: '#A91D3A', fontSize: '16px' }}
+          style={{ minHeight: '44px', padding: '0 18px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)', fontSize: '16px' }}
           onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
-          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
         >
           <Printer className="w-4 h-4" />
           הדפסה
@@ -294,7 +294,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                 border: '1px solid #EEEEF2', borderRadius: '12px', outline: 'none',
                 background: 'white', direction: 'ltr',
               }}
-              onFocus={e => (e.target.style.borderColor = '#A91D3A')}
+              onFocus={e => (e.target.style.borderColor = 'var(--brand-primary)')}
               onBlur={e  => (e.target.style.borderColor = '#EEEEF2')}
             />
           </div>
@@ -311,7 +311,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                 border: '1px solid #EEEEF2', borderRadius: '12px', outline: 'none',
                 background: 'white', direction: 'ltr',
               }}
-              onFocus={e => (e.target.style.borderColor = '#A91D3A')}
+              onFocus={e => (e.target.style.borderColor = 'var(--brand-primary)')}
               onBlur={e  => (e.target.style.borderColor = '#EEEEF2')}
             />
           </div>
@@ -356,7 +356,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                 style={{
                   gridTemplateColumns: activeCOL,
                   borderBottom: '1px solid #EEEEF2',
-                  background: isOpening ? '#FDF2F4' : undefined,
+                  background: isOpening ? 'var(--brand-active-bg)' : undefined,
                   minWidth: isMobile ? '300px' : '660px',
                   minHeight: '56px',
                   padding: '12px 16px',
@@ -398,7 +398,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           {/* Summary row */}
           <div
             className="grid items-center"
-            style={{ gridTemplateColumns: activeCOL, borderTop: '2px solid #A91D3A', background: '#FDF2F4', minWidth: isMobile ? '300px' : '660px', padding: '12px 16px' }}
+            style={{ gridTemplateColumns: activeCOL, borderTop: '2px solid var(--brand-primary)', background: 'var(--brand-active-bg)', minWidth: isMobile ? '300px' : '660px', padding: '12px 16px' }}
           >
             <div style={{ gridColumn: isMobile ? 'span 1' : 'span 3', textAlign: 'right' }}>
               <span className="font-bold" style={{ fontSize: '13px', color: '#6B7280' }}>סיכום תקופה</span>
@@ -413,7 +413,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                 {formatILS(totalCredit)}
               </span>
             )}
-            <span className="text-left font-semibold" style={{ color: '#A91D3A', fontSize: '16px' }}>
+            <span className="text-left font-semibold" style={{ color: 'var(--brand-primary)', fontSize: '16px' }}>
               {formatILS(finalBalance)}
             </span>
           </div>
@@ -432,8 +432,8 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           <p className="text-2xl" style={{ fontWeight: 500, color: '#166534' }}>{formatILS(totalCredit)}</p>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#EEEEF2' }}>
-          <p style={{ fontSize: '11px', color: '#A91D3A', fontWeight: 600, marginBottom: '6px' }}>יתרה סופית</p>
-          <p className="text-2xl" style={{ fontWeight: 500, color: '#A91D3A' }}>{formatILS(finalBalance)}</p>
+          <p style={{ fontSize: '11px', color: 'var(--brand-primary)', fontWeight: 600, marginBottom: '6px' }}>יתרה סופית</p>
+          <p className="text-2xl" style={{ fontWeight: 500, color: 'var(--brand-primary)' }}>{formatILS(finalBalance)}</p>
         </div>
       </div>
 

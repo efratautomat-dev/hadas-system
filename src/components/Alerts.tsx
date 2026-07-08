@@ -436,7 +436,7 @@ export default function Alerts({
     active: boolean,
     label: string,
     onClick: () => void,
-    activeColor = '#8C1733',
+    activeColor = 'var(--brand-primary-dark)',
   ) => (
     <button
       onClick={onClick}
@@ -675,9 +675,9 @@ function ReclassifyModal({
                 onClick={() => setChoice(dt)}
                 style={{
                   padding: '8px 14px', borderRadius: '10px', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                  background: choice === dt ? '#8C1733' : 'white',
+                  background: choice === dt ? 'var(--brand-primary-dark)' : 'white',
                   color:      choice === dt ? 'white'   : '#6B7280',
-                  border: `1.5px solid ${choice === dt ? '#8C1733' : '#E2E4E9'}`,
+                  border: `1.5px solid ${choice === dt ? 'var(--brand-primary-dark)' : '#E2E4E9'}`,
                 }}
               >
                 {dt}
@@ -690,7 +690,7 @@ function ReclassifyModal({
             style={{
               width: '100%', height: '46px', borderRadius: '12px', border: 'none', fontWeight: 700, fontSize: '15px', fontFamily: 'inherit',
               cursor: choice ? 'pointer' : 'not-allowed',
-              background: choice ? '#A91D3A' : '#F3F4F6',
+              background: choice ? 'var(--brand-primary)' : '#F3F4F6',
               color:      choice ? 'white'   : '#9CA3AF',
             }}
           >

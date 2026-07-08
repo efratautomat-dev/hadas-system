@@ -1,5 +1,10 @@
-export const PDF_BRAND       = '#A91D3A'
-export const PDF_BRAND_LIGHT = '#FDF2F4'
+import { brand } from '../../brand.config'
+
+// PDFs render as standalone HTML in a print window where CSS variables aren't
+// available, so they read the brand color as a REAL hex straight from the config
+// (not var(--brand-*)). Rebranding brand.config.ts reskins the PDF header too.
+export const PDF_BRAND       = brand.colors.primary
+export const PDF_BRAND_LIGHT = brand.colors.activeBg
 export const PDF_DIVIDER     = '#EEEEF2'
 export const PDF_GRAY_1      = '#1F2937'
 export const PDF_GRAY_4      = '#6B7280'
@@ -20,16 +25,16 @@ export function todayHebrew(): string {
 }
 
 export const PDF_BASE_CSS = `
-  * { box-sizing: border-box; font-family: 'Rubik', Arial, sans-serif; margin: 0; padding: 0; }
+  * { box-sizing: border-box; font-family: 'Heebo', Arial, sans-serif; margin: 0; padding: 0; }
   body { padding: 18mm 20mm; color: #1F2937; direction: rtl; background: white; font-size: 14px; line-height: 1.5; }
   @page { size: A4; margin: 0; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-  .hdr { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 14px; margin-bottom: 22px; border-bottom: 2px solid #A91D3A; }
+  .hdr { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 14px; margin-bottom: 22px; border-bottom: 2px solid ${PDF_BRAND}; }
   .logo { height: 50px; object-fit: contain; }
-  .doc-title { font-size: 26px; font-weight: 900; color: #A91D3A; }
+  .doc-title { font-size: 26px; font-weight: 900; color: ${PDF_BRAND}; }
   .doc-sub { font-size: 13px; color: #6B7280; margin-top: 3px; }
   .sec { margin-bottom: 20px; }
-  .sec-title { font-size: 10px; font-weight: 700; color: #A91D3A; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #EEEEF2; }
+  .sec-title { font-size: 10px; font-weight: 700; color: ${PDF_BRAND}; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 1px solid #EEEEF2; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
   .grid4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px; }
