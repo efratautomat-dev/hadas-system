@@ -16,13 +16,16 @@ const ALERT_STATUS: Record<string, { bg: string; color: string; label: string }>
   resolved: { bg: STATUS.green.bg, color: STATUS.green.fg, label: 'טופל' },
 }
 
+// Invoice/delivery status → FIXED functional tokens (src/theme/status.ts):
+// ממתין=yellow(check), שולם/הושלם/נתקבל=green(done), בטיפול=orange(in_progress),
+// שגיאה=red. בדרך (in-transit) has no status token → its own violet.
 const statusStyle: Record<string, { bg: string; color: string }> = {
-  'ממתין':  { bg: '#FEF9C3', color: '#A16207' },
-  'שולם':   { bg: '#DCFCE7', color: '#166534' },
-  'הושלם':  { bg: '#DCFCE7', color: '#166534' },
-  'בטיפול': { bg: '#DBEAFE', color: '#1E40AF' },
-  'שגיאה':  { bg: '#FEE2E2', color: '#DC2626' },
-  'נתקבל':  { bg: '#DCFCE7', color: '#166534' },
+  'ממתין':  { bg: STATUS.yellow.bg, color: STATUS.yellow.fg },
+  'שולם':   { bg: STATUS.green.bg,  color: STATUS.green.fg },
+  'הושלם':  { bg: STATUS.green.bg,  color: STATUS.green.fg },
+  'בטיפול': { bg: STATUS.orange.bg, color: STATUS.orange.fg },
+  'שגיאה':  { bg: STATUS.red.bg,    color: STATUS.red.fg },
+  'נתקבל':  { bg: STATUS.green.bg,  color: STATUS.green.fg },
   'בדרך':   { bg: '#EDE9FE', color: '#5B21B6' },
 }
 
@@ -48,23 +51,29 @@ interface StatCardProps {
   loading?: boolean
 }
 
+// Soft shadow shared with the supplier cards / unified tables.
+const CARD_SHADOW = '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)'
+
 function StatCard({ title, value, sub, icon, iconBg, iconColor, subColor, loading }: StatCardProps) {
   return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm border flex flex-col gap-3" style={{ borderColor: '#EEEEF2' }}>
+    <div
+      className="bg-white flex flex-col gap-4"
+      style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: CARD_SHADOW, padding: '20px' }}
+    >
       <div className="flex items-start justify-between">
         <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ backgroundColor: iconBg, color: iconColor }}
+          className="rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ width: '44px', height: '44px', backgroundColor: iconBg, color: iconColor }}
         >
           {loading
             ? <div className="animate-spin rounded-full h-5 w-5 border-b-2" style={{ borderColor: iconColor }} />
             : icon}
         </div>
-        <p className="text-sm font-medium text-gray-500 text-right">{title}</p>
+        <p className="text-right" style={{ fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>{title}</p>
       </div>
       <div className="text-right">
-        <p className="text-3xl leading-tight" style={{ fontWeight: 500, color: '#1A1A2E' }}>{value}</p>
-        <p className="text-xs font-medium mt-1" style={{ color: subColor }}>{sub}</p>
+        <p style={{ fontSize: '30px', fontWeight: 700, color: '#12131A', letterSpacing: '-0.02em', lineHeight: 1.1 }}>{value}</p>
+        <p style={{ fontSize: '12px', fontWeight: 500, marginTop: '4px', color: subColor }}>{sub}</p>
       </div>
     </div>
   )
@@ -164,24 +173,24 @@ export default function Dashboard({
       {/* Duplicate invoice alert */}
       {!invLoading && dupInvoiceCount > 0 && (
         <div
-          className="rounded-2xl p-4 shadow-sm border flex items-center justify-between cursor-pointer transition-opacity hover:opacity-90"
-          style={{ borderColor: '#FDE68A', background: '#FFFBEB' }}
+          className="rounded-2xl p-4 border flex items-center justify-between cursor-pointer transition-opacity hover:opacity-90"
+          style={{ borderColor: '#FDE68A', background: STATUS.yellow.bg, boxShadow: CARD_SHADOW }}
           onClick={() => onPageChange?.('invoices-duplicates')}
         >
           <button
             className="px-4 py-2 rounded-xl text-sm font-bold text-white flex-shrink-0"
-            style={{ background: '#D97706' }}
+            style={{ background: STATUS.yellow.fg }}
           >
             לבדיקה ←
           </button>
           <div className="flex items-center gap-3 text-right">
             <div>
-              <p className="font-bold text-sm" style={{ color: '#92400E' }}>
+              <p className="font-bold text-sm" style={{ color: STATUS.yellow.fg }}>
                 נמצאו {dupInvoiceCount} חשבוניות עם מספר כפול אפשרי
               </p>
               <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולאשר לפני סגירת חודש</p>
             </div>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#FEF3C7', color: '#D97706' }}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#FEF3C7', color: STATUS.yellow.fg }}>
               <AlertTriangle className="w-5 h-5" />
             </div>
           </div>
@@ -191,24 +200,24 @@ export default function Dashboard({
       {/* Mismatch alert */}
       {!stmtLoading && mismatchCount > 0 && (
         <div
-          className="rounded-2xl p-4 shadow-sm border flex items-center justify-between cursor-pointer transition-opacity hover:opacity-90"
-          style={{ borderColor: '#FECDD3', background: '#FFF1F2' }}
+          className="rounded-2xl p-4 border flex items-center justify-between cursor-pointer transition-opacity hover:opacity-90"
+          style={{ borderColor: '#FECACA', background: STATUS.red.bg, boxShadow: CARD_SHADOW }}
           onClick={() => onPageChange?.('reconciliation')}
         >
           <button
             className="px-4 py-2 rounded-xl text-sm font-bold text-white flex-shrink-0"
-            style={{ background: '#BE123C' }}
+            style={{ background: STATUS.red.fg }}
           >
             לפירוט ←
           </button>
           <div className="flex items-center gap-3 text-right">
             <div>
-              <p className="font-bold text-sm" style={{ color: '#BE123C' }}>
+              <p className="font-bold text-sm" style={{ color: STATUS.red.fg }}>
                 {mismatchCount} אי-התאמות בכרטסות ספקים
               </p>
               <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולפתור לפני סגירת חודש</p>
             </div>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#FEE2E2', color: '#DC2626' }}>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#FECACA', color: STATUS.red.fg }}>
               <AlertTriangle className="w-5 h-5" />
             </div>
           </div>
@@ -220,11 +229,11 @@ export default function Dashboard({
         <StatCard title="ספקים פעילים" value={statsLoading ? '...' : String(activeSuppliers)} sub="+3 החודש"
           icon={<Users className="w-5 h-5" />} iconBg="var(--brand-active-bg)" iconColor="var(--brand-primary)" subColor="var(--brand-primary)" loading={statsLoading} />
         <StatCard title="חשבוניות ממתינות" value={statsLoading ? '...' : String(pendingInvoices)} sub="4 דחופות לטיפול"
-          icon={<FileText className="w-5 h-5" />} iconBg="#FEF6E4" iconColor="#F2C94C" subColor="#D97706" loading={statsLoading} />
+          icon={<FileText className="w-5 h-5" />} iconBg={STATUS.yellow.bg} iconColor={STATUS.yellow.fg} subColor={STATUS.yellow.fg} loading={statsLoading} />
         <StatCard title="תשלומים החודש" value={statsLoading ? '...' : formatILS(monthlyPayments)} sub="+12% מחודש קודם"
-          icon={<TrendingUp className="w-5 h-5" />} iconBg="#F0FDF4" iconColor="#22C55E" subColor="#22C55E" loading={statsLoading} />
+          icon={<TrendingUp className="w-5 h-5" />} iconBg={STATUS.green.bg} iconColor={STATUS.green.fg} subColor={STATUS.green.fg} loading={statsLoading} />
         <StatCard title="חזרות פתוחות" value={statsLoading ? '...' : String(openReturns)} sub="דורש טיפול דחוף"
-          icon={<AlertCircle className="w-5 h-5" />} iconBg="#FEF2F2" iconColor="#EF4444" subColor="#EF4444" loading={statsLoading} />
+          icon={<AlertCircle className="w-5 h-5" />} iconBg={STATUS.red.bg} iconColor={STATUS.red.fg} subColor={STATUS.red.fg} loading={statsLoading} />
       </div>
 
       {/* Recent Alerts card */}
@@ -244,7 +253,7 @@ export default function Dashboard({
                   className="flex items-center justify-center text-white font-bold"
                   style={{
                     minWidth: '20px', height: '20px', borderRadius: '10px',
-                    background: '#DC2626', fontSize: '11px', padding: '0 5px',
+                    background: STATUS.blue.fg, fontSize: '11px', padding: '0 5px',   // new = blue
                   }}
                 >
                   {alerts.filter(a => a.status === 'new').length}
