@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, Search, ChevronRight, ExternalLink, Eye, Save, AlertTriangle, X, Trash2 } from 'lucide-react'
+import { FileText, Search, ChevronRight, ExternalLink, Eye, Save, AlertTriangle, X, Trash2, Wallet, CheckCircle, Clock } from 'lucide-react'
 import { type Invoice, type Alert } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
@@ -10,6 +10,7 @@ import { StatusBadge } from './StatusBadge'
 import { Button } from './ui/Button'
 import { supabase } from '../lib/supabase'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
+import { SummaryCards } from './ui/SummaryCards'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -813,23 +814,12 @@ export default function Invoices({
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-3" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        {[
-          { label: 'סה"כ סכום',         value: formatILS(total),                       color: '#1F2937' },
-          { label: STATUS_TRANSFERRED,  value: String(counts[STATUS_TRANSFERRED] ?? 0), color: '#166534' },
-          { label: STATUS_REVIEW,       value: String(counts[STATUS_REVIEW] ?? 0),      color: '#1E40AF' },
-          { label: STATUS_WAITING,      value: String(counts[STATUS_WAITING] ?? 0),     color: '#A16207' },
-        ].map(({ label, value, color }) => (
-          <div
-            key={label}
-            className="bg-white rounded-2xl p-4 shadow-sm border text-center"
-            style={{ borderColor: '#EEEEF2' }}
-          >
-            <p className="text-2xl" style={{ color, fontWeight: 500 }}>{value}</p>
-            <p className="text-gray-500 mt-1" style={{ fontSize: '13px' }}>{label}</p>
-          </div>
-        ))}
-      </div>
+      <SummaryCards items={[
+        { label: 'סה"כ סכום',        value: formatILS(total),                       Icon: Wallet,      tone: 'brand' },
+        { label: STATUS_TRANSFERRED, value: String(counts[STATUS_TRANSFERRED] ?? 0), Icon: CheckCircle, tone: 'green' },
+        { label: STATUS_REVIEW,      value: String(counts[STATUS_REVIEW] ?? 0),      Icon: Eye,         tone: 'orange' },
+        { label: STATUS_WAITING,     value: String(counts[STATUS_WAITING] ?? 0),     Icon: Clock,       tone: 'yellow' },
+      ]} />
 
       {/* Filters + Search */}
       <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>

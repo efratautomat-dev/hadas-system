@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download, Trash2, Wallet, CalendarDays, Clock } from 'lucide-react'
 import { SearchableSelect } from '../components/SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from '../components/StatusBadge'
-import { STATUS } from '../theme/status'
+import { SummaryCards } from '../components/ui/SummaryCards'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { usePayments as usePaymentsData } from '../hooks/usePayments'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow } from '../components/ui/tableStyles'
@@ -790,28 +790,14 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
         </Button>
       </div>
 
-      {/* ── Summary tiles (clean cards, like the supplier/dashboard cards) ──── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {([
-          { label: 'סה"כ פעיל',          value: fmtILS(activeTotal),           Icon: Wallet,      bg: '#EFF6FF', color: '#1D4ED8' },
-          { label: 'עתידי',              value: fmtILS(futureTotal),           Icon: CalendarDays, bg: STATUS.yellow.bg, color: STATUS.yellow.fg },
-          { label: 'תשלומים ממתינים',    value: String(futurePayments.length), Icon: Clock,       bg: 'var(--brand-active-bg)', color: 'var(--brand-primary)' },
-        ] as const).map(({ label, value, Icon, bg, color }) => (
-          <div
-            key={label}
-            className="bg-white flex items-center justify-between"
-            style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)', padding: '16px 18px' }}
-          >
-            <div className="text-right">
-              <p style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>{label}</p>
-              <p style={{ fontSize: '22px', fontWeight: 700, color: '#12131A', letterSpacing: '-0.01em', marginTop: '3px' }}>{value}</p>
-            </div>
-            <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: '42px', height: '42px', background: bg, color }}>
-              <Icon className="w-5 h-5" />
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* ── Summary tiles (shared SummaryCards — the app-wide reference) ──── */}
+      <SummaryCards
+        items={[
+          { label: 'סה"כ פעיל',       value: fmtILS(activeTotal),           Icon: Wallet,       tone: 'blue' },
+          { label: 'עתידי',           value: fmtILS(futureTotal),           Icon: CalendarDays, tone: 'yellow' },
+          { label: 'תשלומים ממתינים', value: String(futurePayments.length), Icon: Clock,        tone: 'brand' },
+        ]}
+      />
 
       {/* ── Tabs ──────────────────────────────────────────────────────────── */}
       <div

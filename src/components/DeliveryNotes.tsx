@@ -10,6 +10,7 @@ import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge } from './StatusBadge'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { Button } from './ui/Button'
+import { SummaryCards } from './ui/SummaryCards'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -253,19 +254,14 @@ export default function DeliveryNotes() {
         )}
       </div>
 
-      {/* ── Stats ── */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: 'ממתינות לשיוך', value: pendingCount,  color: '#A16207', bg: '#FFFBEB', border: '#FDE68A' },
-          { label: 'בארכיון',       value: archivedCount, color: '#6B7280', bg: 'white',   border: '#DEDFE5' },
-          { label: 'סה"כ תעודות',   value: notes.length,  color: '#1F2937', bg: 'white',   border: '#DEDFE5' },
-        ].map(({ label, value, color, bg, border }) => (
-          <div key={label} className="rounded-2xl p-4 shadow-sm border text-center" style={{ background: bg, borderColor: border }}>
-            <p className="text-2xl" style={{ color, fontWeight: 500 }}>{value}</p>
-            <p className="text-gray-500 mt-1" style={{ fontSize: '14px' }}>{label}</p>
-          </div>
-        ))}
-      </div>
+      {/* ── Summary tiles (shared SummaryCards) ── */}
+      <SummaryCards
+        items={[
+          { label: 'ממתינות לשיוך', value: pendingCount,  Icon: AlertCircle, tone: 'yellow' },
+          { label: 'בארכיון',       value: archivedCount, Icon: Package,     tone: 'green' },
+          { label: 'סה"כ תעודות',   value: notes.length,  Icon: FileText,    tone: 'brand' },
+        ]}
+      />
 
       {/* ── Toggle + Filters ── */}
       <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#DEDFE5' }}>
@@ -280,11 +276,13 @@ export default function DeliveryNotes() {
               <button
                 key={v}
                 onClick={() => setView(v)}
-                className="rounded-lg px-4 font-medium transition-all"
+                className="rounded-lg px-4 transition-all"
                 style={{
-                  minHeight: '36px', fontSize: '14px',
-                  background: view === v ? 'var(--brand-primary)' : 'transparent',
-                  color: view === v ? 'white' : '#6B7280',
+                  minHeight: '36px', fontSize: '14px', border: 'none',
+                  fontWeight: view === v ? 700 : 500,
+                  background: view === v ? 'var(--brand-active-bg)' : 'transparent',
+                  color: view === v ? 'var(--brand-primary)' : '#6B7280',
+                  boxShadow: view === v ? '0 1px 2px rgba(16,17,21,.08)' : 'none',
                 }}
               >
                 {label}
@@ -301,11 +299,13 @@ export default function DeliveryNotes() {
               <button
                 key={String(v)}
                 onClick={() => { setShowAll(v); setFilterStat('all') }}
-                className="rounded-lg px-4 font-medium transition-all"
+                className="rounded-lg px-4 transition-all"
                 style={{
-                  minHeight: '36px', fontSize: '14px',
-                  background: showAll === v ? 'var(--brand-primary)' : 'transparent',
-                  color: showAll === v ? 'white' : '#6B7280',
+                  minHeight: '36px', fontSize: '14px', border: 'none',
+                  fontWeight: showAll === v ? 700 : 500,
+                  background: showAll === v ? 'var(--brand-active-bg)' : 'transparent',
+                  color: showAll === v ? 'var(--brand-primary)' : '#6B7280',
+                  boxShadow: showAll === v ? '0 1px 2px rgba(16,17,21,.08)' : 'none',
                 }}
               >
                 {label}

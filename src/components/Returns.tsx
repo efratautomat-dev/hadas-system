@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, X, CheckCircle2, RotateCcw, Download, Mail, Link2 } from 'lucide-react'
+import { Plus, Pencil, X, CheckCircle2, RotateCcw, Download, Mail, Link2, Clock } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
 import { useReturns } from '../hooks/useReturns'
@@ -12,6 +12,7 @@ import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
 import { StatusBadge } from './StatusBadge'
 import { Button } from './ui/Button'
+import { SummaryCards } from './ui/SummaryCards'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 
 export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
@@ -496,25 +497,14 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
       </div>
 
       {/* Stats (manual entries) */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
-          <p className="text-2xl font-black" style={{ color: '#7C3AED' }}>{manualReturns.length}</p>
-          <p className="text-gray-500 text-sm mt-1">סה"כ חזרות</p>
-        </div>
-        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
-          <p className="text-2xl font-black" style={{ color: '#166534' }}>{countClosed}</p>
-          <p className="text-gray-500 text-sm mt-1">נסגרו (זוכה)</p>
-        </div>
-        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
-          <p className="text-2xl font-black" style={{ color: countOpen > 0 ? '#1E40AF' : '#6B7280' }}>
-            {countOpen}
-          </p>
-          <p className="text-gray-500 text-sm mt-1">פתוחות</p>
-        </div>
-      </div>
+      <SummaryCards items={[
+        { label: 'סה"כ חזרות', value: manualReturns.length, Icon: RotateCcw, tone: 'brand' },
+        { label: 'נסגרו (זוכה)', value: countClosed, Icon: CheckCircle2, tone: 'green' },
+        { label: 'פתוחות', value: countOpen, Icon: Clock, tone: 'blue' },
+      ]} />
 
       {/* View tabs — (b) manual entries · (a) arrived credit notes */}
-      <div className="flex items-center gap-2">
+      <div className="inline-flex items-center gap-1 rounded-xl p-1" style={{ background: '#F3F4F6' }}>
         {([
           { key: 'manual' as const,  label: `יצירה ידנית · ${manualReturns.length}` },
           { key: 'arrived' as const, label: `מסמכים שהגיעו · ${arrivedReturns.length}` },
@@ -522,12 +512,13 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
           <button
             key={key}
             onClick={() => setView(key)}
-            className="rounded-xl font-bold transition-all"
+            className="rounded-lg transition-all"
             style={{
-              minHeight: '40px', padding: '0 18px', fontSize: '14px',
-              background: view === key ? '#7C3AED' : 'white',
-              color:      view === key ? 'white' : '#6B7280',
-              border: `1.5px solid ${view === key ? '#7C3AED' : '#E2E4E9'}`,
+              minHeight: '36px', padding: '0 16px', fontSize: '14px', border: 'none',
+              fontWeight: view === key ? 700 : 500,
+              background: view === key ? 'var(--brand-active-bg)' : 'transparent',
+              color:      view === key ? 'var(--brand-primary)' : '#6B7280',
+              boxShadow:  view === key ? '0 1px 2px rgba(16,17,21,.08)' : 'none',
             }}
           >
             {label}

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Users, Plus, Search, Pencil, ChevronLeft, X, LayoutGrid, Table2 } from 'lucide-react'
+import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, X, LayoutGrid, Table2 } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
 import { STATUS } from '../theme/status'
 import SupplierDetail, { type Supplier } from './SupplierDetail'
 import { Button } from './ui/Button'
+import { SummaryCards } from './ui/SummaryCards'
 
 // Active/inactive uses the FIXED functional tokens (green = active, gray = inactive),
 // never the brand palette — so the state reads the same after any reskin.
@@ -590,22 +591,11 @@ export default function Suppliers({
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: 'סה"כ ספקים',   value: String(suppliers.length), color: '#1F2937' },
-          { label: 'ספקים פעילים', value: String(activeCount),       color: '#16A34A' },
-          { label: 'יתרה כוללת',   value: formatILS(totalBalance),   color: '#1F2937' },
-        ].map(({ label, value, color }) => (
-          <div
-            key={label}
-            className="bg-white rounded-2xl p-4 shadow-sm border text-center"
-            style={{ borderColor: '#EEEEF2' }}
-          >
-            <p className="text-2xl" style={{ color, fontWeight: 500 }}>{value}</p>
-            <p className="text-gray-500 mt-1" style={{ fontSize: isTablet ? '15px' : '13px' }}>{label}</p>
-          </div>
-        ))}
-      </div>
+      <SummaryCards items={[
+        { label: 'סה"כ ספקים',   value: String(suppliers.length), Icon: Users,     tone: 'brand' },
+        { label: 'ספקים פעילים', value: String(activeCount),       Icon: UserCheck, tone: 'green' },
+        { label: 'יתרה כוללת',   value: formatILS(totalBalance),   Icon: Wallet,    tone: 'blue' },
+      ]} />
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">

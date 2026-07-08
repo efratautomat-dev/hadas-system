@@ -71,6 +71,27 @@ function SaveToast({ visible }: { visible: boolean }) {
   )
 }
 
+// Non-persisting settings (profile / preferences prefs / notifications / backup
+// export) show this "not available yet" state instead of controls that silently
+// fail to save. The original panels are kept in the file behind `SHOW_LEGACY`
+// (never rendered) so no handler/state is deleted — flip to true to restore them.
+const SHOW_LEGACY = false
+
+function NotAvailable() {
+  return (
+    <div
+      className="bg-white rounded-2xl shadow-sm border flex flex-col items-center justify-center text-center"
+      style={{ borderColor: '#EEEEF2', padding: '48px 24px', direction: 'rtl' }}
+    >
+      <div className="rounded-2xl flex items-center justify-center mb-4" style={{ width: '56px', height: '56px', background: 'var(--brand-active-bg)' }}>
+        <Settings2 className="w-7 h-7" style={{ color: 'var(--brand-primary)' }} />
+      </div>
+      <p className="font-semibold text-gray-700" style={{ fontSize: '16px' }}>אפשרות זו אינה זמינה כרגע</p>
+      <p className="text-gray-400 mt-1" style={{ fontSize: '14px' }}>התכונה תתווסף בהמשך</p>
+    </div>
+  )
+}
+
 function SectionCard({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
     <div className="bg-white rounded-2xl shadow-sm border" style={{ borderColor: '#E2E4E9' }}>
@@ -504,6 +525,8 @@ export default function Settings() {
   const tabContent: Record<Tab, React.ReactNode> = {
     profile: (
       <div className="space-y-5">
+        <NotAvailable />
+        {SHOW_LEGACY && (<>
         <SectionCard title="לוגו עסקי">
           <div className="flex items-center gap-5" style={{ flexDirection: 'row-reverse' }}>
             <div
@@ -560,6 +583,7 @@ export default function Settings() {
             </div>
           </div>
         </SectionCard>
+        </>)}
       </div>
     ),
 
@@ -619,6 +643,8 @@ export default function Settings() {
           </div>
         </SectionCard>
 
+        <NotAvailable />
+        {SHOW_LEGACY && (<>
         <SectionCard title="שפה ומטבע">
           <div className="grid grid-cols-1 gap-4" style={{ gridTemplateColumns: isTablet ? '1fr' : '1fr 1fr' }}>
             <div>
@@ -707,11 +733,14 @@ export default function Settings() {
             </div>
           </div>
         </SectionCard>
+        </>)}
       </div>
     ),
 
     notifications: (
       <div className="space-y-5">
+        <NotAvailable />
+        {SHOW_LEGACY && (<>
         <SectionCard title="סוגי התראות">
           <Toggle
             value={notifs.duplicates}
@@ -764,11 +793,14 @@ export default function Settings() {
             </span>
           </div>
         </SectionCard>
+        </>)}
       </div>
     ),
 
     backup: (
       <div className="space-y-5">
+        <NotAvailable />
+        {SHOW_LEGACY && (<>
         <SectionCard title="ייצוא נתונים">
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 rounded-xl border" style={{ borderColor: '#E2E4E9' }}>
@@ -846,6 +878,7 @@ export default function Settings() {
             ))}
           </div>
         </SectionCard>
+        </>)}
       </div>
     ),
 

@@ -9,6 +9,7 @@ import { openStoredFile } from '../lib/storage'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
+import { SummaryCards } from './ui/SummaryCards'
 
 // Color is keyed to the alert TYPE, grouped into four severity-like buckets.
 // (severity is "info" on every live row, so it can't drive color.) The bucket is
@@ -462,30 +463,11 @@ export default function Alerts({
       </div>
 
       {/* Summary stat cards */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { value: newCount,      label: 'חדש',    bg: '#FEE2E2', color: '#DC2626', iconBg: '#FCA5A5' },
-          { value: readCount,     label: 'בטיפול', bg: '#F3F4F6', color: '#6B7280', iconBg: '#D1D5DB' },
-          { value: resolvedCount, label: 'טופל',   bg: '#DCFCE7', color: '#166534', iconBg: '#86EFAC' },
-        ].map(({ value, label, bg, color, iconBg }) => (
-          <div
-            key={label}
-            className="bg-white rounded-2xl p-4 shadow-sm border flex items-center gap-3"
-            style={{ borderColor: '#E2E4E9' }}
-          >
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: bg }}
-            >
-              <Bell className="w-4 h-4" style={{ color: iconBg }} />
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-black" style={{ color }}>{value}</p>
-              <p className="text-xs text-gray-500 font-medium">{label}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+      <SummaryCards items={[
+        { label: 'חדש',    value: newCount,      Icon: Bell, tone: 'blue' },
+        { label: 'בטיפול', value: readCount,     Icon: Eye,  tone: 'neutral' },
+        { label: 'טופל',   value: resolvedCount, Icon: Check, tone: 'green' },
+      ]} />
 
       {/* Filters */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border space-y-3" style={{ borderColor: '#E2E4E9' }}>

@@ -10,6 +10,7 @@ import SectionHeader from './SectionHeader'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 import { PdfPreviewModal } from './PdfPreviewModal'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
+import { SummaryCards } from './ui/SummaryCards'
 
 interface VendorStatement {
   id: string
@@ -398,20 +399,6 @@ export default function StatementReconciliation({ initialStatementId }: { initia
     }
   }
 
-  const statCards: {
-    key: VendorStatementStatus
-    label: string
-    iconBg: string
-    iconColor: string
-    Icon: React.ElementType
-  }[] = [
-    { key: 'needs_review',  label: 'לבדיקה',   iconBg: '#FEF3C7', iconColor: '#D97706', Icon: Eye },
-    { key: 'matched',       label: 'תואמות',   iconBg: '#DCFCE7', iconColor: '#166534', Icon: CheckCircle2 },
-    { key: 'mismatch',      label: 'אי-התאמה', iconBg: '#FEE2E2', iconColor: '#DC2626', Icon: AlertTriangle },
-    { key: 'pending',       label: 'ממתינות',  iconBg: '#FEF9C3', iconColor: '#A16207', Icon: Clock },
-    { key: 'investigating', label: 'בבדיקה',   iconBg: '#DBEAFE', iconColor: '#1E40AF', Icon: SearchIcon },
-  ]
-
   if (loading && statements.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -433,29 +420,18 @@ export default function StatementReconciliation({ initialStatementId }: { initia
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        {statCards.map(({ key, label, iconBg, iconColor, Icon }) => (
-          <div
-            key={key}
-            className="bg-white rounded-2xl p-5 shadow-sm border cursor-pointer transition-all"
-            style={{ borderColor: filterStatus === key ? iconColor : '#EEEEF2' }}
-            onClick={() => setFilterStatus(filterStatus === key ? 'all' : key)}
-          >
-            <div className="flex items-start justify-between">
-              <div
-                className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: iconBg, color: iconColor }}
-              >
-                <Icon className="w-5 h-5" />
-              </div>
-              <p className="text-sm font-medium text-gray-500">{label}</p>
-            </div>
-            <div className="mt-3 text-right">
-              <p className="text-3xl" style={{ fontWeight: 500, color: '#1A1A2E' }}>{counts[key]}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+      <SummaryCards items={([
+        { label: 'לבדיקה',   value: counts.needs_review,  Icon: Eye,           tone: 'yellow', status: 'needs_review'  },
+        { label: 'תואמות',   value: counts.matched,       Icon: CheckCircle2,  tone: 'green',  status: 'matched'       },
+        { label: 'אי-התאמה', value: counts.mismatch,      Icon: AlertTriangle, tone: 'red',    status: 'mismatch'      },
+        { label: 'ממתינות',  value: counts.pending,       Icon: Clock,         tone: 'yellow', status: 'pending'       },
+        { label: 'בבדיקה',   value: counts.investigating, Icon: SearchIcon,    tone: 'blue',   status: 'investigating' },
+      ] as const).map(({ status, ...item }) => ({
+        ...item,
+        active: filterStatus === status,
+        // Click a tile to filter the list by that status; click the active one to clear.
+        onClick: () => setFilterStatus(filterStatus === status ? 'all' : status),
+      }))} />
 
       {/* Filter bar */}
       <div
