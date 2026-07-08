@@ -51,3 +51,26 @@ expected recurring amount.
 - **⚠️ Design caution:** must be careful **not to hide real debt** — only the expected recurring
   amount should be auto-balanced; anything beyond it must still surface. Scope the exact rule when
   this is picked up.
+
+---
+
+## 5. Manual match correction for delivery notes & returns
+
+The AI-suggested match between a manual goods-receipt (or manual return) and an arrived document is
+auto-applied and surfaced via the **'הצג מסמך מספק'** (delivery notes) / **'קישור לחשבונית זיכוי'**
+(returns) button. Correction is minimal today: **delivery notes** got a basic picker + **'בטל
+התאמה'** in the row detail (piece 2); **returns** has **no** correction UI — and neither has a
+prominent, consistent way to CHANGE a wrong match to a different arrived document.
+
+- **Future:** a **'שנה התאמה'** control letting the owner pick a different arrived document (same
+  supplier) or unmatch, persisted via `hadas-api`.
+- **Deferred** — matching by supplier is usually correct; revisit if mismatches happen in practice.
+
+---
+
+## 6. UI polish — align the 'הצג מסמך מספק' button in delivery-note rows
+
+The **'הצג מסמך מספק'** button on matched manual delivery-note rows isn't aligned within the table
+the way the equivalent **'קישור לחשבונית זיכוי'** button is in Returns — it sits inside the supplier
+cell rather than a dedicated aligned column. **Fold into the final design pass** (palette + type
+scale + component alignment), not a standalone task.
