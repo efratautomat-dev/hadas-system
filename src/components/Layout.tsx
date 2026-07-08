@@ -159,7 +159,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   // if not found, fall back to the invoices list.
   const handleOpenInvoiceByGmailMessageId = async (msgId: string) => {
     const { data, error } = await supabase
-      .from('invoices')
+      .from('invoices_v')
       .select('id')
       .eq('gmail_message_id', msgId)
       .limit(1)

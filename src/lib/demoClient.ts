@@ -50,7 +50,9 @@ function query(rows: Row[]) {
 
 export function createDemoClient() {
   return {
-    from: (table: string) => query(demoTables[table] ?? []),
+    // Alias role-aware masking views (invoices_v / suppliers_v / delivery_notes_v)
+    // back to their base demo dataset — demo mode has no roles/RLS to enforce.
+    from: (table: string) => query(demoTables[table] ?? demoTables[table.replace(/_v$/, '')] ?? []),
 
     auth: {
       onAuthStateChange: (cb: (event: string, session: unknown) => void) => {

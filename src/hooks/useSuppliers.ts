@@ -18,8 +18,8 @@ export function useSuppliers() {
         { data: invoiceRows },
         { data: paymentRows },
       ] = await Promise.all([
-        supabase.from('suppliers').select('*'),
-        supabase.from('invoices').select('supplier_id, total_amount'),
+        supabase.from('suppliers_v').select('*'),
+        supabase.from('invoices_v').select('supplier_id, total_amount'),
         supabase.from('payments').select('supplier_id, amount, status'),
       ])
 

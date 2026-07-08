@@ -58,6 +58,8 @@ commit;
 --       20260614  invoices_composite_msgid_index
 --       20260618  ingest_failures              ingest_failures table
 --       20260703  invoices_manager_delete_rls  manager-only invoice delete policy
+--       20260708  employee_financial_column_mask  role-aware *_v views + REVOKE base reads
+--                                                  (see §5 — REQUIRES the hadas-api role-gate too)
 --
 --     ⚠️  I could NOT verify which of these prod already has (prod was not touched).
 --         Verify prod state before pushing; every file is IF-NOT-EXISTS so re-running
@@ -88,4 +90,33 @@ commit;
 --
 --     (Other functions — payments-ingest, suppliers-list, drive-*, test-api — were
 --      NOT changed during this rebuild; no redeploy needed on their account.)
+--
+--
+-- ── 5. EMPLOYEE PERMISSION HARDENING (RLS/permissions audit) — DEV, replay on PROD ─
+--     Two coordinated changes close the employee-role gaps. BOTH are required;
+--     the DB mask (5a) is useless without the API role-gate (5b) and vice-versa.
+--
+--   5a. DB-layer financial-column mask — migration 20260708_employee_financial_column_mask.
+--       Creates role-aware views invoices_v / suppliers_v / delivery_notes_v that expose
+--       cost columns (invoices total/before-VAT/VAT, suppliers opening_balance[_date],
+--       delivery_notes amount[/before-VAT/VAT]) ONLY to managers, then REVOKEs SELECT on
+--       the three BASE tables from anon+authenticated so a direct PostgREST/F12 call can't
+--       bypass the mask. Frontend reads were repointed to the *_v views (writes still hit
+--       the base tables via hadas-api's service role — unaffected by the REVOKE).
+--       ⚠️  The view column lists mirror the LIVE schema — if a new column is added to any
+--           of the 3 tables, add it to the matching view or clients won't see it.
+--       ⚠️  Depends on public.current_user_role() from migration 20260604 (employee_rls).
+--
+--   5b. hadas-api WRITE role-gate — code change (commit "security(gap#1)"), deploy with §4.
+--       hadas-api derives the caller's role from allowed_users by their verified JWT email;
+--       employees are allowlisted to POST /returns ONLY and get 403 on every other write
+--       and on all GETs. x-hadas-key machine calls stay full-access (manager). Ships with
+--       the same `supabase functions deploy hadas-api` in §4 — no separate step.
+--
+--     Verified on DEV with minted employee + manager JWTs:
+--       • employee → 403 on all writes except POST /returns; 403 on all GETs
+--       • employee → BASE invoices/suppliers/delivery_notes reads = 42501 permission denied
+--       • employee → *_v views: rows visible but cost columns NULL
+--       • employee → payments/vendor_statements/alerts = 0 rows (RLS, migration 20260604)
+--       • manager  → *_v views return full financials; all writes reach their handlers
 -- ============================================================================

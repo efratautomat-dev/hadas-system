@@ -48,7 +48,7 @@ export function useReturns() {
         { data: empRows },
       ] = await Promise.all([
         supabase.from('returns').select('*'),
-        supabase.from('suppliers').select('id, name'),
+        supabase.from('suppliers_v').select('id, name'),
         supabase.from('employees').select('id, name'),
       ])
 

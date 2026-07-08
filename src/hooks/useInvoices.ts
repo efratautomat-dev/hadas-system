@@ -18,7 +18,7 @@ export function useInvoices() {
   const load = useCallback(async () => {
     try {
       const { data: rows, error: err } = await supabase
-        .from('invoices')
+        .from('invoices_v')   // role-aware view: cost columns NULL for employees (DB-enforced)
         .select('*')
         .order('invoice_date', { ascending: false, nullsFirst: false })
         .order('received_at', { ascending: false, nullsFirst: false })

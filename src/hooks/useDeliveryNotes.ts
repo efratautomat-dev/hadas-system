@@ -17,7 +17,7 @@ export function useDeliveryNotes() {
 
   const load = useCallback(async () => {
     try {
-      const { data: rows, error: err } = await supabase.from('delivery_notes').select('*')
+      const { data: rows, error: err } = await supabase.from('delivery_notes_v').select('*')
       if (!err && rows && rows.length > 0) {
         setData(rows.map(r => ({
           ...r,
