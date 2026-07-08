@@ -7,6 +7,7 @@ import { useCategories } from '../hooks/useCategories'
 import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge } from './StatusBadge'
+import { Button } from './ui/Button'
 import { supabase } from '../lib/supabase'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 
@@ -327,33 +328,15 @@ export function InvoiceDetail({
       {/* Top bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={() => onSave(form)}
-            style={{
-              background: 'var(--brand-primary)', color: 'white', border: 'none', borderRadius: '12px',
-              padding: '10px 22px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: '7px',
-            }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
-          >
+          <Button variant="primary" onClick={() => onSave(form)}>
             <Save size={16} />
             שמור
-          </button>
+          </Button>
           {onDelete && (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              style={{
-                background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA',
-                borderRadius: '12px', padding: '10px 16px', fontSize: '15px',
-                fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '7px',
-              }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEE2E2')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEF2F2')}
-            >
+            <Button variant="danger" onClick={() => setConfirmDelete(true)}>
               <Trash2 size={16} />
               מחק
-            </button>
+            </Button>
           )}
         </div>
 
@@ -527,14 +510,12 @@ export function InvoiceDetail({
               </span>
             </p>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => onDelete(invoice.id)}
-                style={{ flex: 1, height: '44px', borderRadius: '12px', background: '#DC2626', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '15px', fontFamily: 'inherit' }}>
+              <Button variant="danger" className="flex-1" onClick={() => onDelete(invoice.id)}>
                 כן, מחק
-              </button>
-              <button onClick={() => setConfirmDelete(false)}
-                style={{ flex: 1, height: '44px', borderRadius: '12px', background: '#F3F4F6', color: '#6B7280', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '15px', fontFamily: 'inherit' }}>
+              </Button>
+              <Button variant="ghost" className="flex-1" onClick={() => setConfirmDelete(false)}>
                 חזרה
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1143,14 +1124,12 @@ export default function Invoices({
                   למחוק את {deleteTarget === 'invoice' ? 'החשבונית הזו' : 'הכפילות האפשרית'}? פעולה זו בלתי הפיכה ותמחק גם את הקובץ מ-Drive.
                 </p>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={handleDeleteDuplicate}
-                    style={{ flex: 1, height: '40px', borderRadius: '10px', background: '#DC2626', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '14px', fontFamily: 'inherit' }}>
+                  <Button variant="danger" size="sm" className="flex-1" onClick={handleDeleteDuplicate}>
                     כן, מחק
-                  </button>
-                  <button onClick={() => setDeleteTarget(null)}
-                    style={{ flex: 1, height: '40px', borderRadius: '10px', background: '#F3F4F6', color: '#6B7280', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit' }}>
+                  </Button>
+                  <Button variant="ghost" size="sm" className="flex-1" onClick={() => setDeleteTarget(null)}>
                     ביטול
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -1161,10 +1140,9 @@ export default function Invoices({
                 <p style={{ fontSize: '12px', color: '#9CA3AF', textAlign: 'right', margin: '0 0 10px' }}>
                   השווה בעזרת 👁, ובחר איזו חשבונית למחוק — או השאר את שתיהן.
                 </p>
-                <button onClick={handleApproveAll}
-                  style={{ width: '100%', height: '44px', borderRadius: '12px', background: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0', cursor: 'pointer', fontWeight: 600, fontSize: '14px', fontFamily: 'inherit' }}>
+                <Button variant="primary" className="w-full" onClick={handleApproveAll}>
                   התעלם – שתיהן תקינות
-                </button>
+                </Button>
               </div>
             )}
           </div>

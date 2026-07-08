@@ -52,16 +52,27 @@ body {
 /* ── Hadas design-system component classes (spec/design-preview/index.html) ──
    Shared primitives (src/components/ui/*) render through these so buttons, cards,
    inputs, pills, chips and tables match the approved preview 1:1. */
-.hds-btn { font: inherit; font-size: 15px; font-weight: 600; line-height: 20px; border-radius: 10px; padding: 10px 18px; border: 1px solid transparent; cursor: pointer; transition: all .15s ease; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+/* ── Canonical action button — the ONE shared style for every primary/secondary/
+   ghost/danger action across the app (save, create, submit, add, …). Screens use
+   the <Button> primitive (src/components/ui/Button.tsx) or these classes directly.
+   12px radius, 44px tap target, brand hover. Use .hds-btn-sm for compact toolbar CTAs. */
+/* ONE height for every action button (44px). `.hds-btn-sm` keeps that height and
+   only trims font/padding for compact toolbar rows — heights stay uniform app-wide.
+   Clear two-tier hierarchy: primary = FILLED brand; secondary/outline = brand OUTLINE
+   (never filled); ghost = quiet transparent; danger = soft red. */
+.hds-btn { font: inherit; font-size: 15px; font-weight: 600; line-height: 1; border-radius: 12px; padding: 0 18px; min-height: 44px; border: 1px solid transparent; cursor: pointer; transition: all .15s ease; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
+.hds-btn-sm        { padding: 0 14px; font-size: 14px; }
 .hds-btn-primary   { background: var(--brand-primary); color: #fff; }
 .hds-btn-primary:hover   { background: var(--brand-primary-dark); }
 .hds-btn-secondary { background: var(--brand-surface); color: var(--brand-primary); border-color: var(--brand-primary); }
-.hds-btn-secondary:hover { background: var(--brand-coral-bg); }
+.hds-btn-secondary:hover { background: var(--brand-active-bg); }
+.hds-btn-outline   { background: var(--brand-surface); color: var(--brand-primary); border-color: var(--brand-primary); }
+.hds-btn-outline:hover   { background: var(--brand-active-bg); }
 .hds-btn-ghost     { background: transparent; color: var(--brand-text-muted); }
-.hds-btn-ghost:hover     { background: var(--brand-coral-bg); }
-.hds-btn-danger    { background: var(--brand-surface); color: #DC2626; border-color: #DC2626; }
-.hds-btn-danger:hover    { background: #FEF2F2; }
-.hds-btn:disabled  { opacity: .4; cursor: not-allowed; }
+.hds-btn-ghost:hover     { background: var(--brand-active-bg); }
+.hds-btn-danger    { background: #FEE2E2; color: #DC2626; }
+.hds-btn-danger:hover    { background: #FECACA; }
+.hds-btn:disabled  { opacity: .45; cursor: not-allowed; }
 
 .hds-card  { background: var(--brand-surface); border: 1px solid var(--brand-border); border-radius: 12px; box-shadow: 0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.06); padding: 24px; }
 

@@ -9,6 +9,7 @@ import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge } from './StatusBadge'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
+import { Button } from './ui/Button'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -241,16 +242,14 @@ export default function DeliveryNotes() {
           </p>
         </div>
         {view === 'manual' && (
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => { setForm({ ...emptyForm, isoDate: new Date().toISOString().slice(0, 10) }); setModalType('add') }}
-            className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
-            style={{ background: 'var(--brand-primary)', minHeight: '44px', padding: '0 20px', fontSize: '16px' }}
-            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
-            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
           >
             <Plus className="w-4 h-4" />
             קליטת סחורה ידנית
-          </button>
+          </Button>
         )}
       </div>
 
@@ -539,7 +538,7 @@ export default function DeliveryNotes() {
                             </button>
                             <span style={{ fontSize: '13px', color: '#166534' }}>מקושר: {selected.noteNumber || 'מסמך שהגיע'}</span>
                           </div>
-                          <button onClick={doUnmatch} className="text-xs mt-2 font-semibold" style={{ color: '#DC2626' }}>בטל התאמה</button>
+                          <Button variant="danger" size="sm" onClick={doUnmatch} className="mt-2">בטל התאמה</Button>
                         </div>
                       ) : arrivedForSelected.length === 0 ? (
                         <p className="text-center text-gray-400 py-2" style={{ fontSize: '13px' }}>אין מסמכים שהגיעו לספק זה</p>
@@ -556,14 +555,14 @@ export default function DeliveryNotes() {
                               <option key={a.id} value={a.id}>{a.noteNumber} · {a.date}</option>
                             ))}
                           </select>
-                          <button
+                          <Button
+                            variant="primary"
                             onClick={doMatch}
                             disabled={!matchPick}
-                            className="rounded-xl font-semibold text-white transition-all flex items-center gap-1 flex-shrink-0"
-                            style={{ background: matchPick ? 'var(--brand-primary)' : '#E5E7EB', minHeight: '44px', padding: '0 16px', fontSize: '14px' }}
+                            className="flex-shrink-0"
                           >
                             <Link2 className="w-4 h-4" /> התאם
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -601,27 +600,21 @@ export default function DeliveryNotes() {
 
                 {/* Footer buttons */}
                 <div className="flex gap-3 px-5 pb-5">
-                  <button
+                  <Button
+                    variant="primary"
                     onClick={linkInvoice}
                     disabled={!selectedInvId}
-                    className="flex-1 rounded-xl font-semibold transition-all"
-                    style={{
-                      minHeight: '44px', fontSize: '15px',
-                      background: selectedInvId ? 'var(--brand-primary)' : '#E5E7EB',
-                      color: selectedInvId ? 'white' : '#9CA3AF',
-                    }}
+                    className="flex-1"
                   >
                     שייך ועבור לארכיון
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="ghost"
                     onClick={closeModal}
-                    className="flex-1 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '44px', fontSize: '15px', background: '#F3F4F6', color: '#6B7280' }}
-                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+                    className="flex-1"
                   >
                     סגור
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -700,24 +693,22 @@ export default function DeliveryNotes() {
                         האם לבטל את השיוך? התעודה תחזור לרשימת הממתינות.
                       </p>
                       <div className="flex gap-2">
-                        <button
+                        <Button
+                          variant="danger"
+                          size="sm"
                           onClick={doUnlink}
-                          className="flex-1 rounded-xl font-semibold transition-all"
-                          style={{ minHeight: '40px', fontSize: '14px', background: '#DC2626', color: 'white' }}
-                          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#B91C1C')}
-                          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#DC2626')}
+                          className="flex-1"
                         >
                           כן, בטל שיוך
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => setConfirmUnlink(false)}
-                          className="flex-1 rounded-xl font-semibold transition-all"
-                          style={{ minHeight: '40px', fontSize: '14px', background: '#F3F4F6', color: '#6B7280' }}
-                          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+                          className="flex-1"
                         >
                           ביטול
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -726,25 +717,21 @@ export default function DeliveryNotes() {
                 {/* Footer */}
                 <div className="flex gap-3 px-5 pb-5">
                   {!confirmUnlink && (
-                    <button
+                    <Button
+                      variant="secondary"
                       onClick={() => setConfirmUnlink(true)}
-                      className="flex-1 rounded-xl font-semibold transition-all"
-                      style={{ minHeight: '44px', fontSize: '15px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
-                      onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
-                      onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
+                      className="flex-1"
                     >
                       בטל שיוך
-                    </button>
+                    </Button>
                   )}
-                  <button
+                  <Button
+                    variant="ghost"
                     onClick={closeModal}
-                    className={confirmUnlink ? 'w-full rounded-xl font-semibold' : 'flex-1 rounded-xl font-semibold'}
-                    style={{ minHeight: '44px', fontSize: '15px', background: '#F3F4F6', color: '#6B7280', transition: 'all .15s' }}
-                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+                    className={confirmUnlink ? 'w-full' : 'flex-1'}
                   >
                     סגור
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -828,27 +815,21 @@ export default function DeliveryNotes() {
 
                 {/* Footer */}
                 <div className="flex gap-3 px-5 pb-5">
-                  <button
+                  <Button
+                    variant="primary"
                     onClick={addManual}
                     disabled={!canAdd}
-                    className="flex-1 rounded-xl font-semibold transition-all"
-                    style={{
-                      minHeight: '44px', fontSize: '15px',
-                      background: canAdd ? 'var(--brand-primary)' : '#E5E7EB',
-                      color: canAdd ? 'white' : '#9CA3AF',
-                    }}
+                    className="flex-1"
                   >
                     שמור קליטה
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="ghost"
                     onClick={closeModal}
-                    className="flex-1 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '44px', fontSize: '15px', background: '#F3F4F6', color: '#6B7280' }}
-                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+                    className="flex-1"
                   >
                     ביטול
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}

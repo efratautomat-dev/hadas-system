@@ -11,6 +11,7 @@ import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
 import { StatusBadge } from './StatusBadge'
+import { Button } from './ui/Button'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 
 export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
@@ -291,25 +292,12 @@ export function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, i
 
         {/* Footer */}
         <div className="px-6 py-4 border-t flex items-center justify-between" style={{ borderColor: '#E2E4E9' }}>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl text-sm font-bold border-2 transition-colors"
-            style={{ borderColor: '#E2E4E9', color: '#6B7280' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
-          >
+          <Button variant="outline" onClick={onClose}>
             ביטול
-          </button>
-          <button
-            onClick={onSave}
-            disabled={!canSave}
-            className="px-6 py-2 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: '#7C3AED' }}
-            onMouseEnter={(e) => { if (canSave) (e.currentTarget as HTMLElement).style.background = '#6D28D9' }}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
-          >
+          </Button>
+          <Button variant="primary" onClick={onSave} disabled={!canSave}>
             {isEdit ? 'שמור שינויים' : 'הוסף חזרה'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -501,16 +489,10 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
           <h1 className="text-2xl font-black text-gray-800">חזרות וזיכויים</h1>
           <p className="text-gray-500 text-sm mt-0.5">ניהול החזרות וזיכויים מול ספקים</p>
         </div>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 rounded-xl font-bold text-white transition-all"
-          style={{ minHeight: '44px', padding: '0 20px', background: '#7C3AED', fontSize: '15px' }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
-        >
+        <Button variant="primary" onClick={openAdd}>
           <Plus className="w-4 h-4" />
           הוסף חזרה
-        </button>
+        </Button>
       </div>
 
       {/* Stats (manual entries) */}

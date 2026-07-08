@@ -5,6 +5,7 @@ import type { Employee } from '../hooks/useEmployees'
 import { useCategories } from '../hooks/useCategories'
 import { supabase } from '../lib/supabase'
 import { useAppLogo } from '../hooks/useAppLogo'
+import { Button } from '../components/ui/Button'
 
 function useIsTablet() {
   const [v] = useState(
@@ -209,9 +210,9 @@ function CategoriesManager() {
       <SectionCard title="הוספת קטגוריה">
         <div className="flex items-end gap-3">
           <div className="flex-1"><FieldLabel>שם קטגוריה</FieldLabel><TextInput value={newName} onChange={setNewName} placeholder="לדוגמה: ספקים ביגוד" /></div>
-          <button onClick={handleAdd} disabled={busy || !newName.trim()} className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 transition-all" style={{ background: A }}>
+          <Button variant="primary" onClick={handleAdd} disabled={busy || !newName.trim()}>
             <Plus className="w-4 h-4" /> הוסף
-          </button>
+          </Button>
         </div>
       </SectionCard>
 
@@ -228,9 +229,9 @@ function CategoriesManager() {
             <option value="">אל…</option>
             {categories.filter(c => c.id !== mergeFrom).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <button onClick={handleMerge} disabled={busy || !mergeFrom || !mergeInto} className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50 transition-all" style={{ background: '#7C3AED' }}>
+          <Button variant="primary" onClick={handleMerge} disabled={busy || !mergeFrom || !mergeInto}>
             <GitMerge className="w-4 h-4" /> מזג
-          </button>
+          </Button>
         </div>
       </SectionCard>
 
@@ -248,8 +249,8 @@ function CategoriesManager() {
               <div key={cat.id} className="flex items-center justify-between p-3.5 rounded-xl border" style={{ borderColor: '#E2E4E9' }}>
                 {editingId === cat.id ? (
                   <div className="flex items-center gap-2 flex-1">
-                    <button onClick={() => handleRename(cat.id)} disabled={busy} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white" style={{ background: A }}>שמור</button>
-                    <button onClick={() => setEditingId(null)} className="px-3 py-1.5 rounded-lg text-xs font-bold border" style={{ borderColor: '#E2E4E9', color: '#6B7280' }}>ביטול</button>
+                    <Button variant="primary" size="sm" onClick={() => handleRename(cat.id)} disabled={busy}>שמור</Button>
+                    <Button variant="outline" size="sm" onClick={() => setEditingId(null)}>ביטול</Button>
                     <div className="flex-1"><TextInput value={editName} onChange={setEditName} /></div>
                   </div>
                 ) : (
@@ -284,8 +285,8 @@ function CategoriesManager() {
               {categories.filter(c => c.id !== reassign.id).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
             </select>
             <div className="flex justify-end gap-3 mt-5">
-              <button onClick={() => setReassign(null)} className="px-4 py-2 rounded-xl text-sm font-bold border" style={{ borderColor: '#E2E4E9', color: '#6B7280' }}>ביטול</button>
-              <button onClick={confirmReassign} disabled={busy || !reassignTo} className="px-5 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-50" style={{ background: '#DC2626' }}>שייך ומחק</button>
+              <Button variant="outline" onClick={() => setReassign(null)}>ביטול</Button>
+              <Button variant="danger" onClick={confirmReassign} disabled={busy || !reassignTo}>שייך ומחק</Button>
             </div>
           </div>
         </div>
@@ -587,13 +588,10 @@ export default function Settings() {
                 onChange={handleSystemLogoUpload}
               />
               <div className="flex flex-wrap gap-2">
-                <button
+                <Button
+                  variant="outline"
                   onClick={() => sysLogoInputRef.current?.click()}
                   disabled={logoUploading}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all"
-                  style={{ borderColor: 'var(--brand-primary)', color: 'var(--brand-primary)' }}
-                  onMouseEnter={e => { if (!logoUploading) (e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
                   {logoUploading ? (
                     <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--brand-primary)', borderTopColor: 'transparent' }} />
@@ -601,18 +599,15 @@ export default function Settings() {
                     <Upload className="w-4 h-4" />
                   )}
                   העלאת לוגו חדש
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
                   onClick={handleResetSystemLogo}
                   disabled={logoUploading}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all"
-                  style={{ borderColor: '#EEEEF2', color: '#6B7280' }}
-                  onMouseEnter={e => { if (!logoUploading) (e.currentTarget as HTMLElement).style.background = '#F8F8FA' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
                   <RefreshCw className="w-4 h-4" />
                   איפוס ללוגו ברירת מחדל
-                </button>
+                </Button>
               </div>
               <p className="text-xs text-gray-400 mt-2">PNG, JPG, SVG עד 2MB</p>
               {logoMsg && (
@@ -777,16 +772,10 @@ export default function Settings() {
         <SectionCard title="ייצוא נתונים">
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 rounded-xl border" style={{ borderColor: '#E2E4E9' }}>
-              <button
-                onClick={handleExportAll}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all"
-                style={{ background: '#E8645A' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
-              >
+              <Button variant="primary" onClick={handleExportAll}>
                 <Download className="w-4 h-4" />
                 ייצא הכל ל-Excel
-              </button>
+              </Button>
               <div className="text-right">
                 <p className="text-sm font-semibold text-gray-700">גיבוי מלא</p>
                 <p className="text-xs text-gray-400 mt-0.5">ספקים, חשבוניות, תשלומים, תעודות</p>
@@ -903,25 +892,19 @@ export default function Settings() {
               className="flex justify-end gap-3 mt-5 pt-4 border-t"
               style={{ borderColor: '#F3F4F6' }}
             >
-              <button
+              <Button
+                variant="outline"
                 onClick={() => { setShowEmpForm(false); setEditingEmpId(null) }}
-                className="px-4 py-2 rounded-xl text-sm font-bold border-2 transition-colors"
-                style={{ borderColor: '#E2E4E9', color: '#6B7280' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#F8F9FA' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'white' }}
               >
                 ביטול
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
                 onClick={saveEmp}
                 disabled={!empForm.name.trim()}
-                className="px-5 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                style={{ background: '#E8645A' }}
-                onMouseEnter={e => { if (empForm.name.trim()) (e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
               >
                 {editingEmpId ? 'שמור שינויים' : 'הוסף עובד'}
-              </button>
+              </Button>
             </div>
           </SectionCard>
         )}
@@ -929,16 +912,10 @@ export default function Settings() {
         {/* Employee list */}
         <SectionCard>
           <div className="flex items-center justify-between mb-5">
-            <button
-              onClick={openEmpAdd}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-all"
-              style={{ background: '#E8645A' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
-            >
+            <Button variant="primary" onClick={openEmpAdd}>
               <Plus className="w-4 h-4" />
               הוסף עובד
-            </button>
+            </Button>
             <h3 className="font-bold text-gray-700 text-base">
               רשימת עובדים {employees.length > 0 && `(${employees.length})`}
             </h3>
@@ -991,20 +968,20 @@ export default function Settings() {
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {deletingEmpId === emp.id ? (
                       <>
-                        <button
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => setDeletingEmpId(null)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors"
-                          style={{ borderColor: '#E2E4E9', color: '#6B7280' }}
                         >
                           ביטול
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
                           onClick={() => confirmDeleteEmp(emp.id)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-colors"
-                          style={{ background: '#DC2626' }}
                         >
                           מחק
-                        </button>
+                        </Button>
                       </>
                     ) : (
                       <>

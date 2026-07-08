@@ -4,6 +4,7 @@ import { useSuppliers } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
 import { STATUS } from '../theme/status'
 import SupplierDetail, { type Supplier } from './SupplierDetail'
+import { Button } from './ui/Button'
 
 // Active/inactive uses the FIXED functional tokens (green = active, gray = inactive),
 // never the brand palette — so the state reads the same after any reskin.
@@ -330,29 +331,23 @@ function SupplierFormCard({
 
       {/* Save / Cancel */}
       <div className="flex gap-2 px-5 pb-5">
-        <button
+        <Button
           type="button"
+          variant="primary"
           onClick={onSave}
           disabled={!canSave}
-          className="flex-1 rounded-xl font-semibold transition-all"
-          style={{
-            minHeight: '44px', fontSize: '15px',
-            background: canSave ? 'var(--brand-primary)' : '#E5E7EB',
-            color: canSave ? 'white' : '#9CA3AF',
-          }}
+          className="flex-1"
         >
           שמור
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
           onClick={onCancel}
-          className="flex-1 rounded-xl font-semibold transition-all"
-          style={{ minHeight: '44px', fontSize: '15px', background: '#F3F4F6', color: '#6B7280' }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+          className="flex-1"
         >
           ביטול
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -584,21 +579,14 @@ export default function Suppliers({
             {suppliers.length} ספקים במערכת
           </p>
         </div>
-        <button
+        <Button
+          variant="primary"
           onClick={() => { setShowAdd(true); setAddForm({ ...emptyForm }) }}
-          className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all flex-shrink-0"
-          style={{
-            background: 'var(--brand-primary)',
-            padding: isTablet ? '12px 20px' : '10px 18px',
-            minHeight: '44px',
-            fontSize: isTablet ? '16px' : '14px',
-          }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
+          className="flex-shrink-0"
         >
           <Plus className="w-4 h-4 flex-shrink-0" />
           הוסף ספק
-        </button>
+        </Button>
       </div>
 
       {/* Stats */}

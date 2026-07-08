@@ -4,6 +4,7 @@ import { useInvoices } from '../hooks/useInvoices'
 import { usePayments } from '../hooks/usePayments'
 import { computeSupplierBalance, sumNonCancelledPayments } from '../lib/supplierBalance'
 import SectionHeader from './SectionHeader'
+import { Button } from './ui/Button'
 
 function useIsTablet() {
   const [v, setV] = useState(
@@ -161,16 +162,10 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
         {/* RIGHT (first in RTL): action buttons */}
         <div className={isMobile ? 'flex items-center gap-2 overflow-x-auto pb-1' : 'flex items-center gap-2 flex-shrink-0'}>
           {onViewLedger && (
-            <button
-              onClick={onViewLedger}
-              className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-              style={{ minHeight: '44px', padding: '0 18px', background: '#F3E8FF', color: '#7C3AED', fontSize: fs('16px', '14px') }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#EDE9FE')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3E8FF')}
-            >
+            <Button variant="secondary" onClick={onViewLedger}>
               <BookOpen className="w-4 h-4" />
               כרטסת ספק
-            </button>
+            </Button>
           )}
           {onToggleActive && (() => {
             const isActive = supplier.status === 'פעיל'
@@ -197,16 +192,10 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
               </button>
             )
           })()}
-          <button
-            onClick={onEdit}
-            className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-            style={{ minHeight: '44px', padding: '0 18px', background: '#FFF0EF', color: '#E8645A', fontSize: fs('16px', '14px') }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FFF0EF')}
-          >
+          <Button variant="primary" onClick={onEdit}>
             <Pencil className="w-4 h-4" />
             עריכה
-          </button>
+          </Button>
           <button
             onClick={onBack}
             className="rounded-xl font-semibold transition-all"
@@ -517,27 +506,10 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
 
       {/* ── Delete button ── */}
       <div className="flex justify-start pt-1 pb-2">
-        <button
-          onClick={handleDeleteClick}
-          className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-          style={{
-            minHeight: '44px', padding: '0 20px',
-            background: '#FFF1F2', color: '#BE123C',
-            fontSize: fs('15px', '14px'),
-            border: '1px solid #FECDD3',
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background = '#FFE4E8'
-            ;(e.currentTarget as HTMLElement).style.borderColor = '#FCA5A5'
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = '#FFF1F2'
-            ;(e.currentTarget as HTMLElement).style.borderColor = '#FECDD3'
-          }}
-        >
+        <Button variant="danger" onClick={handleDeleteClick}>
           <Trash2 className="w-4 h-4" />
           מחק ספק
-        </button>
+        </Button>
       </div>
 
       {/* ── Modal ── */}
@@ -569,15 +541,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
                     משויכות לספק זה. יש למחוק תחילה את החשבוניות.
                   </p>
                 </div>
-                <button
-                  onClick={() => setModal(null)}
-                  className="w-full rounded-xl font-semibold transition-all"
-                  style={{ minHeight: '44px', background: '#F3F4F6', color: '#374151', fontSize: '15px' }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
-                >
+                <Button variant="ghost" onClick={() => setModal(null)} className="w-full">
                   הבנתי
-                </button>
+                </Button>
               </div>
             ) : (
               /* ─ אישור מחיקה ─ */
@@ -599,25 +565,13 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
                   </p>
                 </div>
                 <div className="flex gap-2 w-full">
-                  <button
-                    onClick={handleConfirmDelete}
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '44px', background: '#BE123C', color: 'white', fontSize: '15px' }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#9F1239')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#BE123C')}
-                  >
+                  <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">
                     <Trash2 className="w-4 h-4" />
                     מחק
-                  </button>
-                  <button
-                    onClick={() => setModal(null)}
-                    className="flex-1 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '44px', background: '#F3F4F6', color: '#374151', fontSize: '15px' }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
-                  >
+                  </Button>
+                  <Button variant="ghost" onClick={() => setModal(null)} className="flex-1">
                     ביטול
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}

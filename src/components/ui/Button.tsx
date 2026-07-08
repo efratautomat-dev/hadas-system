@@ -1,16 +1,18 @@
 import type { ButtonHTMLAttributes } from 'react'
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
+type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger'
 
-// Approved button primitive (spec/design-preview/index.html). Renders the exact
-// preview variants — radius 10px, 15/600, brand hover states — via the `.hds-btn`
-// classes in index.css. Screens should adopt this instead of inline-styled buttons.
+// Canonical action-button primitive — the single shared button style for the whole
+// app. Renders the `.hds-btn` variants from index.css (12px radius, 44px tap target,
+// brand hover). `size="sm"` gives the compact 38px toolbar variant. Screens should
+// adopt this instead of hand-rolled inline-styled buttons.
 export function Button({
   variant = 'primary',
+  size,
   className = '',
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
-  return <button className={`hds-btn hds-btn-${variant} ${className}`} {...props} />
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: 'sm' }) {
+  return <button className={`hds-btn hds-btn-${variant}${size === 'sm' ? ' hds-btn-sm' : ''} ${className}`} {...props} />
 }
 
 export default Button

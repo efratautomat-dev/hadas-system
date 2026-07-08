@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download, Trash2 } from 'lucide-react'
+import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download, Trash2, Wallet, CalendarDays, Clock } from 'lucide-react'
 import { SearchableSelect } from '../components/SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from '../components/StatusBadge'
+import { STATUS } from '../theme/status'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { usePayments as usePaymentsData } from '../hooks/usePayments'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow } from '../components/ui/tableStyles'
+import { Button } from '../components/ui/Button'
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -782,47 +784,33 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
             {payments.length} תשלומים במערכת
           </p>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+        <Button onClick={openBizbox} variant="primary" className="flex-shrink-0">
+          <Download size={15} />
+          ייצא לביזיבוקס
+        </Button>
+      </div>
+
+      {/* ── Summary tiles (clean cards, like the supplier/dashboard cards) ──── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {([
+          { label: 'סה"כ פעיל',          value: fmtILS(activeTotal),           Icon: Wallet,      bg: '#EFF6FF', color: '#1D4ED8' },
+          { label: 'עתידי',              value: fmtILS(futureTotal),           Icon: CalendarDays, bg: STATUS.yellow.bg, color: STATUS.yellow.fg },
+          { label: 'תשלומים ממתינים',    value: String(futurePayments.length), Icon: Clock,       bg: 'var(--brand-active-bg)', color: 'var(--brand-primary)' },
+        ] as const).map(({ label, value, Icon, bg, color }) => (
           <div
-            className="flex gap-3 flex-wrap"
-            style={{ fontSize: isTablet ? '14px' : '13px' }}
+            key={label}
+            className="bg-white flex items-center justify-between"
+            style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)', padding: '16px 18px' }}
           >
-            <div
-              className="rounded-xl px-4 py-2 font-semibold"
-              style={{ background: '#EFF6FF', color: '#1D4ED8' }}
-            >
-              סה"כ פעיל: {fmtILS(activeTotal)}
+            <div className="text-right">
+              <p style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>{label}</p>
+              <p style={{ fontSize: '22px', fontWeight: 700, color: '#12131A', letterSpacing: '-0.01em', marginTop: '3px' }}>{value}</p>
             </div>
-            <div
-              className="rounded-xl px-4 py-2 font-semibold"
-              style={{ background: '#FEF3C7', color: '#92400E' }}
-            >
-              עתידי: {fmtILS(futureTotal)}
-            </div>
-            <div
-              className="rounded-xl px-4 py-2 font-semibold"
-              style={{ background: '#FFF0EF', color: 'var(--brand-primary-dark)' }}
-            >
-              {futurePayments.length} תשלומים ממתינים
+            <div className="rounded-xl flex items-center justify-center flex-shrink-0" style={{ width: '42px', height: '42px', background: bg, color }}>
+              <Icon className="w-5 h-5" />
             </div>
           </div>
-          <button
-            onClick={openBizbox}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '7px',
-              background: 'linear-gradient(135deg, #1D4ED8, #2563EB)',
-              color: 'white', border: 'none', borderRadius: '12px',
-              padding: isTablet ? '10px 18px' : '8px 14px',
-              fontSize: isTablet ? '14px' : '13px', fontWeight: 700,
-              cursor: 'pointer', boxShadow: '0 2px 8px rgba(29,78,216,0.25)',
-            }}
-            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#1E40AF')}
-            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'linear-gradient(135deg, #1D4ED8, #2563EB)')}
-          >
-            <Download size={15} />
-            ייצא לביזיבוקס
-          </button>
-        </div>
+        ))}
       </div>
 
       {/* ── Tabs ──────────────────────────────────────────────────────────── */}
@@ -1023,38 +1011,17 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 </div>
 
                 <div className="flex gap-3 mt-5">
-                  <button
-                    type="submit"
-                    className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
-                    style={{
-                      background: '#7C3AED',
-                      padding: isTablet ? '12px 24px' : '10px 20px',
-                      fontSize: isTablet ? '16px' : '14px',
-                      minHeight: '44px',
-                    }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
-                  >
+                  <Button type="submit" variant="primary" className="flex items-center gap-2">
                     <Plus className="w-4 h-4" />
                     שמור תשלום
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    className="rounded-xl font-semibold transition-all"
-                    style={{
-                      border: '1.5px solid #E2E4E9',
-                      background: 'white',
-                      color: '#6B7280',
-                      padding: isTablet ? '12px 20px' : '10px 16px',
-                      fontSize: isTablet ? '16px' : '14px',
-                      minHeight: '44px',
-                    }}
+                    variant="ghost"
                     onClick={() => setForm({ ...EMPTY_FORM, date: todayStr() })}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
                   >
                     נקה
-                  </button>
+                  </Button>
                 </div>
               </form>
             )}
@@ -1640,56 +1607,21 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 className="flex gap-3 mt-5 pt-4 border-t"
                 style={{ borderColor: '#E2E4E9' }}
               >
-                <button
-                  type="submit"
-                  className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
-                  style={{
-                    background: '#7C3AED',
-                    padding: '12px 24px',
-                    fontSize: isTablet ? '16px' : '14px',
-                    minHeight: '44px',
-                  }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
-                >
+                <Button type="submit" variant="primary">
                   💾 שמור שינויים
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl font-semibold transition-all"
-                  style={{
-                    border: '1.5px solid #E2E4E9',
-                    background: 'white',
-                    color: '#6B7280',
-                    padding: '12px 20px',
-                    fontSize: isTablet ? '16px' : '14px',
-                    minHeight: '44px',
-                  }}
-                  onClick={closeEdit}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
-                >
+                </Button>
+                <Button type="button" variant="outline" onClick={closeEdit}>
                   ביטול
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-                  style={{
-                    border: '1.5px solid #FECACA',
-                    background: '#FEF2F2',
-                    color: '#DC2626',
-                    padding: '12px 20px',
-                    fontSize: isTablet ? '16px' : '14px',
-                    minHeight: '44px',
-                    marginRight: 'auto',
-                  }}
+                  variant="danger"
+                  className="flex items-center gap-2 mr-auto"
                   onClick={() => { const id = editId; closeEdit(); if (id) setConfirmDeleteId(id) }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEE2E2')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEF2F2')}
                 >
                   <Trash2 className="w-4 h-4" />
                   מחק תשלום
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -1789,53 +1721,32 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 display: 'flex', gap: '10px', direction: 'rtl', flexWrap: 'wrap',
               }}
             >
-              <button
+              <Button
+                variant="outline"
+                className="flex-1"
                 onClick={() => {
                   setHighlightedBadIds(new Set(bizboxIssues.map(x => x.payment.id)))
                   setShowBizboxValidation(false)
                   setShowBizbox(false)
                 }}
-                style={{
-                  flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  gap: '6px', background: 'var(--brand-primary-dark)', color: 'white', border: 'none',
-                  borderRadius: '12px', padding: '12px 16px', fontSize: '14px', fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
-                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
               >
                 <Pencil size={14} />
                 ערוך לפני ייצוא
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1"
                 onClick={() => {
                   const validRows = bizboxRows.filter(p => getMissingFields(p).length === 0)
                   doExportBizbox(validRows)
                 }}
-                style={{
-                  flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  gap: '6px', background: '#1D4ED8', color: 'white', border: 'none',
-                  borderRadius: '12px', padding: '12px 16px', fontSize: '14px', fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
-                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
               >
                 <Download size={14} />
                 ייצא בכל זאת ({bizboxRows.filter(p => getMissingFields(p).length === 0).length} שורות תקינות)
-              </button>
-              <button
-                onClick={() => setShowBizboxValidation(false)}
-                style={{
-                  background: 'white', border: '1.5px solid #E5E7EB', color: '#6B7280',
-                  borderRadius: '12px', padding: '12px 18px', fontSize: '14px',
-                  fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-                }}
-                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'white')}
-              >
+              </Button>
+              <Button variant="ghost" onClick={() => setShowBizboxValidation(false)}>
                 ביטול
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1967,35 +1878,18 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
               {/* Action buttons */}
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button
+                <Button
                   onClick={exportBizbox}
                   disabled={bizboxRows.length === 0}
-                  style={{
-                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    gap: '7px', background: 'linear-gradient(135deg, #1D4ED8, #2563EB)',
-                    color: 'white', border: 'none', borderRadius: '12px',
-                    padding: '13px', fontSize: '15px', fontWeight: 700,
-                    cursor: bizboxRows.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: bizboxRows.length === 0 ? 0.5 : 1,
-                  }}
-                  onMouseEnter={e => { if (bizboxRows.length > 0) (e.currentTarget as HTMLElement).style.opacity = '0.88' }}
-                  onMouseLeave={e => { if (bizboxRows.length > 0) (e.currentTarget as HTMLElement).style.opacity = '1' }}
+                  variant="primary"
+                  className="flex-1 flex items-center justify-center gap-2"
                 >
                   <Download size={16} />
                   הורד קובץ xlsx
-                </button>
-                <button
-                  onClick={() => setShowBizbox(false)}
-                  style={{
-                    background: 'white', border: '1.5px solid #E5E7EB', color: '#6B7280',
-                    borderRadius: '12px', padding: '13px 18px', fontSize: '15px',
-                    fontWeight: 600, cursor: 'pointer',
-                  }}
-                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'white')}
-                >
+                </Button>
+                <Button onClick={() => setShowBizbox(false)} variant="outline">
                   ביטול
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -2023,36 +1917,12 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               <strong>{payments.find((p) => p.id === confirmId)?.supplier}</strong>?
             </p>
             <div className="flex gap-3 justify-center">
-              <button
-                className="rounded-xl text-white font-semibold transition-all"
-                style={{
-                  background: '#DC2626',
-                  padding: '12px 24px',
-                  fontSize: '15px',
-                  minHeight: '48px',
-                }}
-                onClick={doCancel}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#B91C1C')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#DC2626')}
-              >
+              <Button variant="danger" onClick={doCancel}>
                 אישור ביטול
-              </button>
-              <button
-                className="rounded-xl font-semibold transition-all"
-                style={{
-                  border: '1.5px solid #E2E4E9',
-                  background: 'white',
-                  color: '#6B7280',
-                  padding: '12px 20px',
-                  fontSize: '15px',
-                  minHeight: '48px',
-                }}
-                onClick={() => setConfirmId(null)}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
-              >
+              </Button>
+              <Button variant="outline" onClick={() => setConfirmId(null)}>
                 חזרה
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -2081,36 +1951,15 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               <span style={{ color: '#DC2626', fontWeight: 600 }}>פעולה זו בלתי הפיכה.</span>
             </p>
             <div className="flex gap-3 justify-center">
-              <button
-                className="rounded-xl text-white font-semibold transition-all"
-                style={{
-                  background: '#DC2626',
-                  padding: '12px 24px',
-                  fontSize: '15px',
-                  minHeight: '48px',
-                }}
-                onClick={doDelete}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#B91C1C')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#DC2626')}
-              >
+              <Button variant="danger" onClick={doDelete}>
                 כן, מחק
-              </button>
-              <button
-                className="rounded-xl font-semibold transition-all"
-                style={{
-                  border: '1.5px solid #E2E4E9',
-                  background: 'white',
-                  color: '#6B7280',
-                  padding: '12px 20px',
-                  fontSize: '15px',
-                  minHeight: '48px',
-                }}
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => setConfirmDeleteId(null)}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
               >
                 חזרה
-              </button>
+              </Button>
             </div>
           </div>
         </div>
