@@ -413,22 +413,31 @@ async function deletePayment(supabase: SupabaseClient, id: string): Promise<Resp
 async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
   const { supplier_name, note_number, date, amount, amount_before_vat, vat_amount, line_items, source_email, received_at } = body;
-  if (!supplier_name || !note_number || !date || amount == null)
-    return json({ error: "Missing required fields" }, 400);
+  // A MANUAL goods receipt has only a supplier + item list — no delivery-note number
+  // and often no amount. Email-ingested notes pass the full set. Require only the
+  // supplier; default the rest. No gmail_message_id → the row reads as source='manual'.
+  if (!supplier_name && !body.supplier_id)
+    return json({ error: "supplier is required" }, 400);
 
   // Auto-create (PART 3B): resolve by ח.פ / name, else create a supplier flagged incomplete.
-  const supplierId = await resolveOrCreateSupplier(supabase, supplier_name, body.hp as string | undefined);
+  const supplierId = body.supplier_id
+    ? String(body.supplier_id)
+    : await resolveOrCreateSupplier(supabase, supplier_name, body.hp as string | undefined);
   if (!supplierId) return json({ error: "Failed to resolve/create supplier" }, 500);
 
   const { data: note, error: noteErr } = await supabase.from("delivery_notes")
     .insert({
-      supplier_id: supplierId, supplier_name, note_number, date, amount,
+      supplier_id: supplierId,
+      supplier_name:     supplier_name     ?? null,
+      note_number:       note_number       ?? "",   // NOT NULL; manual receipts have no number
+      date:              date              ?? new Date().toISOString().slice(0, 10),
+      amount:            amount            ?? 0,
       amount_before_vat: amount_before_vat ?? null,
       vat_amount:        vat_amount        ?? null,
       line_items:        line_items        ?? null,
       source_email:      source_email      ?? null,
       received_at:       received_at       ?? null,
-      status: "unlinked",
+      status: "pending",
     })
     .select("id").single();
 
@@ -458,6 +467,11 @@ async function updateDeliveryNote(req: Request, supabase: SupabaseClient, id: st
   if (body.amount          !== undefined) updates.amount        = body.amount;
   if (body.date            !== undefined) updates.date          = body.date;
   if (body.supplierName    !== undefined) updates.supplier_name = body.supplierName;
+  // PIECE 2 — manual↔arrived match correction: the matched arrived note's document +
+  // number are copied onto the manual row (mirrors Returns storing the credit-note doc
+  // in drive_file_link). Setting them = confirm/override; clearing = unmatch.
+  if (body.driveFileLink   !== undefined) updates.drive_file_link = body.driveFileLink;
+  if (body.noteNumber      !== undefined) updates.note_number     = body.noteNumber;
   // body.notes intentionally excluded — no notes column in delivery_notes
 
   if (Object.keys(updates).length === 0) return json({ error: "No fields to update" }, 400);
@@ -470,6 +484,35 @@ async function deleteDeliveryNote(supabase: SupabaseClient, id: string): Promise
   const { error } = await supabase.from("delivery_notes").delete().eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true });
+}
+
+// PIECE 2 — auto-match an ARRIVED (email) delivery note to a manual goods receipt.
+// Rule (mirrors §2a matching): same supplier; pick the most recent UNMATCHED manual
+// receipt (source='manual' → no gmail_message_id; not yet linked → no drive_file_link).
+// On match, copy the arrived note's document link + number onto the manual row — the
+// same soft-link Returns uses (matched row stores the counterpart's drive_file_link),
+// so the manual row's "הצג מסמך מספק" button opens the supplier's document. AI-suggested;
+// the user can confirm/override/unmatch via updateDeliveryNote (drive_file_link/note_number).
+async function matchDeliveryNote(supabase: SupabaseClient, arrivedId: string): Promise<Response> {
+  const { data: arrived } = await supabase.from("delivery_notes")
+    .select("id, supplier_id, note_number, drive_file_link, gmail_message_id")
+    .eq("id", arrivedId).maybeSingle();
+  if (!arrived) return json({ error: "Arrived note not found" }, 404);
+  if (!arrived.gmail_message_id) return json({ error: "Not an arrived (email) note" }, 400);
+
+  const { data: candidates } = await supabase.from("delivery_notes")
+    .select("id, drive_file_link")
+    .eq("supplier_id", arrived.supplier_id)
+    .is("gmail_message_id", null)                 // manual receipts only
+    .order("date", { ascending: false });
+  const manual = (candidates ?? []).find(c => !c.drive_file_link);   // not already linked
+  if (!manual) return json({ success: true, matched: null });
+
+  const { error } = await supabase.from("delivery_notes")
+    .update({ drive_file_link: arrived.drive_file_link, note_number: arrived.note_number })
+    .eq("id", manual.id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, matched: manual.id });
 }
 
 async function linkDeliveryNote(req: Request, supabase: SupabaseClient, id: string): Promise<Response> {
@@ -1085,6 +1128,10 @@ Deno.serve(async (req: Request) => {
     const unlinkMatch = path.match(/^\/delivery-notes\/([^/]+)\/unlink$/);
     if (linkMatch   && req.method === "PUT") return await linkDeliveryNote(req, supabase, linkMatch[1]);
     if (unlinkMatch && req.method === "PUT") return await unlinkDeliveryNote(supabase, unlinkMatch[1]);
+
+    // PIECE 2 — auto-match an arrived (email) note {id} to a manual goods receipt.
+    const dnMatchRoute = path.match(/^\/delivery-notes\/([^/]+)\/match$/);
+    if (dnMatchRoute && req.method === "POST") return await matchDeliveryNote(supabase, dnMatchRoute[1]);
 
     const dnMatch = path.match(/^\/delivery-notes\/([^/]+)$/);
     if (dnMatch) {

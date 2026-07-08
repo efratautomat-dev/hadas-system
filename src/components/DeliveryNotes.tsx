@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Plus, Package, X, ChevronLeft, AlertCircle } from 'lucide-react'
+import { Plus, Package, X, ChevronLeft, AlertCircle, FileText, Link2 } from 'lucide-react'
 import { type DeliveryNote } from '../data/mockData'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
-import { PdfPreviewButton } from './PdfPreviewModal'
+import { useEmployees } from '../hooks/useEmployees'
+import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge } from './StatusBadge'
 
@@ -64,7 +65,7 @@ function useIsMobile() {
 type ModalType   = null | 'detail' | 'add'
 type StatusFilter = 'all' | 'pending' | 'archived'
 
-const emptyForm = { supplierId: '', noteId: '', isoDate: '', amount: '', notes: '' }
+const emptyForm = { supplierId: '', isoDate: '', items: '', noteNumber: '', employeeId: '' }
 
 const COL_D = '110px 1fr 88px 100px 78px 110px 48px'
 const COL_M = '1fr 85px 68px 32px'
@@ -73,10 +74,15 @@ const MIN_W = '680px'
 // ── component ─────────────────────────────────────────────────────────────────
 
 export default function DeliveryNotes() {
-  const { data: serverNotes, loading, error, link: linkNote, unlink: unlinkNote } = useDeliveryNotes()
+  const { data: serverNotes, loading, error, create: createNote, setMatch, link: linkNote, unlink: unlinkNote } = useDeliveryNotes()
   const { data: invoicesData } = useInvoices()
   const { data: suppliersData } = useSuppliers()
+  const { data: employeesData } = useEmployees()
+  const empById = new Map(employeesData.map(e => [e.id, e.name]))
   const [notes, setNotes]             = useState<DeliveryNote[]>([])
+  // Primary split (mirrors Returns): arrived-by-email vs manual goods receipt.
+  // NOTE: value is 'email' to match the derived `source` ('email' | 'manual').
+  const [view, setView]                = useState<'email' | 'manual'>('email')
   const [showAll, setShowAll]          = useState(false)
   const [filterSupp, setFilterSupp]    = useState('')
   const [filterDate, setFilterDate]    = useState('')
@@ -87,6 +93,10 @@ export default function DeliveryNotes() {
   const [selectedInvId, setSelectedInvId] = useState('')
   const [confirmUnlink, setConfirmUnlink] = useState(false)
   const [form, setForm]                   = useState({ ...emptyForm })
+  // PIECE 2 — matched arrived-note document opened in the in-page popup viewer.
+  const [supplierDoc, setSupplierDoc]     = useState<string | null>(null)
+  // PIECE 2 — arrived note chosen in the manual-row match picker (manual correction).
+  const [matchPick, setMatchPick]         = useState('')
 
   const isMobile = useIsMobile()
   const COL = isMobile ? COL_M : COL_D
@@ -98,6 +108,7 @@ export default function DeliveryNotes() {
   // ── derived ──────────────────────────────────────────────────────────────
   const displayed = notes
     .filter(n => {
+      if ((n.source ?? 'manual') !== view) return false
       if (!showAll && normalizeStatus(n.status) === 'archived') return false
       if (filterSupp && n.supplierId !== filterSupp) return false
       if (filterDate && n.isoDate < filterDate) return false
@@ -113,17 +124,23 @@ export default function DeliveryNotes() {
     ? invoicesData.filter(i => i.supplierId === selected.supplierId || i.supplier === selected.supplierName)
     : []
 
+  // PIECE 2 — arrived (email) notes for the selected manual row's supplier (match picker).
+  const arrivedForSelected = selected && selected.source === 'manual'
+    ? notes.filter(n => n.source === 'email' && n.supplierId === selected.supplierId)
+    : []
+
   const linkedInvoice = selected?.linkedInvoiceId
     ? invoicesData.find(i => i.id === selected.linkedInvoiceId) ?? null
     : null
 
-  const canAdd = form.supplierId && form.noteId && form.isoDate && form.amount
+  const canAdd = form.supplierId && form.items.trim()
 
   // ── actions ───────────────────────────────────────────────────────────────
   const openNote = (note: DeliveryNote) => {
     setSelected(note)
     setSelectedInvId(note.linkedInvoiceId ?? '')
     setConfirmUnlink(false)
+    setMatchPick('')
     setModalType('detail')
   }
 
@@ -132,6 +149,7 @@ export default function DeliveryNotes() {
     setSelected(null)
     setSelectedInvId('')
     setConfirmUnlink(false)
+    setMatchPick('')
   }
 
   const linkInvoice = async () => {
@@ -157,23 +175,43 @@ export default function DeliveryNotes() {
     }
   }
 
-  const addNote = () => {
+  // PIECE 2 — manual correction: link the manual row to a chosen arrived note (copy
+  // its document + number), or clear the match. AI suggests; the user confirms/overrides.
+  const doMatch = async () => {
+    if (!selected || !matchPick) return
+    const arr = notes.find(n => n.id === matchPick)
+    if (!arr) return
+    const savedId = selected.id
+    closeModal()
+    try { await setMatch(savedId, arr.driveFileLink ?? null, arr.noteNumber ?? '') } catch { /* hook sets error */ }
+  }
+
+  const doUnmatch = async () => {
+    if (!selected) return
+    const savedId = selected.id
+    closeModal()
+    try { await setMatch(savedId, null, '') } catch { /* hook sets error */ }
+  }
+
+  // Manual goods receipt — PERSISTS via hadas-api (previously local-state only).
+  const addManual = async () => {
     const sup = suppliersData.find(s => s.id === form.supplierId)
-    if (!sup || !form.noteId || !form.isoDate || !form.amount) return
-    const [y, m, d] = form.isoDate.split('-')
-    const newNote: DeliveryNote = {
-      id: form.noteId,
+    if (!sup || !form.items.trim()) return
+    const payload = {
+      supplierId:   sup.id,
       supplierName: sup.name,
-      supplierId: sup.id,
-      date: `${d}/${m}/${y}`,
-      isoDate: form.isoDate,
-      amount: Number(form.amount),
-      status: 'pending',
-      notes: form.notes || undefined,
+      isoDate:      form.isoDate || new Date().toISOString().slice(0, 10),
+      lineItems:    form.items.trim(),
+      noteNumber:   form.noteNumber.trim() || undefined,
+      employeeId:   form.employeeId || undefined,
     }
-    setNotes(prev => [newNote, ...prev])
     setForm({ ...emptyForm })
     closeModal()
+    try {
+      await createNote(payload)
+    } catch {
+      // hook sets error state
+    }
   }
 
   // ── render ────────────────────────────────────────────────────────────────
@@ -201,16 +239,18 @@ export default function DeliveryNotes() {
             {pendingCount} ממתינות לשיוך · {archivedCount} בארכיון
           </p>
         </div>
-        <button
-          onClick={() => { setForm({ ...emptyForm }); setModalType('add') }}
-          className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
-          style={{ background: '#A91D3A', minHeight: '44px', padding: '0 20px', fontSize: '16px' }}
-          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
-          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
-        >
-          <Plus className="w-4 h-4" />
-          הוסף תעודה
-        </button>
+        {view === 'manual' && (
+          <button
+            onClick={() => { setForm({ ...emptyForm, isoDate: new Date().toISOString().slice(0, 10) }); setModalType('add') }}
+            className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
+            style={{ background: '#A91D3A', minHeight: '44px', padding: '0 20px', fontSize: '16px' }}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
+          >
+            <Plus className="w-4 h-4" />
+            קליטת סחורה ידנית
+          </button>
+        )}
       </div>
 
       {/* ── Stats ── */}
@@ -231,7 +271,28 @@ export default function DeliveryNotes() {
       <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#DEDFE5' }}>
         <div className="flex items-center gap-3 flex-wrap">
 
-          {/* View toggle */}
+          {/* Primary two-view split: arrived-by-email vs manual goods receipt */}
+          <div className="flex items-center gap-1 rounded-xl p-1 flex-shrink-0" style={{ background: '#F3F4F6' }}>
+            {([
+              { v: 'email',  label: 'מסמכים שהגיעו' },
+              { v: 'manual', label: 'קליטה ידנית' },
+            ] as { v: 'email' | 'manual'; label: string }[]).map(({ v, label }) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className="rounded-lg px-4 font-medium transition-all"
+                style={{
+                  minHeight: '36px', fontSize: '14px',
+                  background: view === v ? '#A91D3A' : 'transparent',
+                  color: view === v ? 'white' : '#6B7280',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Archive toggle */}
           <div className="flex items-center gap-1 rounded-xl p-1 flex-shrink-0" style={{ background: '#F3F4F6' }}>
             {([
               { v: false, label: 'ממתינות בלבד' },
@@ -333,7 +394,7 @@ export default function DeliveryNotes() {
           {displayed.length === 0 ? (
             <div className="py-16 text-center text-gray-400">
               <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p style={{ fontSize: '15px' }}>לא נמצאו תעודות</p>
+              <p style={{ fontSize: '15px' }}>{view === 'manual' ? 'אין קליטות ידניות — לחצי "קליטת סחורה ידנית"' : 'לא נמצאו מסמכים שהגיעו'}</p>
             </div>
           ) : (
             displayed.map((note) => {
@@ -356,12 +417,34 @@ export default function DeliveryNotes() {
                 >
                   {!isMobile && (
                     <span className="text-right font-bold" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#1F2937' }}>
-                      {note.id}
+                      {note.noteNumber || (note.source === 'manual' ? 'ידני' : '—')}
                     </span>
                   )}
-                  <span className="text-right font-medium" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#374151' }}>
-                    {note.supplierName}
-                  </span>
+                  <div className="text-right min-w-0">
+                    <div className="font-medium truncate" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#374151' }}>
+                      {note.supplierName}
+                    </div>
+                    {note.lineItems && (
+                      <div className="truncate" style={{ fontSize: '12px', color: '#9CA3AF' }}>
+                        {note.lineItems.split('\n').filter(Boolean).join(' · ')}
+                      </div>
+                    )}
+                    {note.source === 'manual' && note.employeeId && empById.get(note.employeeId) && (
+                      <div className="truncate" style={{ fontSize: '11px', color: '#A16207' }}>
+                        קלט/ה: {empById.get(note.employeeId)}
+                      </div>
+                    )}
+                    {note.source === 'manual' && note.driveFileLink && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSupplierDoc(note.driveFileLink!) }}
+                        className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg mt-1"
+                        style={{ color: '#166534', background: '#F0FDF4', border: '1px solid #BBF7D0', padding: '3px 8px' }}
+                        title={note.noteNumber ? `מסמך ספק ${note.noteNumber}` : 'מסמך ספק מקושר'}
+                      >
+                        <FileText className="w-3 h-3" /> הצג מסמך מספק
+                      </button>
+                    )}
+                  </div>
                   {!isMobile && (
                     <span className="text-right" style={{ fontSize: '13px', color: '#9CA3AF' }}>
                       {note.date}
@@ -411,7 +494,7 @@ export default function DeliveryNotes() {
                   ><X className="w-4 h-4" /></button>
                   <div className="flex items-center gap-3">
                     <StatusBadge status="new" style={{ fontSize: '12px', padding: '3px 10px' }} />
-                    <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>תעודת משלוח {selected.id}</h2>
+                    <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>{selected.noteNumber ? `תעודת משלוח ${selected.noteNumber}` : 'קליטת סחורה ידנית'}</h2>
                   </div>
                 </div>
 
@@ -431,10 +514,59 @@ export default function DeliveryNotes() {
                     ))}
                   </div>
 
-                  {selected.notes && (
+                  {(selected.lineItems || selected.notes) && (
                     <div className="rounded-xl px-4 py-3 text-right" style={{ background: '#FFF8F7', border: '1px solid #DEDFE5' }}>
-                      <p style={{ fontSize: '11px', color: '#9CA3AF' }}>הערות</p>
-                      <p className="text-gray-700 mt-0.5" style={{ fontSize: '14px' }}>{selected.notes}</p>
+                      <p style={{ fontSize: '11px', color: '#9CA3AF' }}>פריטים</p>
+                      <p className="text-gray-700 mt-0.5" style={{ fontSize: '14px', whiteSpace: 'pre-wrap' }}>{selected.lineItems || selected.notes}</p>
+                    </div>
+                  )}
+
+                  {/* PIECE 2 — manual↔arrived match (AI-suggested; manual correction here) */}
+                  {selected.source === 'manual' && (
+                    <div>
+                      <div className="flex items-center gap-2 justify-end mb-3">
+                        <p className="font-semibold text-gray-700" style={{ fontSize: '14px' }}>התאמה למסמך שהגיע</p>
+                        <div className="flex-1 h-px" style={{ background: '#DEDFE5' }} />
+                      </div>
+                      {selected.driveFileLink ? (
+                        <div className="rounded-xl p-3 text-right" style={{ background: '#F0FDF4', border: '1px solid #BBF7D0' }}>
+                          <div className="flex items-center justify-between gap-2">
+                            <button
+                              onClick={() => setSupplierDoc(selected.driveFileLink!)}
+                              className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg"
+                              style={{ color: '#166534', background: 'white', border: '1px solid #BBF7D0', padding: '5px 10px' }}
+                            >
+                              <FileText className="w-3.5 h-3.5" /> הצג מסמך מספק
+                            </button>
+                            <span style={{ fontSize: '13px', color: '#166534' }}>מקושר: {selected.noteNumber || 'מסמך שהגיע'}</span>
+                          </div>
+                          <button onClick={doUnmatch} className="text-xs mt-2 font-semibold" style={{ color: '#DC2626' }}>בטל התאמה</button>
+                        </div>
+                      ) : arrivedForSelected.length === 0 ? (
+                        <p className="text-center text-gray-400 py-2" style={{ fontSize: '13px' }}>אין מסמכים שהגיעו לספק זה</p>
+                      ) : (
+                        <div className="flex gap-2">
+                          <select
+                            value={matchPick}
+                            onChange={e => setMatchPick(e.target.value)}
+                            style={{ ...fieldStyle, direction: 'rtl', cursor: 'pointer' }}
+                            onFocus={focusBdr} onBlur={blurBdr}
+                          >
+                            <option value="">בחר/י מסמך שהגיע...</option>
+                            {arrivedForSelected.map(a => (
+                              <option key={a.id} value={a.id}>{a.noteNumber} · {a.date}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={doMatch}
+                            disabled={!matchPick}
+                            className="rounded-xl font-semibold text-white transition-all flex items-center gap-1 flex-shrink-0"
+                            style={{ background: matchPick ? '#A91D3A' : '#E5E7EB', minHeight: '44px', padding: '0 16px', fontSize: '14px' }}
+                          >
+                            <Link2 className="w-4 h-4" /> התאם
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -506,7 +638,7 @@ export default function DeliveryNotes() {
                   ><X className="w-4 h-4" /></button>
                   <div className="flex items-center gap-3">
                     <StatusBadge status="done" style={{ fontSize: '12px', padding: '3px 10px' }} />
-                    <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>תעודת משלוח {selected.id}</h2>
+                    <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>{selected.noteNumber ? `תעודת משלוח ${selected.noteNumber}` : 'קליטת סחורה ידנית'}</h2>
                   </div>
                 </div>
 
@@ -526,10 +658,10 @@ export default function DeliveryNotes() {
                     ))}
                   </div>
 
-                  {selected.notes && (
+                  {(selected.lineItems || selected.notes) && (
                     <div className="rounded-xl px-4 py-3 text-right" style={{ background: '#FAFAFA', border: '1px solid #DEDFE5' }}>
-                      <p style={{ fontSize: '11px', color: '#9CA3AF' }}>הערות</p>
-                      <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>{selected.notes}</p>
+                      <p style={{ fontSize: '11px', color: '#9CA3AF' }}>פריטים</p>
+                      <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px', whiteSpace: 'pre-wrap' }}>{selected.lineItems || selected.notes}</p>
                     </div>
                   )}
 
@@ -627,10 +759,10 @@ export default function DeliveryNotes() {
                     onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#6B7280')}
                     onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '')}
                   ><X className="w-4 h-4" /></button>
-                  <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>הוסף תעודת משלוח</h2>
+                  <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>קליטת סחורה ידנית</h2>
                 </div>
 
-                {/* Form */}
+                {/* Form — goods received WITHOUT a delivery note: supplier + item list */}
                 <div className="p-5 space-y-4">
                   <div>
                     <FieldLabel text="ספק" required />
@@ -648,19 +780,7 @@ export default function DeliveryNotes() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <FieldLabel text="מספר תעודה" required />
-                      <input
-                        value={form.noteId}
-                        onChange={e => setForm({ ...form, noteId: e.target.value })}
-                        placeholder="DN-XXX"
-                        dir="ltr"
-                        className="text-left placeholder-gray-300"
-                        style={fieldStyle}
-                        onFocus={focusBdr} onBlur={blurBdr}
-                      />
-                    </div>
-                    <div>
-                      <FieldLabel text="תאריך" required />
+                      <FieldLabel text="תאריך קבלה" />
                       <input
                         type="date"
                         value={form.isoDate}
@@ -669,30 +789,39 @@ export default function DeliveryNotes() {
                         onFocus={focusBdr} onBlur={blurBdr}
                       />
                     </div>
+                    <div>
+                      <FieldLabel text="מספר תעודה (אופציונלי)" />
+                      <input
+                        value={form.noteNumber}
+                        onChange={e => setForm({ ...form, noteNumber: e.target.value })}
+                        placeholder="—"
+                        dir="ltr"
+                        className="text-left placeholder-gray-300"
+                        style={fieldStyle}
+                        onFocus={focusBdr} onBlur={blurBdr}
+                      />
+                    </div>
                   </div>
 
                   <div>
-                    <FieldLabel text="סכום" required />
-                    <input
-                      type="number"
-                      value={form.amount}
-                      onChange={e => setForm({ ...form, amount: e.target.value })}
-                      placeholder="0"
-                      dir="ltr"
-                      className="text-left placeholder-gray-300"
-                      style={fieldStyle}
-                      onFocus={focusBdr} onBlur={blurBdr}
+                    <FieldLabel text="עובד/ת שקלט/ה את הסחורה" />
+                    <SearchableSelect
+                      value={form.employeeId}
+                      onChange={v => setForm({ ...form, employeeId: v })}
+                      placeholder="בחר/י עובד/ת..."
+                      allowClear
+                      options={employeesData.filter(e => e.active).map(e => ({ value: e.id, label: e.name }))}
                     />
                   </div>
 
                   <div>
-                    <FieldLabel text="הערות" />
+                    <FieldLabel text="פירוט פריטים שהתקבלו" required />
                     <textarea
-                      value={form.notes}
-                      onChange={e => setForm({ ...form, notes: e.target.value })}
-                      placeholder="הערות נוספות..."
+                      value={form.items}
+                      onChange={e => setForm({ ...form, items: e.target.value })}
+                      placeholder={'פריט + כמות בכל שורה, לדוגמה:\nחטיפים — 24 יח׳\nשתייה — 12 קרטונים'}
                       className="text-right placeholder-gray-300 w-full"
-                      style={{ ...fieldStyle, height: 'auto', minHeight: '80px', padding: '12px 14px', resize: 'vertical' }}
+                      style={{ ...fieldStyle, height: 'auto', minHeight: '120px', padding: '12px 14px', resize: 'vertical' }}
                       onFocus={focusBdr} onBlur={blurBdr}
                     />
                   </div>
@@ -701,7 +830,7 @@ export default function DeliveryNotes() {
                 {/* Footer */}
                 <div className="flex gap-3 px-5 pb-5">
                   <button
-                    onClick={addNote}
+                    onClick={addManual}
                     disabled={!canAdd}
                     className="flex-1 rounded-xl font-semibold transition-all"
                     style={{
@@ -710,7 +839,7 @@ export default function DeliveryNotes() {
                       color: canAdd ? 'white' : '#9CA3AF',
                     }}
                   >
-                    שמור
+                    שמור קליטה
                   </button>
                   <button
                     onClick={closeModal}
@@ -728,6 +857,9 @@ export default function DeliveryNotes() {
           </div>
         </div>
       )}
+
+      {/* PIECE 2 — supplier document (matched arrived note) in the in-page popup viewer */}
+      {supplierDoc && <PdfPreviewModal url={supplierDoc} onClose={() => setSupplierDoc(null)} />}
 
     </div>
   )

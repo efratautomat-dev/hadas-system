@@ -21,6 +21,7 @@ delete from public.alerts            where payload->>'demo_seed' = 'true';
 delete from public.returns           where email_subject like 'DEMO-%';
 delete from public.vendor_statements where resolution_notes like 'DEMO%';
 delete from public.payments          where source = 'demo';
+delete from public.delivery_notes    where email_subject like 'DEMO-DN%';
 delete from public.invoices          where email_subject like 'DEMO-%';
 delete from public.suppliers         where notes like 'DEMO%';
 
@@ -239,5 +240,27 @@ values
    'חשבונית', E'אורז בסמטי 5 ק"ג - 12 יח׳\nעדשים כתומות 1 ק"ג - 30 יח׳\nפסטה 500 גרם - 48 יח׳',
    'https://placehold.co/620x877/e0f2fe/075985.png?text=DEMO+GF+2202',
    'demo-gf-b', 'DEMO-GF B', 'Global Foods Billing', 'billing@globalfoods.example', '2026-06-28T10:00:00Z');
+
+-- ── Delivery notes — two views (arrived-by-email vs manual goods receipt) ───────
+-- Email rows carry gmail_message_id (→ source 'email'); manual rows leave it null
+-- (→ source 'manual'). note_number is NOT NULL, so manual rows use ''.
+insert into public.delivery_notes
+  (id, supplier_id, supplier_name, note_number, date, amount, line_items,
+   gmail_message_id, email_subject, drive_file_link, received_at, status)
+values
+  ('cccccccc-0000-4000-8000-0000000000e1', 'dddddddd-0000-4000-8000-000000000001', 'עלית',
+   'DN-5501', '2026-06-20', 4200, E'חטיפי תירס — 24 יח׳\nשוקולד חלב — 60 יח׳',
+   'demo-dn-email-1', 'DEMO-DN email A', 'https://placehold.co/620x877/e2e8f0/1f2937.png?text=DEMO+DN+5501', '2026-06-20T08:00:00Z', 'pending'),
+  ('cccccccc-0000-4000-8000-0000000000e2', 'dddddddd-0000-4000-8000-000000000002', 'נסטלה ישראל',
+   'DN-5502', '2026-06-22', 7350, E'קפה נמס — 40 יח׳\nחלב מרוכז — 18 יח׳',
+   'demo-dn-email-2', 'DEMO-DN email B', 'https://placehold.co/620x877/e2e8f0/1f2937.png?text=DEMO+DN+5502', '2026-06-22T09:30:00Z', 'pending'),
+  -- MATCHED manual receipt: linked to arrived DN-5501 (its doc + number copied on) →
+  -- shows the "הצג מסמך מספק" button (PIECE 2 §5 match end-state).
+  ('cccccccc-0000-4000-8000-0000000000e3', 'dddddddd-0000-4000-8000-000000000001', 'עלית',
+   'DN-5501', '2026-06-25', 0, E'קרטוני שתייה — 12\nחטיפים — 30',
+   null, 'DEMO-DN manual A', 'https://placehold.co/620x877/e2e8f0/1f2937.png?text=DEMO+DN+5501', null, 'pending'),
+  ('cccccccc-0000-4000-8000-0000000000e4', 'dddddddd-0000-4000-8000-000000000003', 'מוטי',
+   '', '2026-06-26', 0, E'חומרי ניקיון — 5 ארגזים\nכלים חד-פעמיים — 8 חבילות',
+   null, 'DEMO-DN manual B', null, null, 'pending');
 
 commit;

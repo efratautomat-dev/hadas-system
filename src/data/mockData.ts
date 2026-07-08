@@ -276,6 +276,12 @@ export interface DeliveryNote {
   linkedInvoiceId?: string
   notes?: string
   driveFileLink?: string
+  // 'email' = arrived by email (has gmail_message_id); 'manual' = goods receipt
+  // entered by hand. Derived in useDeliveryNotes; splits the two views.
+  source?: 'email' | 'manual'
+  lineItems?: string  // free-text item list (goods receipt / AI-parsed)
+  noteNumber?: string // supplier delivery-note number (email notes); blank for manual
+  employeeId?: string // who received the goods (manual receipt) — delivery_notes.employee_id
 }
 
 export const mockDeliveryNotes: DeliveryNote[] = [
