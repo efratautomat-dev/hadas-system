@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight, List } from 'lucide-react'
+import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight, List, X } from 'lucide-react'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { useReturns } from '../../hooks/useReturns'
@@ -7,6 +7,7 @@ import { useEmployees } from '../../hooks/useEmployees'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import SectionHeader from '../SectionHeader'
 import { PdfPreviewModal } from '../PdfPreviewModal'
+import { supabase } from '../../lib/supabase'
 import type { Invoice } from '../../data/mockData'
 import {
   FormModal as ReturnFormModal,
@@ -70,6 +71,75 @@ function SectionShell({ title, Icon, count, children, action }: {
 
 function EmptyRow({ text }: { text: string }) {
   return <p className="text-center text-gray-400 py-10" style={{ fontSize: '15px' }}>{text}</p>
+}
+
+// Compact outlined icon button used for the per-row view controls.
+function IconBtn({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #DEDFE5', background: 'white', color: '#A91D3A', cursor: 'pointer', flexShrink: 0 }}
+      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
+    >
+      {children}
+    </button>
+  )
+}
+
+// Read-only details popup for MANUAL records (returns / goods-receipts created
+// in-app that have no scanned document). Shows operational info only — supplier,
+// number, date, reason + item names — and DELIBERATELY no monetary amounts,
+// matching the employee no-financials rule.
+export interface MetaModalData {
+  title: string
+  Icon: typeof FileText
+  rows: { label: string; value: string }[]
+  note?: string
+  items?: string
+}
+function MetaModal({ title, Icon, rows, note, items, onClose }: MetaModalData & { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center"
+      style={{ background: 'rgba(0,0,0,0.45)', overflowY: 'auto', padding: '32px 12px' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full" style={{ maxWidth: '520px', direction: 'rtl' }}>
+        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 20px', borderColor: '#E2E4E9', background: '#FDFAFA' }}>
+          <Icon className="w-4 h-4 text-gray-400" />
+          <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>{title}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600" style={{ background: 'none', border: 'none', cursor: 'pointer', marginInlineStart: 'auto' }} title="סגירה">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        {rows.map(({ label, value }, i) => (
+          <div key={label} style={{ direction: 'ltr', display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 20px', minHeight: '50px', borderTop: i > 0 ? '1px solid #E2E4E9' : undefined }}>
+            <span style={{ flex: 1, minWidth: 0, textAlign: 'left', direction: 'rtl', fontSize: '14px', color: '#1F2937', fontWeight: 500 }}>{value || '—'}</span>
+            <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF' }}>{label}</span>
+          </div>
+        ))}
+        {note?.trim() && (
+          <div style={{ padding: '13px 20px', borderTop: '1px solid #E2E4E9' }}>
+            <p className="text-right text-gray-400" style={{ fontSize: '13px', marginBottom: '4px' }}>הערות</p>
+            <p className="text-right" style={{ fontSize: '14px', color: '#1F2937', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{note}</p>
+          </div>
+        )}
+        {items?.trim() && (
+          <div style={{ padding: '13px 20px', borderTop: '1px solid #E2E4E9' }}>
+            <p className="text-right text-gray-400 flex items-center gap-1.5 justify-end" style={{ fontSize: '13px', marginBottom: '6px' }}>
+              פירוט פריטים <List className="w-3.5 h-3.5" />
+            </p>
+            {items.split('\n').filter((l) => l.trim()).map((line, i) => (
+              <div key={i} className="text-right" style={{ padding: '6px 0', borderTop: i > 0 ? '1px solid #F1F2F4' : undefined, fontSize: '14px', color: '#1F2937' }}>{line.trim()}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // Read-only invoice view for employees: non-financial metadata + the original
@@ -163,6 +233,19 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [showReturnForm, setShowReturnForm] = useState(false)
   const [returnForm, setReturnForm] = useState<FormState>(emptyForm())
+  // Document image/PDF popup (arrived records) and metadata popup (manual records).
+  const [docView, setDocView] = useState<{ url: string; previewSrc?: string } | null>(null)
+  const [metaModal, setMetaModal] = useState<MetaModalData | null>(null)
+
+  // Open the source document: Drive links go straight to the preview; a Storage
+  // path is signed first (short-lived) and passed as previewSrc.
+  async function openDoc(driveLink?: string, storagePath?: string) {
+    if (driveLink) { setDocView({ url: driveLink }); return }
+    if (storagePath) {
+      const { data } = await supabase.storage.from('documents').createSignedUrl(storagePath, 3600)
+      if (data?.signedUrl) setDocView({ url: storagePath, previewSrc: data.signedUrl })
+    }
+  }
 
   // Scope every dataset to this supplier (match by id, fall back to name —
   // ingested rows sometimes carry only one of the two).
@@ -340,18 +423,44 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
           {deliveries.length === 0 ? (
             <EmptyRow text="אין תעודות משלוח עבור ספק זה" />
           ) : (
-            deliveries.map((dn) => (
-              <div
-                key={dn.id}
-                className="grid items-center border-b"
-                style={{ gridTemplateColumns: '1fr 100px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px' }}
-              >
-                <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{dn.id} · {dn.date}</p>
-                <span className="text-center text-gray-400" style={{ fontSize: '12px' }}>
-                  {dn.status === 'archived' ? 'בארכיון' : 'ממתין'}
-                </span>
-              </div>
-            ))
+            deliveries.map((dn) => {
+              const d = dn as unknown as { id: string; date: string; status: string; driveFileLink?: string; storage_url?: string; noteNumber?: string; lineItems?: string }
+              const hasDoc = !!(d.driveFileLink || d.storage_url)
+              return (
+                <div
+                  key={d.id}
+                  className="grid items-center border-b"
+                  style={{ gridTemplateColumns: '1fr 90px 44px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                >
+                  <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{(d.noteNumber || d.id)} · {d.date}</p>
+                  <span className="text-center text-gray-400" style={{ fontSize: '12px' }}>
+                    {d.status === 'archived' ? 'בארכיון' : 'ממתין'}
+                  </span>
+                  <div className="flex justify-center">
+                    {hasDoc ? (
+                      <IconBtn title="צפייה במסמך המקורי" onClick={() => openDoc(d.driveFileLink, d.storage_url)}>
+                        <Eye className="w-4 h-4" />
+                      </IconBtn>
+                    ) : (
+                      <IconBtn
+                        title="צפייה בפרטים"
+                        onClick={() => setMetaModal({
+                          title: 'תעודת משלוח', Icon: Truck,
+                          rows: [
+                            { label: 'ספק', value: supplier.name },
+                            { label: 'מספר תעודה', value: d.noteNumber || '—' },
+                            { label: 'תאריך', value: d.date || '—' },
+                          ],
+                          items: d.lineItems,
+                        })}
+                      >
+                        <List className="w-4 h-4" />
+                      </IconBtn>
+                    )}
+                  </div>
+                </div>
+              )
+            })
           )}
         </SectionShell>
       )}
@@ -380,15 +489,38 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
           ) : (
             returns.map((r) => {
               const st = returnStatusStyle[r.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
+              const hasDoc = !!r.driveFileLink
               return (
                 <div
                   key={r.id}
                   className="grid items-center border-b"
-                  style={{ gridTemplateColumns: '90px 1fr 90px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px', textAlign: 'right' }}
+                  style={{ gridTemplateColumns: '80px 1fr 78px 44px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px', textAlign: 'right' }}
                 >
                   <span className="text-gray-500" style={{ fontSize: '13px' }}>{r.date}</span>
                   <span className="text-gray-600 truncate" style={{ fontSize: '13px', paddingLeft: '8px' }} title={r.reason}>{r.reason}</span>
                   <span className="rounded-lg font-bold text-center" style={{ ...st, fontSize: '12px', padding: '4px 8px' }}>{r.status}</span>
+                  <div className="flex justify-center">
+                    {hasDoc ? (
+                      <IconBtn title="צפייה במסמך הזיכוי" onClick={() => openDoc(r.driveFileLink)}>
+                        <Eye className="w-4 h-4" />
+                      </IconBtn>
+                    ) : (
+                      <IconBtn
+                        title="צפייה בפרטים"
+                        onClick={() => setMetaModal({
+                          title: 'החזרה', Icon: RotateCcw,
+                          rows: [
+                            { label: 'ספק', value: supplier.name },
+                            { label: 'תאריך', value: r.date || '—' },
+                            { label: 'סיבה', value: r.reason || '—' },
+                          ],
+                          note: r.detail,
+                        })}
+                      >
+                        <List className="w-4 h-4" />
+                      </IconBtn>
+                    )}
+                  </div>
                 </div>
               )
             })
@@ -409,6 +541,15 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
           employees={employees}
         />
       )}
+
+      {/* Arrived record → source document image/PDF (a printed amount on the scan
+          is acceptable, same rule as invoices). */}
+      {docView && (
+        <PdfPreviewModal url={docView.url} previewSrc={docView.previewSrc} onClose={() => setDocView(null)} />
+      )}
+
+      {/* Manual record → operational details only, no monetary amounts. */}
+      {metaModal && <MetaModal {...metaModal} onClose={() => setMetaModal(null)} />}
 
     </div>
   )
