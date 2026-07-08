@@ -9,6 +9,7 @@ import SectionHeader from '../SectionHeader'
 import { SearchableSelect } from '../SearchableSelect'
 import { PdfPreviewModal } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
+import { STATUS } from '../../theme/status'
 import type { Invoice } from '../../data/mockData'
 import {
   FormModal as ReturnFormModal,
@@ -38,16 +39,18 @@ interface Props {
   activeSection: EmployeeSection
 }
 
+// Status colors from the FIXED functional tokens (src/theme/status.ts) — same
+// palette as the manager screens: yellow=check, green=done, orange=in_progress, red.
 const invoiceStatusStyle: Record<string, { bg: string; color: string }> = {
-  'ממתין':  { bg: '#FEF9C3', color: '#A16207' },
-  'שולם':   { bg: '#DCFCE7', color: '#166534' },
-  'בטיפול': { bg: '#DBEAFE', color: '#1E40AF' },
+  'ממתין':  { bg: STATUS.yellow.bg, color: STATUS.yellow.fg },
+  'שולם':   { bg: STATUS.green.bg,  color: STATUS.green.fg },
+  'בטיפול': { bg: STATUS.orange.bg, color: STATUS.orange.fg },
 }
 
 const returnStatusStyle: Record<string, { bg: string; color: string }> = {
-  'אושר':   { bg: '#DCFCE7', color: '#166534' },
-  'בטיפול': { bg: '#FEF3C7', color: '#D97706' },
-  'נדחה':   { bg: '#FEE2E2', color: '#DC2626' },
+  'אושר':   { bg: STATUS.green.bg,  color: STATUS.green.fg },
+  'בטיפול': { bg: STATUS.orange.bg, color: STATUS.orange.fg },
+  'נדחה':   { bg: STATUS.red.bg,    color: STATUS.red.fg },
 }
 
 function SectionShell({ title, Icon, count, children, action }: {
@@ -58,10 +61,10 @@ function SectionShell({ title, Icon, count, children, action }: {
   action?: React.ReactNode
 }) {
   return (
-    <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+    <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
       <SectionHeader
         className="px-5 py-4 border-b"
-        style={{ borderColor: '#E2E4E9' }}
+        style={{ borderColor: '#EEEEF2' }}
         title={<><h2 className="font-bold text-gray-800">{title}</h2><Icon className="w-4 h-4 text-gray-400" /></>}
         action={action ?? <span className="text-sm text-gray-400">{count} רשומות</span>}
       />
@@ -109,7 +112,7 @@ function MetaModal({ title, Icon, rows, note, items, onClose }: MetaModalData & 
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div className="bg-white rounded-2xl shadow-2xl w-full" style={{ maxWidth: '520px', direction: 'rtl' }}>
-        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 20px', borderColor: '#E2E4E9', background: '#FDFAFA' }}>
+        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 20px', borderColor: '#EEEEF2', background: '#FAFAFC' }}>
           <Icon className="w-4 h-4 text-gray-400" />
           <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>{title}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600" style={{ background: 'none', border: 'none', cursor: 'pointer', marginInlineStart: 'auto' }} title="סגירה">
@@ -117,19 +120,19 @@ function MetaModal({ title, Icon, rows, note, items, onClose }: MetaModalData & 
           </button>
         </div>
         {rows.map(({ label, value }, i) => (
-          <div key={label} style={{ direction: 'ltr', display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 20px', minHeight: '50px', borderTop: i > 0 ? '1px solid #E2E4E9' : undefined }}>
+          <div key={label} style={{ direction: 'ltr', display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 20px', minHeight: '50px', borderTop: i > 0 ? '1px solid #EEEEF2' : undefined }}>
             <span style={{ flex: 1, minWidth: 0, textAlign: 'left', direction: 'rtl', fontSize: '14px', color: '#1F2937', fontWeight: 500 }}>{value || '—'}</span>
             <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF' }}>{label}</span>
           </div>
         ))}
         {note?.trim() && (
-          <div style={{ padding: '13px 20px', borderTop: '1px solid #E2E4E9' }}>
+          <div style={{ padding: '13px 20px', borderTop: '1px solid #EEEEF2' }}>
             <p className="text-right text-gray-400" style={{ fontSize: '13px', marginBottom: '4px' }}>הערות</p>
             <p className="text-right" style={{ fontSize: '14px', color: '#1F2937', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{note}</p>
           </div>
         )}
         {items?.trim() && (
-          <div style={{ padding: '13px 20px', borderTop: '1px solid #E2E4E9' }}>
+          <div style={{ padding: '13px 20px', borderTop: '1px solid #EEEEF2' }}>
             <p className="text-right text-gray-400 flex items-center gap-1.5 justify-end" style={{ fontSize: '13px', marginBottom: '6px' }}>
               פירוט פריטים <List className="w-3.5 h-3.5" />
             </p>
@@ -162,7 +165,7 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
         onClick={onBack}
         className="flex items-center gap-1.5 font-medium transition-colors"
         style={{ background: 'white', border: '1.5px solid #DEDFE5', borderRadius: '12px', padding: '10px 16px', fontSize: '14px', color: '#6B7280', cursor: 'pointer' }}
-        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}
         onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
       >
         <ChevronRight className="w-4 h-4" />
@@ -170,14 +173,14 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
       </button>
 
       {/* Non-financial metadata (read-only text, no inputs) */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#E2E4E9', background: '#FDFAFA' }}>
+      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
+        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#EEEEF2', background: '#FAFAFC' }}>
           <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>פרטי חשבונית</h2>
           <FileText className="w-4 h-4 text-gray-400" />
           <span className="rounded-lg font-bold" style={{ ...st, fontSize: '12px', padding: '4px 10px', marginInlineStart: 'auto' }}>{invoice.status || '—'}</span>
         </div>
         {rows.map(({ label, value }, i) => (
-          <div key={label} style={{ direction: 'ltr', display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 24px', minHeight: '52px', borderTop: i > 0 ? '1px solid #E2E4E9' : undefined }}>
+          <div key={label} style={{ direction: 'ltr', display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 24px', minHeight: '52px', borderTop: i > 0 ? '1px solid #EEEEF2' : undefined }}>
             <span style={{ flex: 1, minWidth: 0, textAlign: 'left', direction: 'rtl', fontSize: '14px', color: '#1F2937', fontWeight: 500 }}>{value || '—'}</span>
             <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF' }}>{label}</span>
           </div>
@@ -187,8 +190,8 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
       {/* Line items — names + quantities ONLY (operational goods-receipt info).
           No per-item prices or money; lineDetails is free text "name - qty". */}
       {invoice.lineDetails?.trim() && (
-        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-          <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#E2E4E9', background: '#FDFAFA' }}>
+        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
+          <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#EEEEF2', background: '#FAFAFC' }}>
             <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>פירוט פריטים</h2>
             <List className="w-4 h-4 text-gray-400" />
           </div>
@@ -201,7 +204,7 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
       )}
 
       {/* Original document (image/PDF) — viewing only, no download of app data */}
-      <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#E2E4E9' }}>
+      <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#EEEEF2' }}>
         {docUrl ? (
           <button
             onClick={() => setShowDoc(true)}
@@ -247,7 +250,7 @@ function ReceiptFormModal({ form, setForm, supplierName, employees, onSave, onCl
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div className="bg-white rounded-2xl shadow-2xl w-full" style={{ maxWidth: '520px', direction: 'rtl' }}>
-        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 20px', borderColor: '#E2E4E9', background: '#FDFAFA' }}>
+        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 20px', borderColor: '#EEEEF2', background: '#FAFAFC' }}>
           <Truck className="w-4 h-4 text-gray-400" />
           <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>קליטת סחורה ידנית</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600" style={{ background: 'none', border: 'none', cursor: 'pointer', marginInlineStart: 'auto' }} title="סגירה">
@@ -281,12 +284,12 @@ function ReceiptFormModal({ form, setForm, supplierName, employees, onSave, onCl
             <textarea value={form.items} onChange={(e) => setForm({ ...form, items: e.target.value })} placeholder={'שם פריט וכמות בכל שורה'} rows={5} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }} />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 border-t" style={{ padding: '14px 20px', borderColor: '#E2E4E9' }}>
+        <div className="flex items-center justify-end gap-2 border-t" style={{ padding: '14px 20px', borderColor: '#EEEEF2' }}>
           <button onClick={onClose} style={{ padding: '10px 18px', borderRadius: '10px', border: '1.5px solid #DEDFE5', background: 'white', color: '#6B7280', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>ביטול</button>
           <button
             onClick={onSave}
             disabled={!valid}
-            style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: valid ? '#0D9488' : '#CBD5E1', color: 'white', fontSize: '14px', fontWeight: 700, cursor: valid ? 'pointer' : 'not-allowed' }}
+            style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: valid ? 'var(--brand-primary)' : '#CBD5E1', color: 'white', fontSize: '14px', fontWeight: 700, cursor: valid ? 'pointer' : 'not-allowed' }}
           >
             שמירה
           </button>
@@ -424,8 +427,8 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
       </div>
 
       {/* ── Contact details (always visible) ── */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#E2E4E9', background: '#FDFAFA' }}>
+      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
+        <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#EEEEF2', background: '#FAFAFC' }}>
           <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>פרטי קשר</h2>
           <User className="w-4 h-4 text-gray-400" />
         </div>
@@ -439,7 +442,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
               direction: 'ltr',
               display: 'flex', alignItems: 'center', gap: '12px',
               padding: '14px 24px', minHeight: '52px',
-              borderTop: i > 0 ? '1px solid #E2E4E9' : undefined,
+              borderTop: i > 0 ? '1px solid #EEEEF2' : undefined,
             }}
           >
             <span style={{ flex: 1, minWidth: 0, textAlign: 'left', direction: 'rtl', fontSize: '14px', color: '#1F2937', fontWeight: 500 }}>
@@ -458,7 +461,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
             style={{
               direction: 'ltr',
               display: 'flex', alignItems: 'flex-start', gap: '12px',
-              padding: '14px 24px', borderTop: '1px solid #E2E4E9',
+              padding: '14px 24px', borderTop: '1px solid #EEEEF2',
             }}
           >
             <span style={{ flex: 1, minWidth: 0, textAlign: 'left', direction: 'rtl', fontSize: '14px', color: '#1F2937', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
@@ -477,8 +480,8 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
       {/* ── Invoices ── */}
       {activeSection === 'invoices' && (
         <SectionShell title="חשבוניות" Icon={FileText} count={shownInvoices.length}>
-          <div className="px-5 py-3 border-b" style={{ borderColor: '#E2E4E9' }}>
-            <div className="flex items-center gap-2 rounded-xl border px-3" style={{ borderColor: '#E2E4E9', height: '40px' }}>
+          <div className="px-5 py-3 border-b" style={{ borderColor: '#EEEEF2' }}>
+            <div className="flex items-center gap-2 rounded-xl border px-3" style={{ borderColor: '#EEEEF2', height: '40px' }}>
               <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
               <input
                 value={invoiceQuery}
@@ -498,9 +501,9 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
                 <div
                   key={inv.id}
                   className="grid items-center border-b cursor-pointer"
-                  style={{ gridTemplateColumns: '1fr 90px 28px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                  style={{ gridTemplateColumns: '1fr 90px 28px', borderColor: '#EEEEF2', minHeight: '56px', padding: '12px 16px' }}
                   onClick={() => setSelectedInvoice(inv as Invoice)}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}
                   onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 >
                   <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{num} · {inv.date}</p>
@@ -526,9 +529,9 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
             <button
               onClick={openAddReceipt}
               className="flex items-center gap-1.5 rounded-xl font-bold text-white transition-all"
-              style={{ minHeight: '38px', padding: '0 16px', background: '#0D9488', fontSize: '14px' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#0B7C71')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#0D9488')}
+              style={{ minHeight: '38px', padding: '0 16px', background: 'var(--brand-primary)', fontSize: '14px' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
             >
               <Plus className="w-4 h-4" />
               קליטת סחורה
@@ -545,7 +548,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
                 <div
                   key={d.id}
                   className="grid items-center border-b"
-                  style={{ gridTemplateColumns: '1fr 90px 44px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                  style={{ gridTemplateColumns: '1fr 90px 44px', borderColor: '#EEEEF2', minHeight: '56px', padding: '12px 16px' }}
                 >
                   <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{(d.noteNumber || d.id)} · {d.date}</p>
                   <span className="text-center text-gray-400" style={{ fontSize: '12px' }}>
@@ -590,9 +593,9 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
             <button
               onClick={openAddReturn}
               className="flex items-center gap-1.5 rounded-xl font-bold text-white transition-all"
-              style={{ minHeight: '38px', padding: '0 16px', background: '#7C3AED', fontSize: '14px' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
+              style={{ minHeight: '38px', padding: '0 16px', background: 'var(--brand-primary)', fontSize: '14px' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
             >
               <Plus className="w-4 h-4" />
               הוסף חזרה
@@ -609,7 +612,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
                 <div
                   key={r.id}
                   className="grid items-center border-b"
-                  style={{ gridTemplateColumns: '80px 1fr 78px 44px', borderColor: '#E2E4E9', minHeight: '56px', padding: '12px 16px', textAlign: 'right' }}
+                  style={{ gridTemplateColumns: '80px 1fr 78px 44px', borderColor: '#EEEEF2', minHeight: '56px', padding: '12px 16px', textAlign: 'right' }}
                 >
                   <span className="text-gray-500" style={{ fontSize: '13px' }}>{r.date}</span>
                   <span className="text-gray-600 truncate" style={{ fontSize: '13px', paddingLeft: '8px' }} title={r.reason}>{r.reason}</span>

@@ -86,7 +86,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
         </div>
 
         {/* Supplier search */}
-        <div className="bg-white rounded-2xl shadow-sm border p-4 mb-5" style={{ borderColor: '#E2E4E9' }}>
+        <div className="bg-white rounded-2xl shadow-sm border p-4 mb-5" style={{ borderColor: '#EEEEF2' }}>
           <div className="flex items-center gap-2 mb-3">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: ACCENT_BG }}>
               <Search className="w-4 h-4" style={{ color: ACCENT }} />
@@ -121,7 +121,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
                 onClick={() => setActiveSection(key)}
                 className="bg-white rounded-2xl shadow-sm border flex flex-col items-center justify-center gap-2 transition-all"
                 style={{
-                  borderColor: active ? ACCENT : '#E2E4E9',
+                  borderColor: active ? ACCENT : '#EEEEF2',
                   background: active ? ACCENT_BG : 'white',
                   padding: '18px 8px',
                   cursor: enabled ? 'pointer' : 'not-allowed',
@@ -142,7 +142,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
               onClick={() => { setSelectedSupplierId(''); setActiveSection('invoices') }}
               className="flex items-center gap-1.5 font-medium transition-colors"
               style={{ background: 'white', border: '1.5px solid #DEDFE5', borderRadius: '12px', padding: '10px 16px', fontSize: '14px', color: '#6B7280', cursor: 'pointer' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
             >
               <ChevronRight className="w-4 h-4" />
@@ -156,7 +156,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
         ) : (
           <div
             className="bg-white rounded-2xl border flex flex-col items-center justify-center text-center"
-            style={{ borderColor: '#E2E4E9', padding: '48px 20px' }}
+            style={{ borderColor: '#EEEEF2', padding: '48px 20px' }}
           >
             <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ background: ACCENT_BG }}>
               <Search className="w-8 h-8" style={{ color: ACCENT }} />
