@@ -84,9 +84,24 @@ commit;
 --            only needed if Drive/AI paths run in prod.)
 --
 --     invoices-ingest  — MODIFIED this rebuild (piece A: hp-primary supplier linking
---       + NAME-FALLBACK flags), committed but NOT yet deployed to dev OR prod. Deploy
---       when ingest is cut over:
---         supabase functions deploy invoices-ingest --project-ref <target>
+--       + NAME-FALLBACK flags), committed but NOT yet deployed to dev OR prod.
+--       ⚠️  REQUIRED FOR DOCUMENT UPLOAD/CAPTURE. The in-app camera/upload flow
+--           (CaptureDocument → captureDocument() → POST /functions/v1/invoices-ingest,
+--           source:'camera') runs the SAME pipeline as email ingest. If this function
+--           is not deployed, the upload POST returns HTTP 404 and capture fails.
+--           (This is exactly why upload works in prod but not in dev — see below.)
+--       Deploy invoices-ingest to prod (and set its secrets):
+--         supabase functions deploy invoices-ingest --project-ref jcwphkuwwuxvjibmvgdh
+--       ⚠️  CONFIRM these secrets are set on PROD (the camera/upload + email pipeline
+--           need them; dev intentionally leaves them UNSET, which is why capture 404s/fails
+--           in dev): ANTHROPIC_API_KEY (Haiku classify + Sonnet extract), GMAIL_CLIENT_ID,
+--           GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, and DRIVE_FOLDER_* (Drive filing).
+--             supabase secrets set ANTHROPIC_API_KEY=<...> GMAIL_CLIENT_ID=<...> \
+--               GMAIL_CLIENT_SECRET=<...> GMAIL_REFRESH_TOKEN=<...> \
+--               DRIVE_FOLDER_INVOICES=<...> DRIVE_FOLDER_DELIVERY=<...> \
+--               DRIVE_FOLDER_RETURNS=<...> DRIVE_FOLDER_STATEMENTS=<...> \
+--               --project-ref jcwphkuwwuxvjibmvgdh
+--           (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are auto-injected.)
 --
 --     (Other functions — payments-ingest, suppliers-list, drive-*, test-api — were
 --      NOT changed during this rebuild; no redeploy needed on their account.)
