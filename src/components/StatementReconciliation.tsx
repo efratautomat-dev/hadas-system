@@ -5,8 +5,10 @@ import type { VendorStatementStatus } from '../hooks/useStatements'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { printStatementPDF } from '../utils/pdf'
 import { openStoredFile } from '../lib/storage'
+import { supabase } from '../lib/supabase'
 import SectionHeader from './SectionHeader'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
+import { PdfPreviewModal } from './PdfPreviewModal'
 
 interface VendorStatement {
   id: string
@@ -126,20 +128,25 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
           </div>
         </div>
 
-        {/* Diff summary bar */}
-        {stmt.status === 'mismatch' && (
+        {/* Comparison summary bar — vendor balance vs our balance + the difference */}
+        {(stmt.status === 'mismatch' || stmt.status === 'matched') && (
           <div
             className="px-6 py-3 flex items-center justify-between text-sm font-semibold"
-            style={{ background: '#FEF2F2', borderBottom: '1px solid #FECDD3' }}
+            style={{
+              background: stmt.status === 'matched' ? '#F0FDF4' : '#FEF2F2',
+              borderBottom: `1px solid ${stmt.status === 'matched' ? '#BBF7D0' : '#FECDD3'}`,
+            }}
           >
             <div className="flex items-center gap-6">
-              <span style={{ color: '#DC2626' }}>הפרש: {formatILS(stmt.diff)}</span>
+              <span style={{ color: stmt.status === 'matched' ? '#166534' : '#DC2626' }}>הפרש: {formatILS(stmt.diff)}</span>
               <span className="text-gray-500">
                 יתרת ספק: {stmt.vendor_balance != null ? formatILS(stmt.vendor_balance) : '—'}
               </span>
               <span className="text-gray-500">יתרה שלנו: {formatILS(stmt.our_balance)}</span>
             </div>
-            <AlertTriangle className="w-4 h-4 text-red-500" />
+            {stmt.status === 'matched'
+              ? <CheckCircle2 className="w-4 h-4 text-green-600" />
+              : <AlertTriangle className="w-4 h-4 text-red-500" />}
           </div>
         )}
 
@@ -319,6 +326,7 @@ export default function StatementReconciliation({ initialStatementId }: { initia
   const { data: suppliersData } = useSuppliers()
   const [statements, setStatements] = useState<VendorStatement[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [viewDoc, setViewDoc] = useState<string | null>(null)   // arrived statement doc → popup
   const [filterStatus, setFilterStatus] = useState<VendorStatementStatus | 'all'>('all')
   const [search, setSearch] = useState('')
   const isMobile = useIsMobile()
@@ -354,6 +362,16 @@ export default function StatementReconciliation({ initialStatementId }: { initia
   })
 
   const selectedStmt = selectedId ? statements.find((s) => s.id === selectedId) ?? null : null
+
+  // Open the ARRIVED statement document in the in-page popup viewer. Drive links open
+  // directly; a private storage_url is signed first.
+  async function openDoc(stmt: VendorStatement) {
+    if (stmt.drive_file_link) { setViewDoc(stmt.drive_file_link); return }
+    if (stmt.storage_url) {
+      const { data } = await supabase.storage.from('documents').createSignedUrl(stmt.storage_url, 3600)
+      if (data?.signedUrl) setViewDoc(data.signedUrl)
+    }
+  }
 
   async function handleStatusChange(id: string, status: VendorStatementStatus) {
     try {
@@ -550,6 +568,19 @@ export default function StatementReconciliation({ initialStatementId }: { initia
                     <Eye className="w-3.5 h-3.5" />
                     פירוט
                   </button>
+                  {(stmt.drive_file_link || stmt.storage_url) && (
+                    <button
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                      style={{ background: '#E0F2FE', color: '#0369A1' }}
+                      title="הצג את מסמך הכרטסת שהתקבל"
+                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#BAE6FD')}
+                      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#E0F2FE')}
+                      onClick={(e) => { e.stopPropagation(); void openDoc(stmt) }}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      הצג מסמך
+                    </button>
+                  )}
                   {stmt.storage_url && (
                     <button
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
@@ -617,6 +648,9 @@ export default function StatementReconciliation({ initialStatementId }: { initia
           onBalanceUpdate={handleBalanceUpdate}
         />
       )}
+
+      {/* Arrived statement document — in-page popup viewer */}
+      {viewDoc && <PdfPreviewModal url={viewDoc} onClose={() => setViewDoc(null)} />}
     </div>
   )
 }

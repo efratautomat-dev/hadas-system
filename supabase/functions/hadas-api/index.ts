@@ -616,6 +616,11 @@ async function createStatement(req: Request, supabase: SupabaseClient): Promise<
     .select("id").single();
 
   if (error || !data) return json({ error: error?.message }, 500);
+  // PRD §7: every incoming statement is AUTO-MATCHED against our ledger on arrival —
+  // computes our_balance (opening+Σinvoices−Σnon-cancelled payments), sets matched/
+  // mismatch + diff, and raises the statement_mismatch alert. Never trust a supplied
+  // our_balance (that's how a debit/placeholder figure used to leak through).
+  await reconcileStatement(supabase, data.id as string);
   return json({ id: data.id }, 201);
 }
 
@@ -631,6 +636,61 @@ async function resolveStatement(req: Request, supabase: SupabaseClient, id: stri
   const { error } = await supabase.from("vendor_statements").update(updates).eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true });
+}
+
+// ─── Statement reconciliation (StatementReconciliation §7) ─────────────────────
+// OUR ledger balance for a supplier — SAME formula as the frontend computeSupplierBalance:
+// opening_balance + Σ invoice totals − Σ non-cancelled payments. Credit notes are negative
+// invoices (already netted in). Reconciliation only FLAGS the gap; it never edits data (§5).
+async function computeOurBalance(supabase: SupabaseClient, supplierId: string): Promise<number> {
+  const { data: sup } = await supabase.from("suppliers").select("opening_balance").eq("id", supplierId).maybeSingle();
+  const opening = Number(sup?.opening_balance ?? 0);
+  const { data: invs } = await supabase.from("invoices").select("total_amount").eq("supplier_id", supplierId);
+  const sumInv = (invs ?? []).reduce((s: number, i) => s + (Number(i.total_amount) || 0), 0);
+  const { data: pays } = await supabase.from("payments").select("amount, status").eq("supplier_id", supplierId);
+  const sumPay = (pays ?? []).reduce((s: number, p) => p.status === "cancelled" ? s : s + (Number(p.amount) || 0), 0);
+  return Math.round((opening + sumInv - sumPay) * 100) / 100;
+}
+
+// Auto-match a vendor statement against our ledger. MATCH → status 'matched'.
+// MISMATCH → status 'mismatch' + a statement_mismatch alert (dedup per the alert
+// super-rules). A subsequent match resolves the prior alert.
+async function reconcileStatement(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { data: st } = await supabase.from("vendor_statements")
+    .select("id, supplier_id, vendor_balance, month").eq("id", id).maybeSingle();
+  if (!st) return json({ error: "Statement not found" }, 404);
+
+  const ourBalance    = await computeOurBalance(supabase, st.supplier_id as string);
+  const vendorBalance = Number(st.vendor_balance ?? 0);
+  const diff          = Math.round((ourBalance - vendorBalance) * 100) / 100;   // our − vendor
+  const matched       = Math.abs(diff) < 0.01;
+  const status        = matched ? "matched" : "mismatch";
+
+  await supabase.from("vendor_statements").update({ our_balance: ourBalance, diff, status }).eq("id", id);
+
+  const openAlert = () => supabase.from("alerts").select("id")
+    .eq("type", "statement_mismatch").eq("payload->>statementId", id).neq("status", "resolved").limit(1);
+
+  if (!matched) {
+    const { data: sup } = await supabase.from("suppliers").select("name").eq("id", st.supplier_id as string).maybeSingle();
+    const name = sup?.name ?? "ספק";
+    const { data: existing } = await openAlert();
+    if (!existing?.length) {
+      await supabase.from("alerts").insert({
+        type:    "statement_mismatch",
+        title:   "אי-התאמה בכרטסת",
+        message: `אי-התאמה בכרטסת מול ${name} (${st.month ?? ""}): יתרת הספק ${vendorBalance}, היתרה שלנו ${ourBalance}, הפרש ${diff}`,
+        status:  "unread",
+        payload: { statementId: id, supplierId: st.supplier_id, typedSupplierName: name, vendorBalance, ourBalance, diff, month: st.month },
+      });
+    }
+  } else {
+    await supabase.from("alerts")
+      .update({ status: "resolved", resolved_at: new Date().toISOString() })
+      .eq("type", "statement_mismatch").eq("payload->>statementId", id).neq("status", "resolved");
+  }
+
+  return json({ success: true, status, ourBalance, vendorBalance, diff });
 }
 
 // ─── Document re-classification (document_misclassified alert) ─────────────────
@@ -1161,6 +1221,9 @@ Deno.serve(async (req: Request) => {
     const stmtResolveMatch = path.match(/^\/statements\/([^/]+)\/resolve$/);
     if (stmtResolveMatch && req.method === "PUT")
       return await resolveStatement(req, supabase, stmtResolveMatch[1]);
+    const stmtReconcileMatch = path.match(/^\/statements\/([^/]+)\/reconcile$/);
+    if (stmtReconcileMatch && req.method === "POST")
+      return await reconcileStatement(supabase, stmtReconcileMatch[1]);
 
     // ── Employees ─────────────────────────────────────────────────────────────
     if (path === "/employees") {
