@@ -1,8 +1,19 @@
 import { useState, useEffect } from 'react'
-import { Users, Plus, Search, Pencil, ChevronLeft, X } from 'lucide-react'
+import { Users, Plus, Search, Pencil, ChevronLeft, X, LayoutGrid, Table2 } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
+import { STATUS } from '../theme/status'
 import SupplierDetail, { type Supplier } from './SupplierDetail'
+
+// Active/inactive uses the FIXED functional tokens (green = active, gray = inactive),
+// never the brand palette — so the state reads the same after any reskin.
+const activePill = (active: boolean) => active ? STATUS.green : STATUS.gray
+
+// "current balance as of today" — the balance figure is the computed live balance;
+// this stamps it with today's date so the number is unambiguous.
+function todayHe(): string {
+  return new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
 
 function useIsTablet() {
   const [v, setV] = useState(
@@ -49,6 +60,33 @@ const categoryColors: Record<string, { bg: string; color: string }> = {
 
 function formatILS(n: number | null | undefined) {
   return '₪' + (n ?? 0).toLocaleString('he-IL')
+}
+
+// ── Shared bits (used by both card and table views) ─────────────────────────
+function StatusPill({ status }: { status: string }) {
+  const sw = activePill(status === 'פעיל')
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full font-semibold whitespace-nowrap"
+      style={{ fontSize: '12px', padding: '4px 11px', background: sw.bg, color: sw.fg }}
+    >
+      <span style={{ width: '6px', height: '6px', borderRadius: '999px', background: sw.fg }} />
+      {status}
+    </span>
+  )
+}
+
+function CategoryChip({ category }: { category: string }) {
+  const c = categoryColors[category] ?? { bg: '#F3F4F6', color: '#6B7280' }
+  return (
+    <span
+      className="inline-block rounded-full font-medium truncate align-middle"
+      style={{ fontSize: '12px', padding: '4px 11px', background: c.bg, color: c.color, maxWidth: '100%' }}
+      title={category}
+    >
+      {category || '—'}
+    </span>
+  )
 }
 
 // ─── Form types ─────────────────────────────────────────────────────────────
@@ -394,6 +432,16 @@ export default function Suppliers({
   // Default to active-only: inactive suppliers are hidden until the user picks
   // the "לא פעילים" filter (deactivation replaces hard delete — spec/01-PRD.md §2).
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('פעיל')
+  // Card vs table view — cards for overview, table for dense scanning. Remembered
+  // per session (sessionStorage), so it resets on a new session but persists across
+  // navigation within one.
+  const [view, setView] = useState<'cards' | 'table'>(
+    () => (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('suppliersView') === 'table') ? 'table' : 'cards',
+  )
+  const setViewPersist = (v: 'cards' | 'table') => {
+    setView(v)
+    try { sessionStorage.setItem('suppliersView', v) } catch { /* ignore */ }
+  }
 
   useEffect(() => {
     setSuppliers([...serverSuppliers] as Supplier[])
@@ -500,6 +548,7 @@ export default function Suppliers({
 
   const activeCount  = suppliers.filter((s) => s.status === 'פעיל').length
   const totalBalance = suppliers.reduce((sum, s) => sum + (Number(s.balance) || 0), 0)
+  const today = todayHe()
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading && suppliers.length === 0) {
@@ -594,32 +643,54 @@ export default function Suppliers({
             style={{ fontSize: '16px' }}
           />
         </div>
+
+        {/* View toggle: cards ⇄ table (remembered per session) */}
+        <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#EEEEF2' }}>
+          {([
+            { key: 'cards', Icon: LayoutGrid, label: 'תצוגת כרטיסים' },
+            { key: 'table', Icon: Table2,     label: 'תצוגת טבלה' },
+          ] as const).map(({ key, Icon, label }) => {
+            const on = view === key
+            return (
+              <button
+                key={key}
+                onClick={() => setViewPersist(key)}
+                title={label}
+                aria-label={label}
+                className="flex items-center justify-center rounded-lg transition-all"
+                style={{
+                  width: isTablet ? '44px' : '38px',
+                  height: isTablet ? '40px' : '34px',
+                  background: on ? 'var(--brand-primary)' : 'transparent',
+                  color: on ? 'white' : '#9CA3AF',
+                }}
+              >
+                <Icon className="w-4 h-4" />
+              </button>
+            )
+          })}
+        </div>
       </div>
 
-      {/* Card grid */}
-      {filtered.length === 0 && !showAdd ? (
+      {/* List — empty state, else the chosen view */}
+      {filtered.length === 0 && !showAdd && !editingId ? (
         <div className="py-16 text-center text-gray-400">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p style={{ fontSize: '16px' }}>לא נמצאו ספקים</p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      ) : view === 'cards' ? (
 
-          {/* Add form card */}
+        /* ─────────── CARD VIEW (add/edit forms render inline in the grid) ─────────── */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {showAdd && (
             <SupplierFormCard
               title="ספק חדש"
               form={addForm}
               onChange={setAddForm}
               onSave={saveAdd}
-              onCancel={() => {
-                setShowAdd(false)
-                if (prefillForAlert) onCancelAlertPrefill?.()
-              }}
+              onCancel={() => { setShowAdd(false); if (prefillForAlert) onCancelAlertPrefill?.() }}
             />
           )}
-
-          {/* Supplier cards */}
           {filtered.map((sup) => {
             if (editingId === sup.id && editForm) {
               return (
@@ -633,109 +704,144 @@ export default function Suppliers({
                 />
               )
             }
-
-            const catStyle = categoryColors[sup.category] ?? { bg: '#F3F4F6', color: '#6B7280' }
-            const isActive = sup.status === 'פעיל'
             const contactLine = [sup.contact, sup.phone].filter(Boolean).join(' · ') || '—'
-
             return (
               <div
                 key={sup.id}
-                className="bg-white rounded-2xl shadow-sm border flex flex-col"
-                style={{ borderColor: '#EEEEF2' }}
+                className="bg-white flex flex-col"
+                style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)' }}
               >
-                <div className="p-5 flex-1 flex flex-col gap-4">
-
-                  {/* Status | Category — fixed height row */}
-                  <div className="flex items-center justify-between" style={{ minHeight: '28px' }}>
-                    <span
-                      className="rounded-lg font-bold"
-                      style={{
-                        fontSize: '12px', padding: '4px 12px',
-                        background: isActive ? '#DCFCE7' : '#F3F4F6',
-                        color: isActive ? '#16A34A' : '#6B7280',
-                      }}
-                    >
-                      {sup.status}
-                    </span>
-                    <span
-                      className="rounded-lg font-medium truncate"
-                      style={{
-                        fontSize: '12px', padding: '4px 10px',
-                        backgroundColor: catStyle.bg, color: catStyle.color,
-                        maxWidth: '55%',
-                      }}
-                    >
-                      {sup.category}
-                    </span>
+                <div className="flex-1 flex flex-col gap-4" style={{ padding: '20px' }}>
+                  {/* status + category */}
+                  <div className="flex items-center justify-between gap-2" style={{ minHeight: '28px' }}>
+                    <StatusPill status={sup.status} />
+                    <span className="min-w-0" style={{ maxWidth: '58%' }}><CategoryChip category={sup.category} /></span>
                   </div>
-
-                  {/* Name + contact — always 2 lines */}
-                  <div className="text-right" style={{ minHeight: isTablet ? '54px' : '48px' }}>
-                    <h3
-                      className="font-semibold truncate"
-                      style={{ color: '#1A1A2E', fontSize: isTablet ? '20px' : '18px' }}
-                    >
-                      {sup.name}
-                    </h3>
-                    <p
-                      className="text-gray-500 mt-1 truncate"
-                      style={{ fontSize: isTablet ? '15px' : '13px' }}
-                    >
-                      {contactLine}
-                    </p>
+                  {/* name + contact */}
+                  <div className="text-right" style={{ minHeight: isTablet ? '52px' : '46px' }}>
+                    <h3 className="truncate" style={{ color: '#12131A', fontSize: isTablet ? '20px' : '18px', fontWeight: 700, letterSpacing: '-0.01em' }}>{sup.name}</h3>
+                    <p className="text-gray-400 mt-1 truncate" style={{ fontSize: isTablet ? '14px' : '13px' }}>{contactLine}</p>
                   </div>
-
-                  {/* Balance box — CURRENT computed balance (same as the detail page:
-                      opening + Σ invoices − Σ non-cancelled payments), not the opening figure. */}
-                  <div className="rounded-xl p-3 text-right" style={{ background: '#F5F5F8' }}>
-                    <p style={{ fontSize: '11px', color: '#9CA3AF', minHeight: '16px' }}>
-                      יתרה עדכנית
-                    </p>
-                    <p className="mt-0.5" style={{ fontSize: isTablet ? '24px' : '22px', fontWeight: 500, color: '#1A1A2E' }}>
+                  {/* current balance, stamped with today's date */}
+                  <div style={{ background: '#F7F7FA', borderRadius: '14px', padding: '14px 16px' }}>
+                    <div className="flex items-center justify-between">
+                      <span style={{ fontSize: '11px', color: '#9CA3AF' }}>נכון ל־{today}</span>
+                      <span style={{ fontSize: '12px', color: '#9CA3AF', fontWeight: 500 }}>יתרה עדכנית</span>
+                    </div>
+                    <p className="text-right mt-1" style={{ fontSize: isTablet ? '26px' : '23px', fontWeight: 700, color: '#12131A', letterSpacing: '-0.02em' }}>
                       {formatILS(Number(sup.balance) || 0)}
                     </p>
                   </div>
-
                 </div>
-
-                {/* Action buttons — always at bottom */}
-                <div className="flex gap-2 px-5 pb-5 mt-auto">
+                {/* actions */}
+                <div className="flex gap-2 mt-auto" style={{ padding: '0 20px 20px' }}>
                   <button
                     onClick={() => openDetail(sup.id)}
                     className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
-                    style={{
-                      minHeight: '44px',
-                      fontSize: isTablet ? '15px' : '14px',
-                      background: 'var(--brand-primary)',
-                      color: 'white',
-                    }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.opacity = '1')}
+                    style={{ minHeight: '42px', fontSize: isTablet ? '15px' : '14px', background: 'var(--brand-primary)', color: 'white' }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
                   >
                     <ChevronLeft className="w-4 h-4" />
                     פרטים
                   </button>
                   <button
                     onClick={() => startEdit(sup)}
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
-                    style={{
-                      minHeight: '44px',
-                      fontSize: isTablet ? '15px' : '14px',
-                      background: 'var(--brand-active-bg)',
-                      color: 'var(--brand-primary)',
-                    }}
+                    className="flex items-center justify-center rounded-xl font-semibold transition-all"
+                    title="עריכה"
+                    style={{ minHeight: '42px', width: '48px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
                   >
                     <Pencil className="w-4 h-4" />
-                    עריכה
                   </button>
                 </div>
               </div>
             )
           })}
+        </div>
 
+      ) : (
+
+        /* ─────────── TABLE VIEW (add/edit forms render above the table) ─────────── */
+        <div className="space-y-4">
+          {showAdd && (
+            <div style={{ maxWidth: '560px' }}>
+              <SupplierFormCard
+                title="ספק חדש"
+                form={addForm}
+                onChange={setAddForm}
+                onSave={saveAdd}
+                onCancel={() => { setShowAdd(false); if (prefillForAlert) onCancelAlertPrefill?.() }}
+              />
+            </div>
+          )}
+          {editingId && editForm && (
+            <div style={{ maxWidth: '560px' }}>
+              <SupplierFormCard
+                title={`עריכת ${suppliers.find((s) => s.id === editingId)?.name ?? 'ספק'}`}
+                form={editForm}
+                onChange={(f) => setEditForm(f)}
+                onSave={saveEdit}
+                onCancel={() => { setEditingId(null); setEditForm(null) }}
+              />
+            </div>
+          )}
+          <div className="bg-white overflow-x-auto" style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)' }}>
+            <div style={{ minWidth: '640px' }}>
+              {/* header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.3fr 1.1fr 1fr 92px', gap: '12px', padding: '13px 20px', borderBottom: '1px solid #EEEEF2', background: '#FAFAFC' }}>
+                {['ספק', 'קטגוריה', `יתרה · ${today}`, 'סטטוס', ''].map((h, i) => (
+                  <span key={i} className="text-right" style={{ fontSize: '12px', fontWeight: 700, color: '#8A8D94', letterSpacing: '0.01em' }}>{h}</span>
+                ))}
+              </div>
+              {/* rows */}
+              {filtered.length === 0 ? (
+                <p className="text-center text-gray-400" style={{ padding: '40px', fontSize: '15px' }}>לא נמצאו ספקים</p>
+              ) : filtered.map((sup, idx) => {
+                const contactLine = [sup.contact, sup.phone].filter(Boolean).join(' · ')
+                return (
+                  <div
+                    key={sup.id}
+                    className="items-center transition-colors"
+                    style={{ display: 'grid', gridTemplateColumns: '2fr 1.3fr 1.1fr 1fr 92px', gap: '12px', padding: '12px 20px', borderTop: idx === 0 ? 'none' : '1px solid #F1F2F4' }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+                  >
+                    <div className="min-w-0 text-right">
+                      <p className="truncate" style={{ fontSize: '15px', fontWeight: 600, color: '#12131A' }}>{sup.name}</p>
+                      {contactLine && <p className="truncate text-gray-400" style={{ fontSize: '12px', marginTop: '2px' }}>{contactLine}</p>}
+                    </div>
+                    <div className="min-w-0 text-right"><CategoryChip category={sup.category} /></div>
+                    <div className="text-right" style={{ fontSize: '15px', fontWeight: 600, color: '#12131A' }}>{formatILS(Number(sup.balance) || 0)}</div>
+                    <div className="text-right"><StatusPill status={sup.status} /></div>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => openDetail(sup.id)}
+                        title="פרטים"
+                        className="flex items-center justify-center rounded-lg transition-colors"
+                        style={{ width: '34px', height: '34px', background: 'var(--brand-primary)', color: 'white' }}
+                        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+                        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => startEdit(sup)}
+                        title="עריכה"
+                        className="flex items-center justify-center rounded-lg transition-colors"
+                        style={{ width: '34px', height: '34px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
+                        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
+                        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         </div>
       )}
     </div>
