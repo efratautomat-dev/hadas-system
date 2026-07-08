@@ -385,7 +385,7 @@ export default function DeliveryNotes() {
             {!isMobile && <span className="text-right" style={tableHeadCell}>מספר תעודה</span>}
             <span className="text-right" style={tableHeadCell}>ספק</span>
             {!isMobile && <span className="text-right" style={tableHeadCell}>תאריך</span>}
-            <span className="text-left" style={tableHeadCell}>סכום</span>
+            <span className="text-right" style={tableHeadCell}>סכום</span>
             <span className="text-center" style={tableHeadCell}>סטטוס</span>
             {!isMobile && <span className="text-right" style={tableHeadCell}>חשבונית</span>}
             <span />
@@ -449,7 +449,7 @@ export default function DeliveryNotes() {
                       {note.date}
                     </span>
                   )}
-                  <span className="text-left font-bold" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#1F2937' }}>
+                  <span className="text-right font-bold" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#1F2937' }}>
                     {formatILS(note.amount)}
                   </span>
                   <span className="flex justify-center">

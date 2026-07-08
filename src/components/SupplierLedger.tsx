@@ -340,9 +340,9 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
             <span className="text-right">תאריך</span>
             <span className="text-right">תיאור</span>
             {!isMobile && <span className="text-center">סוג</span>}
-            {!isMobile && <span className="text-left">חובה</span>}
-            {!isMobile && <span className="text-left">זכות</span>}
-            <span className="text-left">יתרה</span>
+            {!isMobile && <span className="text-right">חובה</span>}
+            {!isMobile && <span className="text-right">זכות</span>}
+            <span className="text-right">יתרה</span>
           </div>
 
           {/* Rows */}
@@ -379,16 +379,16 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                   </span>
                 )}
                 {!isMobile && (
-                  <span className="text-left font-medium" style={{ color: '#A16207', fontSize: '14px' }}>
+                  <span className="text-right font-medium" style={{ color: '#A16207', fontSize: '14px' }}>
                     {row.debit > 0 ? formatILS(row.debit) : '—'}
                   </span>
                 )}
                 {!isMobile && (
-                  <span className="text-left font-medium" style={{ color: '#166534', fontSize: '14px' }}>
+                  <span className="text-right font-medium" style={{ color: '#166534', fontSize: '14px' }}>
                     {row.credit > 0 ? formatILS(row.credit) : '—'}
                   </span>
                 )}
-                <span className="text-left font-semibold" style={{ fontSize: '15px', color: isOpening ? '#6B7280' : '#1F2937' }}>
+                <span className="text-right font-semibold" style={{ fontSize: '15px', color: isOpening ? '#6B7280' : '#1F2937' }}>
                   {formatILS(row.runningBalance)}
                 </span>
               </div>
@@ -404,16 +404,16 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
               <span className="font-bold" style={{ fontSize: '13px', color: '#6B7280' }}>סיכום תקופה</span>
             </div>
             {!isMobile && (
-              <span className="text-left font-semibold" style={{ color: '#A16207', fontSize: '15px' }}>
+              <span className="text-right font-semibold" style={{ color: '#A16207', fontSize: '15px' }}>
                 {formatILS(totalDebit)}
               </span>
             )}
             {!isMobile && (
-              <span className="text-left font-semibold" style={{ color: '#166534', fontSize: '15px' }}>
+              <span className="text-right font-semibold" style={{ color: '#166534', fontSize: '15px' }}>
                 {formatILS(totalCredit)}
               </span>
             )}
-            <span className="text-left font-semibold" style={{ color: 'var(--brand-primary)', fontSize: '16px' }}>
+            <span className="text-right font-semibold" style={{ color: 'var(--brand-primary)', fontSize: '16px' }}>
               {formatILS(finalBalance)}
             </span>
           </div>

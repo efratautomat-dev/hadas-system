@@ -619,125 +619,82 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
     return (
       <div
-        className="flex items-center gap-3 rounded-2xl transition-all cursor-pointer"
+        className="bg-white rounded-2xl shadow-sm border transition-all cursor-pointer"
         style={{
-          border: isBad ? '2px solid #DC2626' : `1.5px solid #E2E4E9`,
-          borderRight: isBad ? '4px solid #DC2626' : `4px solid ${tc.accent}`,
+          borderColor: isBad ? '#DC2626' : '#E2E4E9',
+          borderRight: `4px solid ${isBad ? '#DC2626' : tc.accent}`,
           background: isBad ? '#FFF5F5' : 'white',
-          padding: isTablet ? '14px 16px' : '12px 14px',
-          minHeight: isTablet ? '72px' : undefined,
           opacity: isCancelled ? 0.55 : 1,
         }}
         onClick={() => openEdit(p.id)}
-        onMouseEnter={(e) =>
-          !isCancelled &&
-          ((e.currentTarget as HTMLElement).style.borderColor = tc.accent)
-        }
-        onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLElement).style.borderColor = '#E2E4E9')
-        }
+        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '0 4px 14px rgba(16,17,21,.08)')}
+        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '')}
       >
-        {/* Icon */}
-        <div
-          className="rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{
-            background: tc.bg,
-            width: isTablet ? '48px' : '42px',
-            height: isTablet ? '48px' : '42px',
-            fontSize: isTablet ? '22px' : '18px',
-          }}
-        >
-          {TYPE_EMOJI[p.type]}
-        </div>
+        <div className="p-4" style={{ direction: 'rtl' }}>
+          {/* Row 1 — icon · supplier + date/ref · amount */}
+          <div className="flex items-center gap-3">
+            <div
+              className="rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: tc.bg, width: '44px', height: '44px', fontSize: '20px' }}
+            >
+              {TYPE_EMOJI[p.type]}
+            </div>
+            <div className="flex-1 min-w-0 text-right">
+              <p className="font-bold text-gray-800 truncate" style={{ fontSize: '15px' }}>{p.supplier}</p>
+              <p className="text-gray-400 truncate" style={{ fontSize: '12px', marginTop: '2px' }}>
+                {fmtDate(p.date)}{p.ref ? ` · 🔖 ${p.ref}` : ''}
+              </p>
+            </div>
+            <p className="font-black text-gray-900 flex-shrink-0" style={{ fontSize: '18px' }}>
+              {fmtILS(p.amount)}
+            </p>
+          </div>
 
-        {/* Info */}
-        <div className="flex-1 min-w-0 text-right">
-          <div className="flex items-center justify-end gap-2 mb-1 flex-wrap">
+          {/* Row 2 — badges */}
+          <div className="flex items-center gap-2 flex-wrap justify-end" style={{ marginTop: '12px' }}>
             {isFutureValue && (
-              <span
-                className="rounded-lg font-medium"
-                style={{
-                  background: '#FEF3C7',
-                  color: '#92400E',
-                  fontSize: '11px',
-                  padding: '2px 8px',
-                }}
-              >
+              <span className="rounded-lg font-medium" style={{ background: '#FEF3C7', color: '#92400E', fontSize: '11px', padding: '3px 9px' }}>
                 📅 ערך {fmtDate(p.valueDate)}
               </span>
             )}
             <StatusBadge status={p.status} />
             {p.bizboxExportedAt && <BizboxBadge />}
             <TypeBadge type={p.type} />
-            <p
-              className="font-bold text-gray-800 truncate"
-              style={{ fontSize: isTablet ? '16px' : '14px' }}
-            >
-              {p.supplier}
-            </p>
-          </div>
-          <div className="flex items-center justify-end gap-3 flex-wrap">
-            <span className="text-gray-400" style={{ fontSize: '12px' }}>
-              {fmtDate(p.date)}
-            </span>
-            {p.ref && (
-              <span className="text-gray-400" style={{ fontSize: '12px' }}>
-                🔖 {p.ref}
-              </span>
-            )}
             {p.notes && (
-              <span className="text-gray-400 truncate" style={{ fontSize: '12px', maxWidth: '180px' }}>
-                {p.notes}
-              </span>
+              <span className="text-gray-400 truncate" style={{ fontSize: '12px', maxWidth: '200px' }}>{p.notes}</span>
             )}
           </div>
-        </div>
 
-        {/* Amount */}
-        <div className="text-left flex-shrink-0 px-2">
-          <p className="font-black text-gray-900" style={{ fontSize: isTablet ? '18px' : '16px' }}>
-            {fmtILS(p.amount)}
-          </p>
-        </div>
-
-        {/* Actions */}
-        <div
-          className="flex flex-col gap-1.5 flex-shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            className="rounded-lg flex items-center justify-center text-gray-400 transition-colors"
-            style={{ background: '#FFF0EF', width: isTablet ? '44px' : '36px', height: isTablet ? '36px' : '32px' }}
-            onClick={() => openEdit(p.id)}
-            title="עריכה"
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#E8645A')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
-          {isCancelled ? (
+          {/* Actions — pill buttons (stop bubbling so they don't open edit) */}
+          <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: '12px' }} onClick={(e) => e.stopPropagation()}>
             <button
-              className="rounded-lg flex items-center justify-center text-gray-400 transition-colors"
-              style={{ background: '#F0FDF4', width: isTablet ? '44px' : '36px', height: isTablet ? '36px' : '32px' }}
-              onClick={() => handleRestore(p.id)}
-              title="שחזור"
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#16A34A')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
+              onClick={() => openEdit(p.id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+              style={{ background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
             >
-              <RotateCcw className="w-4 h-4" />
+              <Pencil className="w-3 h-3" />
+              עריכה
             </button>
-          ) : (
-            <button
-              className="rounded-lg flex items-center justify-center text-gray-400 transition-colors"
-              style={{ background: '#FEF2F2', width: isTablet ? '44px' : '36px', height: isTablet ? '36px' : '32px' }}
-              onClick={() => setConfirmId(p.id)}
-              title="ביטול"
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#DC2626')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+            {isCancelled ? (
+              <button
+                onClick={() => handleRestore(p.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+                style={{ background: '#DCFCE7', color: '#166534' }}
+              >
+                <RotateCcw className="w-3 h-3" />
+                שחזור
+              </button>
+            ) : (
+              <button
+                onClick={() => setConfirmId(p.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+                style={{ background: '#FEE2E2', color: '#DC2626' }}
+              >
+                <X className="w-3 h-3" />
+                ביטול
+              </button>
+            )}
+          </div>
         </div>
       </div>
     )
@@ -752,63 +709,40 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
     return (
       <div
-        className="flex items-center gap-3 bg-white rounded-2xl transition-all cursor-pointer"
-        style={{
-          border: `1.5px solid ${borderColor}`,
-          padding: isTablet ? '14px 16px' : '12px 14px',
-          minHeight: isTablet ? '72px' : undefined,
-        }}
+        className="bg-white rounded-2xl shadow-sm border transition-all cursor-pointer"
+        style={{ borderColor: '#E2E4E9', borderRight: `4px solid ${borderColor}` }}
         onClick={() => openEdit(p.id)}
-        onMouseEnter={(e) =>
-          ((e.currentTarget as HTMLElement).style.boxShadow =
-            '0 4px 12px rgba(0,0,0,.08)')
-        }
-        onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLElement).style.boxShadow = 'none')
-        }
+        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '0 4px 14px rgba(16,17,21,.08)')}
+        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '')}
       >
-        <div
-          className="rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{
-            background: tc.bg,
-            width: isTablet ? '48px' : '42px',
-            height: isTablet ? '48px' : '42px',
-            fontSize: isTablet ? '22px' : '18px',
-          }}
-        >
-          {TYPE_EMOJI[p.type]}
-        </div>
-
-        <div className="flex-1 min-w-0 text-right">
-          <div className="flex items-center justify-end gap-2 mb-1">
-            <TypeBadge type={p.type} />
-            <p className="font-bold text-gray-800" style={{ fontSize: isTablet ? '16px' : '14px' }}>
-              {p.supplier}
+        <div className="p-4" style={{ direction: 'rtl' }}>
+          {/* Row 1 — icon · supplier + payment date/ref · amount */}
+          <div className="flex items-center gap-3">
+            <div
+              className="rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: tc.bg, width: '44px', height: '44px', fontSize: '20px' }}
+            >
+              {TYPE_EMOJI[p.type]}
+            </div>
+            <div className="flex-1 min-w-0 text-right">
+              <p className="font-bold text-gray-800 truncate" style={{ fontSize: '15px' }}>{p.supplier}</p>
+              <p className="text-gray-400 truncate" style={{ fontSize: '12px', marginTop: '2px' }}>
+                תשלום {fmtDate(p.date)}{p.ref ? ` · 🔖 ${p.ref}` : ''}
+              </p>
+            </div>
+            <p className="font-black text-gray-900 flex-shrink-0" style={{ fontSize: '18px' }}>
+              {fmtILS(p.amount)}
             </p>
           </div>
-          <div className="flex items-center justify-end gap-3 flex-wrap">
-            <span className="text-gray-400" style={{ fontSize: '12px' }}>
-              📅 ערך: {fmtDate(p.valueDate)}
+
+          {/* Row 2 — value-date chip · type · days-until chip */}
+          <div className="flex items-center gap-2 flex-wrap justify-end" style={{ marginTop: '12px' }}>
+            <span className="rounded-lg font-medium" style={{ background: '#FEF3C7', color: '#92400E', fontSize: '11px', padding: '3px 9px' }}>
+              📅 ערך {fmtDate(p.valueDate)}
             </span>
-            <span className="text-gray-400" style={{ fontSize: '12px' }}>
-              תשלום: {fmtDate(p.date)}
-            </span>
-            {p.ref && (
-              <span className="text-gray-400" style={{ fontSize: '12px' }}>
-                🔖 {p.ref}
-              </span>
-            )}
+            <TypeBadge type={p.type} />
+            <DaysChip days={days} />
           </div>
-        </div>
-
-        <div className="text-left flex-shrink-0 px-2">
-          <p className="font-black text-gray-900" style={{ fontSize: isTablet ? '18px' : '16px' }}>
-            {fmtILS(p.amount)}
-          </p>
-        </div>
-
-        <div className="flex-shrink-0">
-          <DaysChip days={days} />
         </div>
       </div>
     )

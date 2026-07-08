@@ -331,10 +331,13 @@ export default function StatementReconciliation({ initialStatementId }: { initia
   const [filterStatus, setFilterStatus] = useState<VendorStatementStatus | 'all'>('all')
   const [search, setSearch] = useState('')
   const isMobile = useIsMobile()
+  // minmax(0,…) on flexible tracks so long ids / multiple action buttons can't
+  // stretch a column and knock the rows out of alignment with the header. Fixed
+  // px tracks for short columns; the actions column gets a wide, wrapping track.
   const gridCOL = isMobile
-    ? '1.5fr 1.2fr 1fr 0.7fr'
-    : '0.8fr 1.5fr 0.9fr 1.2fr 1.2fr 1fr 1.1fr 0.9fr'
-  const gridMin = isMobile ? '320px' : '720px'
+    ? 'minmax(0,1.4fr) 80px 90px minmax(0,1.4fr)'
+    : '76px minmax(0,1.5fr) 84px minmax(0,1.05fr) minmax(0,1.05fr) 82px 96px minmax(0,1.9fr)'
+  const gridMin = isMobile ? '360px' : '920px'
 
   useEffect(() => {
     setStatements(serverStatements as VendorStatement[])
@@ -535,8 +538,8 @@ export default function StatementReconciliation({ initialStatementId }: { initia
                 onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
               >
-                {!isMobile && <span className="text-xs text-gray-400 font-mono">{stmt.id}</span>}
-                <span className="text-sm font-semibold text-gray-800">{stmt.supplier_name}</span>
+                {!isMobile && <span className="text-xs text-gray-400 font-mono truncate" title={stmt.id}>{stmt.id}</span>}
+                <span className="text-sm font-semibold text-gray-800 truncate" title={stmt.supplier_name}>{stmt.supplier_name}</span>
                 {!isMobile && <span className="text-sm text-gray-600">{stmt.month}</span>}
                 {!isMobile && <span className="text-sm font-semibold text-gray-800">{formatILS(stmt.our_balance)}</span>}
                 {!isMobile && (
@@ -555,7 +558,7 @@ export default function StatementReconciliation({ initialStatementId }: { initia
                   {stmt.diff !== 0 ? formatILS(stmt.diff) : '—'}
                 </span>
                 <StatusBadge status={stmt.status} />
-                <div className="flex items-center gap-1">
+                <div className="flex items-center flex-wrap gap-1">
                   <button
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
                     style={{ background: '#F3E8FF', color: '#7C3AED' }}
