@@ -539,9 +539,18 @@ export default function Suppliers({
 
   // ── Derived state ──────────────────────────────────────────────────────────
   const filtered = suppliers.filter((s) => {
-    const q = search.toLowerCase()
+    const q = search.trim().toLowerCase()
+    // hp (ח.פ) match: compare both raw and digits-only, so "51-423-789" is found
+    // by typing "514423789" and vice-versa.
+    const qDigits  = q.replace(/\D/g, '')
+    const hpDigits = (s.hp || '').replace(/\D/g, '')
     const matchSearch =
-      (s.name || '').toLowerCase().includes(q) || (s.contact || '').toLowerCase().includes(q) || (s.category || '').toLowerCase().includes(q)
+      !q ||
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.contact || '').toLowerCase().includes(q) ||
+      (s.category || '').toLowerCase().includes(q) ||
+      (s.hp || '').toLowerCase().includes(q) ||
+      (qDigits.length > 0 && hpDigits.includes(qDigits))
     const matchStatus = statusFilter === 'all' || s.status === statusFilter
     return matchSearch && matchStatus
   })
@@ -636,7 +645,7 @@ export default function Suppliers({
           <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <input
             type="text"
-            placeholder="חיפוש לפי שם, קטגוריה, איש קשר..."
+            placeholder="חיפוש לפי שם, ח.פ, קטגוריה, איש קשר..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="flex-1 bg-transparent outline-none text-gray-700 text-right"
@@ -708,10 +717,19 @@ export default function Suppliers({
             return (
               <div
                 key={sup.id}
-                className="bg-white flex flex-col"
-                style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)' }}
+                onClick={() => openDetail(sup.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter') openDetail(sup.id) }}
+                className="bg-white flex flex-col transition-all"
+                style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)', position: 'relative', overflow: 'hidden', cursor: 'pointer' }}
+                onMouseEnter={(e) => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = '0 2px 6px rgba(16,17,21,.06), 0 12px 28px rgba(16,17,21,.10)'; el.style.borderColor = '#E4E5EA' }}
+                onMouseLeave={(e) => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)'; el.style.borderColor = '#EEEEF2' }}
               >
-                <div className="flex-1 flex flex-col gap-4" style={{ padding: '20px' }}>
+                {/* Accent strip on the RTL right edge — subtle BRAND accent (not status) */}
+                <span aria-hidden style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '4px', background: 'var(--brand-primary)' }} />
+
+                <div className="flex-1 flex flex-col gap-4" style={{ padding: '20px 22px 20px 20px' }}>
                   {/* status + category */}
                   <div className="flex items-center justify-between gap-2" style={{ minHeight: '28px' }}>
                     <StatusPill status={sup.status} />
@@ -733,25 +751,25 @@ export default function Suppliers({
                     </p>
                   </div>
                 </div>
-                {/* actions */}
-                <div className="flex gap-2 mt-auto" style={{ padding: '0 20px 20px' }}>
+                {/* actions — lighter now that the whole card is clickable */}
+                <div className="flex gap-2 mt-auto" style={{ padding: '0 22px 20px 20px' }}>
                   <button
-                    onClick={() => openDetail(sup.id)}
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '42px', fontSize: isTablet ? '15px' : '14px', background: 'var(--brand-primary)', color: 'white' }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    פרטים
-                  </button>
-                  <button
-                    onClick={() => startEdit(sup)}
-                    className="flex items-center justify-center rounded-xl font-semibold transition-all"
-                    title="עריכה"
-                    style={{ minHeight: '42px', width: '48px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
+                    onClick={(e) => { e.stopPropagation(); openDetail(sup.id) }}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-xl font-semibold transition-all"
+                    style={{ minHeight: '38px', fontSize: '13px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
+                  >
+                    פרטים
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); startEdit(sup) }}
+                    className="flex items-center justify-center rounded-xl transition-all"
+                    title="עריכה"
+                    style={{ minHeight: '38px', width: '44px', background: 'white', border: '1px solid #E7E8EC', color: 'var(--brand-primary)' }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F7F7FA')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
@@ -803,8 +821,12 @@ export default function Suppliers({
                 return (
                   <div
                     key={sup.id}
+                    onClick={() => openDetail(sup.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter') openDetail(sup.id) }}
                     className="items-center transition-colors"
-                    style={{ display: 'grid', gridTemplateColumns: '2fr 1.3fr 1.1fr 1fr 92px', gap: '12px', padding: '12px 20px', borderTop: idx === 0 ? 'none' : '1px solid #F1F2F4' }}
+                    style={{ display: 'grid', gridTemplateColumns: '2fr 1.3fr 1.1fr 1fr 92px', gap: '12px', padding: '12px 20px', borderTop: idx === 0 ? 'none' : '1px solid #F1F2F4', cursor: 'pointer' }}
                     onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                   >
@@ -817,22 +839,22 @@ export default function Suppliers({
                     <div className="text-right"><StatusPill status={sup.status} /></div>
                     <div className="flex items-center justify-end gap-1.5">
                       <button
-                        onClick={() => openDetail(sup.id)}
+                        onClick={(e) => { e.stopPropagation(); openDetail(sup.id) }}
                         title="פרטים"
-                        className="flex items-center justify-center rounded-lg transition-colors"
-                        style={{ width: '34px', height: '34px', background: 'var(--brand-primary)', color: 'white' }}
-                        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
-                        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => startEdit(sup)}
-                        title="עריכה"
                         className="flex items-center justify-center rounded-lg transition-colors"
                         style={{ width: '34px', height: '34px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
                         onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
                         onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); startEdit(sup) }}
+                        title="עריכה"
+                        className="flex items-center justify-center rounded-lg transition-colors"
+                        style={{ width: '34px', height: '34px', background: 'white', border: '1px solid #E7E8EC', color: 'var(--brand-primary)' }}
+                        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F7F7FA')}
+                        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
