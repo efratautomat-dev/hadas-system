@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, X, LayoutGrid, Table2 } from 'lucide-react'
+import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, X, LayoutGrid, Table2, AlertTriangle } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
 import { STATUS } from '../theme/status'
@@ -424,6 +424,9 @@ export default function Suppliers({
   const [editForm,   setEditForm]      = useState<EditFormState | null>(null)
   const [showAdd,    setShowAdd]       = useState(false)
   const [addForm,    setAddForm]       = useState<EditFormState>({ ...emptyForm })
+  // Possible-duplicate prompt: set when a manual add matched an existing supplier.
+  // Holds the matched supplier + the form data (so "create anyway" can resubmit).
+  const [dupPrompt,  setDupPrompt]     = useState<{ existing: { id: string; name: string; hp: string | null }; form: EditFormState } | null>(null)
   const [search,     setSearch]        = useState('')
   // Default to active-only: inactive suppliers are hidden until the user picks
   // the "לא פעילים" filter (deactivation replaces hard delete — spec/01-PRD.md §2).
@@ -511,26 +514,60 @@ export default function Suppliers({
     }
   }
 
-  const saveAdd = async () => {
-    if (!addForm.name.trim()) return
-    const balance = addForm.openingBalance ? Number(addForm.openingBalance) : 0
+  // Core create. On a dedup hit (not forced) it does NOT close the form — it raises
+  // the duplicate prompt so the user chooses "use existing" or "create anyway".
+  const doCreate = async (form: EditFormState, force: boolean) => {
+    const balance = form.openingBalance ? Number(form.openingBalance) : 0
     const body = {
-      name: addForm.name, hp: addForm.hp, category: addForm.category,
-      contact: addForm.contact, email: addForm.email, phone: addForm.phone,
-      openingBalance: balance, openingBalanceDate: addForm.openingBalanceDate,
-      notes: addForm.notes,
+      name: form.name, hp: form.hp, category: form.category,
+      contact: form.contact, email: form.email, phone: form.phone,
+      openingBalance: balance, openingBalanceDate: form.openingBalanceDate,
+      notes: form.notes,
     }
     const pendingAlert = prefillForAlert   // capture before UI resets
-    setShowAdd(false)
-    setAddForm({ ...emptyForm })
     try {
-      const newId = await createSupplier(body)
-      if (pendingAlert && newId && onAlertSupplierCreated) {
-        await onAlertSupplierCreated(newId, pendingAlert.alertId, pendingAlert.payload)
+      const res = await createSupplier(body, { force })
+      if (res.duplicate && res.existing && !force) {
+        setDupPrompt({ existing: res.existing, form: { ...form } })  // ask the user
+        return
+      }
+      // Actually created (fresh, or "create anyway").
+      setShowAdd(false)
+      setAddForm({ ...emptyForm })
+      setDupPrompt(null)
+      if (pendingAlert && res.id && onAlertSupplierCreated) {
+        await onAlertSupplierCreated(res.id, pendingAlert.alertId, pendingAlert.payload)
       }
     } catch {
       // hook sets error state
     }
+  }
+
+  const saveAdd = () => { if (addForm.name.trim()) void doCreate(addForm, false) }
+
+  // "צור בכל זאת" — force a new supplier despite the match.
+  const createAnyway = () => { if (dupPrompt) void doCreate(dupPrompt.form, true) }
+
+  // "השתמש בקיים" — link to the matched supplier instead of creating. If the user
+  // typed a ח.פ the existing supplier lacks, back-fill it (Gap #5 on confirm).
+  const useExisting = async () => {
+    if (!dupPrompt) return
+    const { existing, form } = dupPrompt
+    const pendingAlert = prefillForAlert
+    setDupPrompt(null)
+    setShowAdd(false)
+    setAddForm({ ...emptyForm })
+    try {
+      const typedHp  = (form.hp || '').replace(/\D/g, '')
+      const existHp  = (existing.hp || '').replace(/\D/g, '')
+      if (typedHp && !existHp) await updateSupplier(existing.id, { hp: form.hp })
+      if (pendingAlert && onAlertSupplierCreated) {
+        await onAlertSupplierCreated(existing.id, pendingAlert.alertId, pendingAlert.payload)
+      }
+    } catch {
+      // hook sets error state
+    }
+    openDetail(existing.id)
   }
 
   // ── Derived state ──────────────────────────────────────────────────────────
@@ -840,6 +877,48 @@ export default function Suppliers({
                   </div>
                 )
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Possible-duplicate prompt on manual add — never silently drop the create. */}
+      {dupPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.45)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setDupPrompt(null) }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full" style={{ maxWidth: '460px', direction: 'rtl' }}>
+            <div className="flex items-center gap-2 border-b" style={{ padding: '16px 20px', borderColor: '#EEEEF2' }}>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#FEF9C3' }}>
+                <AlertTriangle className="w-5 h-5" style={{ color: '#A16207' }} />
+              </div>
+              <h3 className="font-bold text-gray-800" style={{ fontSize: '16px' }}>ספק דומה כבר קיים</h3>
+              <button
+                onClick={() => setDupPrompt(null)}
+                className="text-gray-400 hover:text-gray-600"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', marginInlineStart: 'auto' }}
+                title="סגירה"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div style={{ padding: '18px 20px' }}>
+              <p className="text-gray-600 text-right" style={{ fontSize: '14px' }}>נמצא ספק קיים עם שם או ח.פ דומה:</p>
+              <div className="rounded-xl text-right mt-3" style={{ background: '#FAFAFC', border: '1px solid #EEEEF2', padding: '12px 14px' }}>
+                <p className="font-bold text-gray-800" style={{ fontSize: '15px' }}>{dupPrompt.existing.name}</p>
+                <p className="text-gray-500 mt-0.5" style={{ fontSize: '13px' }}>
+                  ח.פ: {dupPrompt.existing.hp?.trim() ? dupPrompt.existing.hp : 'לא הוזן'}
+                </p>
+              </div>
+              <p className="text-gray-500 text-right mt-3" style={{ fontSize: '13px' }}>
+                אפשר להשתמש בספק הקיים, או ליצור ספק חדש בכל זאת אם זה ספק אחר.
+              </p>
+            </div>
+            <div className="flex gap-2 border-t" style={{ padding: '14px 20px', borderColor: '#EEEEF2' }}>
+              <Button variant="primary" className="flex-1" onClick={useExisting}>השתמש בספק הקיים</Button>
+              <Button variant="outline" className="flex-1" onClick={createAnyway}>צור ספק חדש בכל זאת</Button>
             </div>
           </div>
         </div>

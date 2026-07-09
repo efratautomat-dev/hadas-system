@@ -65,24 +65,23 @@ async function driveTrashFile(token: string, fileId: string): Promise<void> {
 
 async function createSupplier(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
-  const { name, hp, category, contact, email, phone, openingBalance, notes } = body;
+  const { name, hp, category, contact, email, phone, openingBalance, notes, force } = body;
   if (!name) return json({ error: "name is required" }, 400);
 
-  // Gap #4 — dedup: never create a second supplier for a vendor we already know by
-  // ח.פ or by (fuzzy) name. Return the existing one with duplicate:true so the UI
-  // can surface it instead of silently spawning a duplicate.
-  const normHp = normalizeHp(hp);
-  const { data: existingRows } = await supabase.from("suppliers").select("id, name, hp");
-  const suppliers = (existingRows ?? []) as SupplierMatchRow[];
-  let dup: SupplierMatchRow | null =
-    normHp ? (suppliers.find(s => normalizeHp(s.hp) === normHp) ?? null) : null;
-  if (!dup) dup = findBestSupplierRow(name as string, suppliers);
-  if (dup) {
-    // Gap #5: manual add carrying a ח.פ that the matched name-only supplier lacks → back-fill.
-    if (normHp && !normalizeHp(dup.hp)) {
-      await supabase.from("suppliers").update({ hp: normHp }).eq("id", dup.id);
+  // Gap #4 — dedup, surfaced to the UI (never silent). Unless `force` ("create anyway"),
+  // check for an existing supplier by ח.פ then by fuzzy name. On a match, return it
+  // (with name + hp) as { duplicate:true } WITHOUT creating or mutating — the UI asks the
+  // user to "use existing" or "create anyway". (hp back-fill on confirm is the UI's job.)
+  if (!force) {
+    const normHp = normalizeHp(hp);
+    const { data: existingRows } = await supabase.from("suppliers").select("id, name, hp");
+    const suppliers = (existingRows ?? []) as SupplierMatchRow[];
+    let dup: SupplierMatchRow | null =
+      normHp ? (suppliers.find(s => normalizeHp(s.hp) === normHp) ?? null) : null;
+    if (!dup) dup = findBestSupplierRow(name as string, suppliers);
+    if (dup) {
+      return json({ duplicate: true, existing: { id: dup.id, name: dup.name, hp: dup.hp } }, 200);
     }
-    return json({ id: dup.id, duplicate: true, matchedName: dup.name }, 200);
   }
 
   const { data, error } = await supabase.from("suppliers")

@@ -6,6 +6,14 @@ import { computeSupplierBalance } from '../lib/supplierBalance'
 
 export type SupplierRow = typeof mockSuppliers[number]
 
+// Result of a create call. `duplicate` + `existing` are set when the backend dedup
+// matched an existing supplier and did NOT create (the UI then prompts the user).
+export interface CreateSupplierResult {
+  id?: string | null
+  duplicate?: boolean
+  existing?: { id: string; name: string; hp: string | null }
+}
+
 export function useSuppliers() {
   const [data, setData]       = useState<SupplierRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -76,13 +84,20 @@ export function useSuppliers() {
 
   useEffect(() => { load() }, [load])
 
-  const create = async (body: Record<string, unknown>): Promise<string | null> => {
-    console.log('[useSuppliers] create payload:', body)
+  // Returns the raw create result. On a dedup hit the backend does NOT create and
+  // returns { duplicate:true, existing:{...} } so the UI can ask the user; pass
+  // { force:true } ("create anyway") to bypass dedup and force a new supplier.
+  const create = async (
+    body: Record<string, unknown>,
+    opts?: { force?: boolean },
+  ): Promise<CreateSupplierResult> => {
+    const payload = opts?.force ? { ...body, force: true } : body
+    console.log('[useSuppliers] create payload:', payload)
     try {
-      const res = await api.post('/suppliers', body) as { id?: string }
+      const res = await api.post('/suppliers', payload) as CreateSupplierResult
       console.log('[useSuppliers] create response:', res)
-      await load()
-      return res?.id ?? null
+      if (!res?.duplicate) await load()   // only a real create changes the list
+      return res ?? { id: null }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[useSuppliers] create error:', msg)
