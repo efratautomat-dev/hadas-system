@@ -68,6 +68,23 @@ async function createSupplier(req: Request, supabase: SupabaseClient): Promise<R
   const { name, hp, category, contact, email, phone, openingBalance, notes } = body;
   if (!name) return json({ error: "name is required" }, 400);
 
+  // Gap #4 — dedup: never create a second supplier for a vendor we already know by
+  // ח.פ or by (fuzzy) name. Return the existing one with duplicate:true so the UI
+  // can surface it instead of silently spawning a duplicate.
+  const normHp = normalizeHp(hp);
+  const { data: existingRows } = await supabase.from("suppliers").select("id, name, hp");
+  const suppliers = (existingRows ?? []) as SupplierMatchRow[];
+  let dup: SupplierMatchRow | null =
+    normHp ? (suppliers.find(s => normalizeHp(s.hp) === normHp) ?? null) : null;
+  if (!dup) dup = findBestSupplierRow(name as string, suppliers);
+  if (dup) {
+    // Gap #5: manual add carrying a ח.פ that the matched name-only supplier lacks → back-fill.
+    if (normHp && !normalizeHp(dup.hp)) {
+      await supabase.from("suppliers").update({ hp: normHp }).eq("id", dup.id);
+    }
+    return json({ id: dup.id, duplicate: true, matchedName: dup.name }, 200);
+  }
+
   const { data, error } = await supabase.from("suppliers")
     .insert({
       name,
@@ -307,17 +324,8 @@ async function deleteInvoice(supabase: SupabaseClient, id: string): Promise<Resp
 //            payment_date, reference, value_date, notes, status
 // Excluded (no DB column): supplier (name stored in suppliers table, not here)
 
-async function resolveSupplierIdByName(
-  supabase: SupabaseClient,
-  name: string,
-): Promise<string | null> {
-  const { data } = await supabase
-    .from("suppliers")
-    .select("id")
-    .eq("name", name)
-    .maybeSingle();
-  return data?.id ?? null;
-}
+// (Exact-name lookup removed — supplier resolution now uses the SAME fuzzy name
+//  matcher as the invoice ingest pipeline. See findBestSupplierRow below.)
 
 function paymentToRow(body: Record<string, unknown>, supplierId: string | null): Record<string, unknown> {
   const row: Record<string, unknown> = {};
@@ -726,21 +734,90 @@ function normalizeHp(s: string | null | undefined): string {
   return (s ?? "").replace(/\D/g, "");
 }
 
+// ─── Fuzzy supplier matching (mirrors invoices-ingest findBestSupplier) ────────
+// So the manual/reclassify resolve paths match a name-only supplier despite spelling
+// differences ("תנובה" vs "תנובה בע\"מ"), instead of the old exact-name miss → dup.
+interface SupplierMatchRow { id: string; name: string; hp: string | null }
+
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase()
+    .replace(/[֑-ׇ]/g, "")                              // niqqud / cantillation
+    .replace(/['"`׳״‘’“”]/g, "")    // quotes / geresh / gershayim
+    .replace(/[^א-תa-z0-9\s]/g, "")                     // keep Hebrew + latin alnum + space
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  let curr = new Array<number>(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1] : 1 + Math.min(prev[j], curr[j - 1], prev[j - 1]);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length];
+}
+
+function similarityScore(a: string, b: string): number {
+  const na = normalizeForMatch(a);
+  const nb = normalizeForMatch(b);
+  if (!na && !nb) return 1;
+  if (!na || !nb) return 0;
+  const maxLen = Math.max(na.length, nb.length);
+  const editScore = 1 - levenshtein(na, nb) / maxLen;
+  const tokA  = new Set(na.split(" "));
+  const tokB  = new Set(nb.split(" "));
+  const inter = [...tokA].filter((t) => tokB.has(t)).length;
+  const union = new Set([...tokA, ...tokB]).size;
+  const tokenScore = union > 0 ? inter / union : 0;
+  const longEnough = na.length >= 3 && nb.length >= 3;
+  const containScore = longEnough && (na.includes(nb) || nb.includes(na)) ? 0.9 : 0;
+  return Math.max(editScore, tokenScore, containScore);
+}
+
+// Best name match among the loaded suppliers (score ≥ threshold), or null.
+function findBestSupplierRow(typed: string, rows: SupplierMatchRow[], threshold = 0.85): SupplierMatchRow | null {
+  let best: { row: SupplierMatchRow; score: number } | null = null;
+  for (const s of rows) {
+    const score = similarityScore(typed, s.name);
+    if (!best || score > best.score) best = { row: s, score };
+  }
+  return best && best.score >= threshold ? best.row : null;
+}
+
 async function resolveOrCreateSupplier(
   supabase: SupabaseClient,
   supplierName: string | undefined,
   hp?: string | undefined,
 ): Promise<string | null> {
   const normHp = normalizeHp(hp);
-  // 1. PRIMARY — match by ח.פ (business number).
+  // Load candidates once (small table) so hp + fuzzy-name matching runs in memory.
+  const { data: rows } = await supabase.from("suppliers").select("id, name, hp");
+  const suppliers = (rows ?? []) as SupplierMatchRow[];
+
+  // 1. PRIMARY — match by ח.פ (business number). Authoritative.
   if (normHp) {
-    const { data } = await supabase.from("suppliers").select("id").eq("hp", normHp).maybeSingle();
-    if (data?.id) return data.id as string;
+    const byHp = suppliers.find(s => normalizeHp(s.hp) === normHp);
+    if (byHp) return byHp.id;
   }
-  // 2. Secondary — match by name.
+  // 2. FUZZY NAME fallback (same 0.85 matcher as invoice ingest) — used ONLY when
+  //    ח.פ gave no match. Catches spelling variants a ".eq(name)" used to miss.
   if (supplierName) {
-    const existing = await resolveSupplierIdByName(supabase, supplierName);
-    if (existing) return existing;
+    const match = findBestSupplierRow(supplierName, suppliers);
+    if (match) {
+      // Gap #5: matched a name-only supplier but the doc carries a ח.פ it lacks →
+      // back-fill so every future doc dedupes by ח.פ (never overwrite a different hp).
+      if (normHp && !normalizeHp(match.hp)) {
+        await supabase.from("suppliers").update({ hp: normHp }).eq("id", match.id);
+      }
+      return match.id;
+    }
   }
   // 3. Nothing to match on or create from.
   if (!supplierName && !normHp) return null;
