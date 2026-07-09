@@ -538,7 +538,10 @@ export default function Dashboard({
             </div>
             {dnLoading ? <Spinner /> : (
               <div className="divide-y">
-                {deliveryNotes.slice(0, 5).map((dn) => {
+                {[...deliveryNotes]
+                  .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''))  // newest first
+                  .slice(0, 5)
+                  .map((dn) => {
                   const st = statusStyle[dn.status === 'pending' ? 'ממתין' : 'הושלם'] ?? { bg: '#F3F4F6', color: '#6B7280' }
                   const label = dn.status === 'pending' ? 'ממתינה' : 'בארכיון'
                   return (
