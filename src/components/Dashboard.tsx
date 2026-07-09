@@ -310,7 +310,7 @@ export default function Dashboard({
                   key={alert.id}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '120px minmax(0, 1fr) 150px 170px',
+                    gridTemplateColumns: 'minmax(0, auto) minmax(0, 1fr) 150px 170px',
                     alignItems: 'center',
                     columnGap: '16px',
                     padding: '12px 24px',
@@ -323,11 +323,13 @@ export default function Dashboard({
                   onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                   onClick={() => handleAlertClick(alert)}
                 >
-                  {/* Col 1 (RIGHTMOST): type badge — pinned to the right edge */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                  {/* Col 1 (RIGHTMOST): type badge — sized to content, truncates so a
+                      long label (e.g. "פענוח נכשל — טיפול ידני") can never spill into
+                      the description column. */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-start', minWidth: 0, overflow: 'hidden' }}>
                     <span
-                      className="px-2.5 py-1 rounded-md text-xs font-bold whitespace-nowrap"
-                      style={{ background: typeConf.bg, color: typeConf.color }}
+                      className="px-2.5 py-1 rounded-md text-xs font-bold truncate"
+                      style={{ background: typeConf.bg, color: typeConf.color, minWidth: 0, maxWidth: '100%' }}
                     >
                       {typeConf.label}
                     </span>
