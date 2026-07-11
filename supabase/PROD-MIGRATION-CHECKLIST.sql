@@ -15,14 +15,37 @@
 
 
 -- ── 1. MANUAL columns added straight to DEV via the SQL editor ───────────────
---     These are the ONLY schema changes NOT captured in supabase/migrations/*.
---     A `supabase db push` will NOT create them, so they must be run explicitly.
---     (Verbatim as applied on dev: active default true, needs_details default false.)
+--     Schema changes NOT captured in supabase/migrations/* (added out-of-band on
+--     dev). A `supabase db push` will NOT create them, so run them explicitly.
+--       • suppliers.active / suppliers.needs_details — active default true,
+--         needs_details default false (verbatim as applied on dev).
+--       • returns.detail / returns.employee_id — written by hadas-api returnToRow
+--         (createReturn / updateReturn). employee_id (uuid FK->employees) backs the
+--         employee-role feature whose ONLY write path is POST /returns, so if prod's
+--         legacy `returns` lacks it, employee return-creation 42703-fails right after
+--         the hadas-api deploy. Both nullable — matching dev.
 
 begin;
 
 alter table public.suppliers add column if not exists active        boolean not null default true;
 alter table public.suppliers add column if not exists needs_details boolean not null default false;
+
+alter table public.returns   add column if not exists detail      text;
+alter table public.returns   add column if not exists employee_id uuid;
+
+-- returns.employee_id -> employees FK (match dev). Guarded DO block so it stays
+-- idempotent and won't error if `employees` is absent or the FK already exists.
+do $$
+begin
+  if exists (select 1 from information_schema.tables
+             where table_schema = 'public' and table_name = 'employees')
+     and not exists (select 1 from pg_constraint where conname = 'returns_employee_id_fkey')
+  then
+    alter table public.returns
+      add constraint returns_employee_id_fkey
+      foreign key (employee_id) references public.employees (id);
+  end if;
+end $$;
 
 commit;
 
@@ -77,14 +100,26 @@ commit;
 --         • updateSupplier .......... `active` added to the update allow-list
 --         • resolveOrCreateSupplier . hp-primary auto-create + needs_details=true
 --         • createPayment / updatePayment / createDeliveryNote — wired to auto-create
+--         • updateInvoice ........... on invoice-date change, re-files the Drive copy
+--                                     into the correct year/month (overflow) folder and
+--                                     refreshes month_folder_link / drive_folder_link,
+--                                     via the shared _shared/drive-filing module (task 2)
 --       ⚠️  DEPENDS ON §1 columns (active, needs_details) existing in prod FIRST.
 --       ⚠️  Also set the machine key secret on prod (as done on dev):
 --             supabase secrets set HADAS_API_KEY=<prod value> --project-ref jcwphkuwwuxvjibmvgdh
 --           (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are auto-injected; GMAIL_*/ANTHROPIC_*
 --            only needed if Drive/AI paths run in prod.)
 --
---     invoices-ingest  — MODIFIED this rebuild (piece A: hp-primary supplier linking
---       + NAME-FALLBACK flags), committed but NOT yet deployed to dev OR prod.
+--     invoices-ingest  — MODIFIED this rebuild: (piece A) hp-primary supplier linking
+--       + NAME-FALLBACK flags; (task 2) refactored to import the year/month/overflow
+--       folder-resolution logic from _shared/drive-filing.ts. DEPLOYED TO DEV on
+--       2026-07-12 (this session); NOT yet on prod.
+--       ⚠️  SHARED MODULE — task 2 moved the filing rules into
+--           supabase/functions/_shared/drive-filing.ts, now imported by BOTH
+--           hadas-api (date-change re-file) and invoices-ingest. The module bundles
+--           into each function at deploy, so BOTH must be (re)deployed to prod
+--           TOGETHER for the single source of truth to take effect (deploying only
+--           one leaves the other on its old bundle).
 --       ⚠️  REQUIRED FOR DOCUMENT UPLOAD/CAPTURE. The in-app camera/upload flow
 --           (CaptureDocument → captureDocument() → POST /functions/v1/invoices-ingest,
 --           source:'camera') runs the SAME pipeline as email ingest. If this function
@@ -134,4 +169,18 @@ commit;
 --       • employee → *_v views: rows visible but cost columns NULL
 --       • employee → payments/vendor_statements/alerts = 0 rows (RLS, migration 20260604)
 --       • manager  → *_v views return full financials; all writes reach their handlers
+
+
+-- ── 6. STORAGE BUCKET — "branding" (manual; NOT created by any migration) ────
+--     Settings -> system-logo upload writes to storage.from('branding') and stores
+--     the PUBLIC url in app_settings.app_logo_url (Settings.tsx uses getPublicUrl),
+--     so the bucket must be PUBLIC. Dev only ever had the private "documents" bucket
+--     (created by migration 20260528, §3); "branding" was never created on dev either,
+--     which is why logo upload is dev-broken — prod needs it. Idempotent.
+--     (The private "documents" bucket + its read policy ARE covered by migrations
+--      20260528 / 20260605 listed in §3 — no separate step needed for those.)
+
+insert into storage.buckets (id, name, public)
+values ('branding', 'branding', true)
+on conflict (id) do update set public = true;
 -- ============================================================================
