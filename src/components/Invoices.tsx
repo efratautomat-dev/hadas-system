@@ -11,6 +11,7 @@ import { Button } from './ui/Button'
 import { supabase } from '../lib/supabase'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { SummaryCards } from './ui/SummaryCards'
+import { STATUS } from '../theme/status'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -28,6 +29,13 @@ const QUALITIES = ['גבוהה', 'בינונית', 'נמוכה']
 const STATUS_TRANSFERRED = 'הועבר לרו״ח'
 const STATUS_REVIEW      = 'בבדיקה'
 const STATUS_WAITING     = 'ממתין'
+
+// Reviewed-confirmation marker for low-confidence invoices. Written to the stored
+// `status` column (which the UI otherwise treats as unreliable / ignores for the
+// derived badge, see deriveInvoiceStatus) so a manager's "נבדק" confirmation
+// persists without a schema change. isLowConfidence() clears the red list border
+// once this is set. Reused via the existing PUT /invoices/:id/status endpoint.
+const STATUS_REVIEWED    = 'נבדק'
 
 // Map the derived Hebrew status onto the unified taxonomy (spec/06-RULES.md §1):
 // waiting → new, under-review → in_progress, transferred-to-accountant → done.
@@ -59,6 +67,18 @@ function deriveInvoiceStatus(invoice: Invoice, alerts: Alert[]): string {
     a => a.status !== 'resolved' && alertRefersToInvoice(a, invoice),
   )
   return underReview ? STATUS_REVIEW : STATUS_WAITING
+}
+
+// Low parse-confidence flag → full red row border in the LIST (dates may be
+// wrong; catch the eye for review). Ingest stores English 'low' in ai_confidence;
+// mock/demo rows carry the Hebrew 'נמוכה' — match both so the flag shows in the
+// live app AND demo mode. Once a manager confirms review (stored status =
+// STATUS_REVIEWED), the flag clears so the border leaves the list — only
+// confirmed-reviewed low-confidence invoices lose it.
+function isLowConfidence(inv: Invoice): boolean {
+  if ((inv.status ?? '') === STATUS_REVIEWED) return false
+  const q = (inv.decodeQuality ?? '').trim().toLowerCase()
+  return q === 'low' || q === 'נמוכה'
 }
 
 function formatILS(n: number | null | undefined) {
@@ -266,15 +286,30 @@ function Row2({ children }: { children: React.ReactNode }) {
 
 export function InvoiceDetail({
   invoice, derivedStatus, onBack, onSave, onOpenSupplier, onDelete,
+  needsReviewConfirm = false, onMarkReviewed,
 }: {
   invoice: Invoice; derivedStatus: string; onBack: () => void; onSave: (inv: Invoice) => void
   onOpenSupplier?: (supplierId: string) => void
   // Manager-only: EmployeeSupplierView omits this prop, hiding the button.
   onDelete?: (id: string) => void
+  // Low-confidence review confirmation: shown only when the invoice still carries
+  // the low-confidence flag. Clicking persists the reviewed marker (parent) so the
+  // red border leaves the list.
+  needsReviewConfirm?: boolean
+  onMarkReviewed?: () => void | Promise<void>
 }) {
   const { data: suppliersData } = useSuppliers()
   const [form, setForm] = useState<Invoice>({ ...invoice })
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [reviewing, setReviewing] = useState(false)
+
+  // Mark this low-confidence invoice as human-reviewed. Update local form.status
+  // too so a later "שמור" doesn't write back the stale status and un-review it.
+  const markReviewed = async () => {
+    setReviewing(true)
+    setForm(f => ({ ...f, status: STATUS_REVIEWED }))
+    try { await onMarkReviewed?.() } finally { setReviewing(false) }
+  }
 
   // Document preview: resolve a viewable URL on demand. Prefer a signed URL from
   // the private "documents" bucket (works without Drive permissions); fall back
@@ -325,6 +360,26 @@ export function InvoiceDetail({
 
   return (
     <div dir="rtl" style={{ maxWidth: '800px', margin: '0 auto' }}>
+
+      {/* Low-confidence review banner — prominent, at the very top. Clears the
+          red list border once the manager confirms the invoice was checked. */}
+      {needsReviewConfirm && (
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+            background: STATUS.red.bg, border: `1.5px solid ${STATUS.red.fg}`, borderRadius: '12px',
+            padding: '12px 16px', marginBottom: '16px',
+          }}
+        >
+          <span style={{ fontSize: '14px', fontWeight: 600, color: STATUS.red.fg }}>
+            חשבונית זו סומנה בוודאות פענוח נמוכה — ייתכן שהתאריך או הסכום שגויים. בדקי ואשרי.
+          </span>
+          <Button variant="primary" onClick={markReviewed} disabled={reviewing} style={{ flexShrink: 0 }}>
+            <CheckCircle size={16} />
+            {reviewing ? 'שומר…' : 'אישור — נבדק'}
+          </Button>
+        </div>
+      )}
 
       {/* Top bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -574,7 +629,7 @@ export default function Invoices({
   initialFilter = 'all', alerts = [], controlledSelectedId, initialDuplicateInvoiceId,
   onOpenInvoice, onCloseInvoice, onOpenSupplier, onDuplicateResolved, onDuplicateDismissed,
 }: InvoicesProps) {
-  const { data: serverInvoices, loading, error, update: updateInvoice, remove: removeInvoice } = useInvoices()
+  const { data: serverInvoices, loading, error, update: updateInvoice, updateStatus, remove: removeInvoice } = useInvoices()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [internalSelected, setInternalSelected] = useState<Invoice | null>(null)
   const [search, setSearch] = useState('')
@@ -725,6 +780,14 @@ export default function Invoices({
       <InvoiceDetail
         invoice={selected}
         derivedStatus={statusFor(selected)}
+        needsReviewConfirm={isLowConfidence(selected)}
+        onMarkReviewed={async () => {
+          try {
+            await updateStatus(selected.id, STATUS_REVIEWED)
+          } catch {
+            // hook sets error state
+          }
+        }}
         onBack={closeInvoice}
         onOpenSupplier={onOpenSupplier}
         onDelete={async (id) => {
@@ -923,6 +986,7 @@ export default function Invoices({
             {/* Data rows */}
             {filtered.map((inv, index) => {
               const invStatus = statusFor(inv)
+              const lowConf   = isLowConfidence(inv)
               const flags = [
                 inv.isDuplicate      && { label: 'כפילות',       bg: '#FEF3C7', color: '#92400E' },
                 inv.hasError         && { label: 'שגיאה',         bg: '#FEE2E2', color: '#DC2626' },
@@ -933,7 +997,14 @@ export default function Invoices({
                 <div
                   key={inv.id}
                   className="grid items-center transition-colors cursor-pointer"
-                  style={{ ...tableRow(index === 0), display: 'grid', gridTemplateColumns: COL, minWidth: MIN_W }}
+                  style={{
+                    ...tableRow(index === 0),
+                    display: 'grid',
+                    gridTemplateColumns: COL,
+                    minWidth: MIN_W,
+                    // Low parse-confidence → full fixed-red border to flag for review.
+                    ...(lowConf ? { border: `2px solid ${STATUS.red.fg}`, borderRadius: 8 } : {}),
+                  }}
                   onClick={() => openInvoice(inv)}
                   onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
                   onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
