@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { resolveInvoiceFolder, driveMoveFile, driveGetFolderLink } from "../_shared/drive-filing.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -226,9 +227,56 @@ async function updateInvoice(req: Request, supabase: SupabaseClient, id: string)
   const row = invoiceToRow(body);
   if (Object.keys(row).length === 0) return json({ error: "No fields to update" }, 400);
 
+  // When the invoice DATE changes, re-file the Drive copy into the correct
+  // year/month folder using the SAME rules as ingest (../_shared/drive-filing),
+  // and refresh the stored folder links. Best-effort: a Drive hiccup or missing
+  // credentials must NEVER block the DB update (dev leaves GMAIL_* unset, so this
+  // path is skipped there and verified in prod — see driveConfigured guard).
+  let drive = "unchanged";
+  if (row.invoice_date !== undefined) {
+    const { data: cur } = await supabase
+      .from("invoices")
+      .select("invoice_date, drive_file_link, partial_return")
+      .eq("id", id)
+      .maybeSingle();
+
+    const oldDate = String(cur?.invoice_date ?? "").slice(0, 10);
+    const newDate = String(row.invoice_date ?? "").slice(0, 10);
+    const fileId  = driveFileIdFromLink(cur?.drive_file_link ?? null);
+    const driveConfigured = !!(
+      Deno.env.get("GMAIL_CLIENT_ID") &&
+      Deno.env.get("GMAIL_CLIENT_SECRET") &&
+      Deno.env.get("GMAIL_REFRESH_TOKEN")
+    );
+
+    if (!newDate || newDate === oldDate) {
+      drive = "unchanged";                 // date not actually changing → nothing to move
+    } else if (!fileId) {
+      drive = "skipped_no_file";           // manual invoice / no Drive copy to move
+    } else if (!driveConfigured) {
+      drive = "skipped_no_creds";          // dev: Drive unset → skip gracefully
+    } else {
+      try {
+        const token   = await getGoogleAccessToken();
+        const target  = await resolveInvoiceFolder(token, newDate, !!cur?.partial_return);
+        await driveMoveFile(token, fileId, target.fileFolderId);
+        const newLink = await driveGetFolderLink(token, target.monthFolderId);
+        // Mirror ingest: month_folder_link and drive_folder_link both point at
+        // the (new) month folder.
+        row.month_folder_link = newLink;
+        row.drive_folder_link = newLink;
+        drive = "moved";
+      } catch (e) {
+        // Do NOT abort — a Drive failure must not strand the date edit.
+        console.error("[updateInvoice] Drive re-file failed — skipping:", e instanceof Error ? e.message : e);
+        drive = "move_failed";
+      }
+    }
+  }
+
   const { error } = await supabase.from("invoices").update(row).eq("id", id);
   if (error) return json({ error: error.message }, 500);
-  return json({ success: true });
+  return json({ success: true, drive });
 }
 
 async function updateInvoiceStatus(req: Request, supabase: SupabaseClient, id: string): Promise<Response> {
