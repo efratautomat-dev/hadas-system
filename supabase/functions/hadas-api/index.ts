@@ -261,10 +261,21 @@ async function updateInvoice(req: Request, supabase: SupabaseClient, id: string)
         const target  = await resolveInvoiceFolder(token, newDate, !!cur?.partial_return);
         await driveMoveFile(token, fileId, target.fileFolderId);
         const newLink = await driveGetFolderLink(token, target.monthFolderId);
-        // Mirror ingest: month_folder_link and drive_folder_link both point at
-        // the (new) month folder.
-        row.month_folder_link = newLink;
-        row.drive_folder_link = newLink;
+        if (newLink) {
+          // Mirror ingest: month_folder_link and drive_folder_link both point at
+          // the (new) month folder.
+          row.month_folder_link = newLink;
+          row.drive_folder_link = newLink;
+        } else {
+          // The move succeeded but the folder-link lookup hiccupped (returned "").
+          // Do NOT blank the columns — leave them at their prior value so the
+          // invoice keeps showing a working link. (row.drive_folder_link keeps the
+          // value the client round-tripped; month_folder_link is left untouched in
+          // the DB by not adding it to `row`.)
+          delete row.month_folder_link;
+          delete row.drive_folder_link;
+          console.warn("[updateInvoice] folder-link lookup empty after move — keeping prior link");
+        }
         drive = "moved";
       } catch (e) {
         // Do NOT abort — a Drive failure must not strand the date edit.
