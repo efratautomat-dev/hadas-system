@@ -32,3 +32,6 @@ dist-ssr
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Supabase CLI local state (link ref, pooler host, versions — env-specific, never commit)
+supabase/.temp/
