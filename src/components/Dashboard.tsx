@@ -155,6 +155,10 @@ export default function Dashboard({
   const monthlyPayments   = payments.filter(p => p.status === 'paid').reduce((s, p) => s + (Number(p.amount) || 0), 0)
   const openReturns       = returns.filter(r => r.status === 'בטיפול').length
 
+  // Match the Alerts page: exclude resolved alerts from the dashboard's recent
+  // list and its card gate. (The "new" badge below stays as-is — already correct.)
+  const open = alerts.filter(a => a.status !== 'resolved')
+
   const statsLoading = supLoading || invLoading || payLoading || retLoading
 
   return (
@@ -265,7 +269,7 @@ export default function Dashboard({
       </div>
 
       {/* Recent Alerts card */}
-      {alerts.length > 0 && (
+      {open.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
           {/* Header — title + bell icon on the RIGHT (first in RTL),
               "לכל ההתראות ←" link on the LEFT (last in RTL) */}
@@ -299,7 +303,7 @@ export default function Dashboard({
             </button>
           </div>
           <div className="divide-y" style={{ borderColor: '#F3F4F6' }}>
-            {alerts.slice(0, 5).map((alert) => {
+            {open.slice(0, 5).map((alert) => {
               // Fallbacks guard against alert rows whose type/status are not
               // among the known keys (e.g. data from a newer backend) — an
               // unguarded lookup here would crash the whole dashboard.
