@@ -1569,15 +1569,21 @@ async function handleInvoiceFile(
     result.errors.push(`Storage upload failed for ${msgId}`);
   }
 
-  // Old-date warning (non-terminal)
+  // Suspicious-date check (non-terminal). The filing rule already routes normal
+  // prior-month invoices automatically (own month / grace / עודפים overflow), so a
+  // plain "previous month" alert was redundant noise. Only flag dates that are
+  // implausibly old — a likely AI date-parse error (e.g. wrong year 2024/2025).
   const now = new Date();
-  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  if (extracted.invoice_date && new Date(extracted.invoice_date) < startOfMonth) {
-    await log("warn", "invoice older than current month", { invoiceDate: extracted.invoice_date }, msgId);
+  const SUSPICIOUS_MONTHS_BACK = 3;
+  const suspiciousBefore = new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth() - SUSPICIOUS_MONTHS_BACK, 1));
+  if (extracted.invoice_date && new Date(extracted.invoice_date) < suspiciousBefore) {
+    await log("warn", "invoice date implausibly old — possible parse error",
+      { invoiceDate: extracted.invoice_date }, msgId);
     await insertAlertOnce(supabase, log, msgId, {
-      type:    "invoice_old_date",
-      title:   "חשבונית מחודש קודם",
-      message: `החשבונית מ-${extracted.vendor_name} מתאריך ${extracted.invoice_date} — בדקי האם להעביר לרו"ח.`,
+      type:    "invoice_old_date",                      // keep id → no frontend change
+      title:   "חשבונית בתאריך חשוד",
+      message: `תאריך החשבונית מ-${extracted.vendor_name} הוא ${extracted.invoice_date} — מעל 3 חודשים אחורה, ייתכן שגיאת קריאה בתאריך. נא לוודא.`,
       payload: { gmailMessageId: msgId, subject, invoiceDate: extracted.invoice_date, vendor: extracted.vendor_name, messageLink },
     });
   }
