@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, X, CheckCircle2, Clock, XCircle, RotateCcw, Download } from 'lucide-react'
+import { Plus, Pencil, X, CheckCircle2, RotateCcw, Download, Mail, Link2, Clock } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
 import { useReturns } from '../hooks/useReturns'
@@ -7,9 +7,13 @@ import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
 import { printReturnPDF } from '../utils/pdf'
 import type { ReturnPDFData } from '../utils/pdf'
-import { PdfPreviewButton } from './PdfPreviewModal'
+import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
+import { StatusBadge } from './StatusBadge'
+import { Button } from './ui/Button'
+import { SummaryCards } from './ui/SummaryCards'
+import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 
 export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -30,6 +34,9 @@ interface ReturnEntry {
   supplierCreditNoteNumber?: string | null
   supplierCreditNoteDate?: string | null
   supplierCreditNoteAmount?: number | null
+  source?: string | null
+  gmailMessageId?: string | null
+  messageLink?: string | null
 }
 
 export interface FormState {
@@ -43,10 +50,41 @@ export interface FormState {
   status: ReturnStatus
 }
 
-const STATUS_CONFIG: Record<ReturnStatus, { bg: string; color: string; Icon: React.ElementType }> = {
-  'אושר':   { bg: '#DCFCE7', color: '#166534', Icon: CheckCircle2 },
-  'בטיפול': { bg: '#FEF3C7', color: '#D97706', Icon: Clock },
-  'נדחה':   { bg: '#FEE2E2', color: '#DC2626', Icon: XCircle },
+// Returns use ONLY new (חדש) → closed (נסגר) (spec/06-RULES.md §2a): a return is
+// `closed` once a matching supplier credit note is linked, otherwise `new`. The
+// screen's status badge/filter/stats all derive from this — the legacy DB `status`
+// column is no longer surfaced in the UI.
+function returnStatusInternal(r: ReturnEntry): string {
+  const linked = !!r.supplierCreditNoteNumber || r.supplierCreditNoteAmount != null
+  return linked ? 'closed' : 'new'
+}
+
+// TWO VIEWS split by SOURCE (spec/01-PRD.md §6). Prefer the explicit `source` column;
+// when it's missing/null, derive from the email-ingest markers (arrived credit notes
+// carry a gmail id / message link). Anything else is treated as a manual entry.
+function returnSource(r: ReturnEntry): 'manual' | 'email' {
+  if (r.source === 'email' || r.source === 'manual') return r.source
+  return (r.gmailMessageId || r.messageLink) ? 'email' : 'manual'
+}
+
+// The linked credit-note document URL for a matched (closed) return, if any.
+function creditNoteDocUrl(r: ReturnEntry): string | null {
+  return r.driveFileLink || null
+}
+
+// RETURN ↔ CREDIT-NOTE MATCHING (spec/06-RULES.md §2a): a credit note matches a
+// manual return with the SAME supplier and the SAME amount. This is the read-side
+// of the rule — it finds the manual return a given arrived credit note belongs to.
+// ⚠️ The actual auto-match WRITE (flip status → closed + link the two docs) runs in
+// the ingest/hadas-api backend on credit-note arrival — verify after backend deploy.
+function matchReturnForCreditNote(cn: ReturnEntry, all: ReturnEntry[]): ReturnEntry | null {
+  const cnAmount = cn.supplierCreditNoteAmount ?? cn.amount
+  if (!cnAmount) return null
+  return all.find(r =>
+    returnSource(r) === 'manual' &&
+    r.supplierId === cn.supplierId &&
+    Math.abs(r.amount) === Math.abs(cnAmount),
+  ) ?? null
 }
 
 function fmtILS(n: number | null | undefined) {
@@ -81,20 +119,6 @@ function useIsTablet() {
     return () => window.removeEventListener('resize', h)
   }, [])
   return v
-}
-
-function StatusBadge({ status }: { status: ReturnStatus }) {
-  const cfg = STATUS_CONFIG[status]
-  const { Icon } = cfg
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold"
-      style={{ backgroundColor: cfg.bg, color: cfg.color }}
-    >
-      <Icon className="w-3.5 h-3.5 flex-shrink-0" />
-      {status}
-    </span>
-  )
 }
 
 const inputBase: React.CSSProperties = {
@@ -132,7 +156,8 @@ interface FormModalProps {
 export function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, invoices, employees }: FormModalProps) {
   const supplierInvoices = invoices.filter(inv => inv.supplierId === form.supplierId)
   const selectedSupplier = suppliers.find(s => s.id === form.supplierId)
-  const canSave = !!form.supplierId && !!form.amountStr && Number(form.amountStr) > 0 && !!form.reason.trim() && !!form.dateIso
+  // Tracking-only: no amount input; the matching credit note sets the amount later.
+  const canSave = !!form.supplierId && !!form.reason.trim() && !!form.dateIso
 
   const focus = (e: React.FocusEvent<HTMLElement>) => ((e.target as HTMLElement & { style: CSSStyleDeclaration }).style.borderColor = '#7C3AED')
   const blur  = (e: React.FocusEvent<HTMLElement>) => ((e.target as HTMLElement & { style: CSSStyleDeclaration }).style.borderColor = '#E2E4E9')
@@ -178,33 +203,18 @@ export function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, i
             )}
           </div>
 
-          {/* Amount + Date */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label style={labelBase}>סכום (₪) *</label>
-              <input
-                type="number"
-                value={form.amountStr}
-                onChange={(e) => setForm({ ...form, amountStr: e.target.value })}
-                placeholder="0"
-                dir="ltr"
-                style={{ ...inputBase, textAlign: 'left' }}
-                onFocus={focus as React.FocusEventHandler<HTMLInputElement>}
-                onBlur={blur as React.FocusEventHandler<HTMLInputElement>}
-              />
-            </div>
-            <div>
-              <label style={labelBase}>תאריך *</label>
-              <input
-                type="date"
-                value={form.dateIso}
-                onChange={(e) => setForm({ ...form, dateIso: e.target.value })}
-                dir="ltr"
-                style={inputBase}
-                onFocus={focus as React.FocusEventHandler<HTMLInputElement>}
-                onBlur={blur as React.FocusEventHandler<HTMLInputElement>}
-              />
-            </div>
+          {/* Date only — returns are tracking-only (no amount at creation) */}
+          <div>
+            <label style={labelBase}>תאריך *</label>
+            <input
+              type="date"
+              value={form.dateIso}
+              onChange={(e) => setForm({ ...form, dateIso: e.target.value })}
+              dir="ltr"
+              style={inputBase}
+              onFocus={focus as React.FocusEventHandler<HTMLInputElement>}
+              onBlur={blur as React.FocusEventHandler<HTMLInputElement>}
+            />
           </div>
 
           {/* Original invoice */}
@@ -254,72 +264,41 @@ export function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, i
             />
           </div>
 
-          {/* Status + Employee */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label style={labelBase}>סטטוס</label>
-              <select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value as ReturnStatus })}
-                style={inputBase}
-                onFocus={focus as React.FocusEventHandler<HTMLSelectElement>}
-                onBlur={blur as React.FocusEventHandler<HTMLSelectElement>}
-              >
-                <option value="בטיפול">בטיפול</option>
-                <option value="אושר">אושר</option>
-                <option value="נדחה">נדחה</option>
-              </select>
-            </div>
-            <div>
-              <label style={labelBase}>נוצר על ידי</label>
-              <select
-                value={form.employeeId}
-                onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
-                style={inputBase}
-                onFocus={focus as React.FocusEventHandler<HTMLSelectElement>}
-                onBlur={blur as React.FocusEventHandler<HTMLSelectElement>}
-              >
-                <option value="">— בחר עובד —</option>
-                {employees.filter(e => e.active).map(e => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
-                ))}
-              </select>
-            </div>
+          {/* Created by (no status field — a return is חדש until a credit note closes it) */}
+          <div>
+            <label style={labelBase}>נוצר על ידי</label>
+            <select
+              value={form.employeeId}
+              onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
+              style={inputBase}
+              onFocus={focus as React.FocusEventHandler<HTMLSelectElement>}
+              onBlur={blur as React.FocusEventHandler<HTMLSelectElement>}
+            >
+              <option value="">— בחר עובד —</option>
+              {employees.filter(e => e.active).map(e => (
+                <option key={e.id} value={e.id}>{e.name}</option>
+              ))}
+            </select>
           </div>
 
-          {/* Balance notice */}
-          {form.status === 'אושר' && Number(form.amountStr) > 0 && (
-            <div
-              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
-              style={{ background: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0' }}
-            >
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-              יתרת הספק תרד ב-{fmtILS(Number(form.amountStr))} עם השמירה
-            </div>
-          )}
+          {/* Tracking-only notice */}
+          <div
+            className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
+            style={{ background: '#F5F3FF', color: '#5B21B6', border: '1px solid #DDD6FE' }}
+          >
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+            החזרה היא רישום מעקב בלבד — הסכום ייקבע כשתגיע חשבונית זיכוי תואמת.
+          </div>
         </div>
 
         {/* Footer */}
         <div className="px-6 py-4 border-t flex items-center justify-between" style={{ borderColor: '#E2E4E9' }}>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl text-sm font-bold border-2 transition-colors"
-            style={{ borderColor: '#E2E4E9', color: '#6B7280' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
-          >
+          <Button variant="outline" onClick={onClose}>
             ביטול
-          </button>
-          <button
-            onClick={onSave}
-            disabled={!canSave}
-            className="px-6 py-2 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: '#7C3AED' }}
-            onMouseEnter={(e) => { if (canSave) (e.currentTarget as HTMLElement).style.background = '#6D28D9' }}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
-          >
+          </Button>
+          <Button variant="primary" onClick={onSave} disabled={!canSave}>
             {isEdit ? 'שמור שינויים' : 'הוסף חזרה'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -339,9 +318,12 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
   const { data: invoicesData } = useInvoices()
   const { data: employees } = useEmployees()
   const [returns, setReturns] = useState<ReturnEntry[]>([])
+  const [view, setView] = useState<'manual' | 'arrived'>('manual')
+  // Credit-note document shown in the in-app preview modal (from the link button).
+  const [creditDoc, setCreditDoc] = useState<string | null>(null)
   const [filterSupplier, setFilterSupplier] = useState('all')
   const [filterMonth, setFilterMonth] = useState('')
-  const [filterStatus, setFilterStatus] = useState<ReturnStatus | 'all'>('all')
+  const [filterStatus, setFilterStatus] = useState<'all' | 'new' | 'closed'>('all')
   const [filterEmployee, setFilterEmployee] = useState('all')
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -353,18 +335,24 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
     setReturns(serverReturns as ReturnEntry[])
   }, [serverReturns])
 
-  const filtered = returns
+  // TWO VIEWS: (a) arrived credit notes (source=email), (b) manual entries (source=manual).
+  const manualReturns  = returns.filter(r => returnSource(r) === 'manual')
+  const arrivedReturns = [...returns.filter(r => returnSource(r) === 'email')]
+    .sort((a, b) => (b.dateIso || '').localeCompare(a.dateIso || ''))
+
+  const filtered = manualReturns
     .filter(r => {
       if (filterSupplier !== 'all' && r.supplierId !== filterSupplier) return false
       if (filterMonth && !r.dateIso.startsWith(filterMonth)) return false
-      if (filterStatus !== 'all' && r.status !== filterStatus) return false
+      if (filterStatus !== 'all' && returnStatusInternal(r) !== filterStatus) return false
       if (filterEmployee !== 'all' && r.employeeId !== filterEmployee) return false
       return true
     })
     .sort((a, b) => (b.dateIso || '').localeCompare(a.dateIso || ''))
 
-  const totalApproved = returns.filter(r => r.status === 'אושר').reduce((s, r) => s + r.amount, 0)
-  const countPending  = returns.filter(r => r.status === 'בטיפול').length
+  // Returns are only new (חדש) → closed (נסגר) — derived from the credit-note link.
+  const countClosed = manualReturns.filter(r => returnStatusInternal(r) === 'closed').length
+  const countOpen   = manualReturns.filter(r => returnStatusInternal(r) === 'new').length
 
   function openAdd() {
     setEditId(null)
@@ -403,8 +391,9 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
   }, [initialEditId, returns])
 
   async function handleSave() {
-    const amount = Number(form.amountStr)
-    if (!form.supplierId || !amount || !form.reason.trim() || !form.dateIso) return
+    // Tracking-only: amount is not required at creation (0 until a credit note sets it).
+    const amount = Number(form.amountStr) || 0
+    if (!form.supplierId || !form.reason.trim() || !form.dateIso) return
 
     const sup = suppliersData.find(s => s.id === form.supplierId)
     const supplierName = sup?.name ?? ''
@@ -451,7 +440,7 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
         id: '—',
         date: isoToDisplay(form.dateIso),
         dateIso: form.dateIso,
-        status: form.status,
+        status: 'חדש',
         amount,
         reason: form.reason,
         detail: form.detail,
@@ -501,34 +490,40 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
           <h1 className="text-2xl font-black text-gray-800">חזרות וזיכויים</h1>
           <p className="text-gray-500 text-sm mt-0.5">ניהול החזרות וזיכויים מול ספקים</p>
         </div>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 rounded-xl font-bold text-white transition-all"
-          style={{ minHeight: '44px', padding: '0 20px', background: '#7C3AED', fontSize: '15px' }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
-        >
+        <Button variant="primary" onClick={openAdd}>
           <Plus className="w-4 h-4" />
           הוסף חזרה
-        </button>
+        </Button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
-          <p className="text-2xl font-black" style={{ color: '#7C3AED' }}>{returns.length}</p>
-          <p className="text-gray-500 text-sm mt-1">סה"כ חזרות</p>
-        </div>
-        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
-          <p className="text-2xl font-black" style={{ color: '#166534' }}>{fmtILS(totalApproved)}</p>
-          <p className="text-gray-500 text-sm mt-1">זוכה מאושר</p>
-        </div>
-        <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
-          <p className="text-2xl font-black" style={{ color: countPending > 0 ? '#D97706' : '#6B7280' }}>
-            {countPending}
-          </p>
-          <p className="text-gray-500 text-sm mt-1">בטיפול</p>
-        </div>
+      {/* Stats (manual entries) */}
+      <SummaryCards items={[
+        { label: 'סה"כ חזרות', value: manualReturns.length, Icon: RotateCcw, tone: 'brand' },
+        { label: 'נסגרו (זוכה)', value: countClosed, Icon: CheckCircle2, tone: 'green' },
+        { label: 'פתוחות', value: countOpen, Icon: Clock, tone: 'blue' },
+      ]} />
+
+      {/* View tabs — (b) manual entries · (a) arrived credit notes */}
+      <div className="inline-flex items-center gap-1 rounded-xl p-1" style={{ background: '#F3F4F6' }}>
+        {([
+          { key: 'manual' as const,  label: `יצירה ידנית · ${manualReturns.length}` },
+          { key: 'arrived' as const, label: `מסמכים שהגיעו · ${arrivedReturns.length}` },
+        ]).map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            className="rounded-lg transition-all"
+            style={{
+              minHeight: '36px', padding: '0 16px', fontSize: '14px', border: 'none',
+              fontWeight: view === key ? 700 : 500,
+              background: view === key ? 'var(--brand-active-bg)' : 'transparent',
+              color:      view === key ? 'var(--brand-primary)' : '#6B7280',
+              boxShadow:  view === key ? '0 1px 2px rgba(16,17,21,.08)' : 'none',
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Post-create download banner */}
@@ -544,9 +539,9 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
             <button
               onClick={() => printReturnPDF(justSaved)}
               className="flex items-center gap-1.5 rounded-xl font-bold text-white transition-all"
-              style={{ padding: '6px 14px', background: '#D32F4A', fontSize: '13px', border: 'none', cursor: 'pointer' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
+              style={{ padding: '6px 14px', background: 'var(--brand-primary)', fontSize: '13px', border: 'none', cursor: 'pointer' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
             >
               <Download className="w-3.5 h-3.5" />
               הורד מסמך
@@ -557,6 +552,8 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
         </div>
       )}
 
+      {view === 'manual' && (
+      <>
       {/* Filters */}
       <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#E2E4E9' }}>
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
@@ -591,13 +588,12 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
             <p className="text-right mb-1.5 text-xs font-semibold text-gray-500">סטטוס</p>
             <select
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as ReturnStatus | 'all')}
+              onChange={(e) => setFilterStatus(e.target.value as 'all' | 'new' | 'closed')}
               style={{ width: '100%', height: '40px', padding: '0 12px', borderRadius: '10px', border: '1px solid #E2E4E9', fontSize: '14px', background: 'white', direction: 'rtl', color: '#1A1D23', cursor: 'pointer', outline: 'none' }}
             >
               <option value="all">כל הסטטוסים</option>
-              <option value="אושר">אושר</option>
-              <option value="בטיפול">בטיפול</option>
-              <option value="נדחה">נדחה</option>
+              <option value="new">חדש</option>
+              <option value="closed">נסגר</option>
             </select>
           </div>
 
@@ -631,28 +627,28 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+      <div style={tableWrap}>
         <SectionHeader
           className="px-5 py-4 border-b"
-          style={{ borderColor: '#E2E4E9' }}
+          style={{ borderColor: '#EEEEF2' }}
           action={<span className="text-sm text-gray-400">{filtered.length} רשומות</span>}
           title={<h2 className="font-bold text-gray-800">רשימת חזרות</h2>}
         />
 
         <div style={{ overflowX: 'auto' }}>
           <div
-            className="grid text-xs font-bold text-gray-500 border-b"
-            style={{ gridTemplateColumns: COL, minWidth: MIN_W, padding: '10px 16px', background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right' }}
+            className="grid"
+            style={{ ...tableHeadRow, display: 'grid', gridTemplateColumns: COL, minWidth: MIN_W }}
           >
-            <span>תאריך</span>
-            <span>ספק</span>
-            <span>סכום</span>
-            <span>סיבה</span>
-            <span>תעודת זיכוי מספק</span>
-            <span>סכום זיכוי</span>
-            <span>סטטוס</span>
-            {!isTablet && <span>נוצר ע"י</span>}
-            {!isTablet && <span className="text-center">פעולות</span>}
+            <span style={tableHeadCell}>תאריך</span>
+            <span style={tableHeadCell}>ספק</span>
+            <span style={tableHeadCell}>סכום</span>
+            <span style={tableHeadCell}>סיבה</span>
+            <span style={tableHeadCell}>תעודת זיכוי מספק</span>
+            <span style={tableHeadCell}>סכום זיכוי</span>
+            <span style={tableHeadCell}>סטטוס</span>
+            {!isTablet && <span style={tableHeadCell}>נוצר ע"י</span>}
+            {!isTablet && <span className="text-center" style={tableHeadCell}>פעולות</span>}
           </div>
 
           {filtered.length === 0 ? (
@@ -661,12 +657,12 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
               <p className="text-gray-400 text-sm">לא נמצאו חזרות</p>
             </div>
           ) : (
-            filtered.map((r) => (
+            filtered.map((r, index) => (
               <div
                 key={r.id}
-                className="grid items-center border-b transition-colors cursor-pointer"
-                style={{ gridTemplateColumns: COL, minWidth: MIN_W, padding: '14px 16px', borderColor: '#E2E4E9', textAlign: 'right' }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F8F9FA')}
+                className="grid items-center transition-colors cursor-pointer"
+                style={{ ...tableRow(index === 0), display: 'grid', gridTemplateColumns: COL, minWidth: MIN_W }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 onClick={() => openEdit(r.id)}
               >
@@ -674,7 +670,17 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                 <span className="text-sm font-semibold text-gray-800">{r.supplier}</span>
                 <span className="text-sm font-bold" style={{ color: '#7C3AED' }}>{fmtILS(r.amount)}</span>
                 <span className="text-sm text-gray-600 truncate" title={r.reason} style={{ paddingLeft: '8px' }}>{r.reason}</span>
-                {r.supplierCreditNoteNumber ? (
+                {returnStatusInternal(r) === 'closed' && creditNoteDocUrl(r) ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCreditDoc(creditNoteDocUrl(r)) }}
+                    className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg"
+                    style={{ color: '#166534', background: '#F0FDF4', border: '1px solid #BBF7D0', padding: '4px 8px' }}
+                    title={r.supplierCreditNoteNumber ? `חשבונית זיכוי ${r.supplierCreditNoteNumber}` : 'חשבונית זיכוי מקושרת'}
+                  >
+                    <Link2 className="w-3.5 h-3.5 flex-shrink-0" />
+                    קישור לחשבונית זיכוי
+                  </button>
+                ) : r.supplierCreditNoteNumber ? (
                   <span
                     className="inline-flex items-center gap-1 text-xs font-mono font-semibold"
                     style={{ color: '#166534' }}
@@ -689,7 +695,7 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                 <span className="text-sm font-bold" style={{ color: r.supplierCreditNoteAmount != null ? '#166534' : '#D1D5DB' }}>
                   {r.supplierCreditNoteAmount != null ? fmtILS(r.supplierCreditNoteAmount) : '—'}
                 </span>
-                <StatusBadge status={r.status} />
+                <StatusBadge status={returnStatusInternal(r)} />
                 {!isTablet && <span className="text-sm text-gray-500">{r.createdBy}</span>}
                 {!isTablet && (
                   <div
@@ -714,7 +720,7 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                           id: r.id,
                           date: r.date,
                           dateIso: r.dateIso,
-                          status: r.status,
+                          status: returnStatusInternal(r) === 'closed' ? 'נסגר' : 'חדש',
                           amount: r.amount,
                           reason: r.reason,
                           detail: r.detail,
@@ -727,9 +733,9 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
                         })
                       }}
                       className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-                      style={{ background: '#FDF2F4', color: '#9CA3AF' }}
+                      style={{ background: 'var(--brand-active-bg)', color: '#9CA3AF' }}
                       title="הורד מסמך"
-                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#D32F4A')}
+                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--brand-primary)')}
                       onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
                     >
                       <Download className="w-3.5 h-3.5" />
@@ -741,6 +747,76 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
           )}
         </div>
       </div>
+      </>
+      )}
+
+      {/* Arrived documents view — credit notes received by email (source=email) */}
+      {view === 'arrived' && (
+        <div style={tableWrap}>
+          <SectionHeader
+            className="px-5 py-4 border-b"
+            style={{ borderColor: '#EEEEF2' }}
+            action={<span className="text-sm text-gray-400">{arrivedReturns.length} מסמכים</span>}
+            title={<h2 className="font-bold text-gray-800">מסמכים שהגיעו במייל</h2>}
+          />
+          <div style={{ overflowX: 'auto' }}>
+            <div
+              className="grid"
+              style={{ ...tableHeadRow, display: 'grid', gridTemplateColumns: '110px 1fr 130px 120px 150px 90px', minWidth: '720px' }}
+            >
+              <span style={tableHeadCell}>תאריך</span>
+              <span style={tableHeadCell}>ספק</span>
+              <span style={tableHeadCell}>מס׳ זיכוי</span>
+              <span style={tableHeadCell}>סכום</span>
+              <span style={tableHeadCell}>התאמה להחזרה</span>
+              <span className="text-center" style={tableHeadCell}>מסמך</span>
+            </div>
+
+            {arrivedReturns.length === 0 ? (
+              <div className="py-16 text-center">
+                <Mail className="w-10 h-10 mx-auto mb-3" style={{ color: '#E2E4E9' }} />
+                <p className="text-gray-400 text-sm">לא התקבלו מסמכי זיכוי במייל</p>
+              </div>
+            ) : (
+              arrivedReturns.map((r, index) => {
+                const matchedReturn = matchReturnForCreditNote(r, returns)
+                return (
+                <div
+                  key={r.id}
+                  className="grid items-center transition-colors"
+                  style={{ ...tableRow(index === 0), display: 'grid', gridTemplateColumns: '110px 1fr 130px 120px 150px 90px', minWidth: '720px' }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+                >
+                  <span className="text-sm text-gray-500">{r.date}</span>
+                  <span className="text-sm font-semibold text-gray-800">{r.supplier}</span>
+                  <span className="text-xs font-mono font-semibold" style={{ color: '#166534' }}>
+                    {r.supplierCreditNoteNumber || '—'}
+                  </span>
+                  <span className="text-sm font-bold" style={{ color: '#7C3AED' }}>
+                    {r.supplierCreditNoteAmount != null ? fmtILS(r.supplierCreditNoteAmount) : (r.amount ? fmtILS(r.amount) : '—')}
+                  </span>
+                  {/* Read-side of the matching rule; the auto-link WRITE is backend (see helper). */}
+                  {matchedReturn ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: '#166534' }}>
+                      <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                      תואם · {matchedReturn.supplier}
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium" style={{ color: '#9CA3AF' }}>ללא החזרה תואמת</span>
+                  )}
+                  <div className="flex items-center justify-center">
+                    {r.driveFileLink
+                      ? <PdfPreviewButton url={r.driveFileLink} title="תצוגה מקדימה של חשבונית הזיכוי" />
+                      : <span className="text-xs text-gray-300">—</span>}
+                  </div>
+                </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <FormModal
@@ -753,6 +829,11 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
           invoices={invoicesData}
           employees={employees}
         />
+      )}
+
+      {/* Linked credit-note document — opened in the app's in-page preview modal */}
+      {creditDoc && (
+        <PdfPreviewModal url={creditDoc} onClose={() => setCreditDoc(null)} />
       )}
     </div>
   )

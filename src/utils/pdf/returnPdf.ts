@@ -1,4 +1,4 @@
-import { PDF_BASE_CSS, getPdfLogoUrl, fmtILS, todayHebrew, escHtml, openPrintWindow } from './pdfConfig'
+import { PDF_BASE_CSS, getPdfLogoUrl, todayHebrew, escHtml, openPrintWindow } from './pdfConfig'
 
 export interface ReturnPDFData {
   id: string
@@ -36,8 +36,6 @@ export function printReturnPDF(data: ReturnPDFData): void {
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;900&display=swap" rel="stylesheet">
   <style>
     ${PDF_BASE_CSS}
-    .amount-box { background: #FDF2F4; border: 1px solid #FECDD3; border-radius: 12px; padding: 14px 18px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; }
-    .amount-big { font-size: 26px; font-weight: 900; color: #D32F4A; direction: ltr; }
     .sig-line   { border-bottom: 1px solid #9CA3AF; height: 36px; margin-top: 8px; width: 55%; }
   </style>
 </head>
@@ -92,10 +90,6 @@ export function printReturnPDF(data: ReturnPDFData): void {
   <!-- Section 3: Return Details -->
   <div class="sec">
     <p class="sec-title">פרטי החזרה</p>
-    <div class="amount-box">
-      <p class="lbl" style="margin:0">סכום החזרה</p>
-      <p class="amount-big">${fmtILS(data.amount)}</p>
-    </div>
     <div class="grid2" style="margin-bottom:12px">
       <div><p class="lbl">סיבה</p><p class="val">${escHtml(data.reason)}</p></div>
       ${data.originalInvoiceId

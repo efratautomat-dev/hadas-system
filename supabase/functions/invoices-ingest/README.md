@@ -84,7 +84,12 @@ Run migration `supabase/migrations/20260520000000_invoices_ingest.sql` before fi
 
 ## Cron schedule
 
-After the function deploys, run this once in the Supabase SQL Editor (replace `{ANON_KEY}` and `{HADAS_API_KEY}` with the real values):
+After the function deploys, run this once in the Supabase SQL Editor. The
+`Authorization` (legacy anon JWT) and `x-hadas-key` headers must match the
+existing `payments-ingest-cron` job — fetch the canonical values any time with
+`select command from cron.job where jobname = 'payments-ingest-cron';` and
+substitute them for `{ANON_JWT}` and `{HADAS_API_KEY}` below. Do not commit the
+real `x-hadas-key` value to the repo.
 
 ```sql
 select cron.schedule(
@@ -94,9 +99,9 @@ select cron.schedule(
   select net.http_post(
     url := 'https://jcwphkuwwuxvjibmvgdh.supabase.co/functions/v1/invoices-ingest',
     headers := jsonb_build_object(
-      'Content-Type',   'application/json',
-      'Authorization',  'Bearer {ANON_KEY}',
-      'x-hadas-key',    '{HADAS_API_KEY}'
+      'Content-Type',  'application/json',
+      'Authorization', 'Bearer {ANON_JWT}',
+      'x-hadas-key',   '{HADAS_API_KEY}'
     ),
     body := '{}'::jsonb
   );

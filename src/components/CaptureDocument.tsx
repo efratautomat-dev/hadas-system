@@ -22,8 +22,8 @@ const TYPE_OPTIONS: TypeOption[] = [
   { key: 'credit',    label: 'זיכוי',        docType: 'return_doc',    Icon: RotateCcw },
 ]
 
-const ACCENT = '#D32F4A'
-const ACCENT_BG = '#FDF2F4'
+const ACCENT = 'var(--brand-primary)'
+const ACCENT_BG = 'var(--brand-active-bg)'
 
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {

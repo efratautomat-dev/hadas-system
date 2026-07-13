@@ -1,0 +1,1093 @@
+{
+  "month": "2026-05",
+  "dryRun": true,
+  "total": 108,
+  "summary": {
+    "willCopy": 60,
+    "already": 21,
+    "broken": 27,
+    "viaFolder": 0
+  },
+  "report": [
+    {
+      "id": "INV-2026-125",
+      "supplier": "RACHELI'S",
+      "num": "5708",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-126",
+      "supplier": "RACHELI'S",
+      "num": "4163",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-127",
+      "supplier": "בגדי נוחות בע״מ",
+      "num": "266000241SI",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-128",
+      "supplier": "בגדי נוחות בע״מ",
+      "num": "266000242SI",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-129",
+      "supplier": "בלו סטון אימפורטס בע״מ",
+      "num": "6501698",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-130",
+      "supplier": "מיי קאר ישראל בע״מ",
+      "num": "725701",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-131",
+      "supplier": "סיטי קאר רכב שיתופי בע״מ",
+      "num": "20262149606",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-139",
+      "supplier": "הייפ פתרונות תשלום בע״מ",
+      "num": "412410914",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-140",
+      "supplier": "סמרה",
+      "num": "83093",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-141",
+      "supplier": "מ.ע.ב דרכי נועם בע״מ",
+      "num": "3302",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-217",
+      "supplier": "בס״ד ציפורה אחדות א.צ.ל",
+      "num": "01/011501",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-310",
+      "supplier": "הלוקים אצל חוה",
+      "num": "0309/4",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-311",
+      "supplier": "מ.ע.ב דרכי נועם בע״מ",
+      "num": "3302",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-132",
+      "supplier": "א.מ סיטי קאר רכב שיתופי בע״מ",
+      "num": "20262149851",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-134",
+      "supplier": "אסתר מוטצן",
+      "num": "01/002195",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-137",
+      "supplier": "חיה אורדמן בע״מ",
+      "num": "5393",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-138",
+      "supplier": "ת.סייפטק טכנולוגיות בע״מ",
+      "num": "IR2273503",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-142",
+      "supplier": "בקי 10 יצחק",
+      "num": "94054024",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-144",
+      "supplier": "טמבור סנטר בע״מ",
+      "num": "378111-12",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-278",
+      "supplier": "בגדי נוחות בע״מ",
+      "num": "266000257SI",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-297",
+      "supplier": "א.פ.ד.ה. בניה וריזמון 2013 בע״מ",
+      "num": "0188922",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-216",
+      "supplier": "כובעי זיוה",
+      "num": "70199",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-218",
+      "supplier": "Pleasures תורג'מן",
+      "num": "6199",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-145",
+      "supplier": "א.מ סיטי קאר רכב שיתופי בע״מ",
+      "num": "20261018333",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-304",
+      "supplier": "סלקום",
+      "num": "328069878",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-146",
+      "supplier": "בגדי נוחות בע״מ",
+      "num": "267000051CR",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-147",
+      "supplier": "סלים כבודי - סחר",
+      "num": "0442",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-177",
+      "supplier": "מוטי-טקס",
+      "num": "8063",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-248",
+      "supplier": "שיקלוק",
+      "num": "50641",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-276",
+      "supplier": "שיקלוק",
+      "num": "50641",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-149",
+      "supplier": "כובעי זיוה",
+      "num": "1660",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-150",
+      "supplier": "כובעי זיוה",
+      "num": "1661",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-151",
+      "supplier": "הדס",
+      "num": "3317",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-152",
+      "supplier": "א.מ סיטי קאר רכב שיתופי בע״מ",
+      "num": "20262159293",
+      "partial": true,
+      "dest": "PARTIAL",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-312",
+      "supplier": "אס ג׳י ברטים בע״מ",
+      "num": "38039",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-313",
+      "supplier": "מ.ע.ב דרכי נועם בע״מ",
+      "num": "3317",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-153",
+      "supplier": "טלזר 019 שרותי תקשורת בינלאומיים בע״מ",
+      "num": "70130426",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-154",
+      "supplier": "ST FASHION",
+      "num": "01/002682",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-155",
+      "supplier": "LUMIERE",
+      "num": "01/000160",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-156",
+      "supplier": "בגדי נוחות בע״מ",
+      "num": "266000273SI",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FOLDER",
+      "action": "BROKEN (empty folder)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-165",
+      "supplier": "בלו סטון אימפורטס בע״מ",
+      "num": "6501765",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-166",
+      "supplier": "לאטי אריזות",
+      "num": "8111143",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-167",
+      "supplier": "כובעי ״פאני״",
+      "num": "29606",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-168",
+      "supplier": "שייני 26 בע״מ",
+      "num": "01/001619",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-169",
+      "supplier": "שייני 26 בע״מ",
+      "num": "03/000206",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-170",
+      "supplier": "ST FASHION",
+      "num": "01/002690",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-171",
+      "supplier": "שייני 26 בע״מ",
+      "num": "01/001620",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-172",
+      "supplier": "א.ק. אריזון בע״מ",
+      "num": "76336",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-173",
+      "supplier": "סגוס",
+      "num": "8163896",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-174",
+      "supplier": "כארד שופ בע״מ",
+      "num": "72300",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-175",
+      "supplier": "סופר ומונה בע״מ",
+      "num": "34848",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-176",
+      "supplier": "מ.ע.ב דרכי נועם בע״מ",
+      "num": "3344",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-178",
+      "supplier": "א.מ סיטי קאר רכב שיתופי בע״מ",
+      "num": "20262163491",
+      "partial": true,
+      "dest": "PARTIAL",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-181",
+      "supplier": "אופנת לימור",
+      "num": "111829",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-192",
+      "supplier": "א.מ. פרחים בע״מ",
+      "num": "8144834",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-196",
+      "supplier": "c.u.wear",
+      "num": "8116",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-197",
+      "supplier": "סיגנון אביזרים מעוצבים בע״מ",
+      "num": "01/030015",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-198",
+      "supplier": "אופנת לימור",
+      "num": "111829",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-302",
+      "supplier": "סלקום",
+      "num": "373926354",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-316",
+      "supplier": "אופנת לימור",
+      "num": "102155",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-179",
+      "supplier": "RACHELI'S",
+      "num": "4171",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-183",
+      "supplier": "ת.סייפטק טכנולוגיות בע״מ",
+      "num": "IR2275998",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-184",
+      "supplier": "מיי קאר ישראל בע״מ",
+      "num": "731834",
+      "partial": true,
+      "dest": "PARTIAL",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-186",
+      "supplier": "חיה אורדמן בע״מ",
+      "num": "5400",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-190",
+      "supplier": "בזק-ג׳ן בע״מ",
+      "num": "101682569",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-191",
+      "supplier": "בזק החברה הישראלית לתקשורת בע״מ",
+      "num": "245220904",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-195",
+      "supplier": "MIGVAN - מגוון",
+      "num": "02/013710",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-298",
+      "supplier": "gemsli",
+      "num": "8462",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-323",
+      "supplier": "gemsli",
+      "num": "8462",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-187",
+      "supplier": "חיה אורדמן בע״מ",
+      "num": "5407",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-188",
+      "supplier": "pleasures",
+      "num": "20063",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-189",
+      "supplier": "פוס מונליין מחשבים (1981) בע״מ",
+      "num": "168923",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-193",
+      "supplier": "מגנוליה סילבר ג'ואלרי בע״מ",
+      "num": "16002143",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-194",
+      "supplier": "שיק - יצור ושיווק כיסויי ראש ואביזרי שיער",
+      "num": "0144",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-232",
+      "supplier": "א.מ פרחים",
+      "num": "61757",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-199",
+      "supplier": "א.מ סיטי קאר רכב שיתופי בע״מ",
+      "num": "20262169908",
+      "partial": true,
+      "dest": "PARTIAL",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-200",
+      "supplier": "חיה אורדמן בע״מ",
+      "num": "5410",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-201",
+      "supplier": "כובעי זיוה",
+      "num": "1666",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-202",
+      "supplier": "ציפי וינברג c.u.wear",
+      "num": "5217",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-203",
+      "supplier": "בגדי נוחות בע״מ",
+      "num": "267000058CR",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-207",
+      "supplier": "שיקלוק",
+      "num": "50646",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-275",
+      "supplier": "שיקלוק",
+      "num": "50646",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-204",
+      "supplier": "א.מ סיטי קאר רכב שיתופי בע״מ",
+      "num": "20262172174",
+      "partial": true,
+      "dest": "PARTIAL",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-211",
+      "supplier": "א.מ. פרחים בע״מ",
+      "num": "8145301",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-205",
+      "supplier": "אסתר מוטצן",
+      "num": "01/002225",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-208",
+      "supplier": "איי פקט בע״מ",
+      "num": "388043",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-209",
+      "supplier": "חיה אורדמן בע״מ",
+      "num": "1911",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-210",
+      "supplier": "א.מ סיטי קאר רכב שיתופי בע״מ",
+      "num": "20262175327",
+      "partial": true,
+      "dest": "PARTIAL",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-212",
+      "supplier": "וליוקארד בע״מ",
+      "num": "100877",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-214",
+      "supplier": "בטר אנד דיפרנט בע״מ",
+      "num": "071449",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-219",
+      "supplier": "רחלי ברית",
+      "num": "4613",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-220",
+      "supplier": "ST FASHION",
+      "num": "01/002698",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-221",
+      "supplier": "ST FASHION",
+      "num": "01/002700",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-225",
+      "supplier": "חניון ספרא",
+      "num": "26/182/88",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-227",
+      "supplier": "רחלי ברית בע״מ",
+      "num": "4618",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-315",
+      "supplier": "בס״ד ציפורה אחדות א.צ.ל",
+      "num": "01/011583",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-314",
+      "supplier": "בס״ד ציפורה אחדות א.צ.ל",
+      "num": "01/011584",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-222",
+      "supplier": "א.מ סיטי קאר רכב שיתופי בע״מ",
+      "num": "20262177544",
+      "partial": true,
+      "dest": "PARTIAL",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-223",
+      "supplier": "אסתר מוטצן",
+      "num": "01/002248",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-224",
+      "supplier": "סמארט סנט בע״מ",
+      "num": "2002394",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-226",
+      "supplier": "מיי קאר ישראל בע״מ",
+      "num": "735995",
+      "partial": true,
+      "dest": "PARTIAL",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-228",
+      "supplier": "ציפי וינברג c.u.wear",
+      "num": "8130",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-229",
+      "supplier": "רחלי ברית בע״מ",
+      "num": "739",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-242",
+      "supplier": "מרציאנו ייבוא ושיווק כיסויי ראש",
+      "num": "50306",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-230",
+      "supplier": "מיי קאר ישראל בע״מ",
+      "num": "736446",
+      "partial": true,
+      "dest": "PARTIAL",
+      "link": "FILE",
+      "action": "WILL COPY",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-277",
+      "supplier": "בגדי נוחות בע״מ",
+      "num": "266000301SI",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-233",
+      "supplier": "שניאור זלמן הרשקוביץ",
+      "num": "51214",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    },
+    {
+      "id": "INV-2026-249",
+      "supplier": "מקס איט פיננסים בע״מ",
+      "num": "14531654",
+      "partial": false,
+      "dest": "2026-05",
+      "link": "FILE",
+      "action": "SKIP (already in target)",
+      "note": ""
+    }
+  ]
+}

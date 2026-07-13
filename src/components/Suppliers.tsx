@@ -1,7 +1,21 @@
 import { useState, useEffect } from 'react'
-import { Users, Plus, Search, Pencil, ChevronLeft, X } from 'lucide-react'
+import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, X, LayoutGrid, Table2, AlertTriangle } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
+import { useCategories } from '../hooks/useCategories'
+import { STATUS } from '../theme/status'
 import SupplierDetail, { type Supplier } from './SupplierDetail'
+import { Button } from './ui/Button'
+import { SummaryCards } from './ui/SummaryCards'
+
+// Active/inactive uses the FIXED functional tokens (green = active, gray = inactive),
+// never the brand palette — so the state reads the same after any reskin.
+const activePill = (active: boolean) => active ? STATUS.green : STATUS.gray
+
+// "current balance as of today" — the balance figure is the computed live balance;
+// this stamps it with today's date so the number is unambiguous.
+function todayHe(): string {
+  return new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
 
 function useIsTablet() {
   const [v, setV] = useState(
@@ -50,6 +64,33 @@ function formatILS(n: number | null | undefined) {
   return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
+// ── Shared bits (used by both card and table views) ─────────────────────────
+function StatusPill({ status }: { status: string }) {
+  const sw = activePill(status === 'פעיל')
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full font-semibold whitespace-nowrap"
+      style={{ fontSize: '12px', padding: '4px 11px', background: sw.bg, color: sw.fg }}
+    >
+      <span style={{ width: '6px', height: '6px', borderRadius: '999px', background: sw.fg }} />
+      {status}
+    </span>
+  )
+}
+
+function CategoryChip({ category }: { category: string }) {
+  const c = categoryColors[category] ?? { bg: '#F3F4F6', color: '#6B7280' }
+  return (
+    <span
+      className="inline-block rounded-full font-medium truncate align-middle"
+      style={{ fontSize: '12px', padding: '4px 11px', background: c.bg, color: c.color, maxWidth: '100%' }}
+      title={category}
+    >
+      {category || '—'}
+    </span>
+  )
+}
+
 // ─── Form types ─────────────────────────────────────────────────────────────
 
 type EditFormState = {
@@ -85,7 +126,7 @@ const textareaBase: React.CSSProperties = {
 }
 
 function focusBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = '#D32F4A'
+  (e.target as HTMLElement).style.borderColor = 'var(--brand-primary)'
 }
 function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
   (e.target as HTMLElement).style.borderColor = '#DEDFE5'
@@ -98,7 +139,7 @@ function FormField({
     <div>
       <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>
         {label}
-        {required && <span style={{ color: '#D32F4A' }}> *</span>}
+        {required && <span style={{ color: 'var(--brand-primary)' }}> *</span>}
       </p>
       {children}
     </div>
@@ -109,7 +150,7 @@ function GroupHeader({ title }: { title: string }) {
   return (
     <div className="flex items-center gap-3 mb-3">
       <div className="flex-1 h-px" style={{ background: '#EEEEF2' }} />
-      <span style={{ fontSize: '12px', fontWeight: 700, color: '#D32F4A', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
+      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--brand-primary)', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
         {title}
       </span>
     </div>
@@ -126,6 +167,14 @@ function SupplierFormCard({
   onCancel: () => void
 }) {
   const canSave = form.name.trim().length > 0
+
+  // Category options come from the managed pool (Settings → categories); fall back
+  // to the built-in list if the pool is empty/unavailable, and always keep the
+  // current value selectable.
+  const { data: cats } = useCategories()
+  const managed = cats.map(c => c.name)
+  const base = managed.length ? managed : CATEGORIES
+  const catOptions = form.category && !base.includes(form.category) ? [form.category, ...base] : base
 
   return (
     <div className="bg-white rounded-2xl flex flex-col" style={{ border: '1px solid #EEEEF2' }}>
@@ -181,7 +230,7 @@ function SupplierFormCard({
                 onFocus={focusBorder}
                 onBlur={blurBorder}
               >
-                {CATEGORIES.map((cat) => (
+                {catOptions.map((cat) => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
@@ -283,29 +332,23 @@ function SupplierFormCard({
 
       {/* Save / Cancel */}
       <div className="flex gap-2 px-5 pb-5">
-        <button
+        <Button
           type="button"
+          variant="primary"
           onClick={onSave}
           disabled={!canSave}
-          className="flex-1 rounded-xl font-semibold transition-all"
-          style={{
-            minHeight: '44px', fontSize: '15px',
-            background: canSave ? '#D32F4A' : '#E5E7EB',
-            color: canSave ? 'white' : '#9CA3AF',
-          }}
+          className="flex-1"
         >
           שמור
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="ghost"
           onClick={onCancel}
-          className="flex-1 rounded-xl font-semibold transition-all"
-          style={{ minHeight: '44px', fontSize: '15px', background: '#F3F4F6', color: '#6B7280' }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+          className="flex-1"
         >
           ביטול
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -381,8 +424,23 @@ export default function Suppliers({
   const [editForm,   setEditForm]      = useState<EditFormState | null>(null)
   const [showAdd,    setShowAdd]       = useState(false)
   const [addForm,    setAddForm]       = useState<EditFormState>({ ...emptyForm })
+  // Possible-duplicate prompt: set when a manual add matched an existing supplier.
+  // Holds the matched supplier + the form data (so "create anyway" can resubmit).
+  const [dupPrompt,  setDupPrompt]     = useState<{ existing: { id: string; name: string; hp: string | null }; form: EditFormState } | null>(null)
   const [search,     setSearch]        = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // Default to active-only: inactive suppliers are hidden until the user picks
+  // the "לא פעילים" filter (deactivation replaces hard delete — spec/01-PRD.md §2).
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('פעיל')
+  // Card vs table view — cards for overview, table for dense scanning. Remembered
+  // per session (sessionStorage), so it resets on a new session but persists across
+  // navigation within one.
+  const [view, setView] = useState<'cards' | 'table'>(
+    () => (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('suppliersView') === 'table') ? 'table' : 'cards',
+  )
+  const setViewPersist = (v: 'cards' | 'table') => {
+    setView(v)
+    try { sessionStorage.setItem('suppliersView', v) } catch { /* ignore */ }
+  }
 
   useEffect(() => {
     setSuppliers([...serverSuppliers] as Supplier[])
@@ -420,6 +478,13 @@ export default function Suppliers({
         onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
         onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
         onOpenInvoice={onOpenInvoice}
+        onToggleActive={async (nextActive: boolean) => {
+          try {
+            await updateSupplier(sup.id, { active: nextActive })
+          } catch {
+            // hook sets error state
+          }
+        }}
       />
     )
   }
@@ -449,45 +514,89 @@ export default function Suppliers({
     }
   }
 
-  const saveAdd = async () => {
-    if (!addForm.name.trim()) return
-    const balance = addForm.openingBalance ? Number(addForm.openingBalance) : 0
+  // Core create. On a dedup hit (not forced) it does NOT close the form — it raises
+  // the duplicate prompt so the user chooses "use existing" or "create anyway".
+  const doCreate = async (form: EditFormState, force: boolean) => {
+    const balance = form.openingBalance ? Number(form.openingBalance) : 0
     const body = {
-      name: addForm.name, hp: addForm.hp, category: addForm.category,
-      contact: addForm.contact, email: addForm.email, phone: addForm.phone,
-      openingBalance: balance, openingBalanceDate: addForm.openingBalanceDate,
-      notes: addForm.notes,
+      name: form.name, hp: form.hp, category: form.category,
+      contact: form.contact, email: form.email, phone: form.phone,
+      openingBalance: balance, openingBalanceDate: form.openingBalanceDate,
+      notes: form.notes,
     }
     const pendingAlert = prefillForAlert   // capture before UI resets
-    setShowAdd(false)
-    setAddForm({ ...emptyForm })
     try {
-      const newId = await createSupplier(body)
-      if (pendingAlert && newId && onAlertSupplierCreated) {
-        await onAlertSupplierCreated(newId, pendingAlert.alertId, pendingAlert.payload)
+      const res = await createSupplier(body, { force })
+      if (res.duplicate && res.existing && !force) {
+        setDupPrompt({ existing: res.existing, form: { ...form } })  // ask the user
+        return
+      }
+      // Actually created (fresh, or "create anyway").
+      setShowAdd(false)
+      setAddForm({ ...emptyForm })
+      setDupPrompt(null)
+      if (pendingAlert && res.id && onAlertSupplierCreated) {
+        await onAlertSupplierCreated(res.id, pendingAlert.alertId, pendingAlert.payload)
       }
     } catch {
       // hook sets error state
     }
   }
 
+  const saveAdd = () => { if (addForm.name.trim()) void doCreate(addForm, false) }
+
+  // "צור בכל זאת" — force a new supplier despite the match.
+  const createAnyway = () => { if (dupPrompt) void doCreate(dupPrompt.form, true) }
+
+  // "השתמש בקיים" — link to the matched supplier instead of creating. If the user
+  // typed a ח.פ the existing supplier lacks, back-fill it (Gap #5 on confirm).
+  const useExisting = async () => {
+    if (!dupPrompt) return
+    const { existing, form } = dupPrompt
+    const pendingAlert = prefillForAlert
+    setDupPrompt(null)
+    setShowAdd(false)
+    setAddForm({ ...emptyForm })
+    try {
+      const typedHp  = (form.hp || '').replace(/\D/g, '')
+      const existHp  = (existing.hp || '').replace(/\D/g, '')
+      if (typedHp && !existHp) await updateSupplier(existing.id, { hp: form.hp })
+      if (pendingAlert && onAlertSupplierCreated) {
+        await onAlertSupplierCreated(existing.id, pendingAlert.alertId, pendingAlert.payload)
+      }
+    } catch {
+      // hook sets error state
+    }
+    openDetail(existing.id)
+  }
+
   // ── Derived state ──────────────────────────────────────────────────────────
   const filtered = suppliers.filter((s) => {
-    const q = search.toLowerCase()
+    const q = search.trim().toLowerCase()
+    // hp (ח.פ) match: compare both raw and digits-only, so "51-423-789" is found
+    // by typing "514423789" and vice-versa.
+    const qDigits  = q.replace(/\D/g, '')
+    const hpDigits = (s.hp || '').replace(/\D/g, '')
     const matchSearch =
-      (s.name || '').toLowerCase().includes(q) || (s.contact || '').toLowerCase().includes(q) || (s.category || '').toLowerCase().includes(q)
+      !q ||
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.contact || '').toLowerCase().includes(q) ||
+      (s.category || '').toLowerCase().includes(q) ||
+      (s.hp || '').toLowerCase().includes(q) ||
+      (qDigits.length > 0 && hpDigits.includes(qDigits))
     const matchStatus = statusFilter === 'all' || s.status === statusFilter
     return matchSearch && matchStatus
   })
 
   const activeCount  = suppliers.filter((s) => s.status === 'פעיל').length
   const totalBalance = suppliers.reduce((sum, s) => sum + (Number(s.balance) || 0), 0)
+  const today = todayHe()
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading && suppliers.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--brand-primary)' }} />
       </div>
     )
   }
@@ -508,40 +617,22 @@ export default function Suppliers({
             {suppliers.length} ספקים במערכת
           </p>
         </div>
-        <button
+        <Button
+          variant="primary"
           onClick={() => { setShowAdd(true); setAddForm({ ...emptyForm }) }}
-          className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all flex-shrink-0"
-          style={{
-            background: '#D32F4A',
-            padding: isTablet ? '12px 20px' : '10px 18px',
-            minHeight: '44px',
-            fontSize: isTablet ? '16px' : '14px',
-          }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
+          className="flex-shrink-0"
         >
           <Plus className="w-4 h-4 flex-shrink-0" />
           הוסף ספק
-        </button>
+        </Button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: 'סה"כ ספקים',   value: String(suppliers.length), color: '#1F2937' },
-          { label: 'ספקים פעילים', value: String(activeCount),       color: '#16A34A' },
-          { label: 'יתרה כוללת',   value: formatILS(totalBalance),   color: '#1F2937' },
-        ].map(({ label, value, color }) => (
-          <div
-            key={label}
-            className="bg-white rounded-2xl p-4 shadow-sm border text-center"
-            style={{ borderColor: '#EEEEF2' }}
-          >
-            <p className="text-2xl" style={{ color, fontWeight: 500 }}>{value}</p>
-            <p className="text-gray-500 mt-1" style={{ fontSize: isTablet ? '15px' : '13px' }}>{label}</p>
-          </div>
-        ))}
-      </div>
+      <SummaryCards items={[
+        { label: 'סה"כ ספקים',   value: String(suppliers.length), Icon: Users,     tone: 'brand' },
+        { label: 'ספקים פעילים', value: String(activeCount),       Icon: UserCheck, tone: 'green' },
+        { label: 'יתרה כוללת',   value: formatILS(totalBalance),   Icon: Wallet,    tone: 'blue' },
+      ]} />
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -554,11 +645,11 @@ export default function Suppliers({
               style={{
                 minHeight: isTablet ? '40px' : '34px',
                 fontSize: isTablet ? '16px' : '13px',
-                background: statusFilter === f ? '#D32F4A' : 'transparent',
+                background: statusFilter === f ? 'var(--brand-primary)' : 'transparent',
                 color: statusFilter === f ? 'white' : '#6B7280',
               }}
             >
-              {f === 'all' ? 'הכל' : f}
+              {f === 'all' ? 'הכל' : f === 'פעיל' ? 'פעילים' : 'לא פעילים'}
             </button>
           ))}
         </div>
@@ -569,39 +660,61 @@ export default function Suppliers({
           <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <input
             type="text"
-            placeholder="חיפוש לפי שם, קטגוריה, איש קשר..."
+            placeholder="חיפוש לפי שם, ח.פ, קטגוריה, איש קשר..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="flex-1 bg-transparent outline-none text-gray-700 text-right"
             style={{ fontSize: '16px' }}
           />
         </div>
+
+        {/* View toggle: cards ⇄ table (remembered per session) */}
+        <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#EEEEF2' }}>
+          {([
+            { key: 'cards', Icon: LayoutGrid, label: 'תצוגת כרטיסים' },
+            { key: 'table', Icon: Table2,     label: 'תצוגת טבלה' },
+          ] as const).map(({ key, Icon, label }) => {
+            const on = view === key
+            return (
+              <button
+                key={key}
+                onClick={() => setViewPersist(key)}
+                title={label}
+                aria-label={label}
+                className="flex items-center justify-center rounded-lg transition-all"
+                style={{
+                  width: isTablet ? '44px' : '38px',
+                  height: isTablet ? '40px' : '34px',
+                  background: on ? 'var(--brand-primary)' : 'transparent',
+                  color: on ? 'white' : '#9CA3AF',
+                }}
+              >
+                <Icon className="w-4 h-4" />
+              </button>
+            )
+          })}
+        </div>
       </div>
 
-      {/* Card grid */}
-      {filtered.length === 0 && !showAdd ? (
+      {/* List — empty state, else the chosen view */}
+      {filtered.length === 0 && !showAdd && !editingId ? (
         <div className="py-16 text-center text-gray-400">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p style={{ fontSize: '16px' }}>לא נמצאו ספקים</p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      ) : view === 'cards' ? (
 
-          {/* Add form card */}
+        /* ─────────── CARD VIEW (add/edit forms render inline in the grid) ─────────── */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {showAdd && (
             <SupplierFormCard
               title="ספק חדש"
               form={addForm}
               onChange={setAddForm}
               onSave={saveAdd}
-              onCancel={() => {
-                setShowAdd(false)
-                if (prefillForAlert) onCancelAlertPrefill?.()
-              }}
+              onCancel={() => { setShowAdd(false); if (prefillForAlert) onCancelAlertPrefill?.() }}
             />
           )}
-
-          {/* Supplier cards */}
           {filtered.map((sup) => {
             if (editingId === sup.id && editForm) {
               return (
@@ -615,108 +728,199 @@ export default function Suppliers({
                 />
               )
             }
-
-            const catStyle = categoryColors[sup.category] ?? { bg: '#F3F4F6', color: '#6B7280' }
-            const isActive = sup.status === 'פעיל'
             const contactLine = [sup.contact, sup.phone].filter(Boolean).join(' · ') || '—'
-
             return (
               <div
                 key={sup.id}
-                className="bg-white rounded-2xl shadow-sm border flex flex-col"
-                style={{ borderColor: '#EEEEF2' }}
+                onClick={() => openDetail(sup.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter') openDetail(sup.id) }}
+                className="bg-white flex flex-col transition-all"
+                style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)', position: 'relative', overflow: 'hidden', cursor: 'pointer' }}
+                onMouseEnter={(e) => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = '0 2px 6px rgba(16,17,21,.06), 0 12px 28px rgba(16,17,21,.10)'; el.style.borderColor = '#E4E5EA' }}
+                onMouseLeave={(e) => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)'; el.style.borderColor = '#EEEEF2' }}
               >
-                <div className="p-5 flex-1 flex flex-col gap-4">
+                {/* Accent strip on the RTL right edge — subtle BRAND accent (not status) */}
+                <span aria-hidden style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '4px', background: 'var(--brand-primary)' }} />
 
-                  {/* Status | Category — fixed height row */}
-                  <div className="flex items-center justify-between" style={{ minHeight: '28px' }}>
-                    <span
-                      className="rounded-lg font-bold"
-                      style={{
-                        fontSize: '12px', padding: '4px 12px',
-                        background: isActive ? '#DCFCE7' : '#F3F4F6',
-                        color: isActive ? '#16A34A' : '#6B7280',
-                      }}
-                    >
-                      {sup.status}
-                    </span>
-                    <span
-                      className="rounded-lg font-medium truncate"
-                      style={{
-                        fontSize: '12px', padding: '4px 10px',
-                        backgroundColor: catStyle.bg, color: catStyle.color,
-                        maxWidth: '55%',
-                      }}
-                    >
-                      {sup.category}
-                    </span>
+                <div className="flex-1 flex flex-col gap-4" style={{ padding: '20px 22px 20px 20px' }}>
+                  {/* status + category */}
+                  <div className="flex items-center justify-between gap-2" style={{ minHeight: '28px' }}>
+                    <StatusPill status={sup.status} />
+                    <span className="min-w-0" style={{ maxWidth: '58%' }}><CategoryChip category={sup.category} /></span>
                   </div>
-
-                  {/* Name + contact — always 2 lines */}
-                  <div className="text-right" style={{ minHeight: isTablet ? '54px' : '48px' }}>
-                    <h3
-                      className="font-semibold truncate"
-                      style={{ color: '#1A1A2E', fontSize: isTablet ? '20px' : '18px' }}
-                    >
-                      {sup.name}
-                    </h3>
-                    <p
-                      className="text-gray-500 mt-1 truncate"
-                      style={{ fontSize: isTablet ? '15px' : '13px' }}
-                    >
-                      {contactLine}
+                  {/* name + contact */}
+                  <div className="text-right" style={{ minHeight: isTablet ? '52px' : '46px' }}>
+                    <h3 className="truncate" style={{ color: '#12131A', fontSize: isTablet ? '20px' : '18px', fontWeight: 700, letterSpacing: '-0.01em' }}>{sup.name}</h3>
+                    <p className="text-gray-400 mt-1 truncate" style={{ fontSize: isTablet ? '14px' : '13px' }}>{contactLine}</p>
+                  </div>
+                  {/* current balance, stamped with today's date */}
+                  <div style={{ background: '#F7F7FA', borderRadius: '14px', padding: '14px 16px' }}>
+                    <div className="flex items-center justify-between">
+                      <span style={{ fontSize: '11px', color: '#9CA3AF' }}>נכון ל־{today}</span>
+                      <span style={{ fontSize: '12px', color: '#9CA3AF', fontWeight: 500 }}>יתרה עדכנית</span>
+                    </div>
+                    <p className="text-right mt-1" style={{ fontSize: isTablet ? '26px' : '23px', fontWeight: 700, color: '#12131A', letterSpacing: '-0.02em' }}>
+                      {formatILS(Number(sup.balance) || 0)}
                     </p>
                   </div>
-
-                  {/* Balance box — fixed structure */}
-                  <div className="rounded-xl p-3 text-right" style={{ background: '#F5F5F8' }}>
-                    <p style={{ fontSize: '11px', color: '#9CA3AF', minHeight: '16px' }}>
-                      יתרת פתיחה{(sup as any).openingBalanceDate ? ` · ${(sup as any).openingBalanceDate}` : ''}
-                    </p>
-                    <p className="mt-0.5" style={{ fontSize: isTablet ? '24px' : '22px', fontWeight: 500, color: '#1A1A2E' }}>
-                      {formatILS((sup as any).openingBalance ?? 0)}
-                    </p>
-                  </div>
-
                 </div>
-
-                {/* Action buttons — always at bottom */}
-                <div className="flex gap-2 px-5 pb-5 mt-auto">
+                {/* actions — lighter now that the whole card is clickable */}
+                <div className="flex gap-2 mt-auto" style={{ padding: '0 22px 20px 20px' }}>
                   <button
-                    onClick={() => openDetail(sup.id)}
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
-                    style={{
-                      minHeight: '44px',
-                      fontSize: isTablet ? '15px' : '14px',
-                      background: '#D32F4A',
-                      color: 'white',
-                    }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.opacity = '1')}
+                    onClick={(e) => { e.stopPropagation(); openDetail(sup.id) }}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-xl font-semibold transition-all"
+                    style={{ minHeight: '38px', fontSize: '13px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
                   >
-                    <ChevronLeft className="w-4 h-4" />
                     פרטים
+                    <ChevronLeft className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => startEdit(sup)}
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
-                    style={{
-                      minHeight: '44px',
-                      fontSize: isTablet ? '15px' : '14px',
-                      background: '#FDF2F4',
-                      color: '#D32F4A',
-                    }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+                    onClick={(e) => { e.stopPropagation(); startEdit(sup) }}
+                    className="flex items-center justify-center rounded-xl transition-all"
+                    title="עריכה"
+                    style={{ minHeight: '38px', width: '44px', background: 'white', border: '1px solid #E7E8EC', color: 'var(--brand-primary)' }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F7F7FA')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
                   >
                     <Pencil className="w-4 h-4" />
-                    עריכה
                   </button>
                 </div>
               </div>
             )
           })}
+        </div>
 
+      ) : (
+
+        /* ─────────── TABLE VIEW (add/edit forms render above the table) ─────────── */
+        <div className="space-y-4">
+          {showAdd && (
+            <div style={{ maxWidth: '560px' }}>
+              <SupplierFormCard
+                title="ספק חדש"
+                form={addForm}
+                onChange={setAddForm}
+                onSave={saveAdd}
+                onCancel={() => { setShowAdd(false); if (prefillForAlert) onCancelAlertPrefill?.() }}
+              />
+            </div>
+          )}
+          {editingId && editForm && (
+            <div style={{ maxWidth: '560px' }}>
+              <SupplierFormCard
+                title={`עריכת ${suppliers.find((s) => s.id === editingId)?.name ?? 'ספק'}`}
+                form={editForm}
+                onChange={(f) => setEditForm(f)}
+                onSave={saveEdit}
+                onCancel={() => { setEditingId(null); setEditForm(null) }}
+              />
+            </div>
+          )}
+          <div className="bg-white overflow-x-auto" style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)' }}>
+            <div style={{ minWidth: '640px' }}>
+              {/* header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.3fr 1.1fr 1fr 92px', gap: '12px', padding: '13px 20px', borderBottom: '1px solid #EEEEF2', background: '#FAFAFC' }}>
+                {['ספק', 'קטגוריה', `יתרה · ${today}`, 'סטטוס', ''].map((h, i) => (
+                  <span key={i} className="text-right" style={{ fontSize: '12px', fontWeight: 700, color: '#8A8D94', letterSpacing: '0.01em' }}>{h}</span>
+                ))}
+              </div>
+              {/* rows */}
+              {filtered.length === 0 ? (
+                <p className="text-center text-gray-400" style={{ padding: '40px', fontSize: '15px' }}>לא נמצאו ספקים</p>
+              ) : filtered.map((sup, idx) => {
+                const contactLine = [sup.contact, sup.phone].filter(Boolean).join(' · ')
+                return (
+                  <div
+                    key={sup.id}
+                    onClick={() => openDetail(sup.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter') openDetail(sup.id) }}
+                    className="items-center transition-colors"
+                    style={{ display: 'grid', gridTemplateColumns: '2fr 1.3fr 1.1fr 1fr 92px', gap: '12px', padding: '12px 20px', borderTop: idx === 0 ? 'none' : '1px solid #F1F2F4', cursor: 'pointer' }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
+                  >
+                    <div className="min-w-0 text-right">
+                      <p className="truncate" style={{ fontSize: '15px', fontWeight: 600, color: '#12131A' }}>{sup.name}</p>
+                      {contactLine && <p className="truncate text-gray-400" style={{ fontSize: '12px', marginTop: '2px' }}>{contactLine}</p>}
+                    </div>
+                    <div className="min-w-0 text-right"><CategoryChip category={sup.category} /></div>
+                    <div className="text-right" style={{ fontSize: '15px', fontWeight: 600, color: '#12131A' }}>{formatILS(Number(sup.balance) || 0)}</div>
+                    <div className="text-right"><StatusPill status={sup.status} /></div>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openDetail(sup.id) }}
+                        title="פרטים"
+                        className="flex items-center justify-center rounded-lg transition-colors"
+                        style={{ width: '34px', height: '34px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
+                        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
+                        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); startEdit(sup) }}
+                        title="עריכה"
+                        className="flex items-center justify-center rounded-lg transition-colors"
+                        style={{ width: '34px', height: '34px', background: 'white', border: '1px solid #E7E8EC', color: 'var(--brand-primary)' }}
+                        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F7F7FA')}
+                        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Possible-duplicate prompt on manual add — never silently drop the create. */}
+      {dupPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.45)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setDupPrompt(null) }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full" style={{ maxWidth: '460px', direction: 'rtl' }}>
+            <div className="flex items-center gap-2 border-b" style={{ padding: '16px 20px', borderColor: '#EEEEF2' }}>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#FEF9C3' }}>
+                <AlertTriangle className="w-5 h-5" style={{ color: '#A16207' }} />
+              </div>
+              <h3 className="font-bold text-gray-800" style={{ fontSize: '16px' }}>ספק דומה כבר קיים</h3>
+              <button
+                onClick={() => setDupPrompt(null)}
+                className="text-gray-400 hover:text-gray-600"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', marginInlineStart: 'auto' }}
+                title="סגירה"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div style={{ padding: '18px 20px' }}>
+              <p className="text-gray-600 text-right" style={{ fontSize: '14px' }}>נמצא ספק קיים עם שם או ח.פ דומה:</p>
+              <div className="rounded-xl text-right mt-3" style={{ background: '#FAFAFC', border: '1px solid #EEEEF2', padding: '12px 14px' }}>
+                <p className="font-bold text-gray-800" style={{ fontSize: '15px' }}>{dupPrompt.existing.name}</p>
+                <p className="text-gray-500 mt-0.5" style={{ fontSize: '13px' }}>
+                  ח.פ: {dupPrompt.existing.hp?.trim() ? dupPrompt.existing.hp : 'לא הוזן'}
+                </p>
+              </div>
+              <p className="text-gray-500 text-right mt-3" style={{ fontSize: '13px' }}>
+                אפשר להשתמש בספק הקיים, או ליצור ספק חדש בכל זאת אם זה ספק אחר.
+              </p>
+            </div>
+            <div className="flex gap-2 border-t" style={{ padding: '14px 20px', borderColor: '#EEEEF2' }}>
+              <Button variant="primary" className="flex-1" onClick={useExisting}>השתמש בספק הקיים</Button>
+              <Button variant="outline" className="flex-1" onClick={createAnyway}>צור ספק חדש בכל זאת</Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

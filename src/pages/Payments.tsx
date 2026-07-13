@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download, Trash2 } from 'lucide-react'
+import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download, Trash2, Wallet, CalendarDays, Clock } from 'lucide-react'
 import { SearchableSelect } from '../components/SearchableSelect'
+import { StatusBadge as SharedStatusBadge } from '../components/StatusBadge'
+import { SummaryCards } from '../components/ui/SummaryCards'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { usePayments as usePaymentsData } from '../hooks/usePayments'
+import { tableWrap, tableHeadRow, tableHeadCell, tableRow } from '../components/ui/tableStyles'
+import { Button } from '../components/ui/Button'
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -153,16 +157,11 @@ const TYPE_COLORS: Record<string, { bg: string; color: string; accent: string }>
   'אחר':                    { bg: '#F9FAFB', color: '#374151', accent: '#6B7280' },
 }
 
-const STATUS_LABELS: Record<PaymentStatus, string> = {
-  paid: 'שולם',
-  pending: 'ממתין',
-  cancelled: 'בוטל',
-}
-
-const STATUS_COLORS: Record<PaymentStatus, { bg: string; color: string }> = {
-  paid:      { bg: '#F0FDF4', color: '#16A34A' },
-  pending:   { bg: '#FEF3C7', color: '#92400E' },
-  cancelled: { bg: '#F3F4F6', color: '#6B7280' },
+// Map the payment status vocabulary onto the unified taxonomy (spec/06-RULES.md §1).
+const PAYMENT_STATUS_INTERNAL: Record<PaymentStatus, string> = {
+  paid: 'done',
+  pending: 'new',
+  cancelled: 'cancelled',
 }
 
 const EMPTY_FORM: FormState = {
@@ -190,15 +189,7 @@ function TypeBadge({ type }: { type: string }) {
 }
 
 function StatusBadge({ status }: { status: PaymentStatus }) {
-  const c = STATUS_COLORS[status]
-  return (
-    <span
-      className="inline-flex items-center rounded-lg font-bold"
-      style={{ background: c.bg, color: c.color, fontSize: '12px', padding: '3px 9px' }}
-    >
-      {STATUS_LABELS[status]}
-    </span>
-  )
+  return <SharedStatusBadge status={PAYMENT_STATUS_INTERNAL[status]} />
 }
 
 // Informational only — does NOT change status. Shown when a payment has already
@@ -301,14 +292,16 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   const [bizboxFrom, setBizboxFrom] = useState('')
   const [bizboxTo, setBizboxTo] = useState('')
 
-  // כל תשלום מיוצא פעם אחת בלבד: רק שורות שטרם נשלחו לביזבוקס ולא בוטלו.
-  // הסינון לפי טווח תאריכים (אופציונלי) מצמצם בתוך הקבוצה הזו לפי תאריך ההוספה —
-  // לעולם לא מחזיר שורות שכבר יוצאו.
+  // כל תשלום מיוצא פעם אחת בלבד: רק שורות שטרם נשלחו לביזבוקס ולא בוטלו (זו ברירת
+  // המחדל בלחיצה על "הורד" — כל מה שהצטבר מאז הייצוא האחרון). הסינון לפי טווח תאריכים
+  // (אופציונלי) מצמצם בתוך הקבוצה הזו לפי תאריך מתן ההוראה (payment_date) — אותו שדה
+  // שהטבלה מציגה כ"תאריך מתן הוראה", כך שהטווח שהמשתמשת רואה תואם למה שמיוצא בפועל.
+  // ההכללה לעולם אינה לפי value_date — צ'ק דחוי שהוזן היום ייכלל בייצוא של היום.
   const bizboxRows = payments.filter(p => {
     if (p.status === 'cancelled' || p.bizboxExportedAt) return false
     if (bizboxUseRange && bizboxFrom && bizboxTo) {
-      const created = (p.createdAt ?? '').slice(0, 10)
-      if (!created || created < bizboxFrom || created > bizboxTo) return false
+      const orderDate = p.date || ''   // payment_date — the "order date" the table shows
+      if (!orderDate || orderDate < bizboxFrom || orderDate > bizboxTo) return false
     }
     return true
   })
@@ -434,12 +427,15 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
       if (fltStatus && p.status !== fltStatus) return false
       return true
     })
-    // Safeguard mirroring usePayments order: asc by valueDate, nulls last.
+    // Sort by the order/creation date (payment_date), NEWEST on top; blanks last.
+    // Future value_date rows are NOT excluded — they appear ordered by when the
+    // payment instruction was given.
     .sort((a, b) => {
-      if (!a.valueDate && !b.valueDate) return 0
-      if (!a.valueDate) return 1
-      if (!b.valueDate) return -1
-      return a.valueDate < b.valueDate ? -1 : a.valueDate > b.valueDate ? 1 : 0
+      const da = a.date || '', db = b.date || ''
+      if (!da && !db) return 0
+      if (!da) return 1
+      if (!db) return -1
+      return db.localeCompare(da)
     })
 
   const futurePayments = payments
@@ -625,125 +621,82 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
     return (
       <div
-        className="flex items-center gap-3 rounded-2xl transition-all cursor-pointer"
+        className="bg-white rounded-2xl shadow-sm border transition-all cursor-pointer"
         style={{
-          border: isBad ? '2px solid #DC2626' : `1.5px solid #E2E4E9`,
-          borderRight: isBad ? '4px solid #DC2626' : `4px solid ${tc.accent}`,
+          borderColor: isBad ? '#DC2626' : '#E2E4E9',
+          borderRight: `4px solid ${isBad ? '#DC2626' : tc.accent}`,
           background: isBad ? '#FFF5F5' : 'white',
-          padding: isTablet ? '14px 16px' : '12px 14px',
-          minHeight: isTablet ? '72px' : undefined,
           opacity: isCancelled ? 0.55 : 1,
         }}
         onClick={() => openEdit(p.id)}
-        onMouseEnter={(e) =>
-          !isCancelled &&
-          ((e.currentTarget as HTMLElement).style.borderColor = tc.accent)
-        }
-        onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLElement).style.borderColor = '#E2E4E9')
-        }
+        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '0 4px 14px rgba(16,17,21,.08)')}
+        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '')}
       >
-        {/* Icon */}
-        <div
-          className="rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{
-            background: tc.bg,
-            width: isTablet ? '48px' : '42px',
-            height: isTablet ? '48px' : '42px',
-            fontSize: isTablet ? '22px' : '18px',
-          }}
-        >
-          {TYPE_EMOJI[p.type]}
-        </div>
+        <div className="p-4" style={{ direction: 'rtl' }}>
+          {/* Row 1 — icon · supplier + date/ref · amount */}
+          <div className="flex items-center gap-3">
+            <div
+              className="rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: tc.bg, width: '44px', height: '44px', fontSize: '20px' }}
+            >
+              {TYPE_EMOJI[p.type]}
+            </div>
+            <div className="flex-1 min-w-0 text-right">
+              <p className="font-bold text-gray-800 truncate" style={{ fontSize: '15px' }}>{p.supplier}</p>
+              <p className="text-gray-400 truncate" style={{ fontSize: '12px', marginTop: '2px' }}>
+                {fmtDate(p.date)}{p.ref ? ` · 🔖 ${p.ref}` : ''}
+              </p>
+            </div>
+            <p className="font-black text-gray-900 flex-shrink-0" style={{ fontSize: '18px' }}>
+              {fmtILS(p.amount)}
+            </p>
+          </div>
 
-        {/* Info */}
-        <div className="flex-1 min-w-0 text-right">
-          <div className="flex items-center justify-end gap-2 mb-1 flex-wrap">
+          {/* Row 2 — badges */}
+          <div className="flex items-center gap-2 flex-wrap justify-end" style={{ marginTop: '12px' }}>
             {isFutureValue && (
-              <span
-                className="rounded-lg font-medium"
-                style={{
-                  background: '#FEF3C7',
-                  color: '#92400E',
-                  fontSize: '11px',
-                  padding: '2px 8px',
-                }}
-              >
+              <span className="rounded-lg font-medium" style={{ background: '#FEF3C7', color: '#92400E', fontSize: '11px', padding: '3px 9px' }}>
                 📅 ערך {fmtDate(p.valueDate)}
               </span>
             )}
             <StatusBadge status={p.status} />
             {p.bizboxExportedAt && <BizboxBadge />}
             <TypeBadge type={p.type} />
-            <p
-              className="font-bold text-gray-800 truncate"
-              style={{ fontSize: isTablet ? '16px' : '14px' }}
-            >
-              {p.supplier}
-            </p>
-          </div>
-          <div className="flex items-center justify-end gap-3 flex-wrap">
-            <span className="text-gray-400" style={{ fontSize: '12px' }}>
-              {fmtDate(p.date)}
-            </span>
-            {p.ref && (
-              <span className="text-gray-400" style={{ fontSize: '12px' }}>
-                🔖 {p.ref}
-              </span>
-            )}
             {p.notes && (
-              <span className="text-gray-400 truncate" style={{ fontSize: '12px', maxWidth: '180px' }}>
-                {p.notes}
-              </span>
+              <span className="text-gray-400 truncate" style={{ fontSize: '12px', maxWidth: '200px' }}>{p.notes}</span>
             )}
           </div>
-        </div>
 
-        {/* Amount */}
-        <div className="text-left flex-shrink-0 px-2">
-          <p className="font-black text-gray-900" style={{ fontSize: isTablet ? '18px' : '16px' }}>
-            {fmtILS(p.amount)}
-          </p>
-        </div>
-
-        {/* Actions */}
-        <div
-          className="flex flex-col gap-1.5 flex-shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            className="rounded-lg flex items-center justify-center text-gray-400 transition-colors"
-            style={{ background: '#FFF0EF', width: isTablet ? '44px' : '36px', height: isTablet ? '36px' : '32px' }}
-            onClick={() => openEdit(p.id)}
-            title="עריכה"
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#E8645A')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
-          {isCancelled ? (
+          {/* Actions — pill buttons (stop bubbling so they don't open edit) */}
+          <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: '12px' }} onClick={(e) => e.stopPropagation()}>
             <button
-              className="rounded-lg flex items-center justify-center text-gray-400 transition-colors"
-              style={{ background: '#F0FDF4', width: isTablet ? '44px' : '36px', height: isTablet ? '36px' : '32px' }}
-              onClick={() => handleRestore(p.id)}
-              title="שחזור"
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#16A34A')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
+              onClick={() => openEdit(p.id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+              style={{ background: 'var(--brand-active-bg)', color: 'var(--brand-primary)' }}
             >
-              <RotateCcw className="w-4 h-4" />
+              <Pencil className="w-3 h-3" />
+              עריכה
             </button>
-          ) : (
-            <button
-              className="rounded-lg flex items-center justify-center text-gray-400 transition-colors"
-              style={{ background: '#FEF2F2', width: isTablet ? '44px' : '36px', height: isTablet ? '36px' : '32px' }}
-              onClick={() => setConfirmId(p.id)}
-              title="ביטול"
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#DC2626')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+            {isCancelled ? (
+              <button
+                onClick={() => handleRestore(p.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+                style={{ background: '#DCFCE7', color: '#166534' }}
+              >
+                <RotateCcw className="w-3 h-3" />
+                שחזור
+              </button>
+            ) : (
+              <button
+                onClick={() => setConfirmId(p.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+                style={{ background: '#FEE2E2', color: '#DC2626' }}
+              >
+                <X className="w-3 h-3" />
+                ביטול
+              </button>
+            )}
+          </div>
         </div>
       </div>
     )
@@ -758,63 +711,40 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
     return (
       <div
-        className="flex items-center gap-3 bg-white rounded-2xl transition-all cursor-pointer"
-        style={{
-          border: `1.5px solid ${borderColor}`,
-          padding: isTablet ? '14px 16px' : '12px 14px',
-          minHeight: isTablet ? '72px' : undefined,
-        }}
+        className="bg-white rounded-2xl shadow-sm border transition-all cursor-pointer"
+        style={{ borderColor: '#E2E4E9', borderRight: `4px solid ${borderColor}` }}
         onClick={() => openEdit(p.id)}
-        onMouseEnter={(e) =>
-          ((e.currentTarget as HTMLElement).style.boxShadow =
-            '0 4px 12px rgba(0,0,0,.08)')
-        }
-        onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLElement).style.boxShadow = 'none')
-        }
+        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '0 4px 14px rgba(16,17,21,.08)')}
+        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = '')}
       >
-        <div
-          className="rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{
-            background: tc.bg,
-            width: isTablet ? '48px' : '42px',
-            height: isTablet ? '48px' : '42px',
-            fontSize: isTablet ? '22px' : '18px',
-          }}
-        >
-          {TYPE_EMOJI[p.type]}
-        </div>
-
-        <div className="flex-1 min-w-0 text-right">
-          <div className="flex items-center justify-end gap-2 mb-1">
-            <TypeBadge type={p.type} />
-            <p className="font-bold text-gray-800" style={{ fontSize: isTablet ? '16px' : '14px' }}>
-              {p.supplier}
+        <div className="p-4" style={{ direction: 'rtl' }}>
+          {/* Row 1 — icon · supplier + payment date/ref · amount */}
+          <div className="flex items-center gap-3">
+            <div
+              className="rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: tc.bg, width: '44px', height: '44px', fontSize: '20px' }}
+            >
+              {TYPE_EMOJI[p.type]}
+            </div>
+            <div className="flex-1 min-w-0 text-right">
+              <p className="font-bold text-gray-800 truncate" style={{ fontSize: '15px' }}>{p.supplier}</p>
+              <p className="text-gray-400 truncate" style={{ fontSize: '12px', marginTop: '2px' }}>
+                תשלום {fmtDate(p.date)}{p.ref ? ` · 🔖 ${p.ref}` : ''}
+              </p>
+            </div>
+            <p className="font-black text-gray-900 flex-shrink-0" style={{ fontSize: '18px' }}>
+              {fmtILS(p.amount)}
             </p>
           </div>
-          <div className="flex items-center justify-end gap-3 flex-wrap">
-            <span className="text-gray-400" style={{ fontSize: '12px' }}>
-              📅 ערך: {fmtDate(p.valueDate)}
+
+          {/* Row 2 — value-date chip · type · days-until chip */}
+          <div className="flex items-center gap-2 flex-wrap justify-start" style={{ marginTop: '12px' }}>
+            <span className="rounded-lg font-medium" style={{ background: '#FEF3C7', color: '#92400E', fontSize: '11px', padding: '3px 9px' }}>
+              📅 ערך {fmtDate(p.valueDate)}
             </span>
-            <span className="text-gray-400" style={{ fontSize: '12px' }}>
-              תשלום: {fmtDate(p.date)}
-            </span>
-            {p.ref && (
-              <span className="text-gray-400" style={{ fontSize: '12px' }}>
-                🔖 {p.ref}
-              </span>
-            )}
+            <TypeBadge type={p.type} />
+            <DaysChip days={days} />
           </div>
-        </div>
-
-        <div className="text-left flex-shrink-0 px-2">
-          <p className="font-black text-gray-900" style={{ fontSize: isTablet ? '18px' : '16px' }}>
-            {fmtILS(p.amount)}
-          </p>
-        </div>
-
-        <div className="flex-shrink-0">
-          <DaysChip days={days} />
         </div>
       </div>
     )
@@ -854,48 +784,20 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
             {payments.length} תשלומים במערכת
           </p>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <div
-            className="flex gap-3 flex-wrap"
-            style={{ fontSize: isTablet ? '14px' : '13px' }}
-          >
-            <div
-              className="rounded-xl px-4 py-2 font-semibold"
-              style={{ background: '#EFF6FF', color: '#1D4ED8' }}
-            >
-              סה"כ פעיל: {fmtILS(activeTotal)}
-            </div>
-            <div
-              className="rounded-xl px-4 py-2 font-semibold"
-              style={{ background: '#FEF3C7', color: '#92400E' }}
-            >
-              עתידי: {fmtILS(futureTotal)}
-            </div>
-            <div
-              className="rounded-xl px-4 py-2 font-semibold"
-              style={{ background: '#FFF0EF', color: '#8B1A3A' }}
-            >
-              {futurePayments.length} תשלומים ממתינים
-            </div>
-          </div>
-          <button
-            onClick={openBizbox}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '7px',
-              background: 'linear-gradient(135deg, #1D4ED8, #2563EB)',
-              color: 'white', border: 'none', borderRadius: '12px',
-              padding: isTablet ? '10px 18px' : '8px 14px',
-              fontSize: isTablet ? '14px' : '13px', fontWeight: 700,
-              cursor: 'pointer', boxShadow: '0 2px 8px rgba(29,78,216,0.25)',
-            }}
-            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#1E40AF')}
-            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'linear-gradient(135deg, #1D4ED8, #2563EB)')}
-          >
-            <Download size={15} />
-            ייצא לביזיבוקס
-          </button>
-        </div>
+        <Button onClick={openBizbox} variant="primary" className="flex-shrink-0">
+          <Download size={15} />
+          ייצא לביזיבוקס
+        </Button>
       </div>
+
+      {/* ── Summary tiles (shared SummaryCards — the app-wide reference) ──── */}
+      <SummaryCards
+        items={[
+          { label: 'סה"כ פעיל',       value: fmtILS(activeTotal),           Icon: Wallet,       tone: 'blue' },
+          { label: 'עתידי',           value: fmtILS(futureTotal),           Icon: CalendarDays, tone: 'yellow' },
+          { label: 'תשלומים ממתינים', value: String(futurePayments.length), Icon: Clock,        tone: 'brand' },
+        ]}
+      />
 
       {/* ── Tabs ──────────────────────────────────────────────────────────── */}
       <div
@@ -917,7 +819,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               fontSize: isTablet ? '15px' : '14px',
               minHeight: isTablet ? '44px' : '38px',
               background: activeTab === id ? 'white' : 'transparent',
-              color: activeTab === id ? '#8B1A3A' : '#6B7280',
+              color: activeTab === id ? 'var(--brand-primary-dark)' : '#6B7280',
               boxShadow: activeTab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
             }}
           >
@@ -955,12 +857,12 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               {/* RIGHT (RTL start): title cluster */}
               <div className="flex items-center gap-2 font-bold text-gray-700">
                 הוספת תשלום חדש
-                <Plus className="w-4 h-4" style={{ color: '#8B1A3A' }} />
+                <Plus className="w-4 h-4" style={{ color: 'var(--brand-primary-dark)' }} />
               </div>
               {/* LEFT (RTL end): show/hide toggle */}
               <button
                 className="text-sm font-medium rounded-lg px-3 py-1.5 transition-colors"
-                style={{ color: '#8B1A3A', background: '#FFF0EF' }}
+                style={{ color: 'var(--brand-primary-dark)', background: '#FFF0EF' }}
                 onClick={() => setShowForm((v) => !v)}
               >
                 {showForm ? 'הסתר' : 'הצג'}
@@ -1002,7 +904,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       value={form.amount}
                       onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
                       required
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     />
                   </div>
@@ -1023,7 +925,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                         }))
                       }
                       required
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     >
                       <option value="">— בחר סוג —</option>
@@ -1042,7 +944,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       value={form.date}
                       onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
                       required
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     />
                   </div>
@@ -1056,7 +958,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       placeholder="מס' צ'ק / אסמכתא..."
                       value={form.ref}
                       onChange={(e) => setForm((f) => ({ ...f, ref: e.target.value }))}
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     />
                   </div>
@@ -1073,7 +975,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                         value={form.valueDate}
                         onChange={(e) => setForm((f) => ({ ...f, valueDate: e.target.value }))}
                         required
-                        onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                        onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                         onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                       />
                     </div>
@@ -1088,45 +990,24 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       placeholder="הערות נוספות..."
                       value={form.notes}
                       onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     />
                   </div>
                 </div>
 
                 <div className="flex gap-3 mt-5">
-                  <button
-                    type="submit"
-                    className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
-                    style={{
-                      background: '#7C3AED',
-                      padding: isTablet ? '12px 24px' : '10px 20px',
-                      fontSize: isTablet ? '16px' : '14px',
-                      minHeight: '44px',
-                    }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
-                  >
+                  <Button type="submit" variant="primary" className="flex items-center gap-2">
                     <Plus className="w-4 h-4" />
                     שמור תשלום
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    className="rounded-xl font-semibold transition-all"
-                    style={{
-                      border: '1.5px solid #E2E4E9',
-                      background: 'white',
-                      color: '#6B7280',
-                      padding: isTablet ? '12px 20px' : '10px 16px',
-                      fontSize: isTablet ? '16px' : '14px',
-                      minHeight: '44px',
-                    }}
+                    variant="ghost"
                     onClick={() => setForm({ ...EMPTY_FORM, date: todayStr() })}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
                   >
                     נקה
-                  </button>
+                  </Button>
                 </div>
               </form>
             )}
@@ -1177,7 +1058,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   style={{ ...inputStyle, minHeight: isTablet ? '44px' : '38px' }}
                   value={fltType}
                   onChange={(e) => setFltType(e.target.value)}
-                  onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                  onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                   onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                 >
                   <option value="">הכל</option>
@@ -1192,7 +1073,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   style={{ ...inputStyle, minHeight: isTablet ? '44px' : '38px' }}
                   value={fltMonth}
                   onChange={(e) => setFltMonth(e.target.value)}
-                  onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                  onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                   onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                 >
                   <option value="">כל החודשים</option>
@@ -1218,7 +1099,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   style={{ ...inputStyle, minHeight: isTablet ? '44px' : '38px' }}
                   value={fltStatus}
                   onChange={(e) => setFltStatus(e.target.value)}
-                  onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                  onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                   onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                 >
                   <option value="">הכל</option>
@@ -1270,7 +1151,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   padding: '7px 13px', borderRadius: '8px', fontSize: '13px',
                   fontWeight: 600, border: 'none', cursor: 'pointer',
                   background: viewMode === 'table' ? 'white' : 'transparent',
-                  color: viewMode === 'table' ? '#8B1A3A' : '#6B7280',
+                  color: viewMode === 'table' ? 'var(--brand-primary-dark)' : '#6B7280',
                   boxShadow: viewMode === 'table' ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
                 }}
               >
@@ -1284,7 +1165,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   padding: '7px 13px', borderRadius: '8px', fontSize: '13px',
                   fontWeight: 600, border: 'none', cursor: 'pointer',
                   background: viewMode === 'cards' ? 'white' : 'transparent',
-                  color: viewMode === 'cards' ? '#8B1A3A' : '#6B7280',
+                  color: viewMode === 'cards' ? 'var(--brand-primary-dark)' : '#6B7280',
                   boxShadow: viewMode === 'cards' ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
                 }}
               >
@@ -1311,34 +1192,35 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
             </div>
           ) : viewMode === 'table' ? (() => {
               const pCOL = isMobile
-                ? '110px 1fr 110px 80px 80px 80px'
-                : '120px 1fr 110px 80px 100px 80px 80px'
-              const pMIN = isMobile ? '505px' : '720px'
+                ? '110px 110px 1fr 100px 80px 80px 80px'
+                : '120px 120px 1fr 110px 80px 100px 80px 80px'
+              const pMIN = isMobile ? '620px' : '840px'
               const activeTotal = filtered.filter(p => p.status !== 'cancelled').reduce((s, p) => s + (Number(p.amount) || 0), 0)
               const activeCount = filtered.filter(p => p.status !== 'cancelled').length
               return (
-                <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+                <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={tableWrap}>
                   <div style={{ overflowX: 'auto' }}>
                     {/* Column headers */}
                     <div
                       className="grid font-bold text-gray-500 border-b"
                       style={{
+                        ...tableHeadRow,
+                        display: 'grid',
                         gridTemplateColumns: pCOL, minWidth: pMIN,
-                        padding: '10px 16px', fontSize: '12px',
-                        background: '#F8F9FA', borderColor: '#E2E4E9', textAlign: 'right',
                       }}
                     >
-                      <span>תאריך ערך</span>
-                      <span>ספק</span>
-                      <span>סכום</span>
-                      <span>סוג</span>
-                      {!isMobile && <span>אסמכתא</span>}
-                      <span>סטטוס</span>
-                      <span className="text-center">פעולות</span>
+                      <span style={tableHeadCell}>תאריך מתן הוראה</span>
+                      <span style={tableHeadCell}>תאריך ערך</span>
+                      <span style={tableHeadCell}>ספק</span>
+                      <span style={tableHeadCell}>סכום</span>
+                      <span style={tableHeadCell}>סוג</span>
+                      {!isMobile && <span style={tableHeadCell}>אסמכתא</span>}
+                      <span style={tableHeadCell}>סטטוס</span>
+                      <span className="text-center" style={tableHeadCell}>פעולות</span>
                     </div>
 
                     {/* Data rows */}
-                    {filtered.map((p) => {
+                    {filtered.map((p, index) => {
                       const isCancelled = p.status === 'cancelled'
                       const isBad = highlightedBadIds.has(p.id)
                       const valueDays = p.valueDate ? daysFromToday(p.valueDate) : null
@@ -1351,25 +1233,31 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                           key={p.id}
                           className="grid items-center"
                           style={{
+                            ...tableRow(index === 0),
+                            display: 'grid',
                             gridTemplateColumns: pCOL,
-                            borderBottom: `1px solid ${isBad ? '#FECACA' : '#E2E4E9'}`,
-                            background: isBad ? '#FFF5F5' : undefined,
-                            outline: isBad ? '2px solid #DC2626' : undefined,
-                            outlineOffset: isBad ? '-2px' : undefined,
-                            opacity: isCancelled ? 0.6 : 1,
+                            minWidth: pMIN,
+                            alignItems: 'center',
+                            minHeight: '56px',
                             cursor: 'pointer',
                             transition: 'background 0.1s',
-                            minHeight: '56px',
-                            padding: '12px 16px',
-                            minWidth: pMIN,
-                            textAlign: 'right',
+                            opacity: isCancelled ? 0.6 : 1,
+                            ...(isBad ? {
+                              borderTop: index === 0 ? undefined : '1px solid #FECACA',
+                              background: '#FFF5F5',
+                              outline: '2px solid #DC2626',
+                              outlineOffset: '-2px',
+                            } : {}),
                           }}
                           onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = isBad ? '#FEE2E2' : '#F8F9FA')}
                           onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = isBad ? '#FFF5F5' : 'transparent')}
                           onClick={() => openEdit(p.id)}
                         >
-                          {/* Primary date column now shows the VALUE date (matches the
-                              value_date sort), with the urgency chip preserved. */}
+                          {/* Order/creation date (payment_date) — the table is sorted by this. */}
+                          <span style={{ whiteSpace: 'nowrap', fontSize: isTablet ? '14px' : '13px', color: '#374151' }}>
+                            {p.date ? fmtDate(p.date) : <span style={{ color: '#D1D5DB' }}>—</span>}
+                          </span>
+                          {/* Value date (when money leaves the account), with the urgency chip. */}
                           <span style={{ whiteSpace: 'nowrap' }}>
                             {p.valueDate ? (
                               <span style={{ color: valueDateColor, fontWeight: valueDays !== null && valueDays <= 7 ? 700 : 400, fontSize: isTablet ? '14px' : '13px' }}>
@@ -1450,7 +1338,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       <span style={{ gridColumn: 'span 2', fontWeight: 700, color: '#6B7280', fontSize: isTablet ? '14px' : '13px' }}>
                         סה"כ ({activeCount} פעילים)
                       </span>
-                      <span style={{ fontWeight: 900, fontSize: isTablet ? '16px' : '14px', color: '#8B1A3A' }}>
+                      <span style={{ fontWeight: 900, fontSize: isTablet ? '16px' : '14px', color: 'var(--brand-primary-dark)' }}>
                         {fmtILS(activeTotal)}
                       </span>
                       <span style={{ gridColumn: isMobile ? 'span 3' : 'span 4' }} />
@@ -1475,7 +1363,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
           style={{ borderColor: '#E2E4E9' }}
         >
           <div
-            className="px-5 py-3 border-b font-bold text-gray-700 flex items-center justify-end gap-2"
+            className="px-5 py-3 border-b font-bold text-gray-700 flex items-center justify-start gap-2"
             style={{ borderColor: '#F5EEEE', background: '#F8F9FA', fontSize: isTablet ? '16px' : '14px' }}
           >
             תשלומים עתידיים — צ'קים ואשראי
@@ -1495,7 +1383,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 {urgentList.length > 0 && (
                   <div>
                     <div
-                      className="flex items-center justify-end gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
+                      className="flex items-center justify-start gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
                       style={{ borderColor: '#FEE2E2', color: '#DC2626', fontSize: '12px' }}
                     >
                       דחוף — תוך 7 ימים ({urgentList.length})
@@ -1512,7 +1400,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 {soonList.length > 0 && (
                   <div>
                     <div
-                      className="flex items-center justify-end gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
+                      className="flex items-center justify-start gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
                       style={{ borderColor: '#FEF3C7', color: '#D97706', fontSize: '12px' }}
                     >
                       בקרוב — 8–30 ימים ({soonList.length})
@@ -1529,7 +1417,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 {laterList.length > 0 && (
                   <div>
                     <div
-                      className="flex items-center justify-end gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
+                      className="flex items-center justify-start gap-2 mb-3 pb-2 border-b font-bold uppercase tracking-wide"
                       style={{ borderColor: '#DCFCE7', color: '#16A34A', fontSize: '12px' }}
                     >
                       מאוחר יותר — מעל 30 יום ({laterList.length})
@@ -1543,16 +1431,16 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                   </div>
                 )}
 
-                {/* Total */}
+                {/* Total — label on the RIGHT (RTL start), amount on the LEFT */}
                 <div
                   className="flex items-center justify-between rounded-xl px-5 py-4 mt-2"
-                  style={{ background: '#F8F9FA', border: '1.5px solid #E2E4E9' }}
+                  style={{ background: '#F8F9FA', border: '1.5px solid #E2E4E9', direction: 'rtl' }}
                 >
-                  <p className="font-black text-gray-900" style={{ fontSize: isTablet ? '22px' : '20px' }}>
-                    {fmtILS(futureTotal)}
-                  </p>
                   <p className="font-semibold text-gray-500" style={{ fontSize: isTablet ? '15px' : '14px' }}>
                     סה"כ תשלומים עתידיים
+                  </p>
+                  <p className="font-black text-gray-900" style={{ fontSize: isTablet ? '22px' : '20px' }}>
+                    {fmtILS(futureTotal)}
                   </p>
                 </div>
               </>
@@ -1616,7 +1504,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     value={editForm.amount}
                     onChange={(e) => setEditForm((f) => f && { ...f, amount: e.target.value })}
                     required
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   />
                 </div>
@@ -1630,7 +1518,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                         f && { ...f, type: e.target.value as PaymentType, valueDate: '' }
                       )
                     }
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   >
                     {BIZBOX_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1644,7 +1532,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     value={editForm.date}
                     onChange={(e) => setEditForm((f) => f && { ...f, date: e.target.value })}
                     required
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   />
                 </div>
@@ -1655,7 +1543,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     type="text"
                     value={editForm.ref}
                     onChange={(e) => setEditForm((f) => f && { ...f, ref: e.target.value })}
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   />
                 </div>
@@ -1667,7 +1555,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       type="date"
                       value={editForm.valueDate}
                       onChange={(e) => setEditForm((f) => f && { ...f, valueDate: e.target.value })}
-                      onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                      onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                       onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                     />
                   </div>
@@ -1680,7 +1568,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     onChange={(e) =>
                       setEditForm((f) => f && { ...f, status: e.target.value as PaymentStatus })
                     }
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   >
                     <option value="paid">✅ שולם</option>
@@ -1695,7 +1583,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     type="text"
                     value={editForm.notes}
                     onChange={(e) => setEditForm((f) => f && { ...f, notes: e.target.value })}
-                    onFocus={(e) => (e.target.style.borderColor = '#8B1A3A')}
+                    onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   />
                 </div>
@@ -1705,56 +1593,21 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 className="flex gap-3 mt-5 pt-4 border-t"
                 style={{ borderColor: '#E2E4E9' }}
               >
-                <button
-                  type="submit"
-                  className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
-                  style={{
-                    background: '#7C3AED',
-                    padding: '12px 24px',
-                    fontSize: isTablet ? '16px' : '14px',
-                    minHeight: '44px',
-                  }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#6D28D9')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#7C3AED')}
-                >
+                <Button type="submit" variant="primary">
                   💾 שמור שינויים
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl font-semibold transition-all"
-                  style={{
-                    border: '1.5px solid #E2E4E9',
-                    background: 'white',
-                    color: '#6B7280',
-                    padding: '12px 20px',
-                    fontSize: isTablet ? '16px' : '14px',
-                    minHeight: '44px',
-                  }}
-                  onClick={closeEdit}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
-                >
+                </Button>
+                <Button type="button" variant="outline" onClick={closeEdit}>
                   ביטול
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-                  style={{
-                    border: '1.5px solid #FECACA',
-                    background: '#FEF2F2',
-                    color: '#DC2626',
-                    padding: '12px 20px',
-                    fontSize: isTablet ? '16px' : '14px',
-                    minHeight: '44px',
-                    marginRight: 'auto',
-                  }}
+                  variant="danger"
+                  className="flex items-center gap-2 mr-auto"
                   onClick={() => { const id = editId; closeEdit(); if (id) setConfirmDeleteId(id) }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEE2E2')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEF2F2')}
                 >
                   <Trash2 className="w-4 h-4" />
                   מחק תשלום
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -1854,53 +1707,32 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 display: 'flex', gap: '10px', direction: 'rtl', flexWrap: 'wrap',
               }}
             >
-              <button
+              <Button
+                variant="outline"
+                className="flex-1"
                 onClick={() => {
                   setHighlightedBadIds(new Set(bizboxIssues.map(x => x.payment.id)))
                   setShowBizboxValidation(false)
                   setShowBizbox(false)
                 }}
-                style={{
-                  flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  gap: '6px', background: '#8B1A3A', color: 'white', border: 'none',
-                  borderRadius: '12px', padding: '12px 16px', fontSize: '14px', fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
-                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
               >
                 <Pencil size={14} />
                 ערוך לפני ייצוא
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1"
                 onClick={() => {
                   const validRows = bizboxRows.filter(p => getMissingFields(p).length === 0)
                   doExportBizbox(validRows)
                 }}
-                style={{
-                  flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  gap: '6px', background: '#1D4ED8', color: 'white', border: 'none',
-                  borderRadius: '12px', padding: '12px 16px', fontSize: '14px', fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
-                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
               >
                 <Download size={14} />
                 ייצא בכל זאת ({bizboxRows.filter(p => getMissingFields(p).length === 0).length} שורות תקינות)
-              </button>
-              <button
-                onClick={() => setShowBizboxValidation(false)}
-                style={{
-                  background: 'white', border: '1.5px solid #E5E7EB', color: '#6B7280',
-                  borderRadius: '12px', padding: '12px 18px', fontSize: '14px',
-                  fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-                }}
-                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'white')}
-              >
+              </Button>
+              <Button variant="ghost" onClick={() => setShowBizboxValidation(false)}>
                 ביטול
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -2032,35 +1864,18 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
               {/* Action buttons */}
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button
+                <Button
                   onClick={exportBizbox}
                   disabled={bizboxRows.length === 0}
-                  style={{
-                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    gap: '7px', background: 'linear-gradient(135deg, #1D4ED8, #2563EB)',
-                    color: 'white', border: 'none', borderRadius: '12px',
-                    padding: '13px', fontSize: '15px', fontWeight: 700,
-                    cursor: bizboxRows.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: bizboxRows.length === 0 ? 0.5 : 1,
-                  }}
-                  onMouseEnter={e => { if (bizboxRows.length > 0) (e.currentTarget as HTMLElement).style.opacity = '0.88' }}
-                  onMouseLeave={e => { if (bizboxRows.length > 0) (e.currentTarget as HTMLElement).style.opacity = '1' }}
+                  variant="primary"
+                  className="flex-1 flex items-center justify-center gap-2"
                 >
                   <Download size={16} />
                   הורד קובץ xlsx
-                </button>
-                <button
-                  onClick={() => setShowBizbox(false)}
-                  style={{
-                    background: 'white', border: '1.5px solid #E5E7EB', color: '#6B7280',
-                    borderRadius: '12px', padding: '13px 18px', fontSize: '15px',
-                    fontWeight: 600, cursor: 'pointer',
-                  }}
-                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'white')}
-                >
+                </Button>
+                <Button onClick={() => setShowBizbox(false)} variant="outline">
                   ביטול
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -2088,36 +1903,12 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               <strong>{payments.find((p) => p.id === confirmId)?.supplier}</strong>?
             </p>
             <div className="flex gap-3 justify-center">
-              <button
-                className="rounded-xl text-white font-semibold transition-all"
-                style={{
-                  background: '#DC2626',
-                  padding: '12px 24px',
-                  fontSize: '15px',
-                  minHeight: '48px',
-                }}
-                onClick={doCancel}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#B91C1C')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#DC2626')}
-              >
+              <Button variant="danger" onClick={doCancel}>
                 אישור ביטול
-              </button>
-              <button
-                className="rounded-xl font-semibold transition-all"
-                style={{
-                  border: '1.5px solid #E2E4E9',
-                  background: 'white',
-                  color: '#6B7280',
-                  padding: '12px 20px',
-                  fontSize: '15px',
-                  minHeight: '48px',
-                }}
-                onClick={() => setConfirmId(null)}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
-              >
+              </Button>
+              <Button variant="outline" onClick={() => setConfirmId(null)}>
                 חזרה
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -2146,36 +1937,15 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
               <span style={{ color: '#DC2626', fontWeight: 600 }}>פעולה זו בלתי הפיכה.</span>
             </p>
             <div className="flex gap-3 justify-center">
-              <button
-                className="rounded-xl text-white font-semibold transition-all"
-                style={{
-                  background: '#DC2626',
-                  padding: '12px 24px',
-                  fontSize: '15px',
-                  minHeight: '48px',
-                }}
-                onClick={doDelete}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#B91C1C')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#DC2626')}
-              >
+              <Button variant="danger" onClick={doDelete}>
                 כן, מחק
-              </button>
-              <button
-                className="rounded-xl font-semibold transition-all"
-                style={{
-                  border: '1.5px solid #E2E4E9',
-                  background: 'white',
-                  color: '#6B7280',
-                  padding: '12px 20px',
-                  fontSize: '15px',
-                  minHeight: '48px',
-                }}
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => setConfirmDeleteId(null)}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#F9FAFB')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
               >
                 חזרה
-              </button>
+              </Button>
             </div>
           </div>
         </div>

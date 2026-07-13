@@ -1,11 +1,16 @@
 import { useState, useEffect } from 'react'
-import { Plus, Package, X, ChevronLeft, AlertCircle } from 'lucide-react'
+import { Plus, Package, X, ChevronLeft, AlertCircle, FileText, Link2 } from 'lucide-react'
 import { type DeliveryNote } from '../data/mockData'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
-import { PdfPreviewButton } from './PdfPreviewModal'
+import { useEmployees } from '../hooks/useEmployees'
+import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
+import { StatusBadge } from './StatusBadge'
+import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
+import { Button } from './ui/Button'
+import { SummaryCards } from './ui/SummaryCards'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -15,24 +20,16 @@ function formatILS(n: number | null | undefined) {
 
 const statusLabel = { pending: 'ממתינה', archived: 'בארכיון' } as const
 
-const statusBadge = {
-  pending:  { bg: '#FEF9C3', color: '#A16207' },
-  archived: { bg: '#F3F4F6', color: '#6B7280' },
-  fallback: { bg: '#F3F4F6', color: '#9CA3AF' },
-}
-
 function normalizeStatus(status: string): 'pending' | 'archived' {
   if (status === 'pending' || status === 'unlinked' || status === 'ממתינה לשיוך') return 'pending'
   if (status === 'archived' || status === 'משויכת') return 'archived'
   return 'pending'
 }
 
-function getBadge(status: string) {
-  return statusBadge[normalizeStatus(status)] ?? statusBadge.fallback
-}
-
-function getLabel(status: string) {
-  return statusLabel[normalizeStatus(status)]
+// Map the delivery-note status onto the unified taxonomy (spec/06-RULES.md §1):
+// pending → new, archived → done.
+function deliveryStatusInternal(status: string): string {
+  return normalizeStatus(status) === 'archived' ? 'done' : 'new'
 }
 
 const fieldStyle: React.CSSProperties = {
@@ -42,7 +39,7 @@ const fieldStyle: React.CSSProperties = {
 }
 
 function focusBdr(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = '#D32F4A'
+  (e.target as HTMLElement).style.borderColor = 'var(--brand-primary)'
 }
 function blurBdr(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
   (e.target as HTMLElement).style.borderColor = '#DEDFE5'
@@ -51,7 +48,7 @@ function blurBdr(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTML
 function FieldLabel({ text, required }: { text: string; required?: boolean }) {
   return (
     <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>
-      {text}{required && <span style={{ color: '#D32F4A' }}> *</span>}
+      {text}{required && <span style={{ color: 'var(--brand-primary)' }}> *</span>}
     </p>
   )
 }
@@ -71,7 +68,7 @@ function useIsMobile() {
 type ModalType   = null | 'detail' | 'add'
 type StatusFilter = 'all' | 'pending' | 'archived'
 
-const emptyForm = { supplierId: '', noteId: '', isoDate: '', amount: '', notes: '' }
+const emptyForm = { supplierId: '', isoDate: '', items: '', noteNumber: '', employeeId: '' }
 
 const COL_D = '110px 1fr 88px 100px 78px 110px 48px'
 const COL_M = '1fr 85px 68px 32px'
@@ -80,10 +77,15 @@ const MIN_W = '680px'
 // ── component ─────────────────────────────────────────────────────────────────
 
 export default function DeliveryNotes() {
-  const { data: serverNotes, loading, error, link: linkNote, unlink: unlinkNote } = useDeliveryNotes()
+  const { data: serverNotes, loading, error, create: createNote, setMatch, link: linkNote, unlink: unlinkNote } = useDeliveryNotes()
   const { data: invoicesData } = useInvoices()
   const { data: suppliersData } = useSuppliers()
+  const { data: employeesData } = useEmployees()
+  const empById = new Map(employeesData.map(e => [e.id, e.name]))
   const [notes, setNotes]             = useState<DeliveryNote[]>([])
+  // Primary split (mirrors Returns): arrived-by-email vs manual goods receipt.
+  // NOTE: value is 'email' to match the derived `source` ('email' | 'manual').
+  const [view, setView]                = useState<'email' | 'manual'>('email')
   const [showAll, setShowAll]          = useState(false)
   const [filterSupp, setFilterSupp]    = useState('')
   const [filterDate, setFilterDate]    = useState('')
@@ -94,6 +96,10 @@ export default function DeliveryNotes() {
   const [selectedInvId, setSelectedInvId] = useState('')
   const [confirmUnlink, setConfirmUnlink] = useState(false)
   const [form, setForm]                   = useState({ ...emptyForm })
+  // PIECE 2 — matched arrived-note document opened in the in-page popup viewer.
+  const [supplierDoc, setSupplierDoc]     = useState<string | null>(null)
+  // PIECE 2 — arrived note chosen in the manual-row match picker (manual correction).
+  const [matchPick, setMatchPick]         = useState('')
 
   const isMobile = useIsMobile()
   const COL = isMobile ? COL_M : COL_D
@@ -105,6 +111,7 @@ export default function DeliveryNotes() {
   // ── derived ──────────────────────────────────────────────────────────────
   const displayed = notes
     .filter(n => {
+      if ((n.source ?? 'manual') !== view) return false
       if (!showAll && normalizeStatus(n.status) === 'archived') return false
       if (filterSupp && n.supplierId !== filterSupp) return false
       if (filterDate && n.isoDate < filterDate) return false
@@ -120,17 +127,23 @@ export default function DeliveryNotes() {
     ? invoicesData.filter(i => i.supplierId === selected.supplierId || i.supplier === selected.supplierName)
     : []
 
+  // PIECE 2 — arrived (email) notes for the selected manual row's supplier (match picker).
+  const arrivedForSelected = selected && selected.source === 'manual'
+    ? notes.filter(n => n.source === 'email' && n.supplierId === selected.supplierId)
+    : []
+
   const linkedInvoice = selected?.linkedInvoiceId
     ? invoicesData.find(i => i.id === selected.linkedInvoiceId) ?? null
     : null
 
-  const canAdd = form.supplierId && form.noteId && form.isoDate && form.amount
+  const canAdd = form.supplierId && form.items.trim()
 
   // ── actions ───────────────────────────────────────────────────────────────
   const openNote = (note: DeliveryNote) => {
     setSelected(note)
     setSelectedInvId(note.linkedInvoiceId ?? '')
     setConfirmUnlink(false)
+    setMatchPick('')
     setModalType('detail')
   }
 
@@ -139,6 +152,7 @@ export default function DeliveryNotes() {
     setSelected(null)
     setSelectedInvId('')
     setConfirmUnlink(false)
+    setMatchPick('')
   }
 
   const linkInvoice = async () => {
@@ -164,30 +178,50 @@ export default function DeliveryNotes() {
     }
   }
 
-  const addNote = () => {
+  // PIECE 2 — manual correction: link the manual row to a chosen arrived note (copy
+  // its document + number), or clear the match. AI suggests; the user confirms/overrides.
+  const doMatch = async () => {
+    if (!selected || !matchPick) return
+    const arr = notes.find(n => n.id === matchPick)
+    if (!arr) return
+    const savedId = selected.id
+    closeModal()
+    try { await setMatch(savedId, arr.driveFileLink ?? null, arr.noteNumber ?? '') } catch { /* hook sets error */ }
+  }
+
+  const doUnmatch = async () => {
+    if (!selected) return
+    const savedId = selected.id
+    closeModal()
+    try { await setMatch(savedId, null, '') } catch { /* hook sets error */ }
+  }
+
+  // Manual goods receipt — PERSISTS via hadas-api (previously local-state only).
+  const addManual = async () => {
     const sup = suppliersData.find(s => s.id === form.supplierId)
-    if (!sup || !form.noteId || !form.isoDate || !form.amount) return
-    const [y, m, d] = form.isoDate.split('-')
-    const newNote: DeliveryNote = {
-      id: form.noteId,
+    if (!sup || !form.items.trim()) return
+    const payload = {
+      supplierId:   sup.id,
       supplierName: sup.name,
-      supplierId: sup.id,
-      date: `${d}/${m}/${y}`,
-      isoDate: form.isoDate,
-      amount: Number(form.amount),
-      status: 'pending',
-      notes: form.notes || undefined,
+      isoDate:      form.isoDate || new Date().toISOString().slice(0, 10),
+      lineItems:    form.items.trim(),
+      noteNumber:   form.noteNumber.trim() || undefined,
+      employeeId:   form.employeeId || undefined,
     }
-    setNotes(prev => [newNote, ...prev])
     setForm({ ...emptyForm })
     closeModal()
+    try {
+      await createNote(payload)
+    } catch {
+      // hook sets error state
+    }
   }
 
   // ── render ────────────────────────────────────────────────────────────────
   if (loading && notes.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--brand-primary)' }} />
       </div>
     )
   }
@@ -208,37 +242,55 @@ export default function DeliveryNotes() {
             {pendingCount} ממתינות לשיוך · {archivedCount} בארכיון
           </p>
         </div>
-        <button
-          onClick={() => { setForm({ ...emptyForm }); setModalType('add') }}
-          className="flex items-center gap-2 rounded-xl text-white font-semibold transition-all"
-          style={{ background: '#D32F4A', minHeight: '44px', padding: '0 20px', fontSize: '16px' }}
-          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = '0.88')}
-          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = '1')}
-        >
-          <Plus className="w-4 h-4" />
-          הוסף תעודה
-        </button>
+        {view === 'manual' && (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => { setForm({ ...emptyForm, isoDate: new Date().toISOString().slice(0, 10) }); setModalType('add') }}
+          >
+            <Plus className="w-4 h-4" />
+            קליטת סחורה ידנית
+          </Button>
+        )}
       </div>
 
-      {/* ── Stats ── */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: 'ממתינות לשיוך', value: pendingCount,  color: '#A16207', bg: '#FFFBEB', border: '#FDE68A' },
-          { label: 'בארכיון',       value: archivedCount, color: '#6B7280', bg: 'white',   border: '#DEDFE5' },
-          { label: 'סה"כ תעודות',   value: notes.length,  color: '#1F2937', bg: 'white',   border: '#DEDFE5' },
-        ].map(({ label, value, color, bg, border }) => (
-          <div key={label} className="rounded-2xl p-4 shadow-sm border text-center" style={{ background: bg, borderColor: border }}>
-            <p className="text-2xl" style={{ color, fontWeight: 500 }}>{value}</p>
-            <p className="text-gray-500 mt-1" style={{ fontSize: '14px' }}>{label}</p>
-          </div>
-        ))}
-      </div>
+      {/* ── Summary tiles (shared SummaryCards) ── */}
+      <SummaryCards
+        items={[
+          { label: 'ממתינות לשיוך', value: pendingCount,  Icon: AlertCircle, tone: 'yellow' },
+          { label: 'בארכיון',       value: archivedCount, Icon: Package,     tone: 'green' },
+          { label: 'סה"כ תעודות',   value: notes.length,  Icon: FileText,    tone: 'brand' },
+        ]}
+      />
 
       {/* ── Toggle + Filters ── */}
       <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#DEDFE5' }}>
         <div className="flex items-center gap-3 flex-wrap">
 
-          {/* View toggle */}
+          {/* Primary two-view split: arrived-by-email vs manual goods receipt */}
+          <div className="flex items-center gap-1 rounded-xl p-1 flex-shrink-0" style={{ background: '#F3F4F6' }}>
+            {([
+              { v: 'email',  label: 'מסמכים שהגיעו' },
+              { v: 'manual', label: 'קליטה ידנית' },
+            ] as { v: 'email' | 'manual'; label: string }[]).map(({ v, label }) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className="rounded-lg px-4 transition-all"
+                style={{
+                  minHeight: '36px', fontSize: '14px', border: 'none',
+                  fontWeight: view === v ? 700 : 500,
+                  background: view === v ? 'var(--brand-active-bg)' : 'transparent',
+                  color: view === v ? 'var(--brand-primary)' : '#6B7280',
+                  boxShadow: view === v ? '0 1px 2px rgba(16,17,21,.08)' : 'none',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Archive toggle */}
           <div className="flex items-center gap-1 rounded-xl p-1 flex-shrink-0" style={{ background: '#F3F4F6' }}>
             {([
               { v: false, label: 'ממתינות בלבד' },
@@ -247,11 +299,13 @@ export default function DeliveryNotes() {
               <button
                 key={String(v)}
                 onClick={() => { setShowAll(v); setFilterStat('all') }}
-                className="rounded-lg px-4 font-medium transition-all"
+                className="rounded-lg px-4 transition-all"
                 style={{
-                  minHeight: '36px', fontSize: '14px',
-                  background: showAll === v ? '#D32F4A' : 'transparent',
-                  color: showAll === v ? 'white' : '#6B7280',
+                  minHeight: '36px', fontSize: '14px', border: 'none',
+                  fontWeight: showAll === v ? 700 : 500,
+                  background: showAll === v ? 'var(--brand-active-bg)' : 'transparent',
+                  color: showAll === v ? 'var(--brand-primary)' : '#6B7280',
+                  boxShadow: showAll === v ? '0 1px 2px rgba(16,17,21,.08)' : 'none',
                 }}
               >
                 {label}
@@ -293,7 +347,7 @@ export default function DeliveryNotes() {
                   className="rounded-lg px-3 font-medium transition-all"
                   style={{
                     minHeight: '36px', fontSize: '13px',
-                    background: filterStat === s ? '#D32F4A' : 'transparent',
+                    background: filterStat === s ? 'var(--brand-primary)' : 'transparent',
                     color: filterStat === s ? 'white' : '#6B7280',
                   }}
                 >
@@ -319,20 +373,20 @@ export default function DeliveryNotes() {
       </div>
 
       {/* ── Table ── */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#DEDFE5' }}>
-        <div style={{ overflowX: 'auto' }}>
+      <div style={tableWrap}>
+        <div>
 
           {/* Column headers */}
           <div
-            className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
-            style={{ gridTemplateColumns: COL, borderColor: '#EEEEF2', fontSize: '11px', minWidth: isMobile ? '300px' : MIN_W, padding: '10px 16px' }}
+            className="grid"
+            style={{ ...tableHeadRow, display: 'grid', gridTemplateColumns: COL, minWidth: isMobile ? '300px' : MIN_W }}
           >
-            {!isMobile && <span className="text-right">מספר תעודה</span>}
-            <span className="text-right">ספק</span>
-            {!isMobile && <span className="text-right">תאריך</span>}
-            <span className="text-left">סכום</span>
-            <span className="text-center">סטטוס</span>
-            {!isMobile && <span className="text-right">חשבונית</span>}
+            {!isMobile && <span className="text-right" style={tableHeadCell}>מספר תעודה</span>}
+            <span className="text-right" style={tableHeadCell}>ספק</span>
+            {!isMobile && <span className="text-right" style={tableHeadCell}>תאריך</span>}
+            <span className="text-right" style={tableHeadCell}>סכום</span>
+            <span className="text-center" style={tableHeadCell}>סטטוס</span>
+            {!isMobile && <span className="text-right" style={tableHeadCell}>חשבונית</span>}
             <span />
           </div>
 
@@ -340,51 +394,65 @@ export default function DeliveryNotes() {
           {displayed.length === 0 ? (
             <div className="py-16 text-center text-gray-400">
               <Package className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p style={{ fontSize: '15px' }}>לא נמצאו תעודות</p>
+              <p style={{ fontSize: '15px' }}>{view === 'manual' ? 'אין קליטות ידניות — לחצי "קליטת סחורה ידנית"' : 'לא נמצאו מסמכים שהגיעו'}</p>
             </div>
           ) : (
-            displayed.map((note) => {
+            displayed.map((note, index) => {
               const isArchived = normalizeStatus(note.status) === 'archived'
-              const badge = getBadge(note.status)
               return (
                 <div
                   key={note.id}
                   className="grid items-center cursor-pointer transition-colors"
                   style={{
+                    ...tableRow(index === 0),
+                    display: 'grid',
                     gridTemplateColumns: COL,
-                    borderBottom: '1px solid #EEEEF2',
-                    background: isArchived ? '#FAFAFA' : 'white',
                     minWidth: isMobile ? '300px' : MIN_W,
-                    minHeight: '56px',
-                    padding: '12px 16px',
                   }}
                   onClick={() => openNote(note)}
-                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = isArchived ? '#F4F4F5' : '#FFF8F7')}
-                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = isArchived ? '#FAFAFA' : 'white')}
+                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
+                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 >
                   {!isMobile && (
                     <span className="text-right font-bold" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#1F2937' }}>
-                      {note.id}
+                      {note.noteNumber || (note.source === 'manual' ? 'ידני' : '—')}
                     </span>
                   )}
-                  <span className="text-right font-medium" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#374151' }}>
-                    {note.supplierName}
-                  </span>
+                  <div className="text-right min-w-0">
+                    <div className="font-medium truncate" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#374151' }}>
+                      {note.supplierName}
+                    </div>
+                    {note.lineItems && (
+                      <div className="truncate" style={{ fontSize: '12px', color: '#9CA3AF' }}>
+                        {note.lineItems.split('\n').filter(Boolean).join(' · ')}
+                      </div>
+                    )}
+                    {note.source === 'manual' && note.employeeId && empById.get(note.employeeId) && (
+                      <div className="truncate" style={{ fontSize: '11px', color: '#A16207' }}>
+                        קלט/ה: {empById.get(note.employeeId)}
+                      </div>
+                    )}
+                    {note.source === 'manual' && note.driveFileLink && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSupplierDoc(note.driveFileLink!) }}
+                        className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg mt-1"
+                        style={{ color: '#166534', background: '#F0FDF4', border: '1px solid #BBF7D0', padding: '3px 8px' }}
+                        title={note.noteNumber ? `מסמך ספק ${note.noteNumber}` : 'מסמך ספק מקושר'}
+                      >
+                        <FileText className="w-3 h-3" /> הצג מסמך מספק
+                      </button>
+                    )}
+                  </div>
                   {!isMobile && (
                     <span className="text-right" style={{ fontSize: '13px', color: '#9CA3AF' }}>
                       {note.date}
                     </span>
                   )}
-                  <span className="text-left font-bold" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#1F2937' }}>
+                  <span className="text-right font-bold" style={{ fontSize: '14px', color: isArchived ? '#9CA3AF' : '#1F2937' }}>
                     {formatILS(note.amount)}
                   </span>
                   <span className="flex justify-center">
-                    <span
-                      className="rounded-lg font-medium"
-                      style={{ fontSize: '11px', padding: '3px 10px', background: badge?.bg, color: badge?.color }}
-                    >
-                      {getLabel(note.status)}
-                    </span>
+                    <StatusBadge status={deliveryStatusInternal(note.status)} style={{ fontSize: '11px', padding: '3px 10px' }} />
                   </span>
                   {!isMobile && (
                     <span className="text-right" style={{ fontSize: '13px', color: '#6B7280' }}>
@@ -423,10 +491,8 @@ export default function DeliveryNotes() {
                     onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '')}
                   ><X className="w-4 h-4" /></button>
                   <div className="flex items-center gap-3">
-                    <span className="rounded-lg font-medium" style={{ fontSize: '12px', padding: '3px 10px', background: statusBadge.pending.bg, color: statusBadge.pending.color }}>
-                      {statusLabel.pending}
-                    </span>
-                    <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>תעודת משלוח {selected.id}</h2>
+                    <StatusBadge status="new" style={{ fontSize: '12px', padding: '3px 10px' }} />
+                    <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>{selected.noteNumber ? `תעודת משלוח ${selected.noteNumber}` : 'קליטת סחורה ידנית'}</h2>
                   </div>
                 </div>
 
@@ -446,10 +512,59 @@ export default function DeliveryNotes() {
                     ))}
                   </div>
 
-                  {selected.notes && (
+                  {(selected.lineItems || selected.notes) && (
                     <div className="rounded-xl px-4 py-3 text-right" style={{ background: '#FFF8F7', border: '1px solid #DEDFE5' }}>
-                      <p style={{ fontSize: '11px', color: '#9CA3AF' }}>הערות</p>
-                      <p className="text-gray-700 mt-0.5" style={{ fontSize: '14px' }}>{selected.notes}</p>
+                      <p style={{ fontSize: '11px', color: '#9CA3AF' }}>פריטים</p>
+                      <p className="text-gray-700 mt-0.5" style={{ fontSize: '14px', whiteSpace: 'pre-wrap' }}>{selected.lineItems || selected.notes}</p>
+                    </div>
+                  )}
+
+                  {/* PIECE 2 — manual↔arrived match (AI-suggested; manual correction here) */}
+                  {selected.source === 'manual' && (
+                    <div>
+                      <div className="flex items-center gap-2 justify-end mb-3">
+                        <p className="font-semibold text-gray-700" style={{ fontSize: '14px' }}>התאמה למסמך שהגיע</p>
+                        <div className="flex-1 h-px" style={{ background: '#DEDFE5' }} />
+                      </div>
+                      {selected.driveFileLink ? (
+                        <div className="rounded-xl p-3 text-right" style={{ background: '#F0FDF4', border: '1px solid #BBF7D0' }}>
+                          <div className="flex items-center justify-between gap-2">
+                            <button
+                              onClick={() => setSupplierDoc(selected.driveFileLink!)}
+                              className="inline-flex items-center gap-1 text-xs font-semibold rounded-lg"
+                              style={{ color: '#166534', background: 'white', border: '1px solid #BBF7D0', padding: '5px 10px' }}
+                            >
+                              <FileText className="w-3.5 h-3.5" /> הצג מסמך מספק
+                            </button>
+                            <span style={{ fontSize: '13px', color: '#166534' }}>מקושר: {selected.noteNumber || 'מסמך שהגיע'}</span>
+                          </div>
+                          <Button variant="danger" size="sm" onClick={doUnmatch} className="mt-2">בטל התאמה</Button>
+                        </div>
+                      ) : arrivedForSelected.length === 0 ? (
+                        <p className="text-center text-gray-400 py-2" style={{ fontSize: '13px' }}>אין מסמכים שהגיעו לספק זה</p>
+                      ) : (
+                        <div className="flex gap-2">
+                          <select
+                            value={matchPick}
+                            onChange={e => setMatchPick(e.target.value)}
+                            style={{ ...fieldStyle, direction: 'rtl', cursor: 'pointer' }}
+                            onFocus={focusBdr} onBlur={blurBdr}
+                          >
+                            <option value="">בחר/י מסמך שהגיע...</option>
+                            {arrivedForSelected.map(a => (
+                              <option key={a.id} value={a.id}>{a.noteNumber} · {a.date}</option>
+                            ))}
+                          </select>
+                          <Button
+                            variant="primary"
+                            onClick={doMatch}
+                            disabled={!matchPick}
+                            className="flex-shrink-0"
+                          >
+                            <Link2 className="w-4 h-4" /> התאם
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -485,27 +600,21 @@ export default function DeliveryNotes() {
 
                 {/* Footer buttons */}
                 <div className="flex gap-3 px-5 pb-5">
-                  <button
+                  <Button
+                    variant="primary"
                     onClick={linkInvoice}
                     disabled={!selectedInvId}
-                    className="flex-1 rounded-xl font-semibold transition-all"
-                    style={{
-                      minHeight: '44px', fontSize: '15px',
-                      background: selectedInvId ? '#D32F4A' : '#E5E7EB',
-                      color: selectedInvId ? 'white' : '#9CA3AF',
-                    }}
+                    className="flex-1"
                   >
                     שייך ועבור לארכיון
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="ghost"
                     onClick={closeModal}
-                    className="flex-1 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '44px', fontSize: '15px', background: '#F3F4F6', color: '#6B7280' }}
-                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+                    className="flex-1"
                   >
                     סגור
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -520,10 +629,8 @@ export default function DeliveryNotes() {
                     onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '')}
                   ><X className="w-4 h-4" /></button>
                   <div className="flex items-center gap-3">
-                    <span className="rounded-lg font-medium" style={{ fontSize: '12px', padding: '3px 10px', background: statusBadge.archived.bg, color: statusBadge.archived.color }}>
-                      {statusLabel.archived}
-                    </span>
-                    <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>תעודת משלוח {selected.id}</h2>
+                    <StatusBadge status="done" style={{ fontSize: '12px', padding: '3px 10px' }} />
+                    <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>{selected.noteNumber ? `תעודת משלוח ${selected.noteNumber}` : 'קליטת סחורה ידנית'}</h2>
                   </div>
                 </div>
 
@@ -543,10 +650,10 @@ export default function DeliveryNotes() {
                     ))}
                   </div>
 
-                  {selected.notes && (
+                  {(selected.lineItems || selected.notes) && (
                     <div className="rounded-xl px-4 py-3 text-right" style={{ background: '#FAFAFA', border: '1px solid #DEDFE5' }}>
-                      <p style={{ fontSize: '11px', color: '#9CA3AF' }}>הערות</p>
-                      <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>{selected.notes}</p>
+                      <p style={{ fontSize: '11px', color: '#9CA3AF' }}>פריטים</p>
+                      <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px', whiteSpace: 'pre-wrap' }}>{selected.lineItems || selected.notes}</p>
                     </div>
                   )}
 
@@ -586,24 +693,22 @@ export default function DeliveryNotes() {
                         האם לבטל את השיוך? התעודה תחזור לרשימת הממתינות.
                       </p>
                       <div className="flex gap-2">
-                        <button
+                        <Button
+                          variant="danger"
+                          size="sm"
                           onClick={doUnlink}
-                          className="flex-1 rounded-xl font-semibold transition-all"
-                          style={{ minHeight: '40px', fontSize: '14px', background: '#DC2626', color: 'white' }}
-                          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#B91C1C')}
-                          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#DC2626')}
+                          className="flex-1"
                         >
                           כן, בטל שיוך
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => setConfirmUnlink(false)}
-                          className="flex-1 rounded-xl font-semibold transition-all"
-                          style={{ minHeight: '40px', fontSize: '14px', background: '#F3F4F6', color: '#6B7280' }}
-                          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+                          className="flex-1"
                         >
                           ביטול
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   )}
@@ -612,25 +717,21 @@ export default function DeliveryNotes() {
                 {/* Footer */}
                 <div className="flex gap-3 px-5 pb-5">
                   {!confirmUnlink && (
-                    <button
+                    <Button
+                      variant="secondary"
                       onClick={() => setConfirmUnlink(true)}
-                      className="flex-1 rounded-xl font-semibold transition-all"
-                      style={{ minHeight: '44px', fontSize: '15px', background: '#FDF2F4', color: '#D32F4A' }}
-                      onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
-                      onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+                      className="flex-1"
                     >
                       בטל שיוך
-                    </button>
+                    </Button>
                   )}
-                  <button
+                  <Button
+                    variant="ghost"
                     onClick={closeModal}
-                    className={confirmUnlink ? 'w-full rounded-xl font-semibold' : 'flex-1 rounded-xl font-semibold'}
-                    style={{ minHeight: '44px', fontSize: '15px', background: '#F3F4F6', color: '#6B7280', transition: 'all .15s' }}
-                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+                    className={confirmUnlink ? 'w-full' : 'flex-1'}
                   >
                     סגור
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -644,10 +745,10 @@ export default function DeliveryNotes() {
                     onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#6B7280')}
                     onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '')}
                   ><X className="w-4 h-4" /></button>
-                  <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>הוסף תעודת משלוח</h2>
+                  <h2 className="font-semibold" style={{ fontSize: '17px', color: '#1A1A2E' }}>קליטת סחורה ידנית</h2>
                 </div>
 
-                {/* Form */}
+                {/* Form — goods received WITHOUT a delivery note: supplier + item list */}
                 <div className="p-5 space-y-4">
                   <div>
                     <FieldLabel text="ספק" required />
@@ -665,19 +766,7 @@ export default function DeliveryNotes() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <FieldLabel text="מספר תעודה" required />
-                      <input
-                        value={form.noteId}
-                        onChange={e => setForm({ ...form, noteId: e.target.value })}
-                        placeholder="DN-XXX"
-                        dir="ltr"
-                        className="text-left placeholder-gray-300"
-                        style={fieldStyle}
-                        onFocus={focusBdr} onBlur={blurBdr}
-                      />
-                    </div>
-                    <div>
-                      <FieldLabel text="תאריך" required />
+                      <FieldLabel text="תאריך קבלה" />
                       <input
                         type="date"
                         value={form.isoDate}
@@ -686,30 +775,39 @@ export default function DeliveryNotes() {
                         onFocus={focusBdr} onBlur={blurBdr}
                       />
                     </div>
+                    <div>
+                      <FieldLabel text="מספר תעודה (אופציונלי)" />
+                      <input
+                        value={form.noteNumber}
+                        onChange={e => setForm({ ...form, noteNumber: e.target.value })}
+                        placeholder="—"
+                        dir="ltr"
+                        className="text-left placeholder-gray-300"
+                        style={fieldStyle}
+                        onFocus={focusBdr} onBlur={blurBdr}
+                      />
+                    </div>
                   </div>
 
                   <div>
-                    <FieldLabel text="סכום" required />
-                    <input
-                      type="number"
-                      value={form.amount}
-                      onChange={e => setForm({ ...form, amount: e.target.value })}
-                      placeholder="0"
-                      dir="ltr"
-                      className="text-left placeholder-gray-300"
-                      style={fieldStyle}
-                      onFocus={focusBdr} onBlur={blurBdr}
+                    <FieldLabel text="עובד/ת שקלט/ה את הסחורה" />
+                    <SearchableSelect
+                      value={form.employeeId}
+                      onChange={v => setForm({ ...form, employeeId: v })}
+                      placeholder="בחר/י עובד/ת..."
+                      allowClear
+                      options={employeesData.filter(e => e.active).map(e => ({ value: e.id, label: e.name }))}
                     />
                   </div>
 
                   <div>
-                    <FieldLabel text="הערות" />
+                    <FieldLabel text="פירוט פריטים שהתקבלו" required />
                     <textarea
-                      value={form.notes}
-                      onChange={e => setForm({ ...form, notes: e.target.value })}
-                      placeholder="הערות נוספות..."
+                      value={form.items}
+                      onChange={e => setForm({ ...form, items: e.target.value })}
+                      placeholder={'פריט + כמות בכל שורה, לדוגמה:\nחטיפים — 24 יח׳\nשתייה — 12 קרטונים'}
                       className="text-right placeholder-gray-300 w-full"
-                      style={{ ...fieldStyle, height: 'auto', minHeight: '80px', padding: '12px 14px', resize: 'vertical' }}
+                      style={{ ...fieldStyle, height: 'auto', minHeight: '120px', padding: '12px 14px', resize: 'vertical' }}
                       onFocus={focusBdr} onBlur={blurBdr}
                     />
                   </div>
@@ -717,27 +815,21 @@ export default function DeliveryNotes() {
 
                 {/* Footer */}
                 <div className="flex gap-3 px-5 pb-5">
-                  <button
-                    onClick={addNote}
+                  <Button
+                    variant="primary"
+                    onClick={addManual}
                     disabled={!canAdd}
-                    className="flex-1 rounded-xl font-semibold transition-all"
-                    style={{
-                      minHeight: '44px', fontSize: '15px',
-                      background: canAdd ? '#D32F4A' : '#E5E7EB',
-                      color: canAdd ? 'white' : '#9CA3AF',
-                    }}
+                    className="flex-1"
                   >
-                    שמור
-                  </button>
-                  <button
+                    שמור קליטה
+                  </Button>
+                  <Button
+                    variant="ghost"
                     onClick={closeModal}
-                    className="flex-1 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '44px', fontSize: '15px', background: '#F3F4F6', color: '#6B7280' }}
-                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
+                    className="flex-1"
                   >
                     ביטול
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -745,6 +837,9 @@ export default function DeliveryNotes() {
           </div>
         </div>
       )}
+
+      {/* PIECE 2 — supplier document (matched arrived note) in the in-page popup viewer */}
+      {supplierDoc && <PdfPreviewModal url={supplierDoc} onClose={() => setSupplierDoc(null)} />}
 
     </div>
   )

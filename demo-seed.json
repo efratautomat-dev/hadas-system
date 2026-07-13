@@ -1,0 +1,678 @@
+{
+  "_meta": {
+    "note": "FICTITIOUS DEMO DATA — not real client data. For marketing walkthrough recording only.",
+    "demo_user": {
+      "name": "דנה לוי",
+      "role": "manager",
+      "email": "demo@hadas-system.co.il"
+    },
+    "currency": "₪"
+  },
+  "suppliers": [
+    {
+      "id": "sup_01",
+      "name": "טקסטיל הגליל בע\"מ",
+      "tax_id": "515433012",
+      "phone": "03-5312019",
+      "email": "office1@textil.co.il",
+      "category": "בדים"
+    },
+    {
+      "id": "sup_02",
+      "name": "אריזות שקד",
+      "tax_id": "510810111",
+      "phone": "02-8889348",
+      "email": "office2@arizot.co.il",
+      "category": "אריזות"
+    },
+    {
+      "id": "sup_03",
+      "name": "הדפסות רימון",
+      "tax_id": "518990608",
+      "phone": "02-5067620",
+      "email": "office3@rimon.co.il",
+      "category": "הדפסה"
+    },
+    {
+      "id": "sup_04",
+      "name": "סיטונאות אופיר",
+      "tax_id": "519777560",
+      "phone": "02-9631150",
+      "email": "office4@ofir.co.il",
+      "category": "סיטונאות"
+    },
+    {
+      "id": "sup_05",
+      "name": "כפתורים ופרטים בע\"מ",
+      "tax_id": "518513358",
+      "phone": "03-2314536",
+      "email": "office5@prati.co.il",
+      "category": "אביזרים"
+    },
+    {
+      "id": "sup_06",
+      "name": "משלוחים מהיר אקספרס",
+      "tax_id": "511441955",
+      "phone": "08-5507882",
+      "email": "office6@express.co.il",
+      "category": "שילוח"
+    },
+    {
+      "id": "sup_07",
+      "name": "חוטי זוהר",
+      "tax_id": "511171979",
+      "phone": "03-2760955",
+      "email": "office7@zohar.co.il",
+      "category": "חוטים"
+    },
+    {
+      "id": "sup_08",
+      "name": "תוויות פלוס",
+      "tax_id": "519245038",
+      "phone": "08-2495854",
+      "email": "office8@tavit.co.il",
+      "category": "תוויות"
+    },
+    {
+      "id": "sup_09",
+      "name": "מכבסת היוקרה",
+      "tax_id": "519486738",
+      "phone": "02-9947784",
+      "email": "office9@luxe.co.il",
+      "category": "שירותים"
+    },
+    {
+      "id": "sup_10",
+      "name": "ציוד משרדי דקל",
+      "tax_id": "513745328",
+      "phone": "09-9949958",
+      "email": "office10@dekel.co.il",
+      "category": "ציוד משרדי"
+    }
+  ],
+  "invoices": [
+    {
+      "id": "inv_001",
+      "number": "9858",
+      "date": "2026-06-01",
+      "amount": 5050,
+      "currency": "₪",
+      "supplier_id": "sup_01",
+      "supplier_name": "טקסטיל הגליל בע\"מ",
+      "category": "בדים",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_002",
+      "number": "2596",
+      "date": "2026-05-18",
+      "amount": 28730,
+      "currency": "₪",
+      "supplier_id": "sup_10",
+      "supplier_name": "ציוד משרדי דקל",
+      "category": "ציוד משרדי",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_003",
+      "number": "8424",
+      "date": "2026-03-20",
+      "amount": 27540,
+      "currency": "₪",
+      "supplier_id": "sup_02",
+      "supplier_name": "אריזות שקד",
+      "category": "אריזות",
+      "status": "ממתין"
+    },
+    {
+      "id": "inv_004",
+      "number": "9111",
+      "date": "2026-04-26",
+      "amount": 48380,
+      "currency": "₪",
+      "supplier_id": "sup_05",
+      "supplier_name": "כפתורים ופרטים בע\"מ",
+      "category": "אביזרים",
+      "status": "ממתין"
+    },
+    {
+      "id": "inv_005",
+      "number": "3490",
+      "date": "2026-05-20",
+      "amount": 26530,
+      "currency": "₪",
+      "supplier_id": "sup_08",
+      "supplier_name": "תוויות פלוס",
+      "category": "תוויות",
+      "status": "ממתין"
+    },
+    {
+      "id": "inv_006",
+      "number": "6737",
+      "date": "2026-03-31",
+      "amount": 27730,
+      "currency": "₪",
+      "supplier_id": "sup_07",
+      "supplier_name": "חוטי זוהר",
+      "category": "חוטים",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_007",
+      "number": "6072",
+      "date": "2026-06-02",
+      "amount": 3340,
+      "currency": "₪",
+      "supplier_id": "sup_08",
+      "supplier_name": "תוויות פלוס",
+      "category": "תוויות",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_008",
+      "number": "3753",
+      "date": "2026-06-05",
+      "amount": 21020,
+      "currency": "₪",
+      "supplier_id": "sup_10",
+      "supplier_name": "ציוד משרדי דקל",
+      "category": "ציוד משרדי",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_009",
+      "number": "7405",
+      "date": "2026-06-01",
+      "amount": 19160,
+      "currency": "₪",
+      "supplier_id": "sup_02",
+      "supplier_name": "אריזות שקד",
+      "category": "אריזות",
+      "status": "ממתין"
+    },
+    {
+      "id": "inv_010",
+      "number": "5561",
+      "date": "2026-04-15",
+      "amount": 56550,
+      "currency": "₪",
+      "supplier_id": "sup_02",
+      "supplier_name": "אריזות שקד",
+      "category": "אריזות",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_011",
+      "number": "4822",
+      "date": "2026-05-22",
+      "amount": 8290,
+      "currency": "₪",
+      "supplier_id": "sup_07",
+      "supplier_name": "חוטי זוהר",
+      "category": "חוטים",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_012",
+      "number": "6220",
+      "date": "2026-04-09",
+      "amount": 47470,
+      "currency": "₪",
+      "supplier_id": "sup_08",
+      "supplier_name": "תוויות פלוס",
+      "category": "תוויות",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_013",
+      "number": "7560",
+      "date": "2026-03-15",
+      "amount": 33610,
+      "currency": "₪",
+      "supplier_id": "sup_09",
+      "supplier_name": "מכבסת היוקרה",
+      "category": "שירותים",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_014",
+      "number": "1003",
+      "date": "2026-03-07",
+      "amount": 9200,
+      "currency": "₪",
+      "supplier_id": "sup_04",
+      "supplier_name": "סיטונאות אופיר",
+      "category": "סיטונאות",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_015",
+      "number": "7164",
+      "date": "2026-03-31",
+      "amount": 57260,
+      "currency": "₪",
+      "supplier_id": "sup_03",
+      "supplier_name": "הדפסות רימון",
+      "category": "הדפסה",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_016",
+      "number": "8870",
+      "date": "2026-05-20",
+      "amount": 13140,
+      "currency": "₪",
+      "supplier_id": "sup_05",
+      "supplier_name": "כפתורים ופרטים בע\"מ",
+      "category": "אביזרים",
+      "status": "ממתין"
+    },
+    {
+      "id": "inv_017",
+      "number": "3645",
+      "date": "2026-03-05",
+      "amount": 38610,
+      "currency": "₪",
+      "supplier_id": "sup_05",
+      "supplier_name": "כפתורים ופרטים בע\"מ",
+      "category": "אביזרים",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_018",
+      "number": "2491",
+      "date": "2026-04-17",
+      "amount": 27030,
+      "currency": "₪",
+      "supplier_id": "sup_01",
+      "supplier_name": "טקסטיל הגליל בע\"מ",
+      "category": "בדים",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_019",
+      "number": "6401",
+      "date": "2026-05-30",
+      "amount": 47990,
+      "currency": "₪",
+      "supplier_id": "sup_05",
+      "supplier_name": "כפתורים ופרטים בע\"מ",
+      "category": "אביזרים",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_020",
+      "number": "1474",
+      "date": "2026-04-26",
+      "amount": 17250,
+      "currency": "₪",
+      "supplier_id": "sup_04",
+      "supplier_name": "סיטונאות אופיר",
+      "category": "סיטונאות",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_021",
+      "number": "6974",
+      "date": "2026-06-05",
+      "amount": 29440,
+      "currency": "₪",
+      "supplier_id": "sup_05",
+      "supplier_name": "כפתורים ופרטים בע\"מ",
+      "category": "אביזרים",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_022",
+      "number": "1031",
+      "date": "2026-03-08",
+      "amount": 45790,
+      "currency": "₪",
+      "supplier_id": "sup_04",
+      "supplier_name": "סיטונאות אופיר",
+      "category": "סיטונאות",
+      "status": "ממתין"
+    },
+    {
+      "id": "inv_023",
+      "number": "6447",
+      "date": "2026-03-27",
+      "amount": 16610,
+      "currency": "₪",
+      "supplier_id": "sup_06",
+      "supplier_name": "משלוחים מהיר אקספרס",
+      "category": "שילוח",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_024",
+      "number": "8624",
+      "date": "2026-06-07",
+      "amount": 3920,
+      "currency": "₪",
+      "supplier_id": "sup_07",
+      "supplier_name": "חוטי זוהר",
+      "category": "חוטים",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_025",
+      "number": "2683",
+      "date": "2026-06-11",
+      "amount": 7190,
+      "currency": "₪",
+      "supplier_id": "sup_03",
+      "supplier_name": "הדפסות רימון",
+      "category": "הדפסה",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_026",
+      "number": "4940",
+      "date": "2026-06-14",
+      "amount": 36370,
+      "currency": "₪",
+      "supplier_id": "sup_03",
+      "supplier_name": "הדפסות רימון",
+      "category": "הדפסה",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_027",
+      "number": "9466",
+      "date": "2026-05-18",
+      "amount": 41580,
+      "currency": "₪",
+      "supplier_id": "sup_06",
+      "supplier_name": "משלוחים מהיר אקספרס",
+      "category": "שילוח",
+      "status": "ממתין"
+    },
+    {
+      "id": "inv_028",
+      "number": "1064",
+      "date": "2026-04-18",
+      "amount": 4670,
+      "currency": "₪",
+      "supplier_id": "sup_09",
+      "supplier_name": "מכבסת היוקרה",
+      "category": "שירותים",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_029",
+      "number": "8905",
+      "date": "2026-04-16",
+      "amount": 51660,
+      "currency": "₪",
+      "supplier_id": "sup_03",
+      "supplier_name": "הדפסות רימון",
+      "category": "הדפסה",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_030",
+      "number": "1456",
+      "date": "2026-03-08",
+      "amount": 11980,
+      "currency": "₪",
+      "supplier_id": "sup_09",
+      "supplier_name": "מכבסת היוקרה",
+      "category": "שירותים",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_031",
+      "number": "9319",
+      "date": "2026-05-20",
+      "amount": 18570,
+      "currency": "₪",
+      "supplier_id": "sup_08",
+      "supplier_name": "תוויות פלוס",
+      "category": "תוויות",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_032",
+      "number": "6177",
+      "date": "2026-05-30",
+      "amount": 14530,
+      "currency": "₪",
+      "supplier_id": "sup_09",
+      "supplier_name": "מכבסת היוקרה",
+      "category": "שירותים",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_033",
+      "number": "6999",
+      "date": "2026-06-02",
+      "amount": 5850,
+      "currency": "₪",
+      "supplier_id": "sup_04",
+      "supplier_name": "סיטונאות אופיר",
+      "category": "סיטונאות",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_034",
+      "number": "4665",
+      "date": "2026-04-15",
+      "amount": 5950,
+      "currency": "₪",
+      "supplier_id": "sup_05",
+      "supplier_name": "כפתורים ופרטים בע\"מ",
+      "category": "אביזרים",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_035",
+      "number": "1319",
+      "date": "2026-06-06",
+      "amount": 21400,
+      "currency": "₪",
+      "supplier_id": "sup_07",
+      "supplier_name": "חוטי זוהר",
+      "category": "חוטים",
+      "status": "ממתין"
+    },
+    {
+      "id": "inv_036",
+      "number": "2053",
+      "date": "2026-06-08",
+      "amount": 49370,
+      "currency": "₪",
+      "supplier_id": "sup_09",
+      "supplier_name": "מכבסת היוקרה",
+      "category": "שירותים",
+      "status": "שולם"
+    },
+    {
+      "id": "inv_037",
+      "number": "7918",
+      "date": "2026-03-03",
+      "amount": 6340,
+      "currency": "₪",
+      "supplier_id": "sup_04",
+      "supplier_name": "סיטונאות אופיר",
+      "category": "סיטונאות",
+      "status": "נקלט"
+    },
+    {
+      "id": "inv_038",
+      "number": "4003",
+      "date": "2026-06-03",
+      "amount": 38070,
+      "currency": "₪",
+      "supplier_id": "sup_05",
+      "supplier_name": "כפתורים ופרטים בע\"מ",
+      "category": "אביזרים",
+      "status": "ממתין"
+    },
+    {
+      "id": "inv_039",
+      "number": "2091",
+      "date": "2026-05-31",
+      "amount": 2810,
+      "currency": "₪",
+      "supplier_id": "sup_02",
+      "supplier_name": "אריזות שקד",
+      "category": "אריזות",
+      "status": "ממתין"
+    },
+    {
+      "id": "inv_040",
+      "number": "9632",
+      "date": "2026-06-01",
+      "amount": 7700,
+      "currency": "₪",
+      "supplier_id": "sup_02",
+      "supplier_name": "אריזות שקד",
+      "category": "אריזות",
+      "status": "נקלט"
+    }
+  ],
+  "payments": [
+    {
+      "id": "pay_01",
+      "invoice_id": "inv_001",
+      "supplier_name": "טקסטיל הגליל בע\"מ",
+      "amount": 5050,
+      "date": "2026-06-01",
+      "method": "העברה בנקאית"
+    },
+    {
+      "id": "pay_02",
+      "invoice_id": "inv_011",
+      "supplier_name": "חוטי זוהר",
+      "amount": 8290,
+      "date": "2026-05-22",
+      "method": "העברה בנקאית"
+    },
+    {
+      "id": "pay_03",
+      "invoice_id": "inv_012",
+      "supplier_name": "תוויות פלוס",
+      "amount": 47470,
+      "date": "2026-04-09",
+      "method": "העברה בנקאית"
+    },
+    {
+      "id": "pay_04",
+      "invoice_id": "inv_013",
+      "supplier_name": "מכבסת היוקרה",
+      "amount": 33610,
+      "date": "2026-03-15",
+      "method": "שיק"
+    },
+    {
+      "id": "pay_05",
+      "invoice_id": "inv_015",
+      "supplier_name": "הדפסות רימון",
+      "amount": 57260,
+      "date": "2026-03-31",
+      "method": "העברה בנקאית"
+    },
+    {
+      "id": "pay_06",
+      "invoice_id": "inv_020",
+      "supplier_name": "סיטונאות אופיר",
+      "amount": 17250,
+      "date": "2026-04-26",
+      "method": "העברה בנקאית"
+    },
+    {
+      "id": "pay_07",
+      "invoice_id": "inv_021",
+      "supplier_name": "כפתורים ופרטים בע\"מ",
+      "amount": 29440,
+      "date": "2026-06-05",
+      "method": "העברה בנקאית"
+    },
+    {
+      "id": "pay_08",
+      "invoice_id": "inv_023",
+      "supplier_name": "משלוחים מהיר אקספרס",
+      "amount": 16610,
+      "date": "2026-03-27",
+      "method": "שיק"
+    }
+  ],
+  "returns": [
+    {
+      "id": "ret_01",
+      "supplier_name": "טקסטיל הגליל בע\"מ",
+      "amount": 4200,
+      "date": "2026-05-09",
+      "reason": "בד פגום",
+      "status": "הסתיים",
+      "credit_note_number": "Z-3391",
+      "credit_note_date": "2026-05-21",
+      "credit_note_amount": 4200
+    },
+    {
+      "id": "ret_02",
+      "supplier_name": "כפתורים ופרטים בע\"מ",
+      "amount": 1850,
+      "date": "2026-05-28",
+      "reason": "כמות עודפת",
+      "status": "ממתין לזיכוי",
+      "credit_note_number": null,
+      "credit_note_date": null,
+      "credit_note_amount": null
+    }
+  ],
+  "vendor_statements": [
+    {
+      "id": "stmt_01",
+      "supplier_name": "סיטונאות אופיר",
+      "period": "מאי 2026",
+      "opening_balance": 12500,
+      "total_invoices": 38200,
+      "total_payments": 31000,
+      "closing_balance": 19700
+    }
+  ],
+  "alerts": [
+    {
+      "id": "al_01",
+      "type": "invoice_duplicate",
+      "title": "חשבונית כפולה",
+      "detail": "חשבונית 4471 מ\"הדפסות רימון\" נקלטה פעמיים",
+      "entity_id": "inv_014",
+      "severity": "high"
+    },
+    {
+      "id": "al_02",
+      "type": "supplier_incomplete",
+      "title": "ספק חדש – חסר פרטים",
+      "detail": "ל\"חוטי זוהר\" חסר ח.פ וטלפון",
+      "entity_id": "sup_07",
+      "severity": "medium"
+    },
+    {
+      "id": "al_03",
+      "type": "unmatched_credit_note",
+      "title": "זיכוי ללא החזרה תואמת",
+      "detail": "זיכוי Z-5582 מ\"מכבסת היוקרה\" לא נמצאה לו החזרה",
+      "entity_id": null,
+      "severity": "medium"
+    },
+    {
+      "id": "al_04",
+      "type": "invoice_old_date",
+      "title": "חשבונית מחודש קודם",
+      "detail": "חשבונית בתאריך 2026-03-18 נכנסה החודש",
+      "entity_id": "inv_007",
+      "severity": "low"
+    },
+    {
+      "id": "al_05",
+      "type": "supplier_incomplete",
+      "title": "ספק – חסר פרטים",
+      "detail": "ספק קיים שחסרים לו פרטים",
+      "entity_id": null,
+      "severity": "medium"
+    }
+  ]
+}

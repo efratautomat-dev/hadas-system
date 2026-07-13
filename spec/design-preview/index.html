@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hadas v2 — Design System Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      /* Brand palette (sampled from the Hadas logo) */
+      --primary: #A91D3A;
+      --primary-dark: #8C1733;
+      --secondary: #F5847C;
+      --coral-tint: #F9BAB5;
+      --coral-bg: #FDEEEC;
+      --accent: #F3B335;
+      --background: #F8F8FA;
+      --surface: #FFFFFF;
+      --text: #1F2125;
+      --text-muted: #6B6E73;
+      --border: #ECECEF;
+
+      /* Semantic status colors (bind to 06-RULES taxonomy) */
+      --st-new: #3B82F6;
+      --st-in-progress: #F3B335;
+      --st-done: #16A34A;
+      --st-cancelled: #9CA3AF;
+      --st-mismatch: #DC2626;
+      --st-matched: #16A34A;
+
+      --danger: #DC2626;
+      --shadow: 0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.06);
+      --radius-card: 12px;
+      --radius-btn: 10px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Heebo', system-ui, sans-serif;
+      background: var(--background);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 24px;
+    }
+
+    .page { max-width: 1180px; margin: 0 auto; padding: 32px 24px 80px; }
+
+    .page-title { font-size: 28px; font-weight: 700; line-height: 36px; margin: 0 0 4px; }
+    .page-sub { color: var(--text-muted); margin: 0 0 28px; }
+
+    .section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow); padding: 24px; margin-bottom: 24px; }
+    .section-title { font-size: 20px; font-weight: 600; line-height: 28px; margin: 0 0 4px; }
+    .section-hint { color: var(--text-muted); font-size: 13px; margin: 0 0 20px; }
+
+    /* ---- Palette ---- */
+    .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+    .swatch { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+    .swatch .chip { height: 64px; }
+    .swatch .meta { padding: 8px 10px; }
+    .swatch .name { font-size: 13px; font-weight: 500; }
+    .swatch .hex { font-size: 12px; color: var(--text-muted); direction: ltr; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* ---- Type scale ---- */
+    .type-row { display: flex; align-items: baseline; gap: 20px; padding: 12px 0; border-bottom: 1px dashed var(--border); }
+    .type-row:last-child { border-bottom: 0; }
+    .type-sample { flex: 1; }
+    .type-spec { color: var(--text-muted); font-size: 13px; direction: ltr; min-width: 190px; text-align: left; }
+    .t-page  { font-size: 28px; font-weight: 700; line-height: 36px; }
+    .t-sect  { font-size: 20px; font-weight: 600; line-height: 28px; }
+    .t-card  { font-size: 16px; font-weight: 600; line-height: 24px; }
+    .t-body  { font-size: 15px; font-weight: 400; line-height: 24px; }
+    .t-label { font-size: 13px; font-weight: 500; line-height: 18px; }
+    .t-btn   { font-size: 15px; font-weight: 600; line-height: 20px; }
+
+    /* ---- Buttons ---- */
+    .btn { font-family: inherit; font-size: 15px; font-weight: 600; line-height: 20px; border-radius: var(--radius-btn); padding: 10px 18px; border: 1px solid transparent; cursor: pointer; transition: all .15s ease; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-secondary { background: var(--surface); color: var(--primary); border-color: var(--primary); }
+    .btn-secondary:hover { background: var(--coral-bg); }
+    .btn-ghost { background: transparent; color: var(--text-muted); }
+    .btn-ghost:hover { background: var(--coral-bg); }
+    .btn-danger { background: var(--surface); color: var(--danger); border-color: var(--danger); }
+    .btn-danger:hover { background: #FEF2F2; }
+    .btn-disabled { background: var(--primary); color: #fff; opacity: .4; cursor: not-allowed; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .hover-note { color: var(--text-muted); font-size: 12px; }
+
+    /* ---- Status pills ---- */
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 500; line-height: 18px; }
+    .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .pill span { color: var(--text); }
+    .pill-new { color: var(--st-new); background: #EAF1FE; }
+    .pill-in-progress { color: var(--st-in-progress); background: #FEF4E0; }
+    .pill-done { color: var(--st-done); background: #E7F6EC; }
+    .pill-cancelled { color: var(--st-cancelled); background: #F1F2F4; }
+    .pill-mismatch { color: var(--st-mismatch); background: #FDECEC; }
+    .pill-matched { color: var(--st-matched); background: #E7F6EC; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 12px; }
+
+    /* ---- Example cards ---- */
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+    .ex-card { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow); padding: 18px 18px 18px 18px; overflow: hidden; }
+    .ex-card .edge { position: absolute; inset-inline-end: 0; top: 0; bottom: 0; width: 5px; }
+    .edge-new { background: var(--st-new); }
+    .edge-in-progress { background: var(--st-in-progress); }
+    .ex-card .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+    .ex-card .title { font-size: 16px; font-weight: 600; line-height: 24px; margin: 0; }
+    .ex-card .muted { color: var(--text-muted); font-size: 13px; }
+    .ex-card .amount { direction: ltr; font-variant-numeric: tabular-nums; font-weight: 600; }
+    .progress { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 14px; }
+    .progress > i { display: block; height: 100%; background: var(--primary); border-radius: 999px; }
+    .kv { display: flex; justify-content: space-between; font-size: 14px; padding: 3px 0; }
+
+    /* ---- Filter row ---- */
+    .filter-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 500; background: var(--coral-bg); color: var(--primary); border: 1px solid var(--coral-tint); cursor: pointer; }
+    .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .chip-clear { background: transparent; color: var(--text-muted); border: 0; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .view-toggle { margin-inline-start: auto; display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .view-toggle button { border: 0; background: var(--surface); padding: 6px 12px; cursor: pointer; font-family: inherit; font-size: 13px; color: var(--text-muted); }
+    .view-toggle button.active { background: var(--primary); color: #fff; }
+
+    /* ---- Dropzone ---- */
+    .dropzone { border: 2px dashed var(--coral-tint); border-radius: var(--radius-card); background: var(--coral-bg); padding: 30px; text-align: center; color: var(--text-muted); }
+    .dropzone .cloud { display: inline-flex; color: var(--primary); }
+    .dropzone .cloud .ic { width: 40px; height: 40px; stroke-width: 1.7; }
+    .dropzone .big { color: var(--text); font-weight: 500; margin-top: 6px; }
+
+    /* ---- Pagination ---- */
+    .pagination { display: flex; gap: 8px; align-items: center; }
+    .pagination button { min-width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-family: inherit; font-size: 14px; }
+    .pagination button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .pagination button:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ---- Table ---- */
+    table.sample { width: 100%; border-collapse: collapse; text-align: right; }
+    table.sample thead th { background: var(--coral-bg); color: var(--text-muted); font-weight: 600; font-size: 13px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    table.sample tbody td { padding: 11px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
+    table.sample tbody tr:last-child td { border-bottom: 0; }
+    table.sample .num { direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
+
+    /* ---- Mini layout mock ---- */
+    .mock { display: grid; grid-template-columns: 220px 1fr; border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; min-height: 320px; }
+    .mock-sidebar { background: var(--surface); border-inline-start: 1px solid var(--border); padding: 18px 12px; order: 2; }
+    .mock-main { background: var(--background); order: 1; }
+    .mock-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; padding: 4px 10px 16px; }
+    .mock-logo .lotus { font-size: 22px; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; color: var(--text-muted); font-size: 14px; font-weight: 500; margin-bottom: 2px; }
+    .nav-item.active { background: var(--primary); color: #fff; }
+    /* Line icons (Lucide style) — inherit color via currentColor */
+    .ic { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    .mock-topbar { display: flex; align-items: center; gap: 16px; background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; }
+    .mock-search { flex: 1; max-width: 420px; margin: 0 auto; display: flex; align-items: center; gap: 8px; background: var(--background); border: 1px solid var(--border); border-radius: 999px; padding: 8px 16px; color: var(--text-muted); font-size: 13px; }
+    .mock-search .ic { width: 16px; height: 16px; }
+    .bell { position: relative; display: inline-flex; color: var(--text-muted); }
+    .bell .ic { width: 20px; height: 20px; }
+    .bell .dot { position: absolute; top: -3px; inset-inline-end: -3px; width: 8px; height: 8px; background: var(--danger); border-radius: 50%; border: 1.5px solid var(--surface); }
+    .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--coral-tint); color: var(--primary); display: grid; place-items: center; font-weight: 600; font-size: 13px; }
+    .mock-content { padding: 18px; }
+    .mock-content h4 { margin: 0 0 12px; font-size: 18px; font-weight: 600; }
+    .mock-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .mock-stat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+    .mock-stat .n { font-size: 22px; font-weight: 700; direction: ltr; text-align: right; }
+    .mock-stat .l { color: var(--text-muted); font-size: 12px; }
+
+    .footnote { color: var(--text-muted); font-size: 12px; text-align: center; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1 class="page-title">🪷 Hadas v2 — מערכת עיצוב</h1>
+    <p class="page-sub">תצוגה חיה לאישור הבעלים — לוח בקרה RTL נקי ואוורירי בפלטת המותג של הדס. גופן: Heebo.</p>
+
+    <!-- PALETTE -->
+    <section class="section">
+      <h2 class="section-title">פלטת צבעים</h2>
+      <p class="section-hint">נדגם מהלוגו של הדס + צבעי רקע ומלל.</p>
+      <div class="swatch-grid">
+        <div class="swatch"><div class="chip" style="background:#A91D3A"></div><div class="meta"><div class="name">primary (בורדו)</div><div class="hex">#A91D3A</div></div></div>
+        <div class="swatch"><div class="chip" style="background:#8C1733"></div><div class="meta"><div class="name">primary-dark</div><div class="hex">#8C1733</div></div></div>
+        <div class="swatch"><div class="chip" style="background:#F5847C"></div><div class="meta"><div class="name">secondary (קורל)</div><div class="hex">#F5847C</div></div></div>
+        <div class="swatch"><div class="chip" style="background:#F9BAB5"></div><div class="meta"><div class="name">coral-tint</div><div class="hex">#F9BAB5</div></div></div>
+        <div class="swatch"><div class="chip" style="background:#FDEEEC"></div><div class="meta"><div class="name">coral-bg</div><div class="hex">#FDEEEC</div></div></div>
+        <div class="swatch"><div class="chip" style="background:#F3B335"></div><div class="meta"><div class="name">accent (חרדל)</div><div class="hex">#F3B335</div></div></div>
+        <div class="swatch"><div class="chip" style="background:#F8F8FA"></div><div class="meta"><div class="name">background</div><div class="hex">#F8F8FA</div></div></div>
+        <div class="swatch"><div class="chip" style="background:#FFFFFF;border-bottom:1px solid #ECECEF"></div><div class="meta"><div class="name">surface</div><div class="hex">#FFFFFF</div></div></div>
+        <div class="swatch"><div class="chip" style="background:#1F2125"></div><div class="meta"><div class="name">text</div><div class="hex">#1F2125</div></div></div>
+        <div class="swatch"><div class="chip" style="background:#6B6E73"></div><div class="meta"><div class="name">text-muted</div><div class="hex">#6B6E73</div></div></div>
+        <div class="swatch"><div class="chip" style="background:#ECECEF"></div><div class="meta"><div class="name">border</div><div class="hex">#ECECEF</div></div></div>
+      </div>
+    </section>
+
+    <!-- TYPOGRAPHY -->
+    <section class="section">
+      <h2 class="section-title">סולם טיפוגרפי (Heebo)</h2>
+      <p class="section-hint">כל שורה מוצגת בגודל ובמשקל האמיתיים.</p>
+      <div class="type-row"><div class="type-sample t-page">כותרת עמוד — לוח בקרה</div><div class="type-spec">Page title · 28 / 700 · lh 36</div></div>
+      <div class="type-row"><div class="type-sample t-sect">כותרת מקטע — ספקים</div><div class="type-spec">Section title · 20 / 600 · lh 28</div></div>
+      <div class="type-row"><div class="type-sample t-card">כותרת כרטיס — חשבונית INV-2026-014</div><div class="type-spec">Card title · 16 / 600 · lh 24</div></div>
+      <div class="type-row"><div class="type-sample t-body">טקסט גוף — תיאור רגיל של פריט או הערה במערכת.</div><div class="type-spec">Body · 15 / 400 · lh 24</div></div>
+      <div class="type-row"><div class="type-sample t-label">תווית / כיתוב — סטטוס</div><div class="type-spec">Label / caption · 13 / 500 · lh 18</div></div>
+      <div class="type-row"><div class="type-sample t-btn">טקסט כפתור — שמירה</div><div class="type-spec">Button · 15 / 600 · lh 20</div></div>
+    </section>
+
+    <!-- BUTTONS -->
+    <section class="section">
+      <h2 class="section-title">כפתורים</h2>
+      <p class="section-hint">העבירו עכבר מעל כל כפתור כדי לראות את מצב ה-hover.</p>
+      <div class="btn-row">
+        <button class="btn btn-primary">ראשי</button>
+        <button class="btn btn-secondary">משני</button>
+        <button class="btn btn-ghost">שקוף (ghost)</button>
+        <button class="btn btn-danger">מחיקה</button>
+        <button class="btn btn-disabled" disabled>מושבת</button>
+      </div>
+      <p class="hover-note" style="margin-top:12px">hover: ראשי → ‎#8C1733 · משני/שקוף → coral-bg ‎#FDEEEC · מחיקה → ‎#FEF2F2 · מושבת → 40% שקיפות.</p>
+    </section>
+
+    <!-- STATUS PILLS -->
+    <section class="section">
+      <h2 class="section-title">תוויות סטטוס (Status pills)</h2>
+      <p class="section-hint">צבעים סמנטיים הקשורים לטקסונומיה ב-06-RULES.</p>
+      <div class="pill-row">
+        <span class="pill pill-new"><span>חדש</span></span>
+        <span class="pill pill-in-progress"><span>בטיפול</span></span>
+        <span class="pill pill-done"><span>טופל</span></span>
+        <span class="pill pill-cancelled"><span>בוטל</span></span>
+        <span class="pill pill-mismatch"><span>אי-התאמה</span></span>
+        <span class="pill pill-matched"><span>תואם</span></span>
+      </div>
+      <p class="hover-note" style="margin-top:12px">new ‎#3B82F6 · in_progress ‎#F3B335 · done ‎#16A34A · cancelled ‎#9CA3AF · mismatch ‎#DC2626 · matched ‎#16A34A. סטטוס לא מוכר → fallback אפור.</p>
+    </section>
+
+    <!-- EXAMPLE CARDS -->
+    <section class="section">
+      <h2 class="section-title">כרטיסים לדוגמה</h2>
+      <p class="section-hint">כרטיס ספק וכרטיס חשבונית עם פס סטטוס בקצה ופס התקדמות.</p>
+      <div class="card-grid">
+        <div class="ex-card">
+          <div class="edge edge-in-progress"></div>
+          <div class="head">
+            <div>
+              <h3 class="title">אורנה טקסטיל בע"מ</h3>
+              <div class="muted">SUP-014 · ביגוד</div>
+            </div>
+            <span class="pill pill-in-progress"><span>בטיפול</span></span>
+          </div>
+          <div class="kv"><span class="muted">חוב נוכחי</span><span class="amount">₪ 12,480</span></div>
+          <div class="kv"><span class="muted">חשבוניות פתוחות</span><span class="amount">7</span></div>
+          <div class="progress"><i style="width:62%"></i></div>
+          <div class="muted" style="font-size:12px;margin-top:6px">62% מהחשבוניות טופלו</div>
+        </div>
+
+        <div class="ex-card">
+          <div class="edge edge-new"></div>
+          <div class="head">
+            <div>
+              <h3 class="title">חשבונית INV-2026-014</h3>
+              <div class="muted">אורנה טקסטיל · 18/06/2026</div>
+            </div>
+            <span class="pill pill-new"><span>חדש</span></span>
+          </div>
+          <div class="kv"><span class="muted">סכום לפני מע"מ</span><span class="amount">₪ 4,000</span></div>
+          <div class="kv"><span class="muted">מע"מ (17%)</span><span class="amount">₪ 680</span></div>
+          <div class="kv"><span class="muted">סה"כ</span><span class="amount">₪ 4,680</span></div>
+          <div class="progress"><i style="width:25%"></i></div>
+          <div class="muted" style="font-size:12px;margin-top:6px">נקלטה — ממתינה לאישור</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FILTERS + TOGGLE -->
+    <section class="section">
+      <h2 class="section-title">סינון ותצוגה</h2>
+      <p class="section-hint">צ'יפים לסינון, ניקוי הכל, ומתג רשימה/רשת.</p>
+      <div class="filter-row">
+        <span class="chip active">הכל</span>
+        <span class="chip">חדש</span>
+        <span class="chip">בטיפול</span>
+        <span class="chip">אי-התאמה</span>
+        <button class="chip-clear">נקה הכל</button>
+        <div class="view-toggle">
+          <button class="active">רשימה</button>
+          <button>רשת</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- DROPZONE -->
+    <section class="section">
+      <h2 class="section-title">העלאת מסמך</h2>
+      <p class="section-hint">אזור גרירה לקבצים.</p>
+      <div class="dropzone">
+        <div class="cloud"><svg class="ic" viewBox="0 0 24 24"><path d="M4 14.9A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.24"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg></div>
+        <div class="big">גררו קובץ לכאן או לחצו לבחירה</div>
+        <div>PDF · JPG · PNG — עד 15MB</div>
+      </div>
+    </section>
+
+    <!-- TABLE + PAGINATION -->
+    <section class="section">
+      <h2 class="section-title">טבלה לדוגמה</h2>
+      <p class="section-hint">טבלה מיושרת לימין עם כותרת ברקע בהיר, ועימוד ממוספר.</p>
+      <table class="sample">
+        <thead>
+          <tr><th>מספר</th><th>ספק</th><th>תאריך</th><th>סכום</th><th>סטטוס</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>INV-2026-014</td><td>אורנה טקסטיל</td><td class="num">18/06/2026</td><td class="num">₪ 4,680</td><td><span class="pill pill-new"><span>חדש</span></span></td></tr>
+          <tr><td>INV-2026-013</td><td>מטפחות רוני</td><td class="num">15/06/2026</td><td class="num">₪ 2,210</td><td><span class="pill pill-in-progress"><span>בטיפול</span></span></td></tr>
+          <tr><td>INV-2026-011</td><td>בגדי ים שיר</td><td class="num">09/06/2026</td><td class="num">₪ 8,930</td><td><span class="pill pill-done"><span>טופל</span></span></td></tr>
+          <tr><td>INV-2026-009</td><td>שונות בע"מ</td><td class="num">02/06/2026</td><td class="num">₪ 540</td><td><span class="pill pill-mismatch"><span>אי-התאמה</span></span></td></tr>
+        </tbody>
+      </table>
+      <div class="pagination" style="margin-top:16px">
+        <button disabled>›</button>
+        <button class="active">1</button>
+        <button>2</button>
+        <button>3</button>
+        <button>4</button>
+        <button>‹</button>
+      </div>
+    </section>
+
+    <!-- MINI LAYOUT MOCK -->
+    <section class="section">
+      <h2 class="section-title">תרשים פריסה (mock)</h2>
+      <p class="section-hint">סרגל צד מימין + סרגל עליון — תחושת המערכת הכוללת.</p>
+      <div class="mock">
+        <aside class="mock-sidebar">
+          <div class="mock-logo"><span class="lotus">🪷</span><span>הדס</span></div>
+          <div class="nav-item active"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>לוח בקרה</div>
+          <div class="nav-item"><svg class="ic" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>ספקים</div>
+          <div class="nav-item"><svg class="ic" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>חשבוניות</div>
+          <div class="nav-item"><svg class="ic" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>תשלומים</div>
+          <div class="nav-item"><svg class="ic" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>תעודות משלוח</div>
+          <div class="nav-item"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>חזרות</div>
+          <div class="nav-item"><svg class="ic" viewBox="0 0 24 24"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>התאמות</div>
+          <div class="nav-item"><svg class="ic" viewBox="0 0 24 24"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/></svg>התראות</div>
+          <div class="nav-item"><svg class="ic" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>הגדרות</div>
+        </aside>
+        <div class="mock-main">
+          <div class="mock-topbar">
+            <div class="avatar">ה</div>
+            <div class="bell"><svg class="ic" viewBox="0 0 24 24"><path d="M10.27 21a2 2 0 0 0 3.46 0"/><path d="M3.26 15.33A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.67C19.41 13.96 18 12.5 18 8A6 6 0 0 0 6 8c0 4.5-1.41 5.96-2.74 7.33"/></svg><span class="dot"></span></div>
+            <div class="bell"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></div>
+            <div class="mock-search"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>חיפוש ספק, חשבונית או תשלום…</div>
+          </div>
+          <div class="mock-content">
+            <h4>לוח בקרה</h4>
+            <div class="mock-cards">
+              <div class="mock-stat"><div class="n">₪ 184,200</div><div class="l">חוב כולל לספקים</div></div>
+              <div class="mock-stat"><div class="n">9</div><div class="l">זיכויים פתוחים</div></div>
+              <div class="mock-stat"><div class="n">5</div><div class="l">התראות פתוחות</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p class="footnote">Hadas v2 design preview · tokens only · Heebo via Google Fonts</p>
+  </div>
+</body>
+</html>

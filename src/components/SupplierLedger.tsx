@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Printer, BookOpen } from 'lucide-react'
-import { mockLedgerEntries, supplierOpeningBalances } from '../data/mockData'
 import { useSuppliers } from '../hooks/useSuppliers'
+import { useInvoices } from '../hooks/useInvoices'
+import { usePayments } from '../hooks/usePayments'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
@@ -51,10 +52,12 @@ const COL_M = '80px 1fr 110px'
 
 export default function SupplierLedger({ initialSupplierId }: { initialSupplierId?: string }) {
   const { data: suppliersData, loading } = useSuppliers()
+  const { data: allInvoices } = useInvoices()
+  const { data: allPayments } = usePayments()
   const { logoUrl } = useAppLogo()
   const [selectedSupplierId, setSelectedSupplierId] = useState(initialSupplierId ?? '')
   const [fromDate, setFromDate] = useState('2026-01-01')
-  const [toDate,   setToDate]   = useState('2026-05-31')
+  const [toDate,   setToDate]   = useState('2026-12-31')
   const isMobile = useIsMobile()
   const activeCOL = isMobile ? COL_M : COL_D
 
@@ -65,8 +68,41 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   }, [suppliersData, initialSupplierId, selectedSupplierId])
 
   const supplier      = suppliersData.find(s => s.id === selectedSupplierId)
-  const baseOpening   = supplierOpeningBalances[selectedSupplierId] ?? 0
-  const allEntries    = mockLedgerEntries.filter(e => e.supplierId === selectedSupplierId)
+  // openingBalance is attached at runtime by useSuppliers (not in the mock-derived type).
+  const baseOpening   = Number((supplier as { openingBalance?: number } | undefined)?.openingBalance ?? 0)
+
+  // Real ledger entries for the selected supplier, keyed by SUPPLIER_ID
+  // (spec/06-RULES.md §2b). Invoices are debits; credit notes (negative invoices)
+  // and non-cancelled payments are credits. Returns are excluded — only a matching
+  // credit note (a negative invoice) moves the balance.
+  const allEntries = useMemo(() => {
+    const invEntries = allInvoices
+      .filter(inv => inv.supplierId === selectedSupplierId)
+      .map(inv => {
+        const isCredit = inv.amount < 0
+        return {
+          id: inv.id,
+          date: inv.invoiceDate || '',
+          displayDate: inv.date || '',
+          description: `${isCredit ? 'זיכוי' : 'חשבונית'} ${inv.invoiceNumber || inv.id}`,
+          type: (isCredit ? 'זיכוי' : 'חשבונית') as EntryType,
+          debit:  isCredit ? 0 : inv.amount,
+          credit: isCredit ? -inv.amount : 0,
+        }
+      })
+    const payEntries = allPayments
+      .filter(pay => pay.supplier_id === selectedSupplierId && pay.status !== 'cancelled')
+      .map(pay => ({
+        id: String(pay.id),
+        date: pay.date || '',
+        displayDate: pay.date ? isoToDisplay(pay.date) : '',
+        description: `תשלום · ${pay.type}`,
+        type: 'תשלום' as EntryType,
+        debit: 0,
+        credit: pay.amount,
+      }))
+    return [...invEntries, ...payEntries]
+  }, [allInvoices, allPayments, selectedSupplierId])
 
   // Accumulated balance before the selected period
   const beforePeriod      = allEntries.filter(e => e.date < fromDate)
@@ -122,7 +158,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
     const rowsHtml = rows.map(row => {
       const bs = typeBadge[row.type] ?? typeBadge['פתיחה']
       const isOpening = row.type === 'פתיחה'
-      return `<tr style="border-bottom:1px solid #EEEEF2;background:${isOpening ? '#FDF2F4' : 'white'}">
+      return `<tr style="border-bottom:1px solid #EEEEF2;background:${isOpening ? 'var(--brand-active-bg)' : 'white'}">
         <td style="padding:9px 12px">${row.displayDate}</td>
         <td style="padding:9px 12px">${row.description}</td>
         <td style="padding:9px 6px;text-align:center">
@@ -142,13 +178,13 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   <style>
     *{box-sizing:border-box;font-family:Arial,sans-serif}
     body{margin:24px;color:#1F2937;direction:rtl}
-    .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;margin-bottom:20px;border-bottom:2px solid #D32F4A}
+    .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;margin-bottom:20px;border-bottom:2px solid var(--brand-primary)}
     .logo{height:56px;object-fit:contain}
     table{width:100%;border-collapse:collapse}
-    thead tr{background:#D32F4A}
+    thead tr{background:var(--brand-primary)}
     th{padding:10px 12px;color:white;font-size:13px;text-align:right;font-weight:600}
     th.num{text-align:left}
-    .foot-row{background:#FDF2F4;border-top:2px solid #D32F4A}
+    .foot-row{background:var(--brand-active-bg);border-top:2px solid var(--brand-primary)}
     .foot-row td{padding:10px 12px;font-weight:700}
     @media print{@page{margin:1cm}}
   </style>
@@ -161,7 +197,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   </div>
   <div style="text-align:right">
     <div style="font-size:12px;color:#9CA3AF;margin-bottom:4px">כרטסת ספק</div>
-    <div style="font-size:22px;font-weight:900;color:#D32F4A">${supplier.name}</div>
+    <div style="font-size:22px;font-weight:900;color:var(--brand-primary)">${supplier.name}</div>
     <div style="font-size:12px;color:#6B7280;margin-top:2px">${supplier.contact} · ${supplier.phone}</div>
   </div>
   <img src="${logoUrl}" class="logo" alt="לוגו" onerror="this.style.display='none'"/>
@@ -179,7 +215,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       <td colspan="3" style="color:#6B7280;font-size:13px">סיכום תקופה</td>
       <td style="text-align:left;color:#A16207">${formatILS(totalDebit)}</td>
       <td style="text-align:left;color:#166534">${formatILS(totalCredit)}</td>
-      <td style="text-align:left;color:#D32F4A;font-size:15px">${formatILS(finalBalance)}</td>
+      <td style="text-align:left;color:var(--brand-primary);font-size:15px">${formatILS(finalBalance)}</td>
     </tr>
   </tfoot>
 </table>
@@ -196,7 +232,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   if (loading && suppliersData.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--brand-primary)' }} />
       </div>
     )
   }
@@ -215,9 +251,9 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
         <button
           onClick={handlePrint}
           className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-          style={{ minHeight: '44px', padding: '0 18px', background: '#FDF2F4', color: '#D32F4A', fontSize: '16px' }}
+          style={{ minHeight: '44px', padding: '0 18px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)', fontSize: '16px' }}
           onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
-          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
         >
           <Printer className="w-4 h-4" />
           הדפסה
@@ -258,7 +294,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                 border: '1px solid #EEEEF2', borderRadius: '12px', outline: 'none',
                 background: 'white', direction: 'ltr',
               }}
-              onFocus={e => (e.target.style.borderColor = '#D32F4A')}
+              onFocus={e => (e.target.style.borderColor = 'var(--brand-primary)')}
               onBlur={e  => (e.target.style.borderColor = '#EEEEF2')}
             />
           </div>
@@ -275,7 +311,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                 border: '1px solid #EEEEF2', borderRadius: '12px', outline: 'none',
                 background: 'white', direction: 'ltr',
               }}
-              onFocus={e => (e.target.style.borderColor = '#D32F4A')}
+              onFocus={e => (e.target.style.borderColor = 'var(--brand-primary)')}
               onBlur={e  => (e.target.style.borderColor = '#EEEEF2')}
             />
           </div>
@@ -304,9 +340,9 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
             <span className="text-right">תאריך</span>
             <span className="text-right">תיאור</span>
             {!isMobile && <span className="text-center">סוג</span>}
-            {!isMobile && <span className="text-left">חובה</span>}
-            {!isMobile && <span className="text-left">זכות</span>}
-            <span className="text-left">יתרה</span>
+            {!isMobile && <span className="text-right">חובה</span>}
+            {!isMobile && <span className="text-right">זכות</span>}
+            <span className="text-right">יתרה</span>
           </div>
 
           {/* Rows */}
@@ -320,7 +356,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                 style={{
                   gridTemplateColumns: activeCOL,
                   borderBottom: '1px solid #EEEEF2',
-                  background: isOpening ? '#FDF2F4' : undefined,
+                  background: isOpening ? 'var(--brand-active-bg)' : undefined,
                   minWidth: isMobile ? '300px' : '660px',
                   minHeight: '56px',
                   padding: '12px 16px',
@@ -343,16 +379,16 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                   </span>
                 )}
                 {!isMobile && (
-                  <span className="text-left font-medium" style={{ color: '#A16207', fontSize: '14px' }}>
+                  <span className="text-right font-medium" style={{ color: '#A16207', fontSize: '14px' }}>
                     {row.debit > 0 ? formatILS(row.debit) : '—'}
                   </span>
                 )}
                 {!isMobile && (
-                  <span className="text-left font-medium" style={{ color: '#166534', fontSize: '14px' }}>
+                  <span className="text-right font-medium" style={{ color: '#166534', fontSize: '14px' }}>
                     {row.credit > 0 ? formatILS(row.credit) : '—'}
                   </span>
                 )}
-                <span className="text-left font-semibold" style={{ fontSize: '15px', color: isOpening ? '#6B7280' : '#1F2937' }}>
+                <span className="text-right font-semibold" style={{ fontSize: '15px', color: isOpening ? '#6B7280' : '#1F2937' }}>
                   {formatILS(row.runningBalance)}
                 </span>
               </div>
@@ -362,22 +398,22 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           {/* Summary row */}
           <div
             className="grid items-center"
-            style={{ gridTemplateColumns: activeCOL, borderTop: '2px solid #D32F4A', background: '#FDF2F4', minWidth: isMobile ? '300px' : '660px', padding: '12px 16px' }}
+            style={{ gridTemplateColumns: activeCOL, borderTop: '2px solid var(--brand-primary)', background: 'var(--brand-active-bg)', minWidth: isMobile ? '300px' : '660px', padding: '12px 16px' }}
           >
             <div style={{ gridColumn: isMobile ? 'span 1' : 'span 3', textAlign: 'right' }}>
               <span className="font-bold" style={{ fontSize: '13px', color: '#6B7280' }}>סיכום תקופה</span>
             </div>
             {!isMobile && (
-              <span className="text-left font-semibold" style={{ color: '#A16207', fontSize: '15px' }}>
+              <span className="text-right font-semibold" style={{ color: '#A16207', fontSize: '15px' }}>
                 {formatILS(totalDebit)}
               </span>
             )}
             {!isMobile && (
-              <span className="text-left font-semibold" style={{ color: '#166534', fontSize: '15px' }}>
+              <span className="text-right font-semibold" style={{ color: '#166534', fontSize: '15px' }}>
                 {formatILS(totalCredit)}
               </span>
             )}
-            <span className="text-left font-semibold" style={{ color: '#D32F4A', fontSize: '16px' }}>
+            <span className="text-right font-semibold" style={{ color: 'var(--brand-primary)', fontSize: '16px' }}>
               {formatILS(finalBalance)}
             </span>
           </div>
@@ -396,8 +432,8 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           <p className="text-2xl" style={{ fontWeight: 500, color: '#166534' }}>{formatILS(totalCredit)}</p>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#EEEEF2' }}>
-          <p style={{ fontSize: '11px', color: '#D32F4A', fontWeight: 600, marginBottom: '6px' }}>יתרה סופית</p>
-          <p className="text-2xl" style={{ fontWeight: 500, color: '#D32F4A' }}>{formatILS(finalBalance)}</p>
+          <p style={{ fontSize: '11px', color: 'var(--brand-primary)', fontWeight: 600, marginBottom: '6px' }}>יתרה סופית</p>
+          <p className="text-2xl" style={{ fontWeight: 500, color: 'var(--brand-primary)' }}>{formatILS(finalBalance)}</p>
         </div>
       </div>
 

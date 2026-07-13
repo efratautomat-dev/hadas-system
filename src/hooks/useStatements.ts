@@ -30,7 +30,7 @@ export function useStatements() {
         { data: suppRows },
       ] = await Promise.all([
         supabase.from('vendor_statements').select('*'),
-        supabase.from('suppliers').select('id, name'),
+        supabase.from('suppliers_v').select('id, name'),
       ])
 
       // Successful fetch (even with 0 rows) → show real data. Only a genuine

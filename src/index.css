@@ -2,21 +2,90 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Brand tokens ── SOURCE OF TRUTH = src/brand.config.ts, applied to these
+   variables at runtime by src/lib/applyBrand.ts. The values below are only a
+   pre-JS FALLBACK (default client: Hadas); they are overridden on load. To
+   rebrand, edit brand.config.ts — not this file. */
+:root {
+  --brand-primary:      #A91D3A;   /* burgundy */
+  --brand-primary-dark: #8C1733;   /* hover / pressed */
+  --brand-coral:        #F5847C;   /* secondary */
+  --brand-coral-tint:   #F9BAB5;
+  --brand-coral-bg:     #FDEEEC;
+  --brand-mustard:      #F3B335;   /* accent */
+  --brand-active-bg:    #FDF2F4;
+  --brand-bg:           #F8F8FA;
+  --brand-surface:      #FFFFFF;
+  --brand-text:         #1F2125;
+  --brand-text-muted:   #6B6E73;
+  --brand-border:       #ECECEF;
+
+  /* ── Functional status tokens — FIXED, brand-independent (see src/theme/status.ts).
+     Never change per client. */
+  --status-new:      #1E40AF;  --status-new-bg:      #DBEAFE;  /* blue   */
+  --status-progress: #C2410C;  --status-progress-bg: #FFEDD5;  /* orange */
+  --status-pending:  #A16207;  --status-pending-bg:  #FEF9C3;  /* yellow */
+  --status-done:     #166534;  --status-done-bg:     #DCFCE7;  /* green  */
+  --status-urgent:   #DC2626;  --status-urgent-bg:   #FEE2E2;  /* red    */
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
-  font-family: 'Rubik', system-ui, sans-serif;
+  font-family: 'Heebo', system-ui, sans-serif;
 }
 
 body {
   margin: 0;
   direction: rtl;
-  background-color: #F8F8FA;
-  color: #1A1A2E;
+  background-color: var(--brand-bg);
+  color: var(--brand-text);
+  font-size: 15px;
+  line-height: 24px;
 }
 
+/* Approved soft card shadow (design-preview --shadow). Applies app-wide because
+   nearly every card already uses `shadow-sm`. */
 .shadow-sm {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+  box-shadow: 0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.06) !important;
 }
+
+/* ── Hadas design-system component classes (spec/design-preview/index.html) ──
+   Shared primitives (src/components/ui/*) render through these so buttons, cards,
+   inputs, pills, chips and tables match the approved preview 1:1. */
+/* ── Canonical action button — the ONE shared style for every primary/secondary/
+   ghost/danger action across the app (save, create, submit, add, …). Screens use
+   the <Button> primitive (src/components/ui/Button.tsx) or these classes directly.
+   12px radius, 44px tap target, brand hover. Use .hds-btn-sm for compact toolbar CTAs. */
+/* ONE height for every action button (44px). `.hds-btn-sm` keeps that height and
+   only trims font/padding for compact toolbar rows — heights stay uniform app-wide.
+   Clear two-tier hierarchy: primary = FILLED brand; secondary/outline = brand OUTLINE
+   (never filled); ghost = quiet transparent; danger = soft red. */
+.hds-btn { font: inherit; font-size: 15px; font-weight: 600; line-height: 1; border-radius: 12px; padding: 0 18px; min-height: 44px; border: 1px solid transparent; cursor: pointer; transition: all .15s ease; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
+.hds-btn-sm        { padding: 0 14px; font-size: 14px; }
+.hds-btn-primary   { background: var(--brand-primary); color: #fff; }
+.hds-btn-primary:hover   { background: var(--brand-primary-dark); }
+.hds-btn-secondary { background: var(--brand-surface); color: var(--brand-primary); border-color: var(--brand-primary); }
+.hds-btn-secondary:hover { background: var(--brand-active-bg); }
+.hds-btn-outline   { background: var(--brand-surface); color: var(--brand-primary); border-color: var(--brand-primary); }
+.hds-btn-outline:hover   { background: var(--brand-active-bg); }
+.hds-btn-ghost     { background: transparent; color: var(--brand-text-muted); }
+.hds-btn-ghost:hover     { background: var(--brand-active-bg); }
+.hds-btn-danger    { background: #FEE2E2; color: #DC2626; }
+.hds-btn-danger:hover    { background: #FECACA; }
+.hds-btn:disabled  { opacity: .45; cursor: not-allowed; }
+
+.hds-card  { background: var(--brand-surface); border: 1px solid var(--brand-border); border-radius: 12px; box-shadow: 0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.06); padding: 24px; }
+
+.hds-input { width: 100%; height: 44px; padding: 0 14px; font: inherit; font-size: 15px; color: var(--brand-text); background: var(--brand-surface); border: 1px solid #DEDFE5; border-radius: 10px; outline: none; transition: border-color .15s ease; }
+.hds-input:focus { border-color: var(--brand-primary); }
+
+.hds-chip  { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 500; background: var(--brand-coral-bg); color: var(--brand-primary); border: 1px solid var(--brand-coral-tint); cursor: pointer; }
+.hds-chip.active { background: var(--brand-primary); color: #fff; border-color: var(--brand-primary); }
+
+.hds-table { width: 100%; border-collapse: collapse; text-align: right; }
+.hds-table thead th { background: var(--brand-coral-bg); color: var(--brand-text-muted); font-weight: 600; font-size: 13px; padding: 10px 12px; border-bottom: 1px solid var(--brand-border); }
+.hds-table tbody td { padding: 11px 12px; border-bottom: 1px solid var(--brand-border); font-size: 14px; }
+.hds-table tbody tr:last-child td { border-bottom: 0; }
 
 #root {
   min-height: 100vh;
@@ -42,10 +111,10 @@ textarea:focus {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(211, 47, 74, 0.15);
+  background: rgba(169, 29, 58, 0.15);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(211, 47, 74, 0.30);
+  background: rgba(169, 29, 58, 0.30);
 }

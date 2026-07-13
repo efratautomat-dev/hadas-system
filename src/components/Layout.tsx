@@ -16,15 +16,16 @@ import SystemLogs from '../pages/SystemLogs'
 import type { Alert } from '../data/mockData'
 import { useAlerts } from '../hooks/useAlerts'
 import { AppLogoProvider } from '../hooks/useAppLogo'
+import { brand } from '../brand.config'
 import { api } from '../lib/api'
 import { supabase } from '../lib/supabase'
 
 function getGreeting(): string {
   const hour = new Date().getHours()
-  if (hour >= 5 && hour < 12) return 'בוקר טוב הדס'
-  if (hour >= 12 && hour < 17) return 'צהריים טובים הדס'
-  if (hour >= 17 && hour < 21) return 'ערב טוב הדס'
-  return 'לילה טוב הדס'
+  if (hour >= 5 && hour < 12) return `בוקר טוב ${brand.appName}`
+  if (hour >= 12 && hour < 17) return `צהריים טובים ${brand.appName}`
+  if (hour >= 17 && hour < 21) return `ערב טוב ${brand.appName}`
+  return `לילה טוב ${brand.appName}`
 }
 
 function useIsMobile() {
@@ -73,7 +74,7 @@ const pageLabels: Record<string, string> = {
 function ComingSoon({ page }: { page: string }) {
   return (
     <div className="flex flex-col items-center justify-center" style={{ minHeight: '60vh' }}>
-      <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-5 text-4xl shadow-sm" style={{ background: '#FDF2F4' }}>
+      <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-5 text-4xl shadow-sm" style={{ background: 'var(--brand-active-bg)' }}>
         🚧
       </div>
       <h2 className="text-xl font-semibold text-gray-700 mb-2">{pageLabels[page]} · בפיתוח</h2>
@@ -91,6 +92,7 @@ interface NavEntry {
   invoiceDuplicateId?: string
   paymentsSupplierFilter?: string
   returnsEditId?: string
+  statementViewId?: string
 }
 
 interface AlertPrefillState {
@@ -125,9 +127,10 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const handleDeleteAlert  = (id: string) => removeAlert(id)
 
   // Called by Invoices once a duplicate pair has been resolved (deleted /
-  // marked primary / approved). Cleans up every alert that still points at the
-  // pair — the one the user clicked AND any orphaned twin referencing the same
-  // pair — then, if we got here from a duplicate alert, returns to the alerts page.
+  // approved). Super-rule "deleted duplicate → resolve both": every alert that
+  // points at the pair — the one the user clicked AND any twin referencing the
+  // same pair — is marked RESOLVED (not deleted, so it stays auditable and drops
+  // off the active queue). Then, if we came from a duplicate alert, go back.
   const handleDuplicateResolved = (info: DuplicateResolution) => {
     for (const a of alerts) {
       const t = a.type as string
@@ -137,7 +140,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
       const matchesId   = !!refId && info.ids.includes(refId)
       const matchesPair = !!info.invoiceNumber &&
         p.invoiceNumber === info.invoiceNumber && p.supplierId === info.supplierId
-      if (matchesId || matchesPair) removeAlert(a.id)
+      if (matchesId || matchesPair) markResolved(a.id)
     }
     if (info.fromAlert) goBack()
   }
@@ -157,7 +160,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   // if not found, fall back to the invoices list.
   const handleOpenInvoiceByGmailMessageId = async (msgId: string) => {
     const { data, error } = await supabase
-      .from('invoices')
+      .from('invoices_v')
       .select('id')
       .eq('gmail_message_id', msgId)
       .limit(1)
@@ -195,6 +198,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
       <Dashboard
         onPageChange={handlePageChange}
         alerts={alerts}
+        onMarkRead={handleMarkRead}
         onOpenInvoice={(id)                => setNavStack(prev => [...prev, { page: 'invoices',  invoiceSelectedId:  id   }])}
         onOpenInvoiceDuplicate={(id)       => setNavStack(prev => [...prev, { page: 'invoices',  invoiceDuplicateId: id   }])}
         onOpenInvoiceByGmailMessageId={handleOpenInvoiceByGmailMessageId}
@@ -217,6 +221,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenSupplier={(id)               => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId:     id   }])}
         onOpenSupplierByName={(name)       => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewName:   name }])}
         onOpenReturn={(id)                 => setNavStack(prev => [...prev, { page: 'returns',   returnsEditId:      id   }])}
+        onOpenStatement={(id)              => setNavStack(prev => [...prev, { page: 'reconciliation', statementViewId: id }])}
         onPageChange={handlePageChange}
         savedScrollY={alertsScrollY.current}
         onScrollSave={(y) => { alertsScrollY.current = y }}
@@ -273,7 +278,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     )
     if (activePage === 'payments')       return <Payments initialSupplier={currentNav.paymentsSupplierFilter} />
     if (activePage === 'deliveries')     return <DeliveryNotes />
-    if (activePage === 'reconciliation') return <StatementReconciliation />
+    if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
     if (activePage === 'capture')        return <CaptureDocument capturedBy={userEmail} />
     if (activePage === 'system-logs')    return <SystemLogs />
@@ -326,7 +331,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
               <button
                 onClick={() => setMobileMenuOpen(true)}
                 className="flex items-center justify-center rounded-xl flex-shrink-0"
-                style={{ width: '40px', height: '40px', background: '#FDF2F4', color: '#D32F4A', border: 'none', cursor: 'pointer' }}
+                style={{ width: '40px', height: '40px', background: 'var(--brand-active-bg)', color: 'var(--brand-primary)', border: 'none', cursor: 'pointer' }}
               >
                 <Menu className="w-5 h-5" />
               </button>
@@ -334,7 +339,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
             <button
               className="flex items-center gap-2 rounded-xl text-gray-400 border transition-all"
               style={{ borderColor: '#EEEEF2', minHeight: '40px', padding: '0 12px', fontSize: '14px' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#D32F4A')}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'var(--brand-primary)')}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#EEEEF2')}
             >
               {!isMobile && <span>חיפוש...</span>}
@@ -351,15 +356,15 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
             )}
             {isMobile && (
               <h2 className="font-medium" style={{ fontSize: '15px', color: '#1A1A2E' }}>
-                {activePage === 'dashboard' ? 'הדס' : pageLabels[activePage]}
+                {activePage === 'dashboard' ? brand.appName : pageLabels[activePage]}
               </h2>
             )}
 
             <button
               onClick={() => handlePageChange('alerts')}
               className="relative rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
-              style={{ background: '#FDF2F4', color: '#9CA3AF', width: '36px', height: '36px' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#D32F4A')}
+              style={{ background: 'var(--brand-active-bg)', color: '#9CA3AF', width: '36px', height: '36px' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--brand-primary)')}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
             >
               <Bell className="w-5 h-5" />
@@ -384,7 +389,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
 
             <div
               className="rounded-xl flex items-center justify-center text-white font-medium cursor-pointer select-none flex-shrink-0"
-              style={{ background: '#D32F4A', width: '36px', height: '36px', fontSize: '14px' }}
+              style={{ background: 'var(--brand-primary)', width: '36px', height: '36px', fontSize: '14px' }}
               title={userEmail}
             >
               {userEmail.charAt(0).toUpperCase()}
@@ -407,7 +412,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
                   borderRadius: '50%',
                   background: 'white',
                   border: '1px solid #EEEEF2',
-                  color: '#D32F4A',
+                  color: 'var(--brand-primary)',
                   cursor: 'pointer',
                   boxShadow: 'none',
                   transition: 'box-shadow 0.15s',

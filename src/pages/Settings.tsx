@@ -1,9 +1,11 @@
 import { useState, useRef } from 'react'
-import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
+import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw, Tag, GitMerge, X } from 'lucide-react'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
+import { useCategories } from '../hooks/useCategories'
 import { supabase } from '../lib/supabase'
 import { useAppLogo } from '../hooks/useAppLogo'
+import { Button } from '../components/ui/Button'
 
 function useIsTablet() {
   const [v] = useState(
@@ -12,7 +14,7 @@ function useIsTablet() {
   return v
 }
 
-type Tab = 'profile' | 'preferences' | 'notifications' | 'backup' | 'employees'
+type Tab = 'profile' | 'preferences' | 'notifications' | 'backup' | 'employees' | 'categories'
 
 interface ProfileState {
   businessName: string
@@ -42,10 +44,11 @@ const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ className?: st
   { id: 'notifications', label: 'התראות',        Icon: Bell },
   { id: 'backup',        label: 'גיבוי',          Icon: Download },
   { id: 'employees',     label: 'עובדים',         Icon: Users },
+  { id: 'categories',    label: 'קטגוריות',       Icon: Tag },
 ]
 
 const DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'DD.MM.YYYY']
-const COLOR_PRESETS = ['#E8645A', '#8B1A3A', '#E8A020', '#22C55E', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6']
+const COLOR_PRESETS = ['#E8645A', 'var(--brand-primary-dark)', '#E8A020', '#22C55E', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6']
 
 function SaveToast({ visible }: { visible: boolean }) {
   return (
@@ -64,6 +67,27 @@ function SaveToast({ visible }: { visible: boolean }) {
       >
         נשמר ✓
       </div>
+    </div>
+  )
+}
+
+// Non-persisting settings (profile / preferences prefs / notifications / backup
+// export) show this "not available yet" state instead of controls that silently
+// fail to save. The original panels are kept in the file behind `SHOW_LEGACY`
+// (never rendered) so no handler/state is deleted — flip to true to restore them.
+const SHOW_LEGACY = false
+
+function NotAvailable() {
+  return (
+    <div
+      className="bg-white rounded-2xl shadow-sm border flex flex-col items-center justify-center text-center"
+      style={{ borderColor: '#EEEEF2', padding: '48px 24px', direction: 'rtl' }}
+    >
+      <div className="rounded-2xl flex items-center justify-center mb-4" style={{ width: '56px', height: '56px', background: 'var(--brand-active-bg)' }}>
+        <Settings2 className="w-7 h-7" style={{ color: 'var(--brand-primary)' }} />
+      </div>
+      <p className="font-semibold text-gray-700" style={{ fontSize: '16px' }}>אפשרות זו אינה זמינה כרגע</p>
+      <p className="text-gray-400 mt-1" style={{ fontSize: '14px' }}>התכונה תתווסף בהמשך</p>
     </div>
   )
 }
@@ -143,6 +167,151 @@ function Toggle({ value, onChange, label, sub }: { value: boolean; onChange: (v:
         <p className="text-sm font-semibold text-gray-800">{label}</p>
         {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
       </div>
+    </div>
+  )
+}
+
+// ── Category management (Settings → categories, MANAGER-only screen) ──────────
+// Add / rename / delete / merge. Rename & merge re-point every tagged record via
+// hadas-api; delete of an in-use category prompts for reassignment (never orphans).
+function CategoriesManager() {
+  const { data: categories, loading, error, create, rename, remove, merge } = useCategories()
+  const [newName, setNewName] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [mergeFrom, setMergeFrom] = useState('')
+  const [mergeInto, setMergeInto] = useState('')
+  const [reassign, setReassign] = useState<{ id: string; name: string } | null>(null)
+  const [reassignTo, setReassignTo] = useState('')
+
+  const A = 'var(--brand-primary)'
+  const flash = (type: 'ok' | 'err', text: string) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 3500) }
+  const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+  async function run(fn: () => Promise<void>, ok: string) {
+    setBusy(true)
+    try { await fn(); flash('ok', ok) } catch (e) { flash('err', errText(e)); throw e } finally { setBusy(false) }
+  }
+
+  async function handleAdd() {
+    const n = newName.trim(); if (!n) return
+    try { await run(() => create(n), 'הקטגוריה נוספה'); setNewName('') } catch { /* flashed */ }
+  }
+  async function handleRename(id: string) {
+    const n = editName.trim(); if (!n) return
+    try { await run(() => rename(id, n), 'השם עודכן'); setEditingId(null) } catch { /* flashed */ }
+  }
+  async function handleDelete(cat: { id: string; name: string; usage_count: number }) {
+    if (cat.usage_count > 0) { setReassign({ id: cat.id, name: cat.name }); setReassignTo(''); return }
+    try { await run(() => remove(cat.id), 'הקטגוריה נמחקה') }
+    catch (e) { if (/in use/i.test(errText(e))) { setReassign({ id: cat.id, name: cat.name }); setReassignTo('') } }
+  }
+  async function confirmReassign() {
+    if (!reassign || !reassignTo) return
+    try { await run(() => remove(reassign.id, reassignTo), 'הרשומות שויכו מחדש והקטגוריה נמחקה'); setReassign(null) } catch { /* flashed */ }
+  }
+  async function handleMerge() {
+    if (!mergeFrom || !mergeInto || mergeFrom === mergeInto) return
+    try { await run(() => merge(mergeFrom, mergeInto), 'הקטגוריות מוזגו'); setMergeFrom(''); setMergeInto('') } catch { /* flashed */ }
+  }
+
+  const selectStyle: React.CSSProperties = { padding: '10px 14px', borderRadius: '12px', border: '1px solid #E2E4E9', background: 'white', fontSize: '14px', color: '#1F2937', outline: 'none', cursor: 'pointer' }
+
+  return (
+    <div className="space-y-5">
+      {msg && (
+        <div className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: msg.type === 'ok' ? '#DCFCE7' : '#FEE2E2', color: msg.type === 'ok' ? '#166534' : '#DC2626' }}>
+          {msg.text}
+        </div>
+      )}
+
+      {/* Add */}
+      <SectionCard title="הוספת קטגוריה">
+        <div className="flex items-end gap-3">
+          <div className="flex-1"><FieldLabel>שם קטגוריה</FieldLabel><TextInput value={newName} onChange={setNewName} placeholder="לדוגמה: ספקים ביגוד" /></div>
+          <Button variant="primary" onClick={handleAdd} disabled={busy || !newName.trim()}>
+            <Plus className="w-4 h-4" /> הוסף
+          </Button>
+        </div>
+      </SectionCard>
+
+      {/* Merge */}
+      <SectionCard title="מיזוג קטגוריות">
+        <p className="text-xs text-gray-400 mb-3">מיזוג ישייך מחדש את כל הרשומות מהקטגוריה הראשונה לשנייה, וימחק את הראשונה.</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <select value={mergeFrom} onChange={e => setMergeFrom(e.target.value)} style={selectStyle}>
+            <option value="">מזג מ…</option>
+            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <span className="text-gray-400">←</span>
+          <select value={mergeInto} onChange={e => setMergeInto(e.target.value)} style={selectStyle}>
+            <option value="">אל…</option>
+            {categories.filter(c => c.id !== mergeFrom).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <Button variant="primary" onClick={handleMerge} disabled={busy || !mergeFrom || !mergeInto}>
+            <GitMerge className="w-4 h-4" /> מזג
+          </Button>
+        </div>
+      </SectionCard>
+
+      {/* List */}
+      <SectionCard title={`קטגוריות${categories.length ? ` (${categories.length})` : ''}`}>
+        {loading ? (
+          <div className="py-10 text-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 mx-auto" style={{ borderColor: A }} /></div>
+        ) : error ? (
+          <p className="py-8 text-center text-sm" style={{ color: '#DC2626' }}>שגיאה בטעינת קטגוריות: {error}</p>
+        ) : categories.length === 0 ? (
+          <div className="py-10 text-center"><Tag className="w-10 h-10 mx-auto mb-2 text-gray-200" /><p className="text-gray-400 text-sm">אין קטגוריות — הוסף קטגוריה ראשונה</p></div>
+        ) : (
+          <div className="space-y-2">
+            {categories.map(cat => (
+              <div key={cat.id} className="flex items-center justify-between p-3.5 rounded-xl border" style={{ borderColor: '#E2E4E9' }}>
+                {editingId === cat.id ? (
+                  <div className="flex items-center gap-2 flex-1">
+                    <Button variant="primary" size="sm" onClick={() => handleRename(cat.id)} disabled={busy}>שמור</Button>
+                    <Button variant="outline" size="sm" onClick={() => setEditingId(null)}>ביטול</Button>
+                    <div className="flex-1"><TextInput value={editName} onChange={setEditName} /></div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button onClick={() => { setEditingId(cat.id); setEditName(cat.name) }} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#F3F4F6', color: '#6B7280' }} title="שנה שם"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => handleDelete(cat)} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#FEE2E2', color: '#DC2626' }} title="מחק"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                    <div className="flex items-center gap-2 text-right">
+                      <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: '#F3F4F6', color: '#6B7280' }} title="שימושים">{cat.usage_count}</span>
+                      <span className="text-sm font-semibold text-gray-800">{cat.name}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      {/* Reassign-on-delete modal */}
+      {reassign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={e => { if (e.target === e.currentTarget) setReassign(null) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full p-6" style={{ maxWidth: '440px', direction: 'rtl' }}>
+            <div className="flex items-center justify-between mb-2">
+              <button onClick={() => setReassign(null)} className="text-gray-400"><X className="w-5 h-5" /></button>
+              <h3 className="font-bold text-gray-800">מחיקת "{reassign.name}"</h3>
+            </div>
+            <p className="text-sm text-gray-500 mb-4 text-right">לקטגוריה זו יש רשומות משויכות. בחרי קטגוריה שאליה ישויכו הרשומות לפני המחיקה (לא ניתן להשאיר רשומות ללא קטגוריה).</p>
+            <select value={reassignTo} onChange={e => setReassignTo(e.target.value)} style={{ ...selectStyle, width: '100%' }}>
+              <option value="">שייך רשומות אל…</option>
+              {categories.filter(c => c.id !== reassign.id).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+            <div className="flex justify-end gap-3 mt-5">
+              <Button variant="outline" onClick={() => setReassign(null)}>ביטול</Button>
+              <Button variant="danger" onClick={confirmReassign} disabled={busy || !reassignTo}>שייך ומחק</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -356,6 +525,8 @@ export default function Settings() {
   const tabContent: Record<Tab, React.ReactNode> = {
     profile: (
       <div className="space-y-5">
+        <NotAvailable />
+        {SHOW_LEGACY && (<>
         <SectionCard title="לוגו עסקי">
           <div className="flex items-center gap-5" style={{ flexDirection: 'row-reverse' }}>
             <div
@@ -412,6 +583,7 @@ export default function Settings() {
             </div>
           </div>
         </SectionCard>
+        </>)}
       </div>
     ),
 
@@ -440,32 +612,26 @@ export default function Settings() {
                 onChange={handleSystemLogoUpload}
               />
               <div className="flex flex-wrap gap-2">
-                <button
+                <Button
+                  variant="outline"
                   onClick={() => sysLogoInputRef.current?.click()}
                   disabled={logoUploading}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all"
-                  style={{ borderColor: '#D32F4A', color: '#D32F4A' }}
-                  onMouseEnter={e => { if (!logoUploading) (e.currentTarget as HTMLElement).style.background = '#FDF2F4' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
                   {logoUploading ? (
-                    <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: '#D32F4A', borderTopColor: 'transparent' }} />
+                    <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--brand-primary)', borderTopColor: 'transparent' }} />
                   ) : (
                     <Upload className="w-4 h-4" />
                   )}
                   העלאת לוגו חדש
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
                   onClick={handleResetSystemLogo}
                   disabled={logoUploading}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all"
-                  style={{ borderColor: '#EEEEF2', color: '#6B7280' }}
-                  onMouseEnter={e => { if (!logoUploading) (e.currentTarget as HTMLElement).style.background = '#F8F8FA' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
                 >
                   <RefreshCw className="w-4 h-4" />
                   איפוס ללוגו ברירת מחדל
-                </button>
+                </Button>
               </div>
               <p className="text-xs text-gray-400 mt-2">PNG, JPG, SVG עד 2MB</p>
               {logoMsg && (
@@ -477,6 +643,8 @@ export default function Settings() {
           </div>
         </SectionCard>
 
+        <NotAvailable />
+        {SHOW_LEGACY && (<>
         <SectionCard title="שפה ומטבע">
           <div className="grid grid-cols-1 gap-4" style={{ gridTemplateColumns: isTablet ? '1fr' : '1fr 1fr' }}>
             <div>
@@ -565,11 +733,14 @@ export default function Settings() {
             </div>
           </div>
         </SectionCard>
+        </>)}
       </div>
     ),
 
     notifications: (
       <div className="space-y-5">
+        <NotAvailable />
+        {SHOW_LEGACY && (<>
         <SectionCard title="סוגי התראות">
           <Toggle
             value={notifs.duplicates}
@@ -622,24 +793,21 @@ export default function Settings() {
             </span>
           </div>
         </SectionCard>
+        </>)}
       </div>
     ),
 
     backup: (
       <div className="space-y-5">
+        <NotAvailable />
+        {SHOW_LEGACY && (<>
         <SectionCard title="ייצוא נתונים">
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 rounded-xl border" style={{ borderColor: '#E2E4E9' }}>
-              <button
-                onClick={handleExportAll}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all"
-                style={{ background: '#E8645A' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#8B1A3A' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
-              >
+              <Button variant="primary" onClick={handleExportAll}>
                 <Download className="w-4 h-4" />
                 ייצא הכל ל-Excel
-              </button>
+              </Button>
               <div className="text-right">
                 <p className="text-sm font-semibold text-gray-700">גיבוי מלא</p>
                 <p className="text-xs text-gray-400 mt-0.5">ספקים, חשבוניות, תשלומים, תעודות</p>
@@ -710,6 +878,7 @@ export default function Settings() {
             ))}
           </div>
         </SectionCard>
+        </>)}
       </div>
     ),
 
@@ -756,25 +925,19 @@ export default function Settings() {
               className="flex justify-end gap-3 mt-5 pt-4 border-t"
               style={{ borderColor: '#F3F4F6' }}
             >
-              <button
+              <Button
+                variant="outline"
                 onClick={() => { setShowEmpForm(false); setEditingEmpId(null) }}
-                className="px-4 py-2 rounded-xl text-sm font-bold border-2 transition-colors"
-                style={{ borderColor: '#E2E4E9', color: '#6B7280' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#F8F9FA' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'white' }}
               >
                 ביטול
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
                 onClick={saveEmp}
                 disabled={!empForm.name.trim()}
-                className="px-5 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                style={{ background: '#E8645A' }}
-                onMouseEnter={e => { if (empForm.name.trim()) (e.currentTarget as HTMLElement).style.background = '#8B1A3A' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
               >
                 {editingEmpId ? 'שמור שינויים' : 'הוסף עובד'}
-              </button>
+              </Button>
             </div>
           </SectionCard>
         )}
@@ -782,16 +945,10 @@ export default function Settings() {
         {/* Employee list */}
         <SectionCard>
           <div className="flex items-center justify-between mb-5">
-            <button
-              onClick={openEmpAdd}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white transition-all"
-              style={{ background: '#E8645A' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#8B1A3A' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#E8645A' }}
-            >
+            <Button variant="primary" onClick={openEmpAdd}>
               <Plus className="w-4 h-4" />
               הוסף עובד
-            </button>
+            </Button>
             <h3 className="font-bold text-gray-700 text-base">
               רשימת עובדים {employees.length > 0 && `(${employees.length})`}
             </h3>
@@ -844,20 +1001,20 @@ export default function Settings() {
                   <div className="flex items-center gap-2 flex-shrink-0">
                     {deletingEmpId === emp.id ? (
                       <>
-                        <button
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => setDeletingEmpId(null)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors"
-                          style={{ borderColor: '#E2E4E9', color: '#6B7280' }}
                         >
                           ביטול
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
                           onClick={() => confirmDeleteEmp(emp.id)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-colors"
-                          style={{ background: '#DC2626' }}
                         >
                           מחק
-                        </button>
+                        </Button>
                       </>
                     ) : (
                       <>
@@ -891,6 +1048,8 @@ export default function Settings() {
         </SectionCard>
       </div>
     ),
+
+    categories: <CategoriesManager />,
   }
 
   return (

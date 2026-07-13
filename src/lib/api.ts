@@ -1,8 +1,15 @@
+import { DEMO_MODE } from './demo'
 import { supabase } from './supabase'
 
 const BASE = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hadas-api`
 
 async function call(method: string, path: string, body?: unknown): Promise<unknown> {
+  // Demo mode: never hit the network. Accept the write and echo a synthetic id
+  // so optimistic UI flows (e.g. supplier create) keep working on fake data.
+  if (DEMO_MODE) {
+    console.warn(`[DEMO MODE] stubbed ${method} ${path} — no network call`)
+    return { id: `demo-${Date.now()}` }
+  }
   // hadas-api authenticates the frontend via the logged-in user's Supabase JWT.
   // Pull a fresh access token from the current session on every request.
   const { data: { session } } = await supabase.auth.getSession()
@@ -19,6 +26,7 @@ async function call(method: string, path: string, body?: unknown): Promise<unkno
 }
 
 export const api = {
+  get:    (path: string)                => call('GET',    path),
   post:   (path: string, body: unknown) => call('POST',   path, body),
   put:    (path: string, body: unknown) => call('PUT',    path, body),
   delete: (path: string)                => call('DELETE', path),
@@ -49,6 +57,10 @@ export async function captureDocument(input: {
   filename?:   string
   capturedBy?: string
 }): Promise<CaptureResult> {
+  if (DEMO_MODE) {
+    console.warn('[DEMO MODE] stubbed captureDocument — no network call')
+    return { ok: true, outcome: 'created', docType: input.docType, captureId: `demo-${Date.now()}` }
+  }
   // invoices-ingest now accepts the logged-in user's Supabase JWT (same as call()).
   const { data: { session } } = await supabase.auth.getSession()
   const token = session?.access_token

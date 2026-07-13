@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAppLogo } from '../hooks/useAppLogo'
+import { brand } from '../brand.config'
 import {
   LayoutDashboard,
   Users,
@@ -94,13 +95,13 @@ export default function Sidebar({
           <div className="flex items-center gap-3">
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: '#FDF2F4' }}
+              style={{ background: 'var(--brand-active-bg)' }}
             >
-              <img src={logoUrl} alt="הדס לוגו" className="w-7 h-7 object-contain" />
+              <img src={logoUrl} alt={`${brand.appName} לוגו`} className="w-7 h-7 object-contain" />
             </div>
             <div>
               <h1 className="text-lg leading-tight" style={{ color: '#1A1A2E', fontWeight: 600 }}>
-                הדס
+                {brand.appName}
               </h1>
               <p className="text-xs leading-none" style={{ color: '#9CA3AF' }}>
                 ניהול ספקים
@@ -112,9 +113,9 @@ export default function Sidebar({
         {collapsed && (
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{ background: '#FDF2F4' }}
+            style={{ background: 'var(--brand-active-bg)' }}
           >
-            <img src={logoUrl} alt="הדס לוגו" className="w-7 h-7 object-contain" />
+            <img src={logoUrl} alt={`${brand.appName} לוגו`} className="w-7 h-7 object-contain" />
           </div>
         )}
 
@@ -158,7 +159,7 @@ export default function Sidebar({
       )}
 
       {/* Navigation */}
-      <nav className="flex-1 py-3 overflow-y-auto overflow-x-hidden">
+      <nav className="flex-1 py-3 px-2 overflow-y-auto overflow-x-hidden">
         {navItems.map(({ id, label, Icon }) => {
           const isActive = activePage === id
           return (
@@ -167,24 +168,25 @@ export default function Sidebar({
               onClick={() => onPageChange(id)}
               className="w-full flex items-center transition-all relative"
               style={{
-                padding: collapsed ? '12px 0' : '11px 16px',
+                padding: collapsed ? '12px 0' : '11px 14px',
                 justifyContent: collapsed ? 'center' : 'flex-start',
                 gap: collapsed ? '0' : '10px',
                 minHeight: isTablet ? '44px' : undefined,
-                color: isActive ? '#D32F4A' : '#6B7280',
-                background: isActive ? '#FDF2F4' : 'transparent',
-                borderRight: isActive ? '3px solid #D32F4A' : '3px solid transparent',
+                borderRadius: '10px',
+                marginBottom: '2px',
+                color: isActive ? '#FFFFFF' : '#6B6E73',
+                background: isActive ? 'var(--brand-primary)' : 'transparent',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {
-                  (e.currentTarget as HTMLButtonElement).style.background = '#F5F5F8'
-                  ;(e.currentTarget as HTMLButtonElement).style.color = '#1A1A2E'
+                  (e.currentTarget as HTMLButtonElement).style.background = 'var(--brand-coral-bg)'
+                  ;(e.currentTarget as HTMLButtonElement).style.color = '#1F2125'
                 }
               }}
               onMouseLeave={(e) => {
                 if (!isActive) {
                   (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-                  ;(e.currentTarget as HTMLButtonElement).style.color = '#6B7280'
+                  ;(e.currentTarget as HTMLButtonElement).style.color = '#6B6E73'
                 }
               }}
             >
@@ -255,7 +257,7 @@ export default function Sidebar({
           <div className="flex items-center gap-2.5 px-2 mb-2">
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center font-medium text-white flex-shrink-0"
-              style={{ background: '#D32F4A', fontSize: '14px' }}
+              style={{ background: 'var(--brand-primary)', fontSize: '14px' }}
             >
               {initials}
             </div>

@@ -18,13 +18,32 @@ function json(data: unknown, status = 200): Response {
 
 // ─── Auth ──────────────────────────────────────────────────────────────────────
 
-function isAuthorized(req: Request): boolean {
-  const key = req.headers.get("x-hadas-key");
+function validateKey(key: string | null): boolean {
   const expected = Deno.env.get("HADAS_API_KEY");
-  console.log("expected:", JSON.stringify(expected));
-  console.log("got:", JSON.stringify(key));
-  console.log("match:", key === expected);
   return !!expected && key === expected;
+}
+
+// Two valid auth paths (mirrors hadas-api):
+//   1. x-hadas-key header           — cron / machine-to-machine calls
+//   2. Authorization: Bearer <jwt>  — logged-in browser users in allowed_users
+async function isAuthorized(req: Request, supabase: SupabaseClient): Promise<boolean> {
+  const hadasKey = req.headers.get("x-hadas-key");
+  if (hadasKey) return validateKey(hadasKey);
+
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7);
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) return false;
+    const { data } = await supabase
+      .from("allowed_users")
+      .select("email")
+      .eq("email", user.email)
+      .maybeSingle();
+    return !!data;
+  }
+
+  return false;
 }
 
 // ─── Logger (writes to system_logs + console) ──────────────────────────────────
@@ -732,10 +751,6 @@ Deno.serve(async (req: Request) => {
     return new Response(null, { status: 204, headers: CORS });
   }
 
-  if (!isAuthorized(req)) {
-    return json({ error: "Unauthorized" }, 401);
-  }
-
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey  =
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
@@ -745,6 +760,10 @@ Deno.serve(async (req: Request) => {
     auth: { persistSession: false },
   });
   const log = makeLogger(supabase);
+
+  if (!(await isAuthorized(req, supabase))) {
+    return json({ error: "Unauthorized" }, 401);
+  }
 
   try {
     const result = await ingestPayments(supabase, log);

@@ -1,0 +1,211 @@
+{
+  "phase": "may-fix",
+  "dryRun": false,
+  "total": 108,
+  "summary": {
+    "copied": 18,
+    "already": 0,
+    "notfound": 9,
+    "toCar": 0
+  },
+  "report": [
+    {
+      "id": "INV-2026-125",
+      "num": "5708",
+      "dest": "MAIN",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-126",
+      "num": "4163",
+      "dest": "MAIN",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-127",
+      "num": "266000241SI",
+      "dest": "MAIN",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-128",
+      "num": "266000242SI",
+      "dest": "MAIN",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-129",
+      "num": "6501698",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1T4ium7cpXWonLpFVm5V1EvoAXbLy8Ric"
+    },
+    {
+      "id": "INV-2026-130",
+      "num": "725701",
+      "dest": "CAR",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-131",
+      "num": "20262149606",
+      "dest": "CAR",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-139",
+      "num": "412410914",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1Fqq-6Mw6PpYCskzmXWHIRWfkKQ4YyuAq"
+    },
+    {
+      "id": "INV-2026-140",
+      "num": "83093",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1ixyBC7xP4rFsk17QapAGqmwXdX2LO7My"
+    },
+    {
+      "id": "INV-2026-141",
+      "num": "3302",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1ucsKWOd4MDA6AxBP1msdCLbot-ScXI3Q"
+    },
+    {
+      "id": "INV-2026-132",
+      "num": "20262149851",
+      "dest": "CAR",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-134",
+      "num": "01/002195",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1gYLPxaQn6p9t6LkcLSEVUiSdLiB8-Qt8"
+    },
+    {
+      "id": "INV-2026-137",
+      "num": "5393",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1l-f7EZ-I1uh1SHSX0874XSMYwWMluzzE"
+    },
+    {
+      "id": "INV-2026-138",
+      "num": "IR2273503",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1v4dANoBeGQYuyREonZOxmGEqnEv-wVJp"
+    },
+    {
+      "id": "INV-2026-142",
+      "num": "94054024",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1hsmaee4WuY7v-gLUSrNWrMKhoGKkaLUa"
+    },
+    {
+      "id": "INV-2026-144",
+      "num": "378111-12",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1L1Mp0JulPpFk4d8-QfHKNWUxWxfGxXLO"
+    },
+    {
+      "id": "INV-2026-145",
+      "num": "20261018333",
+      "dest": "CAR",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-146",
+      "num": "267000051CR",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1l0U6PSYaHPtho_niEV8wgBT98RvLqk2o"
+    },
+    {
+      "id": "INV-2026-147",
+      "num": "0442",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1Dq18E0SaP3l9G64Ttzu3gfk7zggH_c7F"
+    },
+    {
+      "id": "INV-2026-149",
+      "num": "1660",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1UBG19lPooPrCANjbBjUHfK-yzlMONabp"
+    },
+    {
+      "id": "INV-2026-150",
+      "num": "1661",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1OzbbVEUHwKCmXEkoUgQ-sNmVRN_OXJa8"
+    },
+    {
+      "id": "INV-2026-151",
+      "num": "3317",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1_tiyx7KLV1KTIhpTr4-27Mze6-wyYw_B"
+    },
+    {
+      "id": "INV-2026-152",
+      "num": "20262159293",
+      "dest": "CAR",
+      "action": "NOT FOUND"
+    },
+    {
+      "id": "INV-2026-153",
+      "num": "70130426",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1RIH2sUzEfjlzZmvtqSQbsiRMa-Ue3mLf"
+    },
+    {
+      "id": "INV-2026-154",
+      "num": "01/002682",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "18RznJLZSVv7rNiRlxXbndm2Cq6xfwB7N"
+    },
+    {
+      "id": "INV-2026-155",
+      "num": "01/000160",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1pLonbAM8p229Kq8_AlWY1ZgX7GbubcvR"
+    },
+    {
+      "id": "INV-2026-156",
+      "num": "266000273SI",
+      "dest": "MAIN",
+      "action": "COPIED",
+      "how": "matched",
+      "newId": "1b3udWEAXG1exo0d2GpxZTfqrZFoi4OUM"
+    }
+  ]
+}

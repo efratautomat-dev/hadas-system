@@ -4,8 +4,13 @@ import { useStatements } from '../hooks/useStatements'
 import type { VendorStatementStatus } from '../hooks/useStatements'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { printStatementPDF } from '../utils/pdf'
+import { openStoredFile } from '../lib/storage'
 import { supabase } from '../lib/supabase'
 import SectionHeader from './SectionHeader'
+import { StatusBadge as SharedStatusBadge } from './StatusBadge'
+import { PdfPreviewModal } from './PdfPreviewModal'
+import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
+import { SummaryCards } from './ui/SummaryCards'
 
 interface VendorStatement {
   id: string
@@ -34,19 +39,14 @@ interface StmtDetail {
   vendor_rows: LedgerRow[]
 }
 
-const statusConfig: Record<VendorStatementStatus, {
-  label: string
-  bg: string
-  color: string
-  Icon: React.ElementType
-}> = {
-  matched:       { label: 'תואם',      bg: '#DCFCE7', color: '#166534', Icon: CheckCircle2 },
-  mismatch:      { label: 'אי-התאמה', bg: '#FEE2E2', color: '#DC2626', Icon: AlertTriangle },
-  pending:       { label: 'ממתין',     bg: '#FEF9C3', color: '#A16207', Icon: Clock },
-  investigating: { label: 'בבדיקה',   bg: '#DBEAFE', color: '#1E40AF', Icon: SearchIcon },
-  // Default status for statements ingested from email (invoices-ingest) — the
-  // user opens the row to fill the real balance and resolve it.
-  needs_review:  { label: 'לבדיקה',    bg: '#FEF3C7', color: '#D97706', Icon: Eye },
+// Map the statement status vocabulary onto the unified taxonomy (spec/06-RULES.md §1):
+// pending → new, matched → matched, mismatch → mismatch, investigating/needs_review → in_progress.
+const STATEMENT_STATUS_INTERNAL: Record<VendorStatementStatus, string> = {
+  matched:       'matched',
+  mismatch:      'mismatch',
+  pending:       'new',
+  investigating: 'in_progress',
+  needs_review:  'in_progress',
 }
 
 
@@ -73,39 +73,10 @@ function formatILS(n: number | null | undefined) {
   return sign + '₪' + abs.toLocaleString('he-IL')
 }
 
-// Opens a stored document. `storage_url` is a PATH in the private "documents"
-// bucket, so we mint a short-lived signed URL on demand. A full http(s) link
-// (e.g. a Drive link) is opened directly. NOTE: signing requires an authenticated
-// read policy on the bucket — see migration 20260605000000_documents_read_policy.sql.
-async function openStoredFile(pathOrUrl: string | null) {
-  if (!pathOrUrl) return
-  if (/^https?:\/\//i.test(pathOrUrl)) {
-    window.open(pathOrUrl, '_blank', 'noopener')
-    return
-  }
-  const { data, error } = await supabase.storage.from('documents').createSignedUrl(pathOrUrl, 120)
-  if (error || !data?.signedUrl) {
-    console.error('[statements] createSignedUrl failed:', error)
-    alert('לא ניתן לפתוח את הקובץ כעת')
-    return
-  }
-  window.open(data.signedUrl, '_blank', 'noopener')
-}
-
 function StatusBadge({ status }: { status: VendorStatementStatus }) {
-  // Fallback guards against any status value the UI doesn't know about (e.g. a
-  // new backend status) so the whole page can never crash on an unknown badge.
-  const cfg = statusConfig[status] ?? statusConfig.pending
-  const { Icon } = cfg
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold"
-      style={{ backgroundColor: cfg.bg, color: cfg.color }}
-    >
-      <Icon className="w-3.5 h-3.5 flex-shrink-0" />
-      {cfg.label}
-    </span>
-  )
+  // Unknown/un-migrated statuses fall through to the shared badge's gray + raw-label
+  // fallback so the page can never crash on a status the UI doesn't know about.
+  return <SharedStatusBadge status={STATEMENT_STATUS_INTERNAL[status] ?? status} />
 }
 
 function TypeBadge({ type }: { type: LedgerRow['type'] }) {
@@ -159,20 +130,25 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
           </div>
         </div>
 
-        {/* Diff summary bar */}
-        {stmt.status === 'mismatch' && (
+        {/* Comparison summary bar — vendor balance vs our balance + the difference */}
+        {(stmt.status === 'mismatch' || stmt.status === 'matched') && (
           <div
             className="px-6 py-3 flex items-center justify-between text-sm font-semibold"
-            style={{ background: '#FEF2F2', borderBottom: '1px solid #FECDD3' }}
+            style={{
+              background: stmt.status === 'matched' ? '#F0FDF4' : '#FEF2F2',
+              borderBottom: `1px solid ${stmt.status === 'matched' ? '#BBF7D0' : '#FECDD3'}`,
+            }}
           >
             <div className="flex items-center gap-6">
-              <span style={{ color: '#DC2626' }}>הפרש: {formatILS(stmt.diff)}</span>
+              <span style={{ color: stmt.status === 'matched' ? '#166534' : '#DC2626' }}>הפרש: {formatILS(stmt.diff)}</span>
               <span className="text-gray-500">
                 יתרת ספק: {stmt.vendor_balance != null ? formatILS(stmt.vendor_balance) : '—'}
               </span>
               <span className="text-gray-500">יתרה שלנו: {formatILS(stmt.our_balance)}</span>
             </div>
-            <AlertTriangle className="w-4 h-4 text-red-500" />
+            {stmt.status === 'matched'
+              ? <CheckCircle2 className="w-4 h-4 text-green-600" />
+              : <AlertTriangle className="w-4 h-4 text-red-500" />}
           </div>
         )}
 
@@ -260,9 +236,9 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
               <>
                 <button
                   className="px-4 py-2 rounded-xl text-sm font-bold text-white transition-colors"
-                  style={{ background: '#D32F4A' }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
+                  style={{ background: 'var(--brand-primary)' }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
                   onClick={() => {
                     const val = parseFloat(manualBalance)
                     if (!isNaN(val)) {
@@ -281,7 +257,7 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
                   placeholder="יתרה חדשה..."
                   dir="ltr"
                   className="border-2 rounded-xl px-3 py-2 text-sm w-36"
-                  style={{ borderColor: '#D32F4A' }}
+                  style={{ borderColor: 'var(--brand-primary)' }}
                   autoFocus
                 />
                 <span className="text-sm text-gray-500">עדכן יתרה ידנית:</span>
@@ -291,8 +267,8 @@ function DetailModal({ stmt, onClose, onStatusChange, onBalanceUpdate }: DetailM
                 className="px-4 py-2 rounded-xl text-sm font-bold border-2 transition-colors"
                 style={{ borderColor: '#EEEEF2', color: '#6B7280' }}
                 onMouseEnter={(e) => {
-                  ;(e.currentTarget as HTMLElement).style.borderColor = '#D32F4A'
-                  ;(e.currentTarget as HTMLElement).style.color = '#D32F4A'
+                  ;(e.currentTarget as HTMLElement).style.borderColor = 'var(--brand-primary)'
+                  ;(e.currentTarget as HTMLElement).style.color = 'var(--brand-primary)'
                 }}
                 onMouseLeave={(e) => {
                   ;(e.currentTarget as HTMLElement).style.borderColor = '#EEEEF2'
@@ -347,22 +323,34 @@ function useIsMobile() {
   return v
 }
 
-export default function StatementReconciliation() {
+export default function StatementReconciliation({ initialStatementId }: { initialStatementId?: string | null }) {
   const { data: serverStatements, loading, error, resolve: resolveStatement } = useStatements()
   const { data: suppliersData } = useSuppliers()
   const [statements, setStatements] = useState<VendorStatement[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [viewDoc, setViewDoc] = useState<string | null>(null)   // arrived statement doc → popup
   const [filterStatus, setFilterStatus] = useState<VendorStatementStatus | 'all'>('all')
   const [search, setSearch] = useState('')
   const isMobile = useIsMobile()
+  // minmax(0,…) on flexible tracks so long ids / multiple action buttons can't
+  // stretch a column and knock the rows out of alignment with the header. Fixed
+  // px tracks for short columns; the actions column gets a wide, wrapping track.
   const gridCOL = isMobile
-    ? '1.5fr 1.2fr 1fr 0.7fr'
-    : '0.8fr 1.5fr 0.9fr 1.2fr 1.2fr 1fr 1.1fr 0.9fr'
-  const gridMin = isMobile ? '320px' : '720px'
+    ? 'minmax(0,1.4fr) 80px 90px minmax(0,1.4fr)'
+    : '76px minmax(0,1.5fr) 84px minmax(0,1.05fr) minmax(0,1.05fr) 82px 96px minmax(0,1.9fr)'
+  const gridMin = isMobile ? '360px' : '920px'
 
   useEffect(() => {
     setStatements(serverStatements as VendorStatement[])
   }, [serverStatements])
+
+  // Deep-link from a statement_save_failed alert → open that statement's detail
+  // once the list has loaded (once per id).
+  useEffect(() => {
+    if (initialStatementId && serverStatements.some(s => s.id === initialStatementId)) {
+      setSelectedId(initialStatementId)
+    }
+  }, [initialStatementId, serverStatements])
 
   const counts = {
     matched:       statements.filter((s) => s.status === 'matched').length,
@@ -379,6 +367,16 @@ export default function StatementReconciliation() {
   })
 
   const selectedStmt = selectedId ? statements.find((s) => s.id === selectedId) ?? null : null
+
+  // Open the ARRIVED statement document in the in-page popup viewer. Drive links open
+  // directly; a private storage_url is signed first.
+  async function openDoc(stmt: VendorStatement) {
+    if (stmt.drive_file_link) { setViewDoc(stmt.drive_file_link); return }
+    if (stmt.storage_url) {
+      const { data } = await supabase.storage.from('documents').createSignedUrl(stmt.storage_url, 3600)
+      if (data?.signedUrl) setViewDoc(data.signedUrl)
+    }
+  }
 
   async function handleStatusChange(id: string, status: VendorStatementStatus) {
     try {
@@ -401,24 +399,10 @@ export default function StatementReconciliation() {
     }
   }
 
-  const statCards: {
-    key: VendorStatementStatus
-    label: string
-    iconBg: string
-    iconColor: string
-    Icon: React.ElementType
-  }[] = [
-    { key: 'needs_review',  label: 'לבדיקה',   iconBg: '#FEF3C7', iconColor: '#D97706', Icon: Eye },
-    { key: 'matched',       label: 'תואמות',   iconBg: '#DCFCE7', iconColor: '#166534', Icon: CheckCircle2 },
-    { key: 'mismatch',      label: 'אי-התאמה', iconBg: '#FEE2E2', iconColor: '#DC2626', Icon: AlertTriangle },
-    { key: 'pending',       label: 'ממתינות',  iconBg: '#FEF9C3', iconColor: '#A16207', Icon: Clock },
-    { key: 'investigating', label: 'בבדיקה',   iconBg: '#DBEAFE', iconColor: '#1E40AF', Icon: SearchIcon },
-  ]
-
   if (loading && statements.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--brand-primary)' }} />
       </div>
     )
   }
@@ -436,29 +420,18 @@ export default function StatementReconciliation() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        {statCards.map(({ key, label, iconBg, iconColor, Icon }) => (
-          <div
-            key={key}
-            className="bg-white rounded-2xl p-5 shadow-sm border cursor-pointer transition-all"
-            style={{ borderColor: filterStatus === key ? iconColor : '#EEEEF2' }}
-            onClick={() => setFilterStatus(filterStatus === key ? 'all' : key)}
-          >
-            <div className="flex items-start justify-between">
-              <div
-                className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: iconBg, color: iconColor }}
-              >
-                <Icon className="w-5 h-5" />
-              </div>
-              <p className="text-sm font-medium text-gray-500">{label}</p>
-            </div>
-            <div className="mt-3 text-right">
-              <p className="text-3xl" style={{ fontWeight: 500, color: '#1A1A2E' }}>{counts[key]}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+      <SummaryCards items={([
+        { label: 'לבדיקה',   value: counts.needs_review,  Icon: Eye,           tone: 'yellow', status: 'needs_review'  },
+        { label: 'תואמות',   value: counts.matched,       Icon: CheckCircle2,  tone: 'green',  status: 'matched'       },
+        { label: 'אי-התאמה', value: counts.mismatch,      Icon: AlertTriangle, tone: 'red',    status: 'mismatch'      },
+        { label: 'ממתינות',  value: counts.pending,       Icon: Clock,         tone: 'yellow', status: 'pending'       },
+        { label: 'בבדיקה',   value: counts.investigating, Icon: SearchIcon,    tone: 'blue',   status: 'investigating' },
+      ] as const).map(({ status, ...item }) => ({
+        ...item,
+        active: filterStatus === status,
+        // Click a tile to filter the list by that status; click the active one to clear.
+        onClick: () => setFilterStatus(filterStatus === status ? 'all' : status),
+      }))} />
 
       {/* Filter bar */}
       <div
@@ -481,7 +454,7 @@ export default function StatementReconciliation() {
           <button
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border-2 transition-colors"
             style={{ borderColor: '#EEEEF2', color: '#6B7280' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#D32F4A')}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'var(--brand-primary)')}
             onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = '#EEEEF2')}
             onClick={() => setFilterStatus('all')}
           >
@@ -492,7 +465,7 @@ export default function StatementReconciliation() {
       </div>
 
       {/* Main table */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
+      <div style={{ ...tableWrap, overflow: 'hidden' }}>
         <SectionHeader
           className="px-6 py-4 border-b"
           style={{ borderColor: '#EEEEF2' }}
@@ -503,46 +476,46 @@ export default function StatementReconciliation() {
         <div style={{ overflowX: 'auto' }}>
           {/* Header */}
           <div
-            className="grid text-xs font-bold text-gray-500 px-4 py-3 border-b"
+            className="grid"
             style={{
-              borderColor: '#EEEEF2',
-              background: '#FAFAFC',
+              ...tableHeadRow,
+              display: 'grid',
               gridTemplateColumns: gridCOL,
               minWidth: gridMin,
-              textAlign: 'right',
             }}
           >
-            {!isMobile && <span>מזהה</span>}
-            <span>ספק</span>
-            {!isMobile && <span>חודש</span>}
-            {!isMobile && <span>יתרה שלנו</span>}
-            {!isMobile && <span>יתרת ספק</span>}
-            <span>הפרש</span>
-            <span>סטטוס</span>
-            <span>פעולות</span>
+            {!isMobile && <span style={tableHeadCell}>מזהה</span>}
+            <span style={tableHeadCell}>ספק</span>
+            {!isMobile && <span style={tableHeadCell}>חודש</span>}
+            {!isMobile && <span style={tableHeadCell}>יתרה שלנו</span>}
+            {!isMobile && <span style={tableHeadCell}>יתרת ספק</span>}
+            <span style={tableHeadCell}>הפרש</span>
+            <span style={tableHeadCell}>סטטוס</span>
+            <span style={tableHeadCell}>פעולות</span>
           </div>
 
           {/* Rows */}
           {filtered.length === 0 ? (
             <div className="text-center py-12 text-gray-400 text-sm">לא נמצאו רשומות</div>
           ) : (
-            filtered.map((stmt) => (
+            filtered.map((stmt, index) => (
               <div
                 key={stmt.id}
-                className="grid items-center border-b transition-colors"
+                className="grid items-center transition-colors"
                 style={{
-                  borderColor: '#EEEEF2',
+                  ...tableRow(index === 0),
+                  display: 'grid',
                   gridTemplateColumns: gridCOL,
                   minWidth: gridMin,
-                  textAlign: 'right',
                   minHeight: '56px',
-                  padding: '12px 16px',
+                  cursor: 'pointer',
                 }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}
+                onClick={() => setSelectedId(stmt.id)}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = TABLE_HOVER)}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
               >
-                {!isMobile && <span className="text-xs text-gray-400 font-mono">{stmt.id}</span>}
-                <span className="text-sm font-semibold text-gray-800">{stmt.supplier_name}</span>
+                {!isMobile && <span className="text-xs text-gray-400 font-mono truncate" title={stmt.id}>{stmt.id}</span>}
+                <span className="text-sm font-semibold text-gray-800 truncate" title={stmt.supplier_name}>{stmt.supplier_name}</span>
                 {!isMobile && <span className="text-sm text-gray-600">{stmt.month}</span>}
                 {!isMobile && <span className="text-sm font-semibold text-gray-800">{formatILS(stmt.our_balance)}</span>}
                 {!isMobile && (
@@ -561,7 +534,7 @@ export default function StatementReconciliation() {
                   {stmt.diff !== 0 ? formatILS(stmt.diff) : '—'}
                 </span>
                 <StatusBadge status={stmt.status} />
-                <div className="flex items-center gap-1">
+                <div className="flex items-center flex-wrap gap-1">
                   <button
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
                     style={{ background: '#F3E8FF', color: '#7C3AED' }}
@@ -575,6 +548,19 @@ export default function StatementReconciliation() {
                     <Eye className="w-3.5 h-3.5" />
                     פירוט
                   </button>
+                  {(stmt.drive_file_link || stmt.storage_url) && (
+                    <button
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                      style={{ background: '#E0F2FE', color: '#0369A1' }}
+                      title="הצג את מסמך הכרטסת שהתקבל"
+                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#BAE6FD')}
+                      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#E0F2FE')}
+                      onClick={(e) => { e.stopPropagation(); void openDoc(stmt) }}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      הצג מסמך
+                    </button>
+                  )}
                   {stmt.storage_url && (
                     <button
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
@@ -602,9 +588,9 @@ export default function StatementReconciliation() {
                   )}
                   <button
                     className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-                    style={{ background: '#FDF2F4', color: '#9CA3AF' }}
+                    style={{ background: 'var(--brand-active-bg)', color: '#9CA3AF' }}
                     title="הורד מסמך"
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#D32F4A')}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--brand-primary)')}
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#9CA3AF')}
                     onClick={(e) => {
                       e.stopPropagation()
@@ -642,6 +628,9 @@ export default function StatementReconciliation() {
           onBalanceUpdate={handleBalanceUpdate}
         />
       )}
+
+      {/* Arrived statement document — in-page popup viewer */}
+      {viewDoc && <PdfPreviewModal url={viewDoc} onClose={() => setViewDoc(null)} />}
     </div>
   )
 }

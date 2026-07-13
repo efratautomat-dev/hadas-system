@@ -42,7 +42,7 @@ export default function WaitingScreen({ userEmail, onSignOut }: Props) {
           לשאלות פנו למנהלת:{' '}
           <a
             href="mailto:h8420785@gmail.com"
-            style={{ color: '#8B1A3A', textDecoration: 'none' }}
+            style={{ color: 'var(--brand-primary-dark)', textDecoration: 'none' }}
           >
             h8420785@gmail.com
           </a>

@@ -7,6 +7,7 @@
 // ║  emails with "טופל_ממתין במערכת". 14-day rolling lookback window.        ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveInvoiceFolder, driveGetFolderLink } from "../_shared/drive-filing.ts";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -18,14 +19,8 @@ const MAX_INGEST_ATTEMPTS       = 2;                   // cap before we stop ret
 const NEEDS_REVIEW_LABEL_NAME   = "דורש בדיקה ידנית";
 const PARTIAL_REFUND_LABEL_NAME = "החזר חלקי";         // owner applies manually — never created by code
 
-const DRIVE_ROOT_ID = "1ocbxq5-ReY7WutAm48pKHDiaB8rBe6SM";
-const DRIVE_SUBFOLDERS = {
-  invoice:      "חשבוניות",
-  partialReturn:"החזר חלקי",
-  deliveryNote: "תעודות משלוח",
-  statement:    "כרטסות",
-  returnDoc:    "חזרות",
-};
+// Drive filing config (root id, subfolder names) + the folder-resolution rules
+// now live in ../_shared/drive-filing.ts — the single source shared with hadas-api.
 
 const ANTHROPIC_MODEL_CLASSIFIER = "claude-haiku-4-5-20251001";
 const ANTHROPIC_MODEL_EXTRACTOR  = "claude-sonnet-4-6";
@@ -39,10 +34,7 @@ const EXTRACTION_MAX_TOKENS     = 8192;
 const ANTHROPIC_API             = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION         = "2023-06-01";
 
-const HEBREW_MONTHS = [
-  "ינואר","פברואר","מרץ","אפריל","מאי","יוני",
-  "יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר",
-];
+// HEBREW_MONTHS moved to ../_shared/drive-filing.ts (used only by folder resolution).
 
 // ── Body-link invoice fetching (mirrors the existing N8N HTTP node) ──────────
 const MAX_LINKS_PER_EMAIL   = 5;     // cap so a link-spam email can't DOS the run
@@ -374,50 +366,8 @@ function buildStorageKey(
 }
 
 // ─── Drive helpers ─────────────────────────────────────────────────────────
-
-async function driveFindFolder(
-  token: string,
-  parentId: string,
-  name: string,
-): Promise<string | null> {
-  const q = `'${parentId}' in parents and name = '${name.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-  const resp = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  if (!resp.ok) throw new Error(`drive.list folder failed: ${resp.status} ${await resp.text()}`);
-  const data = await resp.json() as { files?: Array<{ id: string; name: string }> };
-  return data.files?.[0]?.id ?? null;
-}
-
-async function driveCreateFolder(
-  token: string,
-  parentId: string,
-  name: string,
-): Promise<string> {
-  const resp = await fetch("https://www.googleapis.com/drive/v3/files", {
-    method:  "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body:    JSON.stringify({
-      name,
-      mimeType: "application/vnd.google-apps.folder",
-      parents:  [parentId],
-    }),
-  });
-  if (!resp.ok) throw new Error(`drive.create folder failed: ${resp.status} ${await resp.text()}`);
-  const data = await resp.json() as { id: string };
-  return data.id;
-}
-
-async function driveEnsureFolder(
-  token: string,
-  parentId: string,
-  name: string,
-): Promise<string> {
-  const found = await driveFindFolder(token, parentId, name);
-  if (found) return found;
-  return driveCreateFolder(token, parentId, name);
-}
+// driveFindFolder / driveCreateFolder / driveEnsureFolder moved to
+// ../_shared/drive-filing.ts (used only by folder resolution, now shared).
 
 interface UploadedFile { id: string; webViewLink: string }
 
@@ -460,15 +410,7 @@ async function driveUploadFile(
   return resp.json() as Promise<UploadedFile>;
 }
 
-async function driveGetFolderLink(token: string, folderId: string): Promise<string> {
-  const resp = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${folderId}?fields=webViewLink`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  if (!resp.ok) return "";
-  const data = await resp.json() as { webViewLink?: string };
-  return data.webViewLink ?? "";
-}
+// driveGetFolderLink moved to ../_shared/drive-filing.ts (imported at top).
 
 // ─── Supabase Storage helper ───────────────────────────────────────────────
 
@@ -1299,63 +1241,10 @@ async function appendAltName(
 }
 
 // ─── Drive path resolution ─────────────────────────────────────────────────
-
-interface FolderTarget { fileFolderId: string; monthFolderId: string }
-
-// Overflow subfolder name, built from char codes because literal Hebrew/RTL
-// text scrambles the surrounding source on save. Renders as: עודפים
-const OVERFLOW_SUBFOLDER = String.fromCharCode(0x05E2, 0x05D5, 0x05D3, 0x05E4, 0x05D9, 0x05DD);
-
-// Routes an invoice to Drive by UPLOAD date, not just invoice date:
-//   • On time  → the invoice's own month folder.
-//   • Late     → the OVERFLOW_SUBFOLDER of the currently-active month.
-// "Active month" = the previous month before the 15th, otherwise this month.
-// A one-month-old invoice gets a grace window: before the 15th it still files
-// under its own (previous) month rather than overflowing.
-async function resolveInvoiceFolder(
-  token:         string,
-  invoiceDate:   string,
-  partialReturn: boolean,
-): Promise<FolderTarget> {
-  const inv = new Date(invoiceDate);
-  const now = new Date();
-
-  // Calendar months the invoice trails the current month (UTC):
-  // 0 = current, 1 = one month old, >=2 = older, <0 = future-dated.
-  const monthsBehind =
-    (now.getUTCFullYear() - inv.getUTCFullYear()) * 12 +
-    (now.getUTCMonth()    - inv.getUTCMonth());
-
-  const beforeCutoff = now.getUTCDate() < 15;
-  const onTime = monthsBehind <= 0 || (monthsBehind === 1 && beforeCutoff);
-
-  const invoiceRoot = await driveEnsureFolder(token, DRIVE_ROOT_ID, DRIVE_SUBFOLDERS.invoice);
-
-  if (onTime) {
-    // File under the invoice's OWN month.
-    const year        = String(inv.getUTCFullYear());
-    const month       = HEBREW_MONTHS[inv.getUTCMonth()];
-    const yearFolder  = await driveEnsureFolder(token, invoiceRoot, year);
-    const monthFolder = await driveEnsureFolder(token, yearFolder,  month);
-    const fileFolder  = partialReturn
-      ? await driveEnsureFolder(token, monthFolder, DRIVE_SUBFOLDERS.partialReturn)
-      : monthFolder;
-    return { fileFolderId: fileFolder, monthFolderId: monthFolder };
-  }
-
-  // Late: file into the overflow subfolder of the currently-active month.
-  // Date.UTC() normalises a -1 month index back into the prior year correctly.
-  const active = beforeCutoff
-    ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
-    : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(),     1));
-  const year        = String(active.getUTCFullYear());
-  const month       = HEBREW_MONTHS[active.getUTCMonth()];
-  const yearFolder  = await driveEnsureFolder(token, invoiceRoot, year);
-  const monthFolder = await driveEnsureFolder(token, yearFolder,  month);
-  // Overflow wins over partial-return: every late doc lands here.
-  const overflowFolder = await driveEnsureFolder(token, monthFolder, OVERFLOW_SUBFOLDER);
-  return { fileFolderId: overflowFolder, monthFolderId: overflowFolder };
-}
+// FolderTarget / OVERFLOW_SUBFOLDER / resolveInvoiceFolder (year / Hebrew month /
+// 15th-of-month overflow rules) now live in ../_shared/drive-filing.ts — the
+// single source of truth, shared with hadas-api's date-correction re-filing.
+// resolveInvoiceFolder is imported at the top of this file.
 
 // ─── Alert idempotency (A4) ──────────────────────────────────────────────────
 
@@ -1574,7 +1463,8 @@ async function handleInvoiceFile(
       await log("info", `hp dedupe: matched supplier ${matched.id} by ח.פ (name agrees)`, { hp: extractedHp }, msgId);
     }
   } else {
-    // 2. Fall back to name-fuzzy match (unchanged behavior).
+    // 2. NAME-FALLBACK (secondary) — used ONLY when hp is absent/unmatched. ח.פ (step 1
+    //    above) is the primary key; name-fuzzy stays as the documented secondary fallback.
     matched = findBestSupplier(extracted.vendor_name, suppliers);
   }
 
@@ -2218,19 +2108,27 @@ async function handleNonInvoice(
   // Non-invoice docs are NOT uploaded to Drive — they are viewable via the
   // Gmail message link stored on the row.
 
-  const resolveSupplier = async (vendorName: string): Promise<string | null> => {
-    if (!vendorName) return null;
-    const matched = findBestSupplier(vendorName, suppliers);
+  // Supplier link key (spec/06-RULES.md §2b): business number (ח.פ) is the PRIMARY
+  // join key; fuzzy NAME is only a secondary fallback when hp is missing/unmatched.
+  const resolveSupplier = async (vendorName: string, hp = ""): Promise<string | null> => {
+    const normHp = normalizeHp(hp);
+    // 1. PRIMARY — ח.פ exact match (authoritative across name-spelling differences).
+    let matched: SupplierRow | null = normHp
+      ? (suppliers.find(s => normalizeHp(s.hp) === normHp) ?? null)
+      : null;
+    // 2. NAME-FALLBACK (secondary) — used ONLY when hp gave no match.
+    if (!matched && vendorName) matched = findBestSupplier(vendorName, suppliers);
     if (matched) return matched.id;
+    if (!vendorName) return null;
     const { data: created, error: supErr } = await supabase
-      .from("suppliers").insert({ name: vendorName }).select("id").single();
+      .from("suppliers").insert({ name: vendorName, hp: normHp || null }).select("id").single();
     if (supErr) {
       await log("error", `supplier insert failed: ${supErr.message}`, undefined, msgId);
       return null;
     }
     const id = created!.id as string;
-    suppliers.push({ id, name: vendorName, category: null, hp: null });
-    await log("info", `created new supplier ${id}`, { name: vendorName }, msgId);
+    suppliers.push({ id, name: vendorName, category: null, hp: normHp || null });
+    await log("info", `created new supplier ${id}`, { name: vendorName, hp: normHp || null }, msgId);
     // New supplier created silently from the document — prompt the owner to fill
     // in ח.פ / contact details. Same type + payload shape as payments-ingest.
     await insertAlertOnce(supabase, log, msgId, {
@@ -2249,6 +2147,8 @@ async function handleNonInvoice(
     // alerting + labeling and losing the document. (No clean "not a delivery
     // note" verdict exists here; the doc was already routed by subject/content.)
     const extracted = await extractDeliveryNote(ctx.doc);
+    // NAME-FALLBACK: extractDeliveryNote does not capture ח.פ yet, so this links by
+    // name only. Add `hp` to the delivery-note prompt + pass it here to make it hp-primary.
     const supplierId = await resolveSupplier(extracted.vendor_name);
 
     // Dedup: primary = gmail_message_id + note_number + supplier_id
@@ -2326,6 +2226,8 @@ async function handleNonInvoice(
     // As with delivery notes — a thrown extraction error propagates so the email
     // stays unlabeled and the next run retries, rather than escalating + labeling.
     const extracted = await extractReturn(ctx.doc);
+    // NAME-FALLBACK: extractReturn (credit note) does not capture ח.פ yet, so this
+    // links by name only. Add `hp` to the credit-note prompt + pass it here for hp-primary.
     const supplierId = await resolveSupplier(extracted.vendor_name);
 
     // Upload the credit-note file to Storage up front so it's available whether
@@ -2448,6 +2350,8 @@ async function handleNonInvoice(
     let supplierId: string | null = null;
     try {
       const extracted = await extractStatement(ctx.doc);
+      // NAME-FALLBACK: extractStatement captures vendor_name only (minimal-by-design
+      // prompt), so this links by name only. Add `hp` to the statement prompt for hp-primary.
       supplierId = await resolveSupplier(extracted.vendor_name);
       await log("info", "statement vendor resolved",
         { vendor: extracted.vendor_name, supplierId }, msgId);

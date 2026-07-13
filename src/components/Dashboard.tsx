@@ -7,20 +7,25 @@ import { useReturns } from '../hooks/useReturns'
 import { useStatements } from '../hooks/useStatements'
 import { resolveAlertDestination, getAlertTypeConf } from './Alerts'
 import type { Alert } from '../data/mockData'
+import { brand } from '../brand.config'
+import { STATUS } from '../theme/status'
 
 const ALERT_STATUS: Record<string, { bg: string; color: string; label: string }> = {
-  new:      { bg: '#FEE2E2', color: '#DC2626', label: 'חדש'  },
-  read:     { bg: '#F3F4F6', color: '#6B7280', label: 'נקרא' },
-  resolved: { bg: '#DCFCE7', color: '#166534', label: 'טופל' },
+  new:      { bg: STATUS.blue.bg, color: STATUS.blue.fg, label: 'חדש'  },   // fixed: new = blue
+  read:     { bg: STATUS.gray.bg, color: STATUS.gray.fg, label: 'נקרא' },
+  resolved: { bg: STATUS.green.bg, color: STATUS.green.fg, label: 'טופל' },
 }
 
+// Invoice/delivery status → FIXED functional tokens (src/theme/status.ts):
+// ממתין=yellow(check), שולם/הושלם/נתקבל=green(done), בטיפול=orange(in_progress),
+// שגיאה=red. בדרך (in-transit) has no status token → its own violet.
 const statusStyle: Record<string, { bg: string; color: string }> = {
-  'ממתין':  { bg: '#FEF9C3', color: '#A16207' },
-  'שולם':   { bg: '#DCFCE7', color: '#166534' },
-  'הושלם':  { bg: '#DCFCE7', color: '#166534' },
-  'בטיפול': { bg: '#DBEAFE', color: '#1E40AF' },
-  'שגיאה':  { bg: '#FEE2E2', color: '#DC2626' },
-  'נתקבל':  { bg: '#DCFCE7', color: '#166534' },
+  'ממתין':  { bg: STATUS.yellow.bg, color: STATUS.yellow.fg },
+  'שולם':   { bg: STATUS.green.bg,  color: STATUS.green.fg },
+  'הושלם':  { bg: STATUS.green.bg,  color: STATUS.green.fg },
+  'בטיפול': { bg: STATUS.orange.bg, color: STATUS.orange.fg },
+  'שגיאה':  { bg: STATUS.red.bg,    color: STATUS.red.fg },
+  'נתקבל':  { bg: STATUS.green.bg,  color: STATUS.green.fg },
   'בדרך':   { bg: '#EDE9FE', color: '#5B21B6' },
 }
 
@@ -44,25 +49,41 @@ interface StatCardProps {
   iconColor: string
   subColor: string
   loading?: boolean
+  onClick?: () => void
 }
 
-function StatCard({ title, value, sub, icon, iconBg, iconColor, subColor, loading }: StatCardProps) {
+// Soft shadow shared with the supplier cards / unified tables.
+const CARD_SHADOW = '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)'
+
+const CARD_SHADOW_LIFT = '0 2px 6px rgba(16,17,21,.06), 0 12px 28px rgba(16,17,21,.10)'
+
+function StatCard({ title, value, sub, icon, iconBg, iconColor, subColor, loading, onClick }: StatCardProps) {
+  const clickable = !!onClick
   return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm border flex flex-col gap-3" style={{ borderColor: '#EEEEF2' }}>
+    <div
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() } } : undefined}
+      className={`bg-white flex flex-col gap-4 transition-all ${clickable ? 'active:scale-[0.99]' : ''}`}
+      style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: CARD_SHADOW, padding: '20px', cursor: clickable ? 'pointer' : 'default' }}
+      onMouseEnter={clickable ? (e) => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = CARD_SHADOW_LIFT; el.style.borderColor = '#E4E5EA' } : undefined}
+      onMouseLeave={clickable ? (e) => { const el = e.currentTarget as HTMLElement; el.style.boxShadow = CARD_SHADOW; el.style.borderColor = '#EEEEF2' } : undefined}
+    >
       <div className="flex items-start justify-between">
         <div
-          className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ backgroundColor: iconBg, color: iconColor }}
+          className="rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ width: '44px', height: '44px', backgroundColor: iconBg, color: iconColor }}
         >
           {loading
             ? <div className="animate-spin rounded-full h-5 w-5 border-b-2" style={{ borderColor: iconColor }} />
             : icon}
         </div>
-        <p className="text-sm font-medium text-gray-500 text-right">{title}</p>
+        <p className="text-right" style={{ fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>{title}</p>
       </div>
       <div className="text-right">
-        <p className="text-3xl leading-tight" style={{ fontWeight: 500, color: '#1A1A2E' }}>{value}</p>
-        <p className="text-xs font-medium mt-1" style={{ color: subColor }}>{sub}</p>
+        <p style={{ fontSize: '30px', fontWeight: 700, color: '#12131A', letterSpacing: '-0.02em', lineHeight: 1.1 }}>{value}</p>
+        <p style={{ fontSize: '12px', fontWeight: 500, marginTop: '4px', color: subColor }}>{sub}</p>
       </div>
     </div>
   )
@@ -70,10 +91,10 @@ function StatCard({ title, value, sub, icon, iconBg, iconColor, subColor, loadin
 
 function getGreeting(): string {
   const hour = new Date().getHours()
-  if (hour >= 5 && hour < 12) return 'בוקר טוב הדס'
-  if (hour >= 12 && hour < 17) return 'צהריים טובים הדס'
-  if (hour >= 17 && hour < 21) return 'ערב טוב הדס'
-  return 'לילה טוב הדס'
+  if (hour >= 5 && hour < 12) return `בוקר טוב ${brand.appName}`
+  if (hour >= 12 && hour < 17) return `צהריים טובים ${brand.appName}`
+  if (hour >= 17 && hour < 21) return `ערב טוב ${brand.appName}`
+  return `לילה טוב ${brand.appName}`
 }
 
 interface DashboardProps {
@@ -85,23 +106,27 @@ interface DashboardProps {
   onOpenSupplierByName?:          (supplierName: string) => void
   onOpenReturn?:                  (returnId: string) => void
   onCreateSupplierFromAlert?:     (alert: Alert) => void
+  onMarkRead?:                    (id: string) => void
   alerts?:                        Alert[]
 }
 
 function Spinner() {
   return (
     <div className="flex items-center justify-center h-32">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: '#D32F4A' }} />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: 'var(--brand-primary)' }} />
     </div>
   )
 }
 
 export default function Dashboard({
   onPageChange, onOpenInvoice, onOpenInvoiceDuplicate, onOpenInvoiceByGmailMessageId,
-  onOpenSupplier, onOpenSupplierByName, onOpenReturn, onCreateSupplierFromAlert, alerts = [],
+  onOpenSupplier, onOpenSupplierByName, onOpenReturn, onCreateSupplierFromAlert,
+  onMarkRead, alerts = [],
 }: DashboardProps) {
   // Use the shared mapper so this card routes identically to the full Alerts page.
-  const handleAlertClick = (alert: Alert) =>
+  // Opening an alert auto-marks it read, consistent with the Alerts page.
+  const handleAlertClick = (alert: Alert) => {
+    if (alert.status === 'new') onMarkRead?.(alert.id)
     resolveAlertDestination(alert, {
       onOpenInvoice,
       onOpenInvoiceDuplicate,
@@ -112,6 +137,7 @@ export default function Dashboard({
       onPageChange,
       onCreateSupplierFromAlert,
     })
+  }
 
   const { data: invoices, loading: invLoading }             = useInvoices()
   const { data: deliveryNotes, loading: dnLoading }         = useDeliveryNotes()
@@ -145,9 +171,9 @@ export default function Dashboard({
         <button
           onClick={() => onPageChange?.('capture')}
           className="flex items-center gap-2 rounded-2xl font-bold text-white transition-all flex-shrink-0"
-          style={{ minHeight: '52px', padding: '0 28px', background: '#D32F4A', fontSize: '16px', boxShadow: '0 4px 14px rgba(211,47,74,0.30)' }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#A8213B')}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#D32F4A')}
+          style={{ minHeight: '52px', padding: '0 28px', background: 'var(--brand-primary)', fontSize: '16px', boxShadow: '0 4px 14px rgba(169,29,58,0.30)' }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
         >
           <Camera className="w-6 h-6" />
           צלמי מסמך
@@ -157,26 +183,33 @@ export default function Dashboard({
       {/* Duplicate invoice alert */}
       {!invLoading && dupInvoiceCount > 0 && (
         <div
-          className="rounded-2xl p-4 shadow-sm border flex items-center justify-between cursor-pointer transition-opacity hover:opacity-90"
-          style={{ borderColor: '#FDE68A', background: '#FFFBEB' }}
+          className="rounded-2xl border cursor-pointer transition-all"
+          style={{ borderColor: '#FCE9A8', background: '#FEFCEF', boxShadow: CARD_SHADOW, position: 'relative', overflow: 'hidden', direction: 'rtl' }}
           onClick={() => onPageChange?.('invoices-duplicates')}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = CARD_SHADOW_LIFT)}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = CARD_SHADOW)}
         >
-          <button
-            className="px-4 py-2 rounded-xl text-sm font-bold text-white flex-shrink-0"
-            style={{ background: '#D97706' }}
-          >
-            לבדיקה ←
-          </button>
-          <div className="flex items-center gap-3 text-right">
-            <div>
-              <p className="font-bold text-sm" style={{ color: '#92400E' }}>
-                נמצאו {dupInvoiceCount} חשבוניות עם מספר כפול אפשרי
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולאשר לפני סגירת חודש</p>
+          <span aria-hidden style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '4px', background: STATUS.yellow.fg }} />
+          <div className="flex items-center justify-between gap-3" style={{ padding: '16px 20px 16px 16px' }}>
+            {/* content — RIGHT (RTL start) */}
+            <div className="flex items-center gap-3 text-right min-w-0">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: STATUS.yellow.bg, color: STATUS.yellow.fg }}>
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-sm" style={{ color: '#92400E' }}>
+                  נמצאו {dupInvoiceCount} חשבוניות עם מספר כפול אפשרי
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולאשר לפני סגירת חודש</p>
+              </div>
             </div>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#FEF3C7', color: '#D97706' }}>
-              <AlertTriangle className="w-5 h-5" />
-            </div>
+            {/* CTA — LEFT (RTL end) */}
+            <button
+              className="px-4 py-2 rounded-xl text-sm font-bold text-white flex-shrink-0"
+              style={{ background: STATUS.yellow.fg }}
+            >
+              לבדיקה ←
+            </button>
           </div>
         </div>
       )}
@@ -184,26 +217,33 @@ export default function Dashboard({
       {/* Mismatch alert */}
       {!stmtLoading && mismatchCount > 0 && (
         <div
-          className="rounded-2xl p-4 shadow-sm border flex items-center justify-between cursor-pointer transition-opacity hover:opacity-90"
-          style={{ borderColor: '#FECDD3', background: '#FFF1F2' }}
+          className="rounded-2xl border cursor-pointer transition-all"
+          style={{ borderColor: '#F3D3D3', background: '#FEF7F7', boxShadow: CARD_SHADOW, position: 'relative', overflow: 'hidden', direction: 'rtl' }}
           onClick={() => onPageChange?.('reconciliation')}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = CARD_SHADOW_LIFT)}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = CARD_SHADOW)}
         >
-          <button
-            className="px-4 py-2 rounded-xl text-sm font-bold text-white flex-shrink-0"
-            style={{ background: '#BE123C' }}
-          >
-            לפירוט ←
-          </button>
-          <div className="flex items-center gap-3 text-right">
-            <div>
-              <p className="font-bold text-sm" style={{ color: '#BE123C' }}>
-                {mismatchCount} אי-התאמות בכרטסות ספקים
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולפתור לפני סגירת חודש</p>
+          <span aria-hidden style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '4px', background: STATUS.red.fg }} />
+          <div className="flex items-center justify-between gap-3" style={{ padding: '16px 20px 16px 16px' }}>
+            {/* content — RIGHT (RTL start) */}
+            <div className="flex items-center gap-3 text-right min-w-0">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: STATUS.red.bg, color: STATUS.red.fg }}>
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-sm" style={{ color: '#B42318' }}>
+                  {mismatchCount} אי-התאמות בכרטסות ספקים
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">יש לבדוק ולפתור לפני סגירת חודש</p>
+              </div>
             </div>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#FEE2E2', color: '#DC2626' }}>
-              <AlertTriangle className="w-5 h-5" />
-            </div>
+            {/* CTA — LEFT (RTL end) */}
+            <button
+              className="px-4 py-2 rounded-xl text-sm font-bold text-white flex-shrink-0"
+              style={{ background: STATUS.red.fg }}
+            >
+              לפירוט ←
+            </button>
           </div>
         </div>
       )}
@@ -211,13 +251,17 @@ export default function Dashboard({
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="ספקים פעילים" value={statsLoading ? '...' : String(activeSuppliers)} sub="+3 החודש"
-          icon={<Users className="w-5 h-5" />} iconBg="#FDF2F4" iconColor="#D32F4A" subColor="#D32F4A" loading={statsLoading} />
+          icon={<Users className="w-5 h-5" />} iconBg="var(--brand-active-bg)" iconColor="var(--brand-primary)" subColor="var(--brand-primary)" loading={statsLoading}
+          onClick={() => onPageChange?.('suppliers')} />
         <StatCard title="חשבוניות ממתינות" value={statsLoading ? '...' : String(pendingInvoices)} sub="4 דחופות לטיפול"
-          icon={<FileText className="w-5 h-5" />} iconBg="#FEF6E4" iconColor="#F2C94C" subColor="#D97706" loading={statsLoading} />
+          icon={<FileText className="w-5 h-5" />} iconBg={STATUS.yellow.bg} iconColor={STATUS.yellow.fg} subColor={STATUS.yellow.fg} loading={statsLoading}
+          onClick={() => onPageChange?.('invoices')} />
         <StatCard title="תשלומים החודש" value={statsLoading ? '...' : formatILS(monthlyPayments)} sub="+12% מחודש קודם"
-          icon={<TrendingUp className="w-5 h-5" />} iconBg="#F0FDF4" iconColor="#22C55E" subColor="#22C55E" loading={statsLoading} />
+          icon={<TrendingUp className="w-5 h-5" />} iconBg={STATUS.green.bg} iconColor={STATUS.green.fg} subColor={STATUS.green.fg} loading={statsLoading}
+          onClick={() => onPageChange?.('payments')} />
         <StatCard title="חזרות פתוחות" value={statsLoading ? '...' : String(openReturns)} sub="דורש טיפול דחוף"
-          icon={<AlertCircle className="w-5 h-5" />} iconBg="#FEF2F2" iconColor="#EF4444" subColor="#EF4444" loading={statsLoading} />
+          icon={<AlertCircle className="w-5 h-5" />} iconBg={STATUS.red.bg} iconColor={STATUS.red.fg} subColor={STATUS.red.fg} loading={statsLoading}
+          onClick={() => onPageChange?.('returns')} />
       </div>
 
       {/* Recent Alerts card */}
@@ -237,7 +281,7 @@ export default function Dashboard({
                   className="flex items-center justify-center text-white font-bold"
                   style={{
                     minWidth: '20px', height: '20px', borderRadius: '10px',
-                    background: '#DC2626', fontSize: '11px', padding: '0 5px',
+                    background: STATUS.blue.fg, fontSize: '11px', padding: '0 5px',   // new = blue
                   }}
                 >
                   {alerts.filter(a => a.status === 'new').length}
@@ -247,9 +291,9 @@ export default function Dashboard({
             <button
               onClick={() => onPageChange?.('alerts')}
               className="text-sm font-semibold transition-colors"
-              style={{ color: '#D32F4A' }}
-              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#A8213B')}
-              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#D32F4A')}
+              style={{ color: 'var(--brand-primary)' }}
+              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary-dark)')}
+              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary)')}
             >
               לכל ההתראות ←
             </button>
@@ -266,7 +310,7 @@ export default function Dashboard({
                   key={alert.id}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '120px minmax(0, 1fr) 150px 170px',
+                    gridTemplateColumns: 'minmax(0, auto) minmax(0, 1fr) 150px 170px',
                     alignItems: 'center',
                     columnGap: '16px',
                     padding: '12px 24px',
@@ -279,11 +323,13 @@ export default function Dashboard({
                   onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                   onClick={() => handleAlertClick(alert)}
                 >
-                  {/* Col 1 (RIGHTMOST): type badge — pinned to the right edge */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                  {/* Col 1 (RIGHTMOST): type badge — sized to content, truncates so a
+                      long label (e.g. "פענוח נכשל — טיפול ידני") can never spill into
+                      the description column. */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-start', minWidth: 0, overflow: 'hidden' }}>
                     <span
-                      className="px-2.5 py-1 rounded-md text-xs font-bold whitespace-nowrap"
-                      style={{ background: typeConf.bg, color: typeConf.color }}
+                      className="px-2.5 py-1 rounded-md text-xs font-bold truncate"
+                      style={{ background: typeConf.bg, color: typeConf.color, minWidth: 0, maxWidth: '100%' }}
                     >
                       {typeConf.label}
                     </span>
@@ -344,9 +390,9 @@ export default function Dashboard({
             <button
               onClick={() => onPageChange?.('invoices')}
               className="text-sm font-semibold transition-colors"
-              style={{ color: '#D32F4A' }}
-              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#A8213B')}
-              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#D32F4A')}
+              style={{ color: 'var(--brand-primary)' }}
+              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary-dark)')}
+              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary)')}
             >
               הצג הכל ←
             </button>
@@ -403,9 +449,9 @@ export default function Dashboard({
               <button
                 onClick={() => onPageChange?.('payments')}
                 className="text-sm font-semibold transition-colors"
-                style={{ color: '#D32F4A' }}
-                onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#A8213B')}
-                onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#D32F4A')}
+                style={{ color: 'var(--brand-primary)' }}
+                onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary-dark)')}
+                onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary)')}
               >
                 הצג הכל ←
               </button>
@@ -481,9 +527,9 @@ export default function Dashboard({
                   <button
                     onClick={() => onPageChange?.('deliveries')}
                     className="text-sm font-semibold transition-colors whitespace-nowrap"
-                    style={{ color: '#D32F4A' }}
-                    onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#A8213B')}
-                    onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#D32F4A')}
+                    style={{ color: 'var(--brand-primary)' }}
+                    onMouseEnter={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary-dark)')}
+                    onMouseLeave={(e) => ((e.target as HTMLElement).style.color = 'var(--brand-primary)')}
                   >
                     הצג הכל ←
                   </button>
@@ -492,7 +538,10 @@ export default function Dashboard({
             </div>
             {dnLoading ? <Spinner /> : (
               <div className="divide-y">
-                {deliveryNotes.slice(0, 5).map((dn) => {
+                {[...deliveryNotes]
+                  .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''))  // newest first
+                  .slice(0, 5)
+                  .map((dn) => {
                   const st = statusStyle[dn.status === 'pending' ? 'ממתין' : 'הושלם'] ?? { bg: '#F3F4F6', color: '#6B7280' }
                   const label = dn.status === 'pending' ? 'ממתינה' : 'בארכיון'
                   return (

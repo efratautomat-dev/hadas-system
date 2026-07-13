@@ -58,9 +58,9 @@ export function PdfPreviewModal({ url, previewSrc, onClose }: PdfPreviewModalPro
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 rounded-lg font-semibold transition-colors"
-              style={{ background: '#FDF2F4', color: '#D32F4A', padding: '8px 14px', fontSize: '13px' }}
+              style={{ background: 'var(--brand-active-bg)', color: 'var(--brand-primary)', padding: '8px 14px', fontSize: '13px' }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
             >
               <ExternalLink className="w-3.5 h-3.5" />
               {previewSrc ? 'פתח בכרטיסייה חדשה' : 'פתח ב-Drive'}
@@ -114,11 +114,11 @@ export function PdfPreviewButton({ url, title = 'תצוגה מקדימה', size 
           borderRadius: '8px',
           border: '1px solid #DEDFE5',
           background: 'white',
-          color: '#D32F4A',
+          color: 'var(--brand-primary)',
           cursor: 'pointer',
           flexShrink: 0,
         }}
-        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FDF2F4')}
+        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
         onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
       >
         <Eye size={size} />

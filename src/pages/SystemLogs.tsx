@@ -126,7 +126,7 @@ export default function SystemLogs() {
           onClick={() => load()}
           disabled={loading}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold"
-          style={{ background: '#D32F4A', color: 'white', border: 'none', cursor: loading ? 'wait' : 'pointer' }}
+          style={{ background: 'var(--brand-primary)', color: 'white', border: 'none', cursor: loading ? 'wait' : 'pointer' }}
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           רענון
@@ -307,7 +307,7 @@ export default function SystemLogs() {
             className="px-4 py-2 rounded-lg text-sm font-medium"
             style={{
               background: page === 0 ? '#F3F4F6' : 'white',
-              color: page === 0 ? '#9CA3AF' : '#D32F4A',
+              color: page === 0 ? '#9CA3AF' : 'var(--brand-primary)',
               border: '1px solid #DEDFE5',
               cursor: page === 0 ? 'not-allowed' : 'pointer',
             }}
@@ -320,7 +320,7 @@ export default function SystemLogs() {
             className="px-4 py-2 rounded-lg text-sm font-medium"
             style={{
               background: !hasMore ? '#F3F4F6' : 'white',
-              color: !hasMore ? '#9CA3AF' : '#D32F4A',
+              color: !hasMore ? '#9CA3AF' : 'var(--brand-primary)',
               border: '1px solid #DEDFE5',
               cursor: !hasMore ? 'not-allowed' : 'pointer',
             }}

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
-import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle } from 'lucide-react'
+import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { usePayments } from '../hooks/usePayments'
+import { computeSupplierBalance, sumNonCancelledPayments } from '../lib/supplierBalance'
 import SectionHeader from './SectionHeader'
+import { Button } from './ui/Button'
 
 function useIsTablet() {
   const [v, setV] = useState(
@@ -51,6 +53,7 @@ interface Props {
   onViewLedger?: () => void
   onViewPayments?: () => void
   onOpenInvoice?: (invoiceId: string) => void
+  onToggleActive?: (nextActive: boolean) => void
 }
 
 const invoiceStatusStyle: Record<string, { bg: string; color: string }> = {
@@ -79,29 +82,42 @@ function fmtDate(d: string): string {
   return `${day}/${m}/${y}`
 }
 
-export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger, onViewPayments, onOpenInvoice }: Props) {
+export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive }: Props) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
 
-  const invoices = allInvoices.filter((inv) => inv.supplier === supplier.name)
-  const payments = allPayments.filter((pay) => pay.supplier === supplier.name)
+  // Link invoices/payments to this supplier by SUPPLIER_ID, not by name
+  // (spec/06-RULES.md §2b). Cancelled payments are excluded from the balance.
+  const invoices = allInvoices.filter((inv) => inv.supplierId === supplier.id)
+  const payments = allPayments.filter((pay) => pay.supplier_id === supplier.id && pay.status !== 'cancelled')
 
+  const openingBalance = Number(supplier.openingBalance ?? 0)
   const totalInvoiced = invoices.reduce((s, i) => s + i.amount, 0)
-  const paidAmount    = invoices.filter((i) => i.status === 'שולם').reduce((s, i) => s + i.amount, 0)
-  const pendingAmount = invoices.filter((i) => i.status === 'ממתין').reduce((s, i) => s + i.amount, 0)
+  // Current balance via the SHARED helper — identical to the suppliers list card.
+  const currentBalance = computeSupplierBalance(openingBalance, invoices, payments)
+  // "שולם" = money actually paid out = Σ non-cancelled payments (NOT an invoice flag,
+  // which never carries 'שולם'). "ממתין לתשלום" = outstanding still owed = the balance.
+  const paidAmount    = sumNonCancelledPayments(payments)
+  const pendingAmount = Math.max(0, currentBalance)
 
-  // Build ledger: invoices = debit, payments = credit, sorted by date
-  const rawEntries = [
-    ...invoices.map((inv) => ({
-      id: inv.id,
-      date: inv.date,
-      description: `חשבונית ${inv.id}`,
-      debit: inv.amount,
-      credit: 0,
-    })),
+  // Ledger reflects the balance formula (spec/06-RULES.md §2): opening balance,
+  // then invoices (+, debit), credit notes (negative invoices → −, credit), and
+  // non-cancelled payments (−, credit), with a running total. Returns are NOT here
+  // — only their matching credit note (a negative invoice) moves the balance.
+  const txEntries = [
+    ...invoices.map((inv) => {
+      const isCredit = inv.amount < 0   // credit note = negative invoice
+      return {
+        id: inv.id,
+        date: inv.date,
+        description: `${isCredit ? 'זיכוי' : 'חשבונית'} ${inv.invoiceNumber || inv.id}`,
+        debit:  isCredit ? 0 : inv.amount,
+        credit: isCredit ? -inv.amount : 0,
+      }
+    }),
     ...payments.map((pay) => ({
       id: String(pay.id),
       date: pay.date,
@@ -111,11 +127,22 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
     })),
   ].sort((a, b) => parseDate(a.date) - parseDate(b.date))
 
-  let running = 0
-  const ledger = rawEntries.map((e) => {
-    running += e.debit - e.credit
-    return { ...e, balance: running }
-  })
+  let running = openingBalance
+  const ledger = [
+    ...(openingBalance !== 0
+      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance }]
+      : []),
+    ...txEntries.map((e) => {
+      running += e.debit - e.credit
+      return { ...e, balance: running }
+    }),
+  ]
+  // running (final) equals currentBalance from the shared helper — same formula.
+  const totalDebit  = txEntries.reduce((s, e) => s + e.debit, 0)
+  const totalCredit = txEntries.reduce((s, e) => s + e.credit, 0)
+  // In-card ledger shows NEWEST entry on top (opening row falls to the bottom).
+  const ledgerDisplay = [...ledger].reverse()
+  const todayStr = new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
   const fs = (big: string, small: string) => (isTablet ? big : small)
 
@@ -135,27 +162,40 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
         {/* RIGHT (first in RTL): action buttons */}
         <div className={isMobile ? 'flex items-center gap-2 overflow-x-auto pb-1' : 'flex items-center gap-2 flex-shrink-0'}>
           {onViewLedger && (
-            <button
-              onClick={onViewLedger}
-              className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-              style={{ minHeight: '44px', padding: '0 18px', background: '#F3E8FF', color: '#7C3AED', fontSize: fs('16px', '14px') }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#EDE9FE')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3E8FF')}
-            >
+            <Button variant="secondary" onClick={onViewLedger}>
               <BookOpen className="w-4 h-4" />
               כרטסת ספק
-            </button>
+            </Button>
           )}
-          <button
-            onClick={onEdit}
-            className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-            style={{ minHeight: '44px', padding: '0 18px', background: '#FFF0EF', color: '#E8645A', fontSize: fs('16px', '14px') }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FFE4E2')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FFF0EF')}
-          >
+          {onToggleActive && (() => {
+            const isActive = supplier.status === 'פעיל'
+            // Clear active⇄inactive toggle: colored switch + current-state label.
+            // Click flips the `active` column via hadas-api.
+            return (
+              <button
+                onClick={() => onToggleActive(!isActive)}
+                title={isActive ? 'לחצי כדי להשבית את הספק' : 'לחצי כדי להפעיל את הספק מחדש'}
+                className="flex items-center gap-2 rounded-xl font-semibold transition-all"
+                style={{
+                  minHeight: '44px', padding: '0 14px', fontSize: fs('16px', '14px'),
+                  background: isActive ? '#DCFCE7' : '#F3F4F6',
+                  color: isActive ? '#15803D' : '#6B7280',
+                  border: `1px solid ${isActive ? '#BBF7D0' : '#E5E7EB'}`,
+                }}
+              >
+                <Power className="w-4 h-4" />
+                <span>{isActive ? 'פעיל' : 'לא פעיל'}</span>
+                {/* switch track (green=active / gray=inactive); knob slides on toggle */}
+                <span style={{ position: 'relative', width: '38px', height: '22px', borderRadius: '999px', flexShrink: 0, transition: 'background .2s', background: isActive ? '#16A34A' : '#CBD5E1' }}>
+                  <span style={{ position: 'absolute', top: '2px', left: '2px', width: '18px', height: '18px', borderRadius: '50%', background: 'white', transition: 'transform .2s', transform: isActive ? 'translateX(16px)' : 'translateX(0)' }} />
+                </span>
+              </button>
+            )
+          })()}
+          <Button variant="primary" onClick={onEdit}>
             <Pencil className="w-4 h-4" />
             עריכה
-          </button>
+          </Button>
           <button
             onClick={onBack}
             className="rounded-xl font-semibold transition-all"
@@ -235,7 +275,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
               <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF' }}>{label}</span>
               <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#F8F9FA' }}>
-                <Icon className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
+                <Icon className="w-3.5 h-3.5" style={{ color: 'var(--brand-primary-dark)' }} />
               </div>
             </div>
           </div>
@@ -259,7 +299,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flexShrink: 0 }}>
             <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF', paddingTop: '5px' }}>הערות</span>
             <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#F8F9FA' }}>
-              <MessageSquare className="w-3.5 h-3.5" style={{ color: '#8B1A3A' }} />
+              <MessageSquare className="w-3.5 h-3.5" style={{ color: 'var(--brand-primary-dark)' }} />
             </div>
           </div>
         </div>
@@ -283,17 +323,25 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
       {/* ── Financial stats ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'סה"כ חשבוניות', value: formatILS(totalInvoiced),    color: '#1F2937' },
-          { label: 'שולם',          value: formatILS(paidAmount),        color: '#166534' },
-          { label: 'ממתין לתשלום', value: formatILS(pendingAmount),      color: '#A16207' },
-          { label: 'יתרה פתוחה',   value: formatILS(supplier.balance),  color: '#E8645A' },
-        ].map(({ label, value, color }) => (
+          { label: 'סה"כ חשבוניות', value: formatILS(totalInvoiced),   sub: '',       color: '#1F2937' },
+          { label: 'שולם',          value: formatILS(paidAmount),       sub: '',       color: '#166534' },
+          { label: 'ממתין לתשלום', value: formatILS(pendingAmount),     sub: '',       color: '#A16207' },
+          // Headline: CURRENT computed balance with today's date (not the opening figure).
+          { label: 'יתרה עדכנית',  value: formatILS(currentBalance),   sub: todayStr, color: '#E8645A' },
+        ].map(({ label, value, sub, color }) => (
           <div key={label} className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
             <p className="text-2xl font-black" style={{ color }}>{value}</p>
             <p className="text-gray-500 mt-1" style={{ fontSize: fs('15px', '13px') }}>{label}</p>
+            {sub && <p className="text-gray-400 mt-0.5" style={{ fontSize: '11px' }}>{sub}</p>}
           </div>
         ))}
       </div>
+
+      {/* Opening balance — separate smaller reference line (headline above is current). */}
+      <p className="text-right text-gray-400" style={{ fontSize: '12px', marginTop: '-8px' }}>
+        יתרת פתיחה: {formatILS(openingBalance)}
+        {supplier.openingBalanceDate ? ` · ${fmtDate(supplier.openingBalanceDate)}` : ''}
+      </p>
 
       {/* ── כרטסת (ledger) ── */}
       {ledger.length > 0 && (
@@ -304,7 +352,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
             onClick={onViewLedger}
             hoverBg={onViewLedger ? '#FAFAFC' : undefined}
             title={<><h2 className="font-bold text-gray-800">כרטסת</h2><CreditCard className="w-4 h-4 text-gray-400" /></>}
-            action={onViewLedger ? <span className="text-sm font-semibold" style={{ color: '#D32F4A' }}>פתח כרטסת ←</span> : undefined}
+            action={onViewLedger ? <span className="text-sm font-semibold" style={{ color: 'var(--brand-primary)' }}>פתח כרטסת ←</span> : undefined}
           />
           {/* Table header */}
           <div style={{ overflowX: 'auto' }}>
@@ -318,7 +366,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
             <span className="text-center">חובה</span>
             <span className="text-right">תאריך</span>
           </div>
-          {ledger.map((entry) => (
+          {ledgerDisplay.map((entry) => (
             <div
               key={entry.id}
               className="grid items-center"
@@ -339,6 +387,23 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
               <span className="text-right text-gray-400" style={{ fontSize: '12px' }}>{fmtDate(entry.date)}</span>
             </div>
           ))}
+          {/* Summary / total row — final running balance matches the headline. */}
+          <div
+            className="grid items-center"
+            style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', padding: '12px 16px', borderTop: '2px solid var(--brand-primary)', background: 'var(--brand-active-bg)' }}
+          >
+            <span className="font-black text-right" style={{ color: 'var(--brand-primary)', fontSize: fs('16px', '14px') }}>
+              {formatILS(currentBalance)}
+            </span>
+            <span className="font-bold text-right text-gray-600" style={{ fontSize: fs('13px', '12px') }}>סה"כ · יתרה עדכנית</span>
+            <span className="text-center font-semibold" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>
+              {totalCredit > 0 ? formatILS(totalCredit) : '—'}
+            </span>
+            <span className="text-center font-semibold" style={{ color: '#A16207', fontSize: fs('14px', '13px') }}>
+              {totalDebit > 0 ? formatILS(totalDebit) : '—'}
+            </span>
+            <span />
+          </div>
           </div>
         </div>
       )}
@@ -405,7 +470,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
           onClick={onViewPayments}
           hoverBg={onViewPayments ? '#FAFAFC' : undefined}
           title={<><h2 className="font-bold text-gray-800">תשלומים</h2><CreditCard className="w-4 h-4 text-gray-400" /></>}
-          action={onViewPayments ? <span className="text-sm font-semibold" style={{ color: '#D32F4A' }}>פתח דף תשלומים ←</span> : undefined}
+          action={onViewPayments ? <span className="text-sm font-semibold" style={{ color: 'var(--brand-primary)' }}>פתח דף תשלומים ←</span> : undefined}
         />
         {payments.length === 0 ? (
           <p className="text-center text-gray-400 py-8" style={{ fontSize: '15px' }}>אין תשלומים עבור ספק זה</p>
@@ -441,27 +506,10 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
 
       {/* ── Delete button ── */}
       <div className="flex justify-start pt-1 pb-2">
-        <button
-          onClick={handleDeleteClick}
-          className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-          style={{
-            minHeight: '44px', padding: '0 20px',
-            background: '#FFF1F2', color: '#BE123C',
-            fontSize: fs('15px', '14px'),
-            border: '1px solid #FECDD3',
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background = '#FFE4E8'
-            ;(e.currentTarget as HTMLElement).style.borderColor = '#FCA5A5'
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = '#FFF1F2'
-            ;(e.currentTarget as HTMLElement).style.borderColor = '#FECDD3'
-          }}
-        >
+        <Button variant="danger" onClick={handleDeleteClick}>
           <Trash2 className="w-4 h-4" />
           מחק ספק
-        </button>
+        </Button>
       </div>
 
       {/* ── Modal ── */}
@@ -493,15 +541,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
                     משויכות לספק זה. יש למחוק תחילה את החשבוניות.
                   </p>
                 </div>
-                <button
-                  onClick={() => setModal(null)}
-                  className="w-full rounded-xl font-semibold transition-all"
-                  style={{ minHeight: '44px', background: '#F3F4F6', color: '#374151', fontSize: '15px' }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
-                >
+                <Button variant="ghost" onClick={() => setModal(null)} className="w-full">
                   הבנתי
-                </button>
+                </Button>
               </div>
             ) : (
               /* ─ אישור מחיקה ─ */
@@ -523,25 +565,13 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
                   </p>
                 </div>
                 <div className="flex gap-2 w-full">
-                  <button
-                    onClick={handleConfirmDelete}
-                    className="flex-1 flex items-center justify-center gap-2 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '44px', background: '#BE123C', color: 'white', fontSize: '15px' }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#9F1239')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#BE123C')}
-                  >
+                  <Button variant="danger" onClick={handleConfirmDelete} className="flex-1">
                     <Trash2 className="w-4 h-4" />
                     מחק
-                  </button>
-                  <button
-                    onClick={() => setModal(null)}
-                    className="flex-1 rounded-xl font-semibold transition-all"
-                    style={{ minHeight: '44px', background: '#F3F4F6', color: '#374151', fontSize: '15px' }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#E5E7EB')}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#F3F4F6')}
-                  >
+                  </Button>
+                  <Button variant="ghost" onClick={() => setModal(null)} className="flex-1">
                     ביטול
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
