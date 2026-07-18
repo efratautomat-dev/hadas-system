@@ -211,9 +211,15 @@ async function gmailEnsureLabel(token: string, name: string): Promise<string> {
 async function gmailListMessages(
   token: string,
   query: string,
+  labelIds: string[] = [],
   maxResults = 25,
 ): Promise<string[]> {
-  const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`;
+  // labelIds matches by ID (immune to label nesting / spaces / rename); q carries
+  // only the exclusions + date window. Name-based `label:"…"` in q is unreliable
+  // for nested labels — that's what made label:"החזר חלקי" return 0.
+  const params = new URLSearchParams({ q: query, maxResults: String(maxResults) });
+  for (const id of labelIds) params.append("labelIds", id);
+  const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`;
   const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`messages.list failed: ${resp.status} ${await resp.text()}`);
   const data = await resp.json() as { messages?: Array<{ id: string }> };
@@ -1704,7 +1710,13 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
 
   // Resolve labels (creating destinations as needed; source must already exist)
   const labels = await gmailListLabels(token);
-  const sourceLabelId = labels.find((l) => l.name === SOURCE_LABEL_NAME)?.id;
+  // Gmail returns nested labels as full paths ("Parent/Child"); resolve by the
+  // exact name OR any nested leaf, trimmed — so a manually-nested label (the
+  // reason label:"החזר חלקי" matched 0) still resolves to its ID.
+  const findLabelId = (name: string): string | null =>
+    labels.find((l) => l.name.trim() === name || l.name.trim().endsWith("/" + name))?.id ?? null;
+
+  const sourceLabelId = findLabelId(SOURCE_LABEL_NAME);
   if (!sourceLabelId) {
     await log("error", `source label "${SOURCE_LABEL_NAME}" not found in Gmail — create it manually first`);
     result.errors.push(`source label "${SOURCE_LABEL_NAME}" missing`);
@@ -1713,24 +1725,38 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   const destProcessed   = await gmailEnsureLabel(token, PROCESSED_LABEL_NAME);
   const destNeedsReview = await gmailEnsureLabel(token, NEEDS_REVIEW_LABEL_NAME);
   const destFailed      = await gmailEnsureLabel(token, FAILED_LABEL_NAME);
-  // Partial-refund label is applied manually by the business owner — look up only, never created
-  const partialRefundLabelId = labels.find((l) => l.name === PARTIAL_REFUND_LABEL_NAME)?.id ?? null;
+  // Partial-refund label is applied manually by the business owner — look up only, never created.
+  const partialRefundLabelId = findLabelId(PARTIAL_REFUND_LABEL_NAME);
+  if (!partialRefundLabelId) {
+    // Not fatal, but surface the ACTUAL Gmail label names so a nesting/typo/niqqud
+    // mismatch is visible in the logs instead of silently fetching nothing.
+    await log("warn", `partial-refund label "${PARTIAL_REFUND_LABEL_NAME}" did not resolve to an id`,
+      { candidates: labels.map((l) => l.name).filter((n) => n.includes("חלקי") || n.includes("החזר")) });
+  }
 
   // Gmail query: source label, not yet processed, last 14 days only.
   // The 14-day rolling lookback is a safety measure — without it, a freshly
   // deployed instance would chew through every historical email under the
   // source label. Intentionally no is:unread — owner may open emails before
   // the cron runs.
-  // Two independent sources: the supplier-docs label (14-day window, skip failed)
-  // and the manually-applied "החזר חלקי" label — a first-class source in its own
-  // right (wider 90-day window, never failed-skipped) so it no longer depends on
-  // the supplier label being co-applied. Both exclude already-processed mail.
-  const query =
-    `-label:"${PROCESSED_LABEL_NAME}" ` +
-    `(label:"${SOURCE_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d ` +
-    `OR label:"${PARTIAL_REFUND_LABEL_NAME}" newer_than:90d)`;
-  const messageIds = await gmailListMessages(token, query);
-  await log("info", `found ${messageIds.length} candidate messages`, { query });
+  // Two independent sources, each matched by label ID (not by name in q, which is
+  // fragile for nested/spaced labels). OR-ed via union:
+  //   • supplier-docs label — 14-day window, skip already-failed
+  //   • manually-applied partial-return label — wider 90-day window, never
+  //     failed-skipped, so it no longer depends on the supplier label being
+  //     co-applied. Exclusions stay name-based (those labels are code-created,
+  //     always top-level, so name search is reliable for them).
+  const srcIds  = await gmailListMessages(
+    token,
+    `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d`,
+    [sourceLabelId],
+  );
+  const partIds = partialRefundLabelId
+    ? await gmailListMessages(token, `-label:"${PROCESSED_LABEL_NAME}" newer_than:90d`, [partialRefundLabelId])
+    : [];
+  const messageIds = [...new Set([...srcIds, ...partIds])];
+  await log("info", `found ${messageIds.length} candidate messages`,
+    { source: srcIds.length, partialReturn: partIds.length });
 
   if (messageIds.length === 0) return result;
 
