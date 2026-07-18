@@ -220,7 +220,7 @@ function CategoriesManager() {
   const selectStyle: React.CSSProperties = { padding: '10px 14px', borderRadius: '12px', border: '1px solid #E2E4E9', background: 'white', fontSize: '14px', color: '#1F2937', outline: 'none', cursor: 'pointer' }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 mx-auto" style={{ maxWidth: '640px', direction: 'rtl' }}>
       {msg && (
         <div className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: msg.type === 'ok' ? '#DCFCE7' : '#FEE2E2', color: msg.type === 'ok' ? '#166534' : '#DC2626' }}>
           {msg.text}
@@ -270,19 +270,19 @@ function CategoriesManager() {
               <div key={cat.id} className="flex items-center justify-between p-3.5 rounded-xl border" style={{ borderColor: '#E2E4E9' }}>
                 {editingId === cat.id ? (
                   <div className="flex items-center gap-2 flex-1">
+                    <div className="flex-1"><TextInput value={editName} onChange={setEditName} /></div>
                     <Button variant="primary" size="sm" onClick={() => handleRename(cat.id)} disabled={busy}>שמור</Button>
                     <Button variant="outline" size="sm" onClick={() => setEditingId(null)}>ביטול</Button>
-                    <div className="flex-1"><TextInput value={editName} onChange={setEditName} /></div>
                   </div>
                 ) : (
                   <>
+                    <div className="flex items-center gap-2 text-right">
+                      <span className="text-sm font-semibold text-gray-800">{cat.name}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: '#F3F4F6', color: '#6B7280' }} title="שימושים">{cat.usage_count}</span>
+                    </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button onClick={() => { setEditingId(cat.id); setEditName(cat.name) }} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#F3F4F6', color: '#6B7280' }} title="שנה שם"><Pencil className="w-3.5 h-3.5" /></button>
                       <button onClick={() => handleDelete(cat)} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#FEE2E2', color: '#DC2626' }} title="מחק"><Trash2 className="w-3.5 h-3.5" /></button>
-                    </div>
-                    <div className="flex items-center gap-2 text-right">
-                      <span className="text-xs px-2 py-0.5 rounded-full font-bold" style={{ background: '#F3F4F6', color: '#6B7280' }} title="שימושים">{cat.usage_count}</span>
-                      <span className="text-sm font-semibold text-gray-800">{cat.name}</span>
                     </div>
                   </>
                 )}
