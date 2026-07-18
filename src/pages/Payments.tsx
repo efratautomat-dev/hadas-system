@@ -449,9 +449,9 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
 
   const monthOptions = [...new Set(payments.map((p) => (p.date || '').slice(0, 7)).filter(Boolean))].sort().reverse()
 
-  const VALUE_DATE_TYPES = ["צ'ק", 'כרטיס אשראי', 'הרשאה לחיוב חשבון']
-  const needsValueDate = VALUE_DATE_TYPES.includes(form.type)
-  const needsEditValueDate = !!editForm && VALUE_DATE_TYPES.includes(editForm.type)
+  // Value date now applies to every payment method: the field is always shown,
+  // and on save a blank value date defaults to the payment date (see submit),
+  // so both date columns are always populated — identical unless post-dated.
 
   // ── handlers ─────────────────────────────────────────────────────────────
 
@@ -464,8 +464,11 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   async function handleAddSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.type) return
+    // Blank value date defaults to the payment date, so every payment carries
+    // both dates; only an explicit future value date marks it pending.
+    const valueDate = form.valueDate || form.date
     const status: PaymentStatus =
-      form.valueDate && needsValueDate && daysFromToday(form.valueDate) > 0 ? 'pending' : 'paid'
+      daysFromToday(valueDate) > 0 ? 'pending' : 'paid'
     const payload = {
       supplier_id: '',
       supplier: form.supplier.trim(),
@@ -473,7 +476,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
       type: form.type,
       date: form.date,
       ref: form.ref.trim(),
-      valueDate: needsValueDate ? form.valueDate || null : null,
+      valueDate,
       notes: form.notes.trim(),
       status,
     }
@@ -517,6 +520,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
       await updatePaymentApi(savedId, {
         supplier: savedForm.supplier.trim(), amount: parseFloat(savedForm.amount),
         type: savedForm.type, date: savedForm.date, ref: savedForm.ref.trim(),
+        valueDate: savedForm.valueDate || savedForm.date,
         notes: savedForm.notes.trim(), status: savedForm.status,
       })
       showToast('💾 תשלום עודכן בהצלחה')
@@ -921,7 +925,6 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                         setForm((f) => ({
                           ...f,
                           type: e.target.value as PaymentType | '',
-                          valueDate: '',
                         }))
                       }
                       required
@@ -963,26 +966,22 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     />
                   </div>
 
-                  {/* Value date (conditional) */}
-                  {needsValueDate && (
-                    <div>
-                      <label style={labelStyle}>
-                        תאריך ערך <span style={{ color: '#DC2626' }}>*</span>
-                      </label>
-                      <input
-                        style={inputStyle}
-                        type="date"
-                        value={form.valueDate}
-                        onChange={(e) => setForm((f) => ({ ...f, valueDate: e.target.value }))}
-                        required
-                        onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
-                        onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
-                      />
-                    </div>
-                  )}
+                  {/* Value date — shown for every type; optional. Blank defaults to
+                      the payment date on save; enter a future date for post-dated. */}
+                  <div>
+                    <label style={labelStyle}>תאריך ערך</label>
+                    <input
+                      style={inputStyle}
+                      type="date"
+                      value={form.valueDate}
+                      onChange={(e) => setForm((f) => ({ ...f, valueDate: e.target.value }))}
+                      onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
+                      onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
+                    />
+                  </div>
 
                   {/* Notes */}
-                  <div style={{ gridColumn: isTablet ? '1 / -1' : needsValueDate ? '1 / -1' : undefined }}>
+                  <div style={{ gridColumn: '1 / -1' }}>
                     <label style={labelStyle}>הערות</label>
                     <input
                       style={inputStyle}
@@ -1257,11 +1256,13 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                           <span style={{ whiteSpace: 'nowrap', fontSize: isTablet ? '14px' : '13px', color: '#374151' }}>
                             {p.date ? fmtDate(p.date) : <span style={{ color: '#D1D5DB' }}>—</span>}
                           </span>
-                          {/* Value date (when money leaves the account), with the urgency chip. */}
+                          {/* Value date (when money leaves the account). Falls back to the
+                              payment date so the column is always populated; the urgency
+                              chip only fires for a real future value date. */}
                           <span style={{ whiteSpace: 'nowrap' }}>
-                            {p.valueDate ? (
+                            {(p.valueDate || p.date) ? (
                               <span style={{ color: valueDateColor, fontWeight: valueDays !== null && valueDays <= 7 ? 700 : 400, fontSize: isTablet ? '14px' : '13px' }}>
-                                {fmtDate(p.valueDate)}
+                                {fmtDate(p.valueDate || p.date)}
                                 {valueDays !== null && valueDays > 0 && valueDays <= 7 && (
                                   <span style={{ marginRight: '6px', fontSize: '11px', background: '#FEF2F2', color: '#DC2626', padding: '1px 6px', borderRadius: '5px', fontWeight: 700 }}>
                                     {valueDays === 1 ? 'מחר' : `${valueDays}י׳`}
@@ -1366,7 +1367,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
             className="px-5 py-3 border-b font-bold text-gray-700 flex items-center justify-start gap-2"
             style={{ borderColor: '#F5EEEE', background: '#F8F9FA', fontSize: isTablet ? '16px' : '14px' }}
           >
-            תשלומים עתידיים — צ'קים ואשראי
+            תשלומים עתידיים — לפי תאריך ערך
             <span className="text-xl">🗓️</span>
           </div>
 
@@ -1515,7 +1516,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     value={editForm.type}
                     onChange={(e) =>
                       setEditForm((f) =>
-                        f && { ...f, type: e.target.value as PaymentType, valueDate: '' }
+                        f && { ...f, type: e.target.value as PaymentType }
                       )
                     }
                     onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
@@ -1547,19 +1548,17 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
                   />
                 </div>
-                {needsEditValueDate && (
-                  <div>
-                    <label style={labelStyle}>תאריך ערך</label>
-                    <input
-                      style={inputStyle}
-                      type="date"
-                      value={editForm.valueDate}
-                      onChange={(e) => setEditForm((f) => f && { ...f, valueDate: e.target.value })}
-                      onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
-                      onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
-                    />
-                  </div>
-                )}
+                <div>
+                  <label style={labelStyle}>תאריך ערך</label>
+                  <input
+                    style={inputStyle}
+                    type="date"
+                    value={editForm.valueDate}
+                    onChange={(e) => setEditForm((f) => f && { ...f, valueDate: e.target.value })}
+                    onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
+                    onBlur={(e) => (e.target.style.borderColor = '#E2E4E9')}
+                  />
+                </div>
                 <div>
                   <label style={labelStyle}>סטטוס</label>
                   <select
