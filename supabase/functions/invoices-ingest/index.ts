@@ -1721,9 +1721,14 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   // deployed instance would chew through every historical email under the
   // source label. Intentionally no is:unread — owner may open emails before
   // the cron runs.
+  // Two independent sources: the supplier-docs label (14-day window, skip failed)
+  // and the manually-applied "החזר חלקי" label — a first-class source in its own
+  // right (wider 90-day window, never failed-skipped) so it no longer depends on
+  // the supplier label being co-applied. Both exclude already-processed mail.
   const query =
-    `label:"${SOURCE_LABEL_NAME}" ` +
-    `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d`;
+    `-label:"${PROCESSED_LABEL_NAME}" ` +
+    `(label:"${SOURCE_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d ` +
+    `OR label:"${PARTIAL_REFUND_LABEL_NAME}" newer_than:90d)`;
   const messageIds = await gmailListMessages(token, query);
   await log("info", `found ${messageIds.length} candidate messages`, { query });
 
@@ -1843,6 +1848,13 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       } else {
         await log("info", `docType from subject → ${docType}`, undefined, msgId);
       }
+
+      // A manually-applied "החזר חלקי" label means: this is an ordinary invoice
+      // for special (partial-return subfolder) filing — never let a "החזר"/"זיכוי"
+      // keyword in the subject/content reroute it off the invoice path.
+      const isPartialReturn =
+        partialRefundLabelId !== null && (message.labelIds ?? []).includes(partialRefundLabelId);
+      if (isPartialReturn) docType = "invoice";
 
       // Credit notes (זיכוי) are ingested as NEGATIVE invoices via the invoice
       // pipeline — NOT as returns rows — so the balance moves exactly once.
