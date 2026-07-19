@@ -55,7 +55,9 @@ export function planInvoiceFolder(invoiceDate: string, now: Date, partialReturn:
   const beforeCutoff = now.getUTCDate() < 15;
   const onTime = monthsBehind <= 0 || (monthsBehind === 1 && beforeCutoff);
 
-  if (onTime) {
+  // Partial-returns ALWAYS file under their invoice-date month's "החזר חלקי"
+  // subfolder — never overflow (a late partial-return must not land in עודפים).
+  if (partialReturn || onTime) {
     return {
       year:          String(inv.getUTCFullYear()),
       monthName:     HEBREW_MONTHS[inv.getUTCMonth()],
