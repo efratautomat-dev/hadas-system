@@ -1712,13 +1712,17 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   // lets a crashed run self-heal. Released in the finally below.
   const runId = crypto.randomUUID();
   const LEASE_TTL_MS = 10 * 60 * 1000;
-  const { data: leased } = await supabase
+  const { data: leased, error: leaseErr } = await supabase
     .from("ingest_lock")
     .update({ holder: runId, locked_at: new Date().toISOString() })
     .eq("id", 1)
     .lt("locked_at", new Date(Date.now() - LEASE_TTL_MS).toISOString())
     .select("id");
-  if (!leased || leased.length === 0) {
+  if (leaseErr) {
+    // Fail OPEN: if the lock row/table is unreachable (e.g. migration not yet
+    // applied) proceed without single-flight rather than halt ingestion entirely.
+    await log("warn", `ingest_lock unavailable — proceeding without single-flight`, { error: leaseErr.message });
+  } else if (!leased || leased.length === 0) {
     await log("info", "another ingest run holds the lease — exiting");
     return result;
   }
