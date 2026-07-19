@@ -1705,6 +1705,25 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   };
   const log = makeLogger(supabase);
 
+  // ── Single-flight lease ──────────────────────────────────────────────────
+  // Claim the ingest_lock row atomically; a second concurrent run finds a fresh
+  // lease (locked_at within the TTL) and exits, closing the race where two runs
+  // both process an email before either marks it processed. The 10-minute TTL
+  // lets a crashed run self-heal. Released in the finally below.
+  const runId = crypto.randomUUID();
+  const LEASE_TTL_MS = 10 * 60 * 1000;
+  const { data: leased } = await supabase
+    .from("ingest_lock")
+    .update({ holder: runId, locked_at: new Date().toISOString() })
+    .eq("id", 1)
+    .lt("locked_at", new Date(Date.now() - LEASE_TTL_MS).toISOString())
+    .select("id");
+  if (!leased || leased.length === 0) {
+    await log("info", "another ingest run holds the lease — exiting");
+    return result;
+  }
+
+  try {
   const token = await getGoogleAccessToken();
   await log("info", "google token acquired");
 
@@ -1989,6 +2008,12 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   }
 
   return result;
+  } finally {
+    // Release only our own lease (reset to epoch) so the next run starts at once.
+    await supabase.from("ingest_lock")
+      .update({ locked_at: new Date(0).toISOString() })
+      .eq("id", 1).eq("holder", runId);
+  }
 }
 
 // ─── Non-invoice extractors ────────────────────────────────────────────────
