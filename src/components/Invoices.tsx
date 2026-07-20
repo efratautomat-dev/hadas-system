@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { SummaryCards } from './ui/SummaryCards'
 import { STATUS } from '../theme/status'
+import { STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING, deriveInvoiceStatus } from '../lib/invoiceStatus'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -23,12 +24,10 @@ const CATEGORIES = [
 const QUALITIES = ['גבוהה', 'בינונית', 'נמוכה']
 
 // ── Derived status ───────────────────────────────────────────────────────────
-// Status is computed live (never read from the stored `status` column, which
-// drifts). Exactly three values, in priority order: transferred → under review
-// → waiting. See deriveInvoiceStatus below.
-const STATUS_TRANSFERRED = 'הועבר לרו״ח'
-const STATUS_REVIEW      = 'בבדיקה'
-const STATUS_WAITING     = 'ממתין'
+// The derivation (transferred → under review → waiting) lives in
+// ../lib/invoiceStatus so the Dashboard KPI and this screen stay in lockstep;
+// STATUS_TRANSFERRED / STATUS_REVIEW / STATUS_WAITING and deriveInvoiceStatus are
+// imported from there.
 
 // Reviewed-confirmation marker for low-confidence invoices. Written to the stored
 // `status` column (which the UI otherwise treats as unreliable / ignores for the
@@ -45,29 +44,6 @@ const INVOICE_STATUS_INTERNAL: Record<string, string> = {
   [STATUS_TRANSFERRED]: 'done',
 }
 
-// An alert "points at" an invoice when its payload references the invoice id
-// (under any of the known keys) or shares the same Gmail message id. Backend
-// currently emits existingInvoiceId + gmailMessageId; invoiceId/duplicateInvoiceId
-// are matched too for forward-compatibility. relatedId covers mock data.
-function alertRefersToInvoice(alert: Alert, invoice: Invoice): boolean {
-  const p = (alert.payload ?? {}) as Record<string, unknown>
-  const ids = [p.invoiceId, p.existingInvoiceId, p.duplicateInvoiceId, alert.relatedId]
-  if (invoice.id && ids.includes(invoice.id)) return true
-  const gm = p.gmailMessageId as string | undefined
-  return !!gm && !!invoice.gmailMessageId && gm === invoice.gmailMessageId
-}
-
-// Live status, in priority order:
-//   1. transferred to accountant (sentToAccountant ← transferred_at) → "הועבר לרו״ח"
-//   2. any UNRESOLVED alert (new/read) points at this invoice        → "בבדיקה"
-//   3. otherwise                                                     → "ממתין"
-function deriveInvoiceStatus(invoice: Invoice, alerts: Alert[]): string {
-  if (invoice.sentToAccountant) return STATUS_TRANSFERRED
-  const underReview = alerts.some(
-    a => a.status !== 'resolved' && alertRefersToInvoice(a, invoice),
-  )
-  return underReview ? STATUS_REVIEW : STATUS_WAITING
-}
 
 // Low parse-confidence flag → full red row border in the LIST (dates may be
 // wrong; catch the eye for review). Ingest stores English 'low' in ai_confidence;
@@ -852,7 +828,11 @@ export default function Invoices({
     },
     {} as Record<string, number>,
   )
-  const total = invoices.reduce((s, i) => s + (Number(i.amount) || 0), 0)
+  // Exclude possible-duplicate invoices from the headline total so a flagged
+  // duplicate can't double-count the amount. Credit notes (negative) still net in.
+  const total = invoices
+    .filter(i => !i.isDuplicate)
+    .reduce((s, i) => s + (Number(i.amount) || 0), 0)
 
   if (loading && invoices.length === 0) {
     return (
