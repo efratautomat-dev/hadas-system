@@ -60,8 +60,10 @@ export default function CaptureDocument({ capturedBy }: Props) {
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
-    if (!f.type.startsWith('image/')) {
-      setError('יש לצלם או לבחור קובץ תמונה בלבד')
+    const isImage = f.type.startsWith('image/')
+    const isPdf   = f.type === 'application/pdf'
+    if (!isImage && !isPdf) {
+      setError('יש לצלם או לבחור קובץ תמונה או PDF בלבד')
       return
     }
     setError(null)
@@ -149,8 +151,7 @@ export default function CaptureDocument({ capturedBy }: Props) {
           <input
             ref={inputRef}
             type="file"
-            accept="image/*"
-            capture="environment"
+            accept="image/*,application/pdf"
             onChange={onFileChange}
             style={{ display: 'none' }}
           />
@@ -162,14 +163,22 @@ export default function CaptureDocument({ capturedBy }: Props) {
               style={{ borderColor: '#E5D5DA', background: '#FFFFFF', padding: '40px 20px', color: ACCENT, cursor: 'pointer' }}
             >
               <Camera className="w-9 h-9 mb-2" />
-              <span style={{ fontSize: '15px', fontWeight: 600 }}>צלמי או בחרי תמונה</span>
+              <span style={{ fontSize: '15px', fontWeight: 600 }}>צלמי או בחרי קובץ</span>
               <span style={{ fontSize: '13px', color: '#9CA3AF', marginTop: '4px' }}>
-                במובייל תיפתח המצלמה אוטומטית
+                תמונה או קובץ PDF
               </span>
             </button>
           ) : (
             <div className="relative rounded-2xl overflow-hidden border" style={{ borderColor: '#EEEEF2' }}>
-              <img src={previewUrl} alt="תצוגה מקדימה" style={{ width: '100%', display: 'block', maxHeight: '420px', objectFit: 'contain', background: '#0b0b0f' }} />
+              {file?.type === 'application/pdf' ? (
+                <div className="flex flex-col items-center justify-center gap-2" style={{ padding: '48px 20px', background: '#F9FAFB', minHeight: '220px' }}>
+                  <FileText className="w-12 h-12" style={{ color: ACCENT }} />
+                  <span style={{ fontSize: '14px', color: '#374151', fontWeight: 600, wordBreak: 'break-all', textAlign: 'center' }}>{file.name}</span>
+                  <span style={{ fontSize: '12px', color: '#9CA3AF' }}>קובץ PDF מוכן להעלאה</span>
+                </div>
+              ) : (
+                <img src={previewUrl} alt="תצוגה מקדימה" style={{ width: '100%', display: 'block', maxHeight: '420px', objectFit: 'contain', background: '#0b0b0f' }} />
+              )}
               <button
                 onClick={reset}
                 className="absolute flex items-center justify-center rounded-full"
