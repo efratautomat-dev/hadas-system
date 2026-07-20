@@ -9,6 +9,7 @@ import { resolveAlertDestination, getAlertTypeConf } from './Alerts'
 import type { Alert } from '../data/mockData'
 import { brand } from '../brand.config'
 import { STATUS } from '../theme/status'
+import { deriveInvoiceStatus, STATUS_WAITING } from '../lib/invoiceStatus'
 
 const ALERT_STATUS: Record<string, { bg: string; color: string; label: string }> = {
   new:      { bg: STATUS.blue.bg, color: STATUS.blue.fg, label: 'חדש'  },   // fixed: new = blue
@@ -151,8 +152,15 @@ export default function Dashboard({
   const pendingDeliveryCount = deliveryNotes.filter(d => d.status === 'pending').length
 
   const activeSuppliers   = suppliers.filter(s => s.status === 'פעיל').length
-  const pendingInvoices   = invoices.filter(i => i.status === 'ממתין').length
-  const monthlyPayments   = payments.filter(p => p.status === 'paid').reduce((s, p) => s + (Number(p.amount) || 0), 0)
+  // Use the SAME derived status the Invoices screen shows (transferred → review →
+  // waiting), not the stored `status` column, so the two screens can't disagree.
+  const pendingInvoices   = invoices.filter(i => deriveInvoiceStatus(i, alerts) === STATUS_WAITING).length
+  // Current calendar month only (by payment_date), matching the card's "החודש" label.
+  const now               = new Date()
+  const thisMonth         = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const monthlyPayments   = payments
+    .filter(p => p.status === 'paid' && (p.date ?? '').slice(0, 7) === thisMonth)
+    .reduce((s, p) => s + (Number(p.amount) || 0), 0)
   const openReturns       = returns.filter(r => r.status === 'בטיפול').length
 
   // Match the Alerts page: exclude resolved alerts from the dashboard's recent

@@ -21,8 +21,12 @@ function formatILS(n: number | null | undefined) {
 const statusLabel = { pending: 'ממתינה', archived: 'בארכיון' } as const
 
 function normalizeStatus(status: string): 'pending' | 'archived' {
+  // 'pending' = still awaiting linking to an invoice → counted in "ממתינות לשיוך".
   if (status === 'pending' || status === 'unlinked' || status === 'ממתינה לשיוך') return 'pending'
-  if (status === 'archived' || status === 'משויכת') return 'archived'
+  // A note that is already 'linked' to an invoice, or 'pending_match' (an arrived
+  // email note awaiting auto-match), is NOT awaiting manual linking — bucket it out
+  // of pending so it doesn't inflate the "ממתינות לשיוך" count.
+  if (status === 'archived' || status === 'משויכת' || status === 'linked' || status === 'pending_match') return 'archived'
   return 'pending'
 }
 

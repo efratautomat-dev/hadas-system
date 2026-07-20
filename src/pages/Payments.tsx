@@ -799,7 +799,7 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
         items={[
           { label: 'סה"כ פעיל',       value: fmtILS(activeTotal),           Icon: Wallet,       tone: 'blue' },
           { label: 'עתידי',           value: fmtILS(futureTotal),           Icon: CalendarDays, tone: 'yellow' },
-          { label: 'תשלומים ממתינים', value: String(futurePayments.length), Icon: Clock,        tone: 'brand' },
+          { label: 'תשלומים עתידיים', value: String(futurePayments.length), Icon: Clock,        tone: 'brand' },
         ]}
       />
 

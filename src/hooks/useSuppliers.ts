@@ -48,7 +48,7 @@ export function useSuppliers() {
         { data: paymentRows },
       ] = await Promise.all([
         supabase.from('suppliers_v').select('*'),
-        supabase.from('invoices_v').select('supplier_id, total_amount'),
+        supabase.from('invoices_v').select('supplier_id, total_amount, is_duplicate, has_error'),
         supabase.from('payments').select('supplier_id, amount, status'),
       ])
 
@@ -57,12 +57,20 @@ export function useSuppliers() {
         // -derived FK), never by name (spec/06-RULES.md §2b). The balance itself is
         // computed via the shared computeSupplierBalance helper so the list and the
         // detail page can never diverge.
+        // Count ALL invoices per supplier (the card's invoice count is unchanged),
+        // but EXCLUDE is_duplicate / has_error rows from the BALANCE sum — a possible
+        // duplicate or errored invoice must not move the supplier's balance.
         const invById: Record<string, { total_amount: number }[]> = {}
+        const invCountById: Record<string, number> = {}
         for (const inv of invoiceRows ?? []) {
           const sid = inv.supplier_id as string | null
-          if (sid) (invById[sid] ??= []).push({ total_amount: Number(inv.total_amount ?? 0) })
+          if (!sid) continue
+          invCountById[sid] = (invCountById[sid] ?? 0) + 1
+          if (inv.is_duplicate || inv.has_error) continue
+          const list = (invById[sid] ??= [])
+          list.push({ total_amount: Number(inv.total_amount ?? 0) })
         }
-        setInvoiceCounts(Object.fromEntries(Object.entries(invById).map(([sid, list]) => [sid, list.length])))
+        setInvoiceCounts(invCountById)
         const payById: Record<string, { amount: number; status: string }[]> = {}
         for (const pay of paymentRows ?? []) {
           const sid = pay.supplier_id as string | null
