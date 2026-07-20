@@ -1,44 +1,52 @@
 -- ============================================================================
 -- Merge Suppliers — atomic in-app supplier de-duplication (replaces hand-run SQL)
 -- ----------------------------------------------------------------------------
--- Two parts:
---   1. Ensure suppliers.alt_names is text[] (production shipped it as scalar `text`,
---      but appendAltName in invoices-ingest and findBestSupplier both treat it as an
---      array — so scalar writes silently failed and name-variant matching was inert).
---      Idempotent + type-aware: converts only when not already an array.
+--   1. Convert suppliers.alt_names scalar `text` -> text[] (appendAltName /
+--      findBestSupplier both treat it as an array). The suppliers_v masking view
+--      depends on this column, so it is DROPPED before the ALTER and RECREATED
+--      identically after (verified against the LIVE prod definition — same columns,
+--      security_barrier, role-aware mask, grants). suppliers_v is the ONLY view
+--      referencing alt_names; invoices_v / delivery_notes_v do not.
 --   2. merge_suppliers(from, into) — re-points every FK table, folds the removed
 --      name into the kept card's alt_names, carries hp, deletes the removed card,
---      ALL in one transaction (a plpgsql function body = one implicit transaction,
---      so any failure rolls the whole merge back — all-or-nothing).
+--      ALL in one transaction (function body = one implicit transaction).
 --
--- SECURITY: this is SECURITY DEFINER (runs as owner, bypasses RLS), so execute is
---   REVOKEd from public/authenticated and granted ONLY to service_role. hadas-api
---   (service key) is the sole caller and enforces the manager-only gate. Without the
---   revoke, an authenticated employee could call the RPC directly and bypass that gate.
+-- SECURITY: merge_suppliers is SECURITY DEFINER (bypasses RLS), so execute is
+--   REVOKEd from public and granted ONLY to service_role — hadas-api (service key)
+--   is the sole caller and enforces the manager-only gate.
 -- ============================================================================
 
 begin;
 
--- ── 1. alt_names → text[] (only if it isn't already an array) ─────────────────
-do $$
-begin
-  if exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public' and table_name = 'suppliers'
-      and column_name = 'alt_names' and data_type <> 'ARRAY'
-  ) then
-    alter table public.suppliers
-      alter column alt_names type text[]
-      using (
-        case
-          when alt_names is null or btrim(alt_names) = '' then null
-          when alt_names like '{%}'                       then alt_names::text[]  -- already an array literal
-          else array[alt_names]                                                   -- scalar → single-element
-        end
-      );
-  end if;
-end
-$$;
+-- ── 1. alt_names -> text[] (drop → convert → recreate the dependent view) ─────
+-- suppliers_v reads alt_names, so Postgres blocks the column type change while it
+-- exists (ERROR 0A000). Drop it, convert, then recreate it exactly as it was.
+drop view if exists public.suppliers_v;
+
+alter table public.suppliers
+  alter column alt_names type text[]
+  using (
+    case
+      when alt_names is null or btrim(alt_names) = '' then null
+      when alt_names like '{%}'                       then alt_names::text[]  -- already an array literal
+      else array[alt_names]                                                   -- scalar -> single-element
+    end
+  );
+
+-- Recreate suppliers_v EXACTLY as it is on prod (verified live definition):
+--   security_barrier, owner-rights (no security_invoker), the manager-only mask on
+--   opening_balance / opening_balance_date, the allowed-users gate in WHERE.
+create view public.suppliers_v with (security_barrier = true) as
+select
+  id, name, alt_names, email, phone, category, notes, created_at, linked_invoices,
+  case when current_user_role() = 'manager' then opening_balance      else null::numeric end as opening_balance,
+  hp, contact,
+  case when current_user_role() = 'manager' then opening_balance_date else null::date    end as opening_balance_date,
+  active, needs_details
+from suppliers
+where current_user_role() is not null;
+
+grant select on public.suppliers_v to anon, authenticated;
 
 -- ── 2. merge_suppliers(from, into) ────────────────────────────────────────────
 create or replace function public.merge_suppliers(p_from text, p_into text)
