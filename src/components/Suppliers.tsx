@@ -605,7 +605,7 @@ export default function Suppliers({
     <div className="space-y-5">
       {error && (
         <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
-          לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל
+          {error}
         </div>
       )}
 

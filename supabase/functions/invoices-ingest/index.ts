@@ -1201,12 +1201,21 @@ function similarityScore(a: string, b: string): number {
   return Math.max(editScore, tokenScore, containScore);
 }
 
-interface SupplierRow { id: string; name: string; category: string | null; hp: string | null }
+interface SupplierRow { id: string; name: string; category: string | null; hp: string | null; alt_names?: string[] | null }
 
 function findBestSupplier(typed: string, suppliers: SupplierRow[], threshold = 0.85): SupplierRow | null {
   let best: { row: SupplierRow; score: number } | null = null;
   for (const s of suppliers) {
-    const score = similarityScore(typed, s.name);
+    // Score against the canonical name AND every recorded alt_names spelling — the
+    // best of them wins. This is what lets a known variant (e.g. a car-rental vendor
+    // with no ח.פ to anchor on) match an existing card instead of forking a new one;
+    // without it alt_names is write-only dead data.
+    const names = [s.name, ...(Array.isArray(s.alt_names) ? s.alt_names : [])];
+    let score = 0;
+    for (const n of names) {
+      const sc = similarityScore(typed, n);
+      if (sc > score) score = sc;
+    }
     if (!best || score > best.score) best = { row: s, score };
   }
   return best && best.score >= threshold ? best.row : null;
@@ -1784,7 +1793,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   if (messageIds.length === 0) return result;
 
   // Load suppliers + categories once
-  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp");
+  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp, alt_names");
   const suppliers: SupplierRow[] = supplierRows ?? [];
   const { data: catRows } = await supabase.from("categories").select("name");
   const categoryNames: string[] = (catRows ?? []).map((r: { name: string }) => r.name);
@@ -2562,7 +2571,7 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
 
   // Google token (for Drive — generic OAuth, not Gmail-specific) + reference data.
   const token = await getGoogleAccessToken();
-  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp");
+  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp, alt_names");
   const suppliers: SupplierRow[] = supplierRows ?? [];
   const { data: catRows } = await supabase.from("categories").select("name");
   const categoryNames: string[] = (catRows ?? []).map((r: { name: string }) => r.name);

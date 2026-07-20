@@ -140,10 +140,30 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
 }
 
 async function deleteSupplier(supabase: SupabaseClient, id: string): Promise<Response> {
-  const { count } = await supabase.from("invoices")
-    .select("*", { count: "exact", head: true })
-    .eq("supplier_id", id);
-  if (count && count > 0) return json({ error: "Supplier has invoices", code: "HAS_INVOICES" }, 409);
+  // A supplier is FK-referenced (RESTRICT) by five tables. Deleting one that still
+  // has ANY dependent row throws a raw Postgres FK error that the UI surfaces as a
+  // generic "can't load data" — so check them ALL up front and name what blocks it.
+  const DEPENDENTS: { table: string; label: string }[] = [
+    { table: "invoices",          label: "חשבוניות" },
+    { table: "payments",          label: "תשלומים" },
+    { table: "returns",           label: "החזרות" },
+    { table: "delivery_notes",    label: "תעודות משלוח" },
+    { table: "vendor_statements", label: "דפי ספק" },
+  ];
+  const blocking: string[] = [];
+  for (const dep of DEPENDENTS) {
+    const { count } = await supabase.from(dep.table)
+      .select("*", { count: "exact", head: true })
+      .eq("supplier_id", id);
+    if (count && count > 0) blocking.push(dep.label);
+  }
+  if (blocking.length > 0) {
+    return json({
+      error: `לספק יש ${blocking.join(", ")} - יש להעביר או למחוק אותם קודם`,
+      code:  "HAS_DEPENDENTS",
+      blocking,
+    }, 409);
+  }
 
   const { error } = await supabase.from("suppliers").delete().eq("id", id);
   if (error) return json({ error: error.message }, 500);
