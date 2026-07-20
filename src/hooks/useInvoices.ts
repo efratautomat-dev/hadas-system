@@ -43,6 +43,7 @@ export function useInvoices() {
           monthFolderLink:   r.drive_folder_link  ?? '',
           originalEmailLink: r.message_link       ?? '',
           emailReceivedAt:   (r.received_at        ?? '').slice(0, 16),
+          createdAt:         r.created_at         ?? '',
           n8nErrorLink:      r.execution_log_url  ?? '',
           decodeQuality:     r.ai_confidence      ?? '',
           // sentToAccountant derived from transferred_at timestamp
