@@ -14,10 +14,31 @@ export interface CreateSupplierResult {
   existing?: { id: string; name: string; hp: string | null }
 }
 
+// Merge (dry-run) preview: how many rows would move from the removed card, plus the
+// ח.פ carry-over / conflict flags the confirm dialog uses.
+export interface MergePreview {
+  preview: true
+  from: { id: string; name: string; hp: string | null }
+  into: { id: string; name: string; hp: string | null }
+  counts: Record<string, number>
+  hpCarryOver: boolean
+  hpConflict: boolean
+}
+
+// Result of the real (committed) merge — the authoritative moved-row counts.
+export interface MergeResult {
+  success: true
+  into: { id: string; name: string }
+  moved: Record<string, number>
+}
+
 export function useSuppliers() {
   const [data, setData]       = useState<SupplierRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
+  // invoice count per supplier_id — drives the merge modal's default "keep the card
+  // with more invoices". Derived from the same invoice read as the balances below.
+  const [invoiceCounts, setInvoiceCounts] = useState<Record<string, number>>({})
 
   const load = useCallback(async () => {
     try {
@@ -41,6 +62,7 @@ export function useSuppliers() {
           const sid = inv.supplier_id as string | null
           if (sid) (invById[sid] ??= []).push({ total_amount: Number(inv.total_amount ?? 0) })
         }
+        setInvoiceCounts(Object.fromEntries(Object.entries(invById).map(([sid, list]) => [sid, list.length])))
         const payById: Record<string, { amount: number; status: string }[]> = {}
         for (const pay of paymentRows ?? []) {
           const sid = pay.supplier_id as string | null
@@ -134,5 +156,24 @@ export function useSuppliers() {
     }
   }
 
-  return { data, loading, error, create, update, remove }
+  // Merge suppliers. fromId is REMOVED, intoId is KEPT. dryRun returns a preview of
+  // the moved-row counts WITHOUT mutating; a real merge re-loads the list afterwards.
+  // Overloaded return type keeps callers honest about which shape they get back.
+  async function merge(fromId: string, intoId: string, opts: { dryRun: true }): Promise<MergePreview>
+  async function merge(fromId: string, intoId: string, opts?: { dryRun?: false }): Promise<MergeResult>
+  async function merge(fromId: string, intoId: string, opts?: { dryRun?: boolean }): Promise<MergePreview | MergeResult> {
+    const dryRun = opts?.dryRun === true
+    try {
+      const res = await api.post('/suppliers/merge', { fromId, intoId, dryRun })
+      if (!dryRun) await load()   // survivor's rows changed — refresh
+      return res as MergePreview | MergeResult
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[useSuppliers] merge error:', msg)
+      if (!dryRun) setError(`שגיאה במיזוג: ${msg}`)
+      throw err
+    }
+  }
+
+  return { data, loading, error, invoiceCounts, create, update, remove, merge }
 }

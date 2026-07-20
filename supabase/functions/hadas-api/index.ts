@@ -170,6 +170,50 @@ async function deleteSupplier(supabase: SupabaseClient, id: string): Promise<Res
   return json({ success: true });
 }
 
+// Merge two suppliers into one. `fromId` is REMOVED (deleted), `intoId` is KEPT.
+// The actual mutation is the atomic merge_suppliers() Postgres function (one
+// transaction, all-or-nothing) — this handler only validates, computes the preview
+// counts, and (unless dryRun) invokes the RPC. Manager-only via the global role gate
+// (POST /suppliers/merge is not in employeeMayAccess). See migration
+// 20260720000000_merge_suppliers_rpc.sql.
+async function mergeSuppliers(req: Request, supabase: SupabaseClient): Promise<Response> {
+  const body = await req.json();
+  const fromId = body.fromId as string;
+  const intoId = body.intoId as string;
+  const dryRun = body.dryRun === true;
+  if (!fromId || !intoId || fromId === intoId)
+    return json({ error: "fromId and intoId (distinct) are required" }, 400);
+
+  const { data: from } = await supabase.from("suppliers").select("id, name, hp").eq("id", fromId).maybeSingle();
+  const { data: into } = await supabase.from("suppliers").select("id, name, hp").eq("id", intoId).maybeSingle();
+  if (!from || !into) return json({ error: "Supplier not found", code: "NOT_FOUND" }, 404);
+
+  // Preview: how many rows would move (same head-count pattern as deleteSupplier).
+  const TABLES = ["invoices", "payments", "returns", "delivery_notes", "vendor_statements", "supplier_categories"] as const;
+  const counts: Record<string, number> = {};
+  for (const t of TABLES) {
+    const { count } = await supabase.from(t).select("*", { count: "exact", head: true }).eq("supplier_id", fromId);
+    counts[t] = count ?? 0;
+  }
+  const normHp = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
+  const fromHp = normHp(from.hp), intoHp = normHp(into.hp);
+  const hpCarryOver = !intoHp && !!fromHp;                          // kept card inherits removed card's ח.פ
+  const hpConflict  = !!fromHp && !!intoHp && fromHp !== intoHp;    // different ח.פ → likely NOT the same vendor
+
+  if (dryRun) {
+    return json({
+      preview: true,
+      from: { id: from.id, name: from.name, hp: from.hp },
+      into: { id: into.id, name: into.name, hp: into.hp },
+      counts, hpCarryOver, hpConflict,
+    });
+  }
+
+  const { data, error } = await supabase.rpc("merge_suppliers", { p_from: fromId, p_into: intoId });
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, into: { id: into.id, name: into.name }, moved: data });
+}
+
 // ─── Invoices ─────────────────────────────────────────────────────────────────
 // Accepts camelCase from the frontend AND snake_case from N8N/direct calls.
 // Fields removed: date (display string), isPartialReturn, emailId, uploadDate,
@@ -1333,8 +1377,11 @@ Deno.serve(async (req: Request) => {
     if (path === "/suppliers") {
       if (req.method === "POST") return await createSupplier(req, supabase);
     }
+    if (path === "/suppliers/merge" && req.method === "POST") return await mergeSuppliers(req, supabase);
+    // Exclude "merge" so PUT/DELETE /suppliers/merge never treat it as an id (mirrors
+    // the /categories/merge guard below).
     const supplierMatch = path.match(/^\/suppliers\/([^/]+)$/);
-    if (supplierMatch) {
+    if (supplierMatch && supplierMatch[1] !== "merge") {
       const id = supplierMatch[1];
       if (req.method === "PUT")    return await updateSupplier(req, supabase, id);
       if (req.method === "DELETE") return await deleteSupplier(supabase, id);
