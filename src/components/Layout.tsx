@@ -117,6 +117,33 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const activePage       = currentNav.page
   const ledgerSupplierId = currentNav.ledgerSupplierId
   const canGoBack        = navStack.length > 1
+
+  // ── Browser back/forward: mirror navStack into window.history ──────────────
+  // Every push adds one history entry carrying the FULL stack snapshot, so both
+  // Back and Forward can replay it (NavEntry fields are strings → clone-safe).
+  // pushState is done via a ref, OUTSIDE any setState updater, so StrictMode's
+  // double-invoke can't double-push.
+  const stackRef = useRef(navStack)
+  stackRef.current = navStack
+  const pushNav = (entry: NavEntry) => {
+    const next = [...stackRef.current, entry]
+    stackRef.current = next
+    setNavStack(next)
+    history.pushState({ stack: next }, '')
+    setMobileMenuOpen(false)
+  }
+  useEffect(() => {
+    const onPop = (e: PopStateEvent) => {
+      const stack = (e.state?.stack as NavEntry[] | undefined) ?? [{ page: 'dashboard' }]
+      stackRef.current = stack
+      setNavStack(stack)
+      setMobileMenuOpen(false)
+    }
+    window.addEventListener('popstate', onPop)
+    history.replaceState({ stack: stackRef.current }, '')  // seed entry 0 so first Back has state
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
   const isMobile = useIsMobile()
   const isTablet = useIsTablet()
 
@@ -171,7 +198,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     }
     const id = data?.[0]?.id as string | undefined
     if (id) {
-      setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])
+      pushNav({ page: 'invoices', invoiceSelectedId: id })
     } else {
       handlePageChange('invoices')
     }
@@ -181,15 +208,12 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   const pad = isMobile ? '12px' : isTablet ? '20px' : '32px'
 
   const handlePageChange = (page: string) => {
-    setNavStack(prev => {
-      if (prev[prev.length - 1]?.page === page) return prev  // no-op if already here
-      return [...prev, { page }]
-    })
-    setMobileMenuOpen(false)
+    if (stackRef.current[stackRef.current.length - 1]?.page === page) { setMobileMenuOpen(false); return } // no-op if already here
+    pushNav({ page })
   }
 
   const goBack = () => {
-    setNavStack(prev => prev.length > 1 ? prev.slice(0, -1) : prev)
+    history.back()   // popstate handler restores navStack from the prior snapshot
     setMobileMenuOpen(false)
   }
 
@@ -199,12 +223,12 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onPageChange={handlePageChange}
         alerts={alerts}
         onMarkRead={handleMarkRead}
-        onOpenInvoice={(id)                => setNavStack(prev => [...prev, { page: 'invoices',  invoiceSelectedId:  id   }])}
-        onOpenInvoiceDuplicate={(id)       => setNavStack(prev => [...prev, { page: 'invoices',  invoiceDuplicateId: id   }])}
+        onOpenInvoice={(id)                => pushNav({ page: 'invoices',  invoiceSelectedId:  id   })}
+        onOpenInvoiceDuplicate={(id)       => pushNav({ page: 'invoices',  invoiceDuplicateId: id   })}
         onOpenInvoiceByGmailMessageId={handleOpenInvoiceByGmailMessageId}
-        onOpenSupplier={(id)               => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId:     id   }])}
-        onOpenSupplierByName={(name)       => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewName:   name }])}
-        onOpenReturn={(id)                 => setNavStack(prev => [...prev, { page: 'returns',   returnsEditId:      id   }])}
+        onOpenSupplier={(id)               => pushNav({ page: 'suppliers', supplierViewId:     id   })}
+        onOpenSupplierByName={(name)       => pushNav({ page: 'suppliers', supplierViewName:   name })}
+        onOpenReturn={(id)                 => pushNav({ page: 'returns',   returnsEditId:      id   })}
         onCreateSupplierFromAlert={handleCreateSupplierFromAlert}
       />
     )
@@ -215,13 +239,13 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onMarkResolved={handleMarkResolved}
         onDelete={handleDeleteAlert}
         onCreateSupplierFromAlert={handleCreateSupplierFromAlert}
-        onOpenInvoice={(id)                => setNavStack(prev => [...prev, { page: 'invoices',  invoiceSelectedId:  id   }])}
-        onOpenInvoiceDuplicate={(id)       => setNavStack(prev => [...prev, { page: 'invoices',  invoiceDuplicateId: id   }])}
+        onOpenInvoice={(id)                => pushNav({ page: 'invoices',  invoiceSelectedId:  id   })}
+        onOpenInvoiceDuplicate={(id)       => pushNav({ page: 'invoices',  invoiceDuplicateId: id   })}
         onOpenInvoiceByGmailMessageId={handleOpenInvoiceByGmailMessageId}
-        onOpenSupplier={(id)               => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId:     id   }])}
-        onOpenSupplierByName={(name)       => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewName:   name }])}
-        onOpenReturn={(id)                 => setNavStack(prev => [...prev, { page: 'returns',   returnsEditId:      id   }])}
-        onOpenStatement={(id)              => setNavStack(prev => [...prev, { page: 'reconciliation', statementViewId: id }])}
+        onOpenSupplier={(id)               => pushNav({ page: 'suppliers', supplierViewId:     id   })}
+        onOpenSupplierByName={(name)       => pushNav({ page: 'suppliers', supplierViewName:   name })}
+        onOpenReturn={(id)                 => pushNav({ page: 'returns',   returnsEditId:      id   })}
+        onOpenStatement={(id)              => pushNav({ page: 'reconciliation', statementViewId: id })}
         onPageChange={handlePageChange}
         savedScrollY={alertsScrollY.current}
         onScrollSave={(y) => { alertsScrollY.current = y }}
@@ -229,13 +253,13 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     )
     if (activePage === 'suppliers')      return (
       <Suppliers
-        onViewLedger={(id) => setNavStack(prev => [...prev, { page: 'ledger', ledgerSupplierId: id }])}
-        onViewPayments={(name) => setNavStack(prev => [...prev, { page: 'payments', paymentsSupplierFilter: name }])}
+        onViewLedger={(id) => pushNav({ page: 'ledger', ledgerSupplierId: id })}
+        onViewPayments={(name) => pushNav({ page: 'payments', paymentsSupplierFilter: name })}
         controlledViewId={currentNav.supplierViewId ?? null}
         controlledViewName={currentNav.supplierViewName ?? null}
-        onOpenDetail={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
+        onOpenDetail={(id) => pushNav({ page: 'suppliers', supplierViewId: id })}
         onCloseDetail={goBack}
-        onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
+        onOpenInvoice={(id) => pushNav({ page: 'invoices', invoiceSelectedId: id })}
         prefillForAlert={alertForSupplier}
         onAlertSupplierCreated={async (supplierId, alertId, _payload) => {
           try {
@@ -256,9 +280,9 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         alerts={alerts}
         controlledSelectedId={currentNav.invoiceSelectedId ?? null}
         initialDuplicateInvoiceId={currentNav.invoiceDuplicateId ?? null}
-        onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices', invoiceSelectedId: id }])}
+        onOpenInvoice={(id) => pushNav({ page: 'invoices', invoiceSelectedId: id })}
         onCloseInvoice={goBack}
-        onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
+        onOpenSupplier={(id) => pushNav({ page: 'suppliers', supplierViewId: id })}
         onDuplicateResolved={handleDuplicateResolved}
         onDuplicateDismissed={goBack}
       />
@@ -269,9 +293,9 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         initialFilter="כפילויות"
         alerts={alerts}
         controlledSelectedId={currentNav.invoiceSelectedId ?? null}
-        onOpenInvoice={(id) => setNavStack(prev => [...prev, { page: 'invoices-duplicates', invoiceSelectedId: id }])}
+        onOpenInvoice={(id) => pushNav({ page: 'invoices-duplicates', invoiceSelectedId: id })}
         onCloseInvoice={goBack}
-        onOpenSupplier={(id) => setNavStack(prev => [...prev, { page: 'suppliers', supplierViewId: id }])}
+        onOpenSupplier={(id) => pushNav({ page: 'suppliers', supplierViewId: id })}
         onDuplicateResolved={handleDuplicateResolved}
         onDuplicateDismissed={goBack}
       />

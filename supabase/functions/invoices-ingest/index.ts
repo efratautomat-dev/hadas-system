@@ -211,9 +211,15 @@ async function gmailEnsureLabel(token: string, name: string): Promise<string> {
 async function gmailListMessages(
   token: string,
   query: string,
+  labelIds: string[] = [],
   maxResults = 25,
 ): Promise<string[]> {
-  const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`;
+  // labelIds matches by ID (immune to label nesting / spaces / rename); q carries
+  // only the exclusions + date window. Name-based `label:"…"` in q is unreliable
+  // for nested labels — that's what made label:"החזר חלקי" return 0.
+  const params = new URLSearchParams({ q: query, maxResults: String(maxResults) });
+  for (const id of labelIds) params.append("labelIds", id);
+  const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`;
   const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) throw new Error(`messages.list failed: ${resp.status} ${await resp.text()}`);
   const data = await resp.json() as { messages?: Array<{ id: string }> };
@@ -1195,12 +1201,21 @@ function similarityScore(a: string, b: string): number {
   return Math.max(editScore, tokenScore, containScore);
 }
 
-interface SupplierRow { id: string; name: string; category: string | null; hp: string | null }
+interface SupplierRow { id: string; name: string; category: string | null; hp: string | null; alt_names?: string[] | null }
 
 function findBestSupplier(typed: string, suppliers: SupplierRow[], threshold = 0.85): SupplierRow | null {
   let best: { row: SupplierRow; score: number } | null = null;
   for (const s of suppliers) {
-    const score = similarityScore(typed, s.name);
+    // Score against the canonical name AND every recorded alt_names spelling — the
+    // best of them wins. This is what lets a known variant (e.g. a car-rental vendor
+    // with no ח.פ to anchor on) match an existing card instead of forking a new one;
+    // without it alt_names is write-only dead data.
+    const names = [s.name, ...(Array.isArray(s.alt_names) ? s.alt_names : [])];
+    let score = 0;
+    for (const n of names) {
+      const sc = similarityScore(typed, n);
+      if (sc > score) score = sc;
+    }
     if (!best || score > best.score) best = { row: s, score };
   }
   return best && best.score >= threshold ? best.row : null;
@@ -1699,12 +1714,41 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   };
   const log = makeLogger(supabase);
 
+  // ── Single-flight lease ──────────────────────────────────────────────────
+  // Claim the ingest_lock row atomically; a second concurrent run finds a fresh
+  // lease (locked_at within the TTL) and exits, closing the race where two runs
+  // both process an email before either marks it processed. The 10-minute TTL
+  // lets a crashed run self-heal. Released in the finally below.
+  const runId = crypto.randomUUID();
+  const LEASE_TTL_MS = 10 * 60 * 1000;
+  const { data: leased, error: leaseErr } = await supabase
+    .from("ingest_lock")
+    .update({ holder: runId, locked_at: new Date().toISOString() })
+    .eq("id", 1)
+    .lt("locked_at", new Date(Date.now() - LEASE_TTL_MS).toISOString())
+    .select("id");
+  if (leaseErr) {
+    // Fail OPEN: if the lock row/table is unreachable (e.g. migration not yet
+    // applied) proceed without single-flight rather than halt ingestion entirely.
+    await log("warn", `ingest_lock unavailable — proceeding without single-flight`, { error: leaseErr.message });
+  } else if (!leased || leased.length === 0) {
+    await log("info", "another ingest run holds the lease — exiting");
+    return result;
+  }
+
+  try {
   const token = await getGoogleAccessToken();
   await log("info", "google token acquired");
 
   // Resolve labels (creating destinations as needed; source must already exist)
   const labels = await gmailListLabels(token);
-  const sourceLabelId = labels.find((l) => l.name === SOURCE_LABEL_NAME)?.id;
+  // Gmail returns nested labels as full paths ("Parent/Child"); resolve by the
+  // exact name OR any nested leaf, trimmed — so a manually-nested label (the
+  // reason label:"החזר חלקי" matched 0) still resolves to its ID.
+  const findLabelId = (name: string): string | null =>
+    labels.find((l) => l.name.trim() === name || l.name.trim().endsWith("/" + name))?.id ?? null;
+
+  const sourceLabelId = findLabelId(SOURCE_LABEL_NAME);
   if (!sourceLabelId) {
     await log("error", `source label "${SOURCE_LABEL_NAME}" not found in Gmail — create it manually first`);
     result.errors.push(`source label "${SOURCE_LABEL_NAME}" missing`);
@@ -1713,24 +1757,43 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   const destProcessed   = await gmailEnsureLabel(token, PROCESSED_LABEL_NAME);
   const destNeedsReview = await gmailEnsureLabel(token, NEEDS_REVIEW_LABEL_NAME);
   const destFailed      = await gmailEnsureLabel(token, FAILED_LABEL_NAME);
-  // Partial-refund label is applied manually by the business owner — look up only, never created
-  const partialRefundLabelId = labels.find((l) => l.name === PARTIAL_REFUND_LABEL_NAME)?.id ?? null;
+  // Partial-refund label is applied manually by the business owner — look up only, never created.
+  const partialRefundLabelId = findLabelId(PARTIAL_REFUND_LABEL_NAME);
+  if (!partialRefundLabelId) {
+    // Not fatal, but surface the ACTUAL Gmail label names so a nesting/typo/niqqud
+    // mismatch is visible in the logs instead of silently fetching nothing.
+    await log("warn", `partial-refund label "${PARTIAL_REFUND_LABEL_NAME}" did not resolve to an id`,
+      { candidates: labels.map((l) => l.name).filter((n) => n.includes("חלקי") || n.includes("החזר")) });
+  }
 
   // Gmail query: source label, not yet processed, last 14 days only.
   // The 14-day rolling lookback is a safety measure — without it, a freshly
   // deployed instance would chew through every historical email under the
   // source label. Intentionally no is:unread — owner may open emails before
   // the cron runs.
-  const query =
-    `label:"${SOURCE_LABEL_NAME}" ` +
-    `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d`;
-  const messageIds = await gmailListMessages(token, query);
-  await log("info", `found ${messageIds.length} candidate messages`, { query });
+  // Two independent sources, each matched by label ID (not by name in q, which is
+  // fragile for nested/spaced labels). OR-ed via union:
+  //   • supplier-docs label — 14-day window, skip already-failed
+  //   • manually-applied partial-return label — wider 90-day window, never
+  //     failed-skipped, so it no longer depends on the supplier label being
+  //     co-applied. Exclusions stay name-based (those labels are code-created,
+  //     always top-level, so name search is reliable for them).
+  const srcIds  = await gmailListMessages(
+    token,
+    `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d`,
+    [sourceLabelId],
+  );
+  const partIds = partialRefundLabelId
+    ? await gmailListMessages(token, `-label:"${PROCESSED_LABEL_NAME}" newer_than:90d`, [partialRefundLabelId])
+    : [];
+  const messageIds = [...new Set([...srcIds, ...partIds])];
+  await log("info", `found ${messageIds.length} candidate messages`,
+    { source: srcIds.length, partialReturn: partIds.length });
 
   if (messageIds.length === 0) return result;
 
   // Load suppliers + categories once
-  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp");
+  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp, alt_names");
   const suppliers: SupplierRow[] = supplierRows ?? [];
   const { data: catRows } = await supabase.from("categories").select("name");
   const categoryNames: string[] = (catRows ?? []).map((r: { name: string }) => r.name);
@@ -1844,6 +1907,13 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         await log("info", `docType from subject → ${docType}`, undefined, msgId);
       }
 
+      // A manually-applied "החזר חלקי" label means: this is an ordinary invoice
+      // for special (partial-return subfolder) filing — never let a "החזר"/"זיכוי"
+      // keyword in the subject/content reroute it off the invoice path.
+      const isPartialReturn =
+        partialRefundLabelId !== null && (message.labelIds ?? []).includes(partialRefundLabelId);
+      if (isPartialReturn) docType = "invoice";
+
       // Credit notes (זיכוי) are ingested as NEGATIVE invoices via the invoice
       // pipeline — NOT as returns rows — so the balance moves exactly once.
       const isCreditNote = docType === "return_doc";
@@ -1951,6 +2021,12 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   }
 
   return result;
+  } finally {
+    // Release only our own lease (reset to epoch) so the next run starts at once.
+    await supabase.from("ingest_lock")
+      .update({ locked_at: new Date(0).toISOString() })
+      .eq("id", 1).eq("holder", runId);
+  }
 }
 
 // ─── Non-invoice extractors ────────────────────────────────────────────────
@@ -2495,7 +2571,7 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
 
   // Google token (for Drive — generic OAuth, not Gmail-specific) + reference data.
   const token = await getGoogleAccessToken();
-  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp");
+  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp, alt_names");
   const suppliers: SupplierRow[] = supplierRows ?? [];
   const { data: catRows } = await supabase.from("categories").select("name");
   const categoryNames: string[] = (catRows ?? []).map((r: { name: string }) => r.name);

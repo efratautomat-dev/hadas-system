@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import CaptureDocument from '../CaptureDocument'
@@ -35,6 +35,15 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
   const [activeSection, setActiveSection] = useState<EmployeeSection>('invoices')
   const [showCapture, setShowCapture] = useState(false)
+
+  // Browser back/forward across employee sections (flat set, no stack).
+  const go = (section: EmployeeSection) => { setActiveSection(section); history.pushState({ section }, '') }
+  useEffect(() => {
+    const onPop = (e: PopStateEvent) => setActiveSection((e.state?.section as EmployeeSection) ?? 'invoices')
+    window.addEventListener('popstate', onPop)
+    history.replaceState({ section: 'invoices' }, '')
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
 
   const selectedSupplier = suppliers.find(s => s.id === selectedSupplierId) ?? null
 
@@ -98,7 +107,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
           </div>
           <SearchableSelect
             value={selectedSupplierId}
-            onChange={(v) => { setSelectedSupplierId(v); setActiveSection('invoices') }}
+            onChange={(v) => { setSelectedSupplierId(v); go('invoices') }}
             placeholder="— חיפוש לפי שם ספק או ח.פ —"
             allowClear
             options={suppliers.map(s => ({
@@ -118,7 +127,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
               <button
                 key={key}
                 disabled={!enabled}
-                onClick={() => setActiveSection(key)}
+                onClick={() => go(key)}
                 className="bg-white rounded-2xl shadow-sm border flex flex-col items-center justify-center gap-2 transition-all"
                 style={{
                   borderColor: active ? ACCENT : '#EEEEF2',
@@ -139,7 +148,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
         {selectedSupplier ? (
           <div className="space-y-4">
             <button
-              onClick={() => { setSelectedSupplierId(''); setActiveSection('invoices') }}
+              onClick={() => { setSelectedSupplierId(''); go('invoices') }}
               className="flex items-center gap-1.5 font-medium transition-colors"
               style={{ background: 'white', border: '1.5px solid #DEDFE5', borderRadius: '12px', padding: '10px 16px', fontSize: '14px', color: '#6B7280', cursor: 'pointer' }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAFAFC')}

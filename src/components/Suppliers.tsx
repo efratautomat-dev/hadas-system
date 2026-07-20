@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, X, LayoutGrid, Table2, AlertTriangle } from 'lucide-react'
-import { useSuppliers } from '../hooks/useSuppliers'
+import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, X, LayoutGrid, Table2, AlertTriangle, GitMerge, ArrowRightLeft } from 'lucide-react'
+import { useSuppliers, type MergePreview, type MergeResult } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
 import { STATUS } from '../theme/status'
 import SupplierDetail, { type Supplier } from './SupplierDetail'
@@ -407,7 +407,7 @@ export default function Suppliers({
   onCancelAlertPrefill,
 }: SuppliersProps) {
   const isTablet = useIsTablet()
-  const { data: serverSuppliers, loading, error, create: createSupplier, update: updateSupplier, remove: removeSupplier } = useSuppliers()
+  const { data: serverSuppliers, loading, error, invoiceCounts, create: createSupplier, update: updateSupplier, remove: removeSupplier, merge: mergeSuppliers } = useSuppliers()
 
   const [suppliers, setSuppliers]         = useState<Supplier[]>([])
   const [internalViewId, setInternalViewId] = useState<string | null>(null)
@@ -427,6 +427,8 @@ export default function Suppliers({
   // Possible-duplicate prompt: set when a manual add matched an existing supplier.
   // Holds the matched supplier + the form data (so "create anyway" can resubmit).
   const [dupPrompt,  setDupPrompt]     = useState<{ existing: { id: string; name: string; hp: string | null }; form: EditFormState } | null>(null)
+  // Supplier the manager launched "מזג" from (fixed as one side of the merge). null = closed.
+  const [mergeFromId, setMergeFromId]  = useState<string | null>(null)
   const [search,     setSearch]        = useState('')
   // Default to active-only: inactive suppliers are hidden until the user picks
   // the "לא פעילים" filter (deactivation replaces hard delete — spec/01-PRD.md §2).
@@ -459,33 +461,46 @@ export default function Suppliers({
     const sup = suppliers.find((s) => s.id === viewId)
     if (!sup) return null
     return (
-      <SupplierDetail
-        supplier={sup}
-        onBack={closeDetail}
-        onEdit={() => {
-          closeDetail()
-          setEditingId(sup.id)
-          setEditForm(supplierToForm(sup))
-        }}
-        onDelete={async () => {
-          closeDetail()
-          try {
-            await removeSupplier(sup.id)
-          } catch {
-            // hook sets error state
-          }
-        }}
-        onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
-        onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
-        onOpenInvoice={onOpenInvoice}
-        onToggleActive={async (nextActive: boolean) => {
-          try {
-            await updateSupplier(sup.id, { active: nextActive })
-          } catch {
-            // hook sets error state
-          }
-        }}
-      />
+      <>
+        <SupplierDetail
+          supplier={sup}
+          onBack={closeDetail}
+          onEdit={() => {
+            closeDetail()
+            setEditingId(sup.id)
+            setEditForm(supplierToForm(sup))
+          }}
+          onDelete={async () => {
+            closeDetail()
+            try {
+              await removeSupplier(sup.id)
+            } catch {
+              // hook sets error state
+            }
+          }}
+          onMerge={() => setMergeFromId(sup.id)}
+          onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
+          onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
+          onOpenInvoice={onOpenInvoice}
+          onToggleActive={async (nextActive: boolean) => {
+            try {
+              await updateSupplier(sup.id, { active: nextActive })
+            } catch {
+              // hook sets error state
+            }
+          }}
+        />
+        {mergeFromId && (
+          <MergeSuppliersModal
+            fromId={mergeFromId}
+            suppliers={suppliers}
+            invoiceCounts={invoiceCounts}
+            merge={mergeSuppliers}
+            onClose={() => setMergeFromId(null)}
+            onDone={() => { setMergeFromId(null); closeDetail() }}
+          />
+        )}
+      </>
     )
   }
 
@@ -605,7 +620,7 @@ export default function Suppliers({
     <div className="space-y-5">
       {error && (
         <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
-          לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל
+          {error}
         </div>
       )}
 
@@ -923,6 +938,263 @@ export default function Suppliers({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Merge Suppliers modal ────────────────────────────────────────────────────
+// Launched from a supplier's detail card (that supplier = `fromId`, fixed as ONE
+// side). The manager picks the OTHER card, then the two are shown as KEPT (green)
+// vs REMOVED (red) — default keep = whichever has more invoices, swappable. A
+// dry-run preview shows exactly how many rows move before the (irreversible) merge.
+const MERGE_COUNT_LABELS: [string, string][] = [
+  ['invoices',          'חשבוניות'],
+  ['payments',          'תשלומים'],
+  ['returns',           'החזרות'],
+  ['delivery_notes',    'תעודות משלוח'],
+  ['vendor_statements', 'דפי ספק'],
+]
+
+function MergeSuppliersModal({
+  fromId, suppliers, invoiceCounts, merge, onClose, onDone,
+}: {
+  fromId: string
+  suppliers: Supplier[]
+  invoiceCounts: Record<string, number>
+  merge: {
+    (fromId: string, intoId: string, opts: { dryRun: true }): Promise<MergePreview>
+    (fromId: string, intoId: string, opts?: { dryRun?: false }): Promise<MergeResult>
+  }
+  onClose: () => void
+  onDone: () => void
+}) {
+  const start = suppliers.find((s) => s.id === fromId)
+  const [otherId, setOtherId] = useState<string | null>(null)
+  const [keepId,  setKeepId]  = useState<string | null>(null)
+  const [search,  setSearch]  = useState('')
+  const [preview, setPreview] = useState<MergePreview | null>(null)
+  const [busy,    setBusy]    = useState(false)
+  const [err,     setErr]     = useState<string | null>(null)
+  const [ackConflict, setAckConflict] = useState(false)
+
+  const invCount = (id: string | null | undefined) => (id ? invoiceCounts[id] ?? 0 : 0)
+
+  // Pick the other card → default KEEP = the one with more invoices (tie → the card
+  // the manager started from). Resets any downstream preview/ack.
+  const chooseOther = (id: string) => {
+    setOtherId(id)
+    setKeepId(invCount(fromId) >= invCount(id) ? fromId : id)
+    setPreview(null); setErr(null); setAckConflict(false)
+  }
+  const swap = () => {
+    if (!otherId) return
+    setKeepId((k) => (k === fromId ? otherId : fromId))
+    setPreview(null); setAckConflict(false)
+  }
+
+  const keep     = keepId  ? suppliers.find((s) => s.id === keepId)  : null
+  const removeId = keepId ? (keepId === fromId ? otherId : fromId) : null
+  const removed  = removeId ? suppliers.find((s) => s.id === removeId) : null
+
+  const candidates = suppliers
+    .filter((s) => s.id !== fromId)
+    .filter((s) => {
+      const q = search.trim().toLowerCase()
+      return !q || s.name.toLowerCase().includes(q) || (s.hp ?? '').toLowerCase().includes(q)
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'he'))
+
+  const loadPreview = async () => {
+    if (!removeId || !keepId) return
+    setBusy(true); setErr(null)
+    try {
+      setPreview(await merge(removeId, keepId, { dryRun: true }) as MergePreview)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally { setBusy(false) }
+  }
+  const doMerge = async () => {
+    if (!removeId || !keepId) return
+    setBusy(true); setErr(null)
+    try {
+      await merge(removeId, keepId)
+      onDone()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+      setBusy(false)   // leave the modal open so the error is visible
+    }
+  }
+
+  if (!start) return null
+  const canConfirm = !!preview && !busy && (!preview.hpConflict || ackConflict)
+  const movedPairs = preview ? MERGE_COUNT_LABELS.filter(([k]) => (preview.counts[k] ?? 0) > 0) : []
+
+  // A KEPT / REMOVED summary card.
+  const partyBox = (kind: 'keep' | 'remove', sup: Supplier | null | undefined) => {
+    const on = kind === 'keep'
+    return (
+      <div className="rounded-xl text-right" style={{
+        padding: '12px 14px',
+        border: `1.5px solid ${on ? '#16A34A' : '#DC2626'}`,
+        background: on ? '#F0FDF4' : '#FEF2F2',
+      }}>
+        <span className="inline-block rounded-md font-bold mb-1.5" style={{
+          fontSize: '11px', padding: '2px 8px',
+          background: on ? '#16A34A' : '#DC2626', color: 'white',
+        }}>{on ? 'נשמר' : 'יימחק'}</span>
+        <p className="font-bold text-gray-800" style={{ fontSize: '14px' }}>{sup?.name ?? '—'}</p>
+        <p className="text-gray-500 mt-0.5" style={{ fontSize: '12px' }}>
+          {invCount(sup?.id)} חשבוניות · ח.פ {sup?.hp?.trim() ? sup.hp : '—'}
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.45)' }}
+      onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose() }}
+    >
+      <div className="bg-white rounded-2xl shadow-2xl w-full" style={{ maxWidth: '480px', direction: 'rtl' }}>
+        {/* Header */}
+        <div className="flex items-center gap-2 border-b" style={{ padding: '16px 20px', borderColor: '#EEEEF2' }}>
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#EEF2FF' }}>
+            <GitMerge className="w-5 h-5" style={{ color: '#4F46E5' }} />
+          </div>
+          <h3 className="font-bold text-gray-800" style={{ fontSize: '16px' }}>מיזוג ספקים</h3>
+          <button
+            onClick={() => { if (!busy) onClose() }}
+            className="text-gray-400 hover:text-gray-600"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', marginInlineStart: 'auto' }}
+            title="סגירה"
+          ><X className="w-5 h-5" /></button>
+        </div>
+
+        <div style={{ padding: '18px 20px' }}>
+          {!preview ? (
+            !otherId ? (
+              /* Step 1 — pick the other card */
+              <>
+                <p className="text-gray-600 text-right mb-2" style={{ fontSize: '14px' }}>
+                  בחרי את הספק למיזוג עם <span className="font-bold">"{start.name}"</span>:
+                </p>
+                <div className="flex items-center gap-2 bg-white rounded-xl border px-3 mb-2" style={{ borderColor: '#EEEEF2', minHeight: '40px' }}>
+                  <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <input
+                    type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                    placeholder="חיפוש לפי שם או ח.פ..."
+                    className="flex-1 bg-transparent outline-none text-gray-700 text-right"
+                    style={{ fontSize: '15px' }}
+                  />
+                </div>
+                <div className="rounded-xl border" style={{ borderColor: '#EEEEF2', maxHeight: '240px', overflowY: 'auto' }}>
+                  {candidates.length === 0 ? (
+                    <p className="text-gray-400 text-center" style={{ padding: '20px', fontSize: '14px' }}>לא נמצאו ספקים</p>
+                  ) : candidates.map((s) => (
+                    <button
+                      key={s.id} onClick={() => chooseOther(s.id)}
+                      className="w-full flex items-center justify-between text-right hover:bg-gray-50 border-b last:border-b-0"
+                      style={{ padding: '10px 14px', borderColor: '#F3F4F6', background: 'none', cursor: 'pointer' }}
+                    >
+                      <span className="font-medium text-gray-800" style={{ fontSize: '14px' }}>{s.name}</span>
+                      <span className="text-gray-400" style={{ fontSize: '12px' }}>
+                        {invCount(s.id)} חשבוניות · ח.פ {s.hp?.trim() ? s.hp : '—'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              /* Step 2 — confirm direction (keep vs remove) */
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  {partyBox('keep', keep)}
+                  {partyBox('remove', removed)}
+                </div>
+                <div className="flex justify-center mt-3">
+                  <Button variant="outline" size="sm" onClick={swap}>
+                    <ArrowRightLeft className="w-4 h-4" />
+                    החלף כיוון
+                  </Button>
+                </div>
+                <p className="text-gray-500 text-right mt-3" style={{ fontSize: '13px' }}>
+                  כל החשבוניות, התשלומים, ההחזרות והמסמכים של הכרטיס <span className="font-bold" style={{ color: '#DC2626' }}>שיימחק</span> יועברו לכרטיס <span className="font-bold" style={{ color: '#16A34A' }}>שנשמר</span>. הפעולה אינה הפיכה.
+                </p>
+                <button
+                  onClick={() => { setOtherId(null); setKeepId(null); setSearch('') }}
+                  className="text-gray-400 hover:text-gray-600 mt-2"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px' }}
+                >בחר ספק אחר</button>
+              </>
+            )
+          ) : (
+            /* Step 3 — preview counts + confirm */
+            <>
+              <p className="text-gray-600 text-right" style={{ fontSize: '14px' }}>
+                מיזוג <span className="font-bold" style={{ color: '#DC2626' }}>"{removed?.name}"</span> אל תוך <span className="font-bold" style={{ color: '#16A34A' }}>"{keep?.name}"</span>.
+              </p>
+              <div className="rounded-xl text-right mt-3" style={{ background: '#FAFAFC', border: '1px solid #EEEEF2', padding: '12px 14px' }}>
+                {movedPairs.length === 0 ? (
+                  <p className="text-gray-600" style={{ fontSize: '13px' }}>אין רשומות להעברה — הכרטיס יימחק בלבד.</p>
+                ) : (
+                  <>
+                    <p className="text-gray-700 font-medium" style={{ fontSize: '13px' }}>יועברו לכרטיס שנשמר:</p>
+                    <ul className="mt-1.5 space-y-0.5">
+                      {movedPairs.map(([k, label]) => (
+                        <li key={k} className="text-gray-600" style={{ fontSize: '13px' }}>
+                          • {preview.counts[k]} {label}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <p className="text-gray-500 mt-2" style={{ fontSize: '12px' }}>
+                  השם "{removed?.name}" יתווסף לשמות החלופיים של הכרטיס שנשמר{preview.hpCarryOver ? ', וה-ח.פ יועבר אליו' : ''}.
+                </p>
+              </div>
+              {preview.hpConflict && (
+                <label className="flex items-start gap-2 rounded-xl mt-3 cursor-pointer" style={{ background: '#FEF2F2', border: '1px solid #FECACA', padding: '10px 12px' }}>
+                  <input type="checkbox" checked={ackConflict} onChange={(e) => setAckConflict(e.target.checked)} className="mt-0.5" />
+                  <span className="text-right" style={{ fontSize: '13px', color: '#991B1B' }}>
+                    <AlertTriangle className="w-4 h-4 inline-block ml-1" style={{ verticalAlign: '-2px' }} />
+                    לשני הכרטיסים ח.פ שונה — ייתכן שאלה ספקים שונים. אני מאשרת שמדובר באותו ספק.
+                  </span>
+                </label>
+              )}
+            </>
+          )}
+
+          {err && (
+            <div className="rounded-xl text-right mt-3" style={{ background: '#FEF2F2', color: '#991B1B', padding: '10px 12px', fontSize: '13px' }}>
+              {err}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex gap-2 border-t" style={{ padding: '14px 20px', borderColor: '#EEEEF2' }}>
+          {!preview ? (
+            <>
+              <Button
+                variant="primary" className="flex-1"
+                onClick={loadPreview}
+                disabled={!otherId || busy}
+              >{busy ? 'טוען...' : 'המשך'}</Button>
+              <Button variant="ghost" className="flex-1" onClick={onClose} disabled={busy}>ביטול</Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="danger" className="flex-1"
+                onClick={doMerge}
+                disabled={!canConfirm}
+              >{busy ? 'ממזג...' : 'מזג ספקים'}</Button>
+              <Button variant="ghost" className="flex-1" onClick={() => setPreview(null)} disabled={busy}>חזרה</Button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

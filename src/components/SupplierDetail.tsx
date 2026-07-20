@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power } from 'lucide-react'
+import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { usePayments } from '../hooks/usePayments'
 import { computeSupplierBalance, sumNonCancelledPayments } from '../lib/supplierBalance'
@@ -50,6 +50,7 @@ interface Props {
   onBack: () => void
   onEdit: () => void
   onDelete: () => void
+  onMerge?: () => void
   onViewLedger?: () => void
   onViewPayments?: () => void
   onOpenInvoice?: (invoiceId: string) => void
@@ -82,7 +83,7 @@ function fmtDate(d: string): string {
   return `${day}/${m}/${y}`
 }
 
-export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive }: Props) {
+export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onMerge, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive }: Props) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
@@ -504,12 +505,18 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onV
         )}
       </div>
 
-      {/* ── Delete button ── */}
-      <div className="flex justify-start pt-1 pb-2">
+      {/* ── Delete / merge buttons ── */}
+      <div className="flex justify-start gap-2 pt-1 pb-2">
         <Button variant="danger" onClick={handleDeleteClick}>
           <Trash2 className="w-4 h-4" />
           מחק ספק
         </Button>
+        {onMerge && (
+          <Button variant="outline" onClick={onMerge}>
+            <GitMerge className="w-4 h-4" />
+            מזג עם ספק אחר
+          </Button>
+        )}
       </div>
 
       {/* ── Modal ── */}
