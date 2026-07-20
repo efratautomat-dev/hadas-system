@@ -2551,14 +2551,19 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
   if (bytes.length === 0)               return json({ error: "image is empty" }, 400);
   if (bytes.length > MAX_CAPTURE_BYTES) return json({ error: "image too large (max 15MB)" }, 400);
 
-  // Authoritative MIME from the bytes' magic numbers (same rule the email path
-  // uses) — a wrong declared type would 400 the Anthropic vision call.
-  const mimeType = sniffImageMediaType(bytes)
-    ?? (body.mimeType?.startsWith("image/") ? body.mimeType : "image/jpeg");
-  if (!mimeType.startsWith("image/")) {
-    return json({ error: "capture must be an image (jpeg/png)" }, 400);
+  // Authoritative type from the bytes' magic numbers (same rule the email path
+  // uses) — a wrong declared type would 400 the Anthropic call. PDFs must be sent
+  // as a document block, not an image block: resolve them to application/pdf here
+  // so buildDocumentBlock takes the document branch.
+  const isPdf = sniffFileType(bytes) === "pdf";
+  const mimeType = isPdf
+    ? "application/pdf"
+    : (sniffImageMediaType(bytes) ?? (body.mimeType?.startsWith("image/") ? body.mimeType : "image/jpeg"));
+  if (mimeType !== "application/pdf" && !mimeType.startsWith("image/")) {
+    return json({ error: "capture must be an image (jpeg/png) or a PDF" }, 400);
   }
-  const filename = body.filename || `capture.${mimeType === "image/png" ? "png" : "jpg"}`;
+  const filename = body.filename
+    || `capture.${isPdf ? "pdf" : mimeType === "image/png" ? "png" : "jpg"}`;
 
   // ── Synthesize the Gmail-shaped context the shared functions expect ──
   const captureId   = "capture-" + crypto.randomUUID(); // plays the role of msgId
@@ -2582,7 +2587,7 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
   try {
     if (docType === "invoice") {
       const file: UsableFile = {
-        attachmentId: captureId, filename, mimeType, bytes, format: "image", size: bytes.length,
+        attachmentId: captureId, filename, mimeType, bytes, format: isPdf ? "pdf" : "image", size: bytes.length,
       };
       const ctx: InvoiceFileCtx = {
         token, msgId: captureId, subject, from, emailTs: nowIso,

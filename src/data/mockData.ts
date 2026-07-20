@@ -27,6 +27,9 @@ export interface Invoice {
   monthFolderLink: string
   originalEmailLink: string
   emailReceivedAt: string
+  // Ingestion time (DB: created_at). Drives the invoices-list row order
+  // (newest ingested first). Optional: mock rows omit it.
+  createdAt?: string
   emailId: string
   uploadDate: string
   status: string

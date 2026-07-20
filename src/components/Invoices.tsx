@@ -822,12 +822,14 @@ export default function Invoices({
           : statusFor(inv) === filter
       return matchSearch && matchFilter
     })
-    // Newest first by invoice date, falling back to email-received time. Both
-    // are ISO strings (YYYY-MM-DD / full ISO timestamp), so a string compare
-    // sorts chronologically; reverse it for descending (newest at the top).
+    // Newest INGESTED first: order by created_at (ingestion time), falling back
+    // to email-received time then invoice date. All are ISO strings (full ISO
+    // timestamp / YYYY-MM-DD), so a string compare sorts chronologically;
+    // reverse it for descending (newest at the top). Note: this is row ORDER
+    // only — the displayed date column still shows invoiceDate.
     .sort((a, b) => {
-      const da = a.invoiceDate || a.emailReceivedAt || ''
-      const db = b.invoiceDate || b.emailReceivedAt || ''
+      const da = a.createdAt || a.emailReceivedAt || a.invoiceDate || ''
+      const db = b.createdAt || b.emailReceivedAt || b.invoiceDate || ''
       return da === db ? 0 : da < db ? 1 : -1
     })
 
