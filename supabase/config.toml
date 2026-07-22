@@ -23,3 +23,10 @@ entrypoint = "./functions/payments-ingest/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/invoices-ingest/index.ts"
+
+# One-off reconciliation utility. verify_jwt = false so it's callable with just
+# its own ?key= secret (no Supabase JWT), same pattern as the drive-probe helper.
+[functions.drive-reconcile]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/drive-reconcile/index.ts"
