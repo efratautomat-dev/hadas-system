@@ -43,6 +43,9 @@ export interface Supplier {
   openingBalance?: number
   openingBalanceDate?: string
   notes?: string
+  // "בהסדר תשלום": display-only — balance shows 0 and invoices get an informational
+  // "בהסדר" tag. Accounting status is unchanged; never mutates rows; reversible.
+  paymentArrangement?: boolean
 }
 
 interface Props {
@@ -97,12 +100,15 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
 
   const openingBalance = Number(supplier.openingBalance ?? 0)
   const totalInvoiced = invoices.reduce((s, i) => s + i.amount, 0)
+  // "בהסדר תשלום": display-only — this supplier is excluded from balance tracking.
+  // Balance/pending read 0; invoices keep their status and get a "בהסדר" tag. No data touched.
+  const paymentArrangement = supplier.paymentArrangement ?? false
   // Current balance via the SHARED helper — identical to the suppliers list card.
-  const currentBalance = computeSupplierBalance(openingBalance, invoices, payments)
+  const currentBalance = computeSupplierBalance(openingBalance, invoices, payments, { paymentArrangement })
   // "שולם" = money actually paid out = Σ non-cancelled payments (NOT an invoice flag,
   // which never carries 'שולם'). "ממתין לתשלום" = outstanding still owed = the balance.
   const paidAmount    = sumNonCancelledPayments(payments)
-  const pendingAmount = Math.max(0, currentBalance)
+  const pendingAmount = paymentArrangement ? 0 : Math.max(0, currentBalance)
 
   // Ledger reflects the balance formula (spec/06-RULES.md §2): opening balance,
   // then invoices (+, debit), credit notes (negative invoices → −, credit), and
@@ -220,6 +226,15 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
           >
             {supplier.status}
           </span>
+          {paymentArrangement && (
+            <span
+              className="rounded-lg font-bold flex-shrink-0"
+              style={{ fontSize: '13px', padding: '5px 12px', background: '#DBEAFE', color: '#1E40AF' }}
+              title="ספק בהסדר תשלום — מוחרג ממעקב יתרה, חשבוניות מוצגות כמשולמות"
+            >
+              בהסדר תשלום
+            </span>
+          )}
           <div className="text-right min-w-0">
             <h1 className="font-black text-gray-800 truncate" style={{ fontSize: fs('26px', '22px') }}>
               {supplier.name}
@@ -355,6 +370,11 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
             title={<><h2 className="font-bold text-gray-800">כרטסת</h2><CreditCard className="w-4 h-4 text-gray-400" /></>}
             action={onViewLedger ? <span className="text-sm font-semibold" style={{ color: 'var(--brand-primary)' }}>פתח כרטסת ←</span> : undefined}
           />
+          {paymentArrangement && (
+            <div className="text-right" style={{ padding: '10px 20px', background: '#DBEAFE', color: '#1E40AF', fontSize: '13px', fontWeight: 600 }}>
+              ספק בהסדר תשלום — היתרה מסולקת (0) ומוחרגת ממעקב. התנועות מוצגות למידע בלבד; לא בוצע שינוי בנתונים.
+            </div>
+          )}
           {/* Table header */}
           <div style={{ overflowX: 'auto' }}>
           <div
@@ -448,10 +468,19 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                   onMouseLeave={clickable ? (e) => ((e.currentTarget as HTMLElement).style.background = 'transparent') : undefined}
                 >
                   <p className="text-right text-gray-400" style={{ fontSize: '12px' }}>{inv.id} · {inv.date}</p>
-                  <div className="flex justify-center">
+                  <div className="flex justify-center items-center gap-1.5 flex-wrap">
                     <span className="rounded-lg font-bold" style={{ ...st, fontSize: '12px', padding: '4px 10px' }}>
                       {inv.status}
                     </span>
+                    {paymentArrangement && (
+                      <span
+                        className="rounded-lg font-bold"
+                        title="ספק בהסדר תשלום (מידע בלבד — אינו משנה את סטטוס החשבונית)"
+                        style={{ fontSize: '11px', padding: '3px 8px', background: '#DBEAFE', color: '#1E40AF' }}
+                      >
+                        בהסדר
+                      </span>
+                    )}
                   </div>
                   <span className="text-left font-black text-gray-800" style={{ fontSize: fs('15px', '14px') }}>
                     {formatILS(inv.amount)}

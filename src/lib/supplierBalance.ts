@@ -23,11 +23,19 @@ export function sumNonCancelledPayments(payments: PaymentLike[]): number {
   return payments.reduce((s, p) => (p.status === 'cancelled' ? s : s + num(p.amount)), 0)
 }
 
-/** Current balance = opening + Σ invoices − Σ non-cancelled payments. */
+/**
+ * Current balance = opening + Σ invoices − Σ non-cancelled payments.
+ *
+ * A supplier flagged "בהסדר תשלום" (payment arrangement) is excluded from balance
+ * tracking: the balance ALWAYS reads 0, DISPLAY-ONLY. No invoice/payment row is
+ * mutated — clearing the flag restores the real computed balance instantly.
+ */
 export function computeSupplierBalance(
   openingBalance: AmountLike,
   invoices: InvoiceLike[],
   payments: PaymentLike[],
+  opts?: { paymentArrangement?: boolean },
 ): number {
+  if (opts?.paymentArrangement) return 0
   return num(openingBalance) + sumInvoiceTotals(invoices) - sumNonCancelledPayments(payments)
 }

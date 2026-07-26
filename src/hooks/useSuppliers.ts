@@ -79,11 +79,17 @@ export function useSuppliers() {
 
         setData(rows.map(r => {
           const openingBalance = Number(r.opening_balance ?? 0)
-          const currentBalance = computeSupplierBalance(openingBalance, invById[r.id] ?? [], payById[r.id] ?? [])
+          // "בהסדר תשלום": display-only exclusion — balance forced to 0 via the shared
+          // helper, real invoices/payments untouched (spec: reversible by unchecking).
+          const paymentArrangement = r.payment_arrangement ?? false
+          const currentBalance = computeSupplierBalance(
+            openingBalance, invById[r.id] ?? [], payById[r.id] ?? [], { paymentArrangement },
+          )
           return {
             ...r,
             hp:             r.hp      ?? '',
             contact:        r.contact ?? '',
+            paymentArrangement,
             // Active/inactive: derived from the `active` column. Until that column
             // exists (r.active === undefined) everyone defaults to active ('פעיל');
             // only an explicit active=false marks a supplier inactive ('לא פעיל').

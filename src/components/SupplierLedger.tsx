@@ -70,6 +70,9 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   const supplier      = suppliersData.find(s => s.id === selectedSupplierId)
   // openingBalance is attached at runtime by useSuppliers (not in the mock-derived type).
   const baseOpening   = Number((supplier as { openingBalance?: number } | undefined)?.openingBalance ?? 0)
+  // "בהסדר תשלום": display-only — the final/ongoing balance reads 0 and is excluded
+  // from tracking. Rows stay visible for reference; no invoice/payment data is changed.
+  const paymentArrangement = (supplier as { paymentArrangement?: boolean } | undefined)?.paymentArrangement ?? false
 
   // Real ledger entries for the selected supplier, keyed by SUPPLIER_ID
   // (spec/06-RULES.md §2b). Invoices are debits; credit notes (negative invoices)
@@ -140,7 +143,8 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
 
   const totalDebit   = inPeriod.reduce((s, e) => s + e.debit, 0)
   const totalCredit  = inPeriod.reduce((s, e) => s + e.credit, 0)
-  const finalBalance = running
+  // Flagged supplier → balance is settled (0); real running total is kept off-screen only.
+  const finalBalance = paymentArrangement ? 0 : running
 
   // Display newest-first. The running balance above is computed in chronological
   // order (oldest→newest), so each row already carries its correct accumulated
@@ -328,6 +332,12 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           action={<><BookOpen className="w-4 h-4 text-gray-400" /><span className="text-gray-400" style={{ fontSize: '13px' }}>{inPeriod.length} תנועות בתקופה</span></>}
           title={<><span className="font-bold text-gray-800" style={{ fontSize: '16px' }}>{supplier.name}</span><BookOpen className="w-4 h-4 text-gray-400" /></>}
         />
+
+        {paymentArrangement && (
+          <div className="text-right border-b" style={{ padding: '10px 20px', background: '#DBEAFE', color: '#1E40AF', borderColor: '#BFDBFE', fontSize: '13px', fontWeight: 600 }}>
+            ספק בהסדר תשלום — היתרה מסולקת (0) ומוחרגת ממעקב. התנועות מוצגות למידע בלבד; לא בוצע שינוי בנתונים.
+          </div>
+        )}
 
         {/* Scrollable table */}
         <div style={{ overflowX: 'auto' }}>
