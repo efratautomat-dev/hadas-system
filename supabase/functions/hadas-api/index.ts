@@ -61,12 +61,12 @@ async function driveTrashFile(token: string, fileId: string): Promise<void> {
 }
 
 // ─── Suppliers ────────────────────────────────────────────────────────────────
-// Whitelist: id, name, hp, category, contact, email, phone, opening_balance, notes, alt_names, linked_invoices
+// Whitelist: id, name, hp, category, contact, email, phone, opening_balance, payment_arrangement, notes, alt_names, linked_invoices
 // Excluded (no DB column): opening_balance_date, status, paymentTerms, lastOrderDate, balance
 
 async function createSupplier(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
-  const { name, hp, category, contact, email, phone, openingBalance, notes, force } = body;
+  const { name, hp, category, contact, email, phone, openingBalance, paymentArrangement, notes, force } = body;
   if (!name) return json({ error: "name is required" }, 400);
 
   // Gap #4 — dedup, surfaced to the UI (never silent). Unless `force` ("create anyway"),
@@ -94,6 +94,7 @@ async function createSupplier(req: Request, supabase: SupabaseClient): Promise<R
       email:           email    ?? null,
       phone:           phone    ?? null,
       opening_balance: openingBalance ?? 0,
+      payment_arrangement: paymentArrangement ?? false,
       notes:           notes    ?? null,
     })
     .select("id")
@@ -113,6 +114,7 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
     email:          "email",
     phone:          "phone",
     openingBalance: "opening_balance",
+    paymentArrangement: "payment_arrangement",   // "בהסדר תשלום" flag — display-only balance exclusion (never mutates invoices/payments)
     notes:          "notes",
     active:         "active",   // active/inactive toggle (deactivation replaces hard delete)
     needsDetails:   "needs_details",   // PART 3C: completing details clears the flag

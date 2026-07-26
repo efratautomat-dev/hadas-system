@@ -606,6 +606,8 @@ export default function Invoices({
   onOpenInvoice, onCloseInvoice, onOpenSupplier, onDuplicateResolved, onDuplicateDismissed,
 }: InvoicesProps) {
   const { data: serverInvoices, loading, error, update: updateInvoice, updateStatus, remove: removeInvoice } = useInvoices()
+  // Suppliers flagged "בהסדר תשלום" → their invoices get an informational tag (display-only).
+  const { data: suppliersData } = useSuppliers()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [internalSelected, setInternalSelected] = useState<Invoice | null>(null)
   const [search, setSearch] = useState('')
@@ -628,6 +630,18 @@ export default function Invoices({
     : internalSelected
   const openInvoice  = (inv: Invoice) => onOpenInvoice  ? onOpenInvoice(inv.id)  : setInternalSelected(inv)
   const closeInvoice = ()             => onCloseInvoice ? onCloseInvoice()        : setInternalSelected(null)
+
+  // Supplier ids flagged "בהסדר תשלום". Purely informational — drives a small tag
+  // next to the invoice status; it does NOT change the accounting status or filters.
+  const arrangementSupplierIds = useMemo(
+    () => new Set(
+      suppliersData
+        .filter(s => (s as { paymentArrangement?: boolean }).paymentArrangement)
+        .map(s => s.id),
+    ),
+    [suppliersData],
+  )
+  const isArrangement = (inv: Invoice) => arrangementSupplierIds.has(inv.supplierId)
 
   // Derived display status per invoice (id → status), recomputed when invoices
   // or alerts change. Single source for the list badge, filtering and counts.
@@ -1062,12 +1076,22 @@ export default function Invoices({
                     {formatILS(inv.amount)}
                   </span>
 
-                  {/* Col 5: סטטוס */}
-                  <div className="flex justify-center">
+                  {/* Col 5: סטטוס. The accounting status is unchanged; a flagged
+                      supplier adds an informational "בהסדר" tag beside it (never
+                      replaces the status, never affects filters/counts). */}
+                  <div className="flex justify-center items-center gap-1.5 flex-wrap">
                     <StatusBadge
                       status={INVOICE_STATUS_INTERNAL[invStatus] ?? invStatus}
                       style={{ fontWeight: 700, padding: '4px 10px' }}
                     />
+                    {isArrangement(inv) && (
+                      <span
+                        title="ספק בהסדר תשלום (מידע בלבד — אינו משנה את סטטוס החשבונית)"
+                        style={{ fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', background: STATUS.blue.bg, color: STATUS.blue.fg, whiteSpace: 'nowrap' }}
+                      >
+                        בהסדר
+                      </span>
+                    )}
                   </div>
                 </div>
               )

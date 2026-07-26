@@ -78,6 +78,20 @@ function StatusPill({ status }: { status: string }) {
   )
 }
 
+// "בהסדר תשלום" pill — shown on the supplier card + table row for a flagged supplier.
+// Uses the fixed functional blue (settled/arrangement), never the brand palette.
+function ArrangementPill() {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full font-semibold whitespace-nowrap"
+      style={{ fontSize: '12px', padding: '4px 11px', background: STATUS.blue.bg, color: STATUS.blue.fg }}
+      title="ספק בהסדר תשלום — מוחרג ממעקב יתרה, חשבוניות מוצגות כמשולמות"
+    >
+      בהסדר תשלום
+    </span>
+  )
+}
+
 function CategoryChip({ category }: { category: string }) {
   const c = categoryColors[category] ?? { bg: '#F3F4F6', color: '#6B7280' }
   return (
@@ -102,6 +116,7 @@ type EditFormState = {
   phone: string
   openingBalance: string
   openingBalanceDate: string
+  paymentArrangement: boolean
   notes: string
 }
 
@@ -109,6 +124,7 @@ const emptyForm: EditFormState = {
   name: '', hp: '', category: CATEGORIES[0],
   contact: '', email: '', phone: '',
   openingBalance: '', openingBalanceDate: '',
+  paymentArrangement: false,
   notes: '',
 }
 
@@ -311,6 +327,20 @@ function SupplierFormCard({
               />
             </FormField>
           </div>
+          {/* "בהסדר תשלום": excludes the supplier from balance tracking (balance → 0,
+              invoices shown as paid). Display-only — no invoice/payment data is changed. */}
+          <label
+            className="flex items-center gap-2.5 mt-3 cursor-pointer text-right"
+            style={{ fontSize: '14px', color: '#1F2937' }}
+          >
+            <input
+              type="checkbox"
+              checked={form.paymentArrangement}
+              onChange={(e) => onChange({ ...form, paymentArrangement: e.target.checked })}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--brand-primary)', cursor: 'pointer' }}
+            />
+            <span>ספק בהסדר תשלום <span className="text-gray-400" style={{ fontSize: '12px' }}>(מוחרג ממעקב יתרה — היתרה תוצג 0 והחשבוניות כמשולמות)</span></span>
+          </label>
         </div>
 
         {/* ── קבוצה 4: כללי ── */}
@@ -368,6 +398,7 @@ function supplierToForm(sup: Supplier): EditFormState {
     phone: sup.phone,
     openingBalance: sup.openingBalance !== undefined ? String(sup.openingBalance) : '',
     openingBalanceDate: sup.openingBalanceDate ?? '',
+    paymentArrangement: sup.paymentArrangement ?? false,
     notes: sup.notes ?? '',
   }
 }
@@ -517,6 +548,7 @@ export default function Suppliers({
       name: editForm.name, hp: editForm.hp, category: editForm.category,
       contact: editForm.contact, email: editForm.email, phone: editForm.phone,
       openingBalance: balance, openingBalanceDate: editForm.openingBalanceDate,
+      paymentArrangement: editForm.paymentArrangement,
       notes: editForm.notes,
     }
     const savedId = editingId
@@ -537,6 +569,7 @@ export default function Suppliers({
       name: form.name, hp: form.hp, category: form.category,
       contact: form.contact, email: form.email, phone: form.phone,
       openingBalance: balance, openingBalanceDate: form.openingBalanceDate,
+      paymentArrangement: form.paymentArrangement,
       notes: form.notes,
     }
     const pendingAlert = prefillForAlert   // capture before UI resets
@@ -762,7 +795,10 @@ export default function Suppliers({
                 <div className="flex-1 flex flex-col gap-4" style={{ padding: '20px 22px 20px 20px' }}>
                   {/* status + category */}
                   <div className="flex items-center justify-between gap-2" style={{ minHeight: '28px' }}>
-                    <StatusPill status={sup.status} />
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <StatusPill status={sup.status} />
+                      {sup.paymentArrangement && <ArrangementPill />}
+                    </div>
                     <span className="min-w-0" style={{ maxWidth: '58%' }}><CategoryChip category={sup.category} /></span>
                   </div>
                   {/* name + contact */}
@@ -866,7 +902,10 @@ export default function Suppliers({
                     </div>
                     <div className="min-w-0 text-right"><CategoryChip category={sup.category} /></div>
                     <div className="text-right" style={{ fontSize: '15px', fontWeight: 600, color: '#12131A' }}>{formatILS(Number(sup.balance) || 0)}</div>
-                    <div className="text-right"><StatusPill status={sup.status} /></div>
+                    <div className="text-right flex flex-col items-end gap-1">
+                      <StatusPill status={sup.status} />
+                      {sup.paymentArrangement && <ArrangementPill />}
+                    </div>
                     <div className="flex items-center justify-end gap-1.5">
                       <button
                         onClick={(e) => { e.stopPropagation(); openDetail(sup.id) }}
