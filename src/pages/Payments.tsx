@@ -317,7 +317,8 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
     const missing: string[] = []
     if (!p.type)              missing.push('סוג_תשלום')
     if (!p.date)              missing.push('תאריך')
-    if (!p.ref?.trim())       missing.push('אסמכתא')
+    // אסמכתא היא אופציונלית לייצוא לביזיבוקס — העברות בנקאיות ותשלומים אחרים
+    // מיוצאים ללא אסמכתא. עמודת האסמכתא נכתבת ריקה במקרה כזה (ראה doExportBizbox).
     if (!p.amount || p.amount <= 0) missing.push('סכום')
     if (!p.supplier?.trim())  missing.push('תיאור')
     return missing

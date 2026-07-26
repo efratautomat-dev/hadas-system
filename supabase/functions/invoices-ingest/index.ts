@@ -1553,24 +1553,13 @@ async function handleInvoiceFile(
   // numberless invoices in the same email produce two distinct storage paths.
   const fileTag = extracted.invoice_number || (file.attachmentId ?? "link");
 
-  // Drive (primary backup) + Supabase Storage (in-app preview)
+  // Supabase Storage (in-app preview). NB: the Drive upload is deferred until
+  // AFTER the dedup guard below. Storage is upsert-idempotent (deterministic key)
+  // so it's safe to run here; Drive create is NOT idempotent, so uploading it
+  // before the guard was what let a reprocessed/retried email leave a second
+  // (orphan) Drive file while the DB stayed correctly deduped.
   const supplierDisplayName = matched?.name ?? extracted.vendor_name;
-  const invoiceFilename = buildInvoiceFilename(
-    supplierDisplayName, extracted.invoice_number, extracted.invoice_date, file.filename, file.mimeType,
-  );
   const invoiceDateObj = new Date(extracted.invoice_date || new Date().toISOString().slice(0, 10));
-
-  let driveFileLink = "", monthFolderLink = "";
-  try {
-    const target = await resolveInvoiceFolder(token, extracted.invoice_date || new Date().toISOString().slice(0, 10), partialReturn);
-    const uploaded = await driveUploadFile(token, target.fileFolderId, invoiceFilename, file.mimeType, file.bytes);
-    driveFileLink   = uploaded.webViewLink;
-    monthFolderLink = await driveGetFolderLink(token, target.monthFolderId);
-    await log("info", "uploaded to Drive", { fileId: uploaded.id }, msgId);
-  } catch (e) {
-    await log("error", `Drive upload failed: ${e instanceof Error ? e.message : e}`, undefined, msgId);
-    result.errors.push(`Drive upload failed for ${msgId}`);
-  }
 
   let storagePath = "";
   try {
@@ -1627,6 +1616,27 @@ async function handleInvoiceFile(
       `skipped duplicate invoice: ${extracted.invoice_number || "(no number)"} for message ${msgId}`,
       { existingId: existingInv.id }, msgId);
     return "skipped";
+  }
+
+  // Not a duplicate → NOW upload to Drive. Deferring the upload past the dedup
+  // guard means a reprocessed/retried email (which returns "skipped" above) never
+  // creates a second Drive file. driveUploadFile is NOT idempotent — Drive permits
+  // duplicate filenames and mints a fresh id every call — so this MUST stay below
+  // the guard. A Drive failure here is non-fatal (empty link, still inserts) — the
+  // same behaviour as before.
+  let driveFileLink = "", monthFolderLink = "";
+  const invoiceFilename = buildInvoiceFilename(
+    supplierDisplayName, extracted.invoice_number, extracted.invoice_date, file.filename, file.mimeType,
+  );
+  try {
+    const target = await resolveInvoiceFolder(token, extracted.invoice_date || new Date().toISOString().slice(0, 10), partialReturn);
+    const uploaded = await driveUploadFile(token, target.fileFolderId, invoiceFilename, file.mimeType, file.bytes);
+    driveFileLink   = uploaded.webViewLink;
+    monthFolderLink = await driveGetFolderLink(token, target.monthFolderId);
+    await log("info", "uploaded to Drive", { fileId: uploaded.id }, msgId);
+  } catch (e) {
+    await log("error", `Drive upload failed: ${e instanceof Error ? e.message : e}`, undefined, msgId);
+    result.errors.push(`Drive upload failed for ${msgId}`);
   }
 
   const insertRow: Record<string, unknown> = {
