@@ -56,11 +56,31 @@ See `06-RULES.md` for the enforcement model (RLS + service-role writes).
 
 - **Purpose:** every supplier invoice (and credit note as a negative invoice).
 - **User sees:** list with supplier, number, date, total, status, duplicate/error flags;
-  detail view with the parsed line items and the source document (Drive / signed Storage URL).
+  **two-pane detail view** — the source document on the **right**, every field on the **left**.
 - **Actions:** create manual invoice; edit; change status; delete (trashes the Drive file first,
-  then cleans alerts + Storage + row); mark "sent to accountant" (→ done).
+  then cleans alerts + Storage + row); mark "sent to accountant" (→ done);
+  **convert charge ⇄ credit note** (`06-RULES.md §2c`).
 - **NEW vs current:** status uses the unified taxonomy (`ממתין`→`new`, sent-to-accountant→`done`).
   `line_items` is unified to **jsonb** (see `02-ERD.md`).
+
+### Detail view — CONFIRMED (2026-07-28)
+
+- **Two panes, no preview popup.** The document renders **inline on the right** and is
+  **sticky**, so it stays put while the fields on the left scroll — the owner types while
+  looking at the scan. The old eye-icon → modal is replaced by **"הגדל"** (full screen) and
+  an open-in-new-tab link in the pane header; both still use the shared renderer, so
+  multi-page PDFs keep the browser/Drive viewer.
+- **Stacks below 1100px** (document above, fields below) rather than squeezing two panes.
+- **"אין מסמך מצורף" state** for rows with neither `storage_url` nor `drive_file_link`.
+- The pane resolves its URL **on mount** with a **1-hour** signed Storage URL (the old 120s
+  preview URL expired mid-review).
+- **Two invoice numbers, clearly separated:**
+  - **`invoice_number` — "מספר חשבונית של הספק"**: the number printed on the document.
+    Editable, and it is the **headline** of the detail view.
+  - **`id` — "מספר במערכת"**: the system key (`INV-YYYY-NNN`). **READ-ONLY** — it is the
+    target of `PUT /invoices/:id`, so editing it sent the save to a non-existent row and the
+    change vanished silently.
+- **Total is editable** and derives net + VAT — see `06-RULES.md §3`.
 
 ---
 

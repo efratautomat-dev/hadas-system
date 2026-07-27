@@ -46,6 +46,11 @@ export interface Invoice {
   // Source Gmail message id (DB: gmail_message_id). Used to match alerts that
   // reference an invoice only by message id. Optional: mock rows omit it.
   gmailMessageId?: string
+  // Document sub-type: 'חשבונית' (charge) or 'זיכוי' (credit note). Rides along
+  // from the raw DB row (useInvoices spreads it). Kept in lockstep with the sign
+  // of the amounts by `lib/creditNote.ts` — never set it on its own. Optional:
+  // mock rows and legacy rows omit it.
+  invoice_type?: string | null
 }
 
 export const mockInvoices: Invoice[] = [

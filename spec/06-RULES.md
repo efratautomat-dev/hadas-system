@@ -101,11 +101,57 @@ Invoices link to suppliers by the supplier's **business number (`hp` / ח.פ)**,
 
 ---
 
+## 2c. Credit-note sign correction (mis-classified credit notes)
+
+Ingest decides the sign at intake: a credit note (`docType === "return_doc"`) has all three
+amounts forced negative with `-Math.abs`, never trusting the extractor
+(`invoices-ingest/index.ts`). When the **classifier misses** one, the credit note lands as a
+**positive charge** and *increases* the supplier's debt instead of reducing it.
+
+The manager corrects this from the invoice screen — **"סמן כזיכוי"** (and the reverse,
+**"סמן כחשבונית חיוב"**), behind a confirmation that shows the before → after total and the
+direction the balance will move.
+
+- **The sign and `invoice_type` are ONE unit.** Both are produced together by
+  `applyCreditSign` (`src/lib/creditNote.ts`) and written in a single update, so a row can
+  never be negative while typed as `חשבונית`.
+- **Conversion is IDEMPOTENT** — it uses the same `-Math.abs` convention as ingest, never
+  `* -1`. Applying it twice cannot bounce the sign back.
+- **Sign is owned solely by that action.** Editing an amount field re-stamps the row's
+  existing sign, so **typing a minus into the form cannot flip a row** — this is what makes
+  the double-minus bug impossible.
+- **`isCreditInvoice` keys on the AMOUNT, not on `invoice_type`** — the amount is what drives
+  the balance (`supplierBalance.ts`) and the ledger, and legacy rows carry a negative total
+  with `invoice_type` unset.
+- **Reversible**, and it changes no other field. No migration and no `hadas-api` change were
+  needed: `invoice_type` and the three amount columns are already in the update allowlist.
+
+---
+
 ## 3. VAT
 
 - VAT rate is **17%**.
 - Invoices/delivery notes carry `amount_before_vat`, `vat_amount`, `total_amount`. Where only the
   total is known, derive the split with 17%.
+
+### RULE — the amount fields are edited in BOTH directions
+
+The invoice form lets the manager type **either** the net **or** the gross, because the number
+printed on a supplier document is sometimes one and sometimes the other.
+
+| Typed | Derivation |
+|---|---|
+| `amount_before_vat` | `vat = round(net × 0.17)`, then `total = net + vat` |
+| `vat_amount` | `total = net + vat` |
+| `total_amount` (gross) | `net = round(gross ÷ 1.17)`, then **`vat = gross − net`** |
+
+**The gross direction takes VAT as the REMAINDER, never as a second rounding.** Rounding both
+net and VAT independently lets `net + vat` land 1₪ away from the gross the supplier actually
+billed. Taking the remainder guarantees **`net + vat === gross` exactly**, and the rounding
+residue is absorbed into VAT. Verified across 20,000 consecutive gross values.
+
+Every amount edit re-stamps the row's existing credit/charge sign (see §2c) — so an amount edit
+can never flip a credit note into a charge.
 
 ---
 
