@@ -166,3 +166,28 @@ quantities the employee needs. Because the real cost data (balance, payment tota
 editable invoice page) is **already** hidden, an **incidental number inside a free-text line item
 is acceptable** and we deliberately do **not** attempt to strip it. Likewise, if an amount is
 printed on the document image itself, that is just the source document, not app data.
+
+---
+
+## 7. Supplier-matching exceptions (data)
+
+The ingest pipeline matches an incoming invoice to a supplier by **ח.פ / עוסק (`hp`) alone** — a
+tax-id match is authoritative; **name (`findBestSupplier`, 0.85 fuzzy) is only a fallback used when
+`hp` is absent or unmatched** (see `handleInvoiceFile`). So two supplier cards that share the same
+`hp` will collide: the pipeline picks whichever card the query returns first (no `ORDER BY` → effectively
+arbitrary) and funnels **both** companies' invoices onto that one card. Name does **not** disambiguate.
+
+### EXCEPTION (2026-07-13) — LUMIERE (SUP-027) & ST FASHION (SUP-018), shared עוסק 315297390
+- **LUMIERE (`SUP-027`)** and **ST FASHION (`SUP-018`)** are **two SEPARATE companies of the same
+  owner** that legally share **ONE עוסק number: `315297390`**. They must stay as two distinct cards.
+- Because the pipeline keys on `hp` alone, keeping both with `hp = 315297390` would funnel both
+  companies' invoices onto a single card. So we **deliberately CLEARED the `hp` column on BOTH cards**.
+- With `hp` blank, matching **falls back to name** (`findBestSupplier`, 0.85). Since **`LUMIERE`** vs
+  **`ST FASHION`** are distinct names, each invoice routes to the correct card and they **stay separate**.
+- The **real עוסק `315297390` is kept for reference here (and in the cards' notes), NOT in the `hp`
+  column.** Do not "restore" it to `hp` without the code change below.
+- **Trade-off:** these two lose `hp`-based dedup (a mistyped/variant name could spawn a duplicate) —
+  keep their `name`/`alt_names` aligned with how the extractor reads each vendor.
+- **FUTURE:** consider a code change to `handleInvoiceFile` supporting **composite `hp`+`name`
+  matching** (same `hp`, different name ⇒ different card). That would let the real `hp` be restored
+  on both cards while keeping them separate.
