@@ -14,6 +14,7 @@ import { SummaryCards } from './ui/SummaryCards'
 import { STATUS } from '../theme/status'
 import { STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING, deriveInvoiceStatus } from '../lib/invoiceStatus'
 import { isCreditInvoice, applyCreditSign, convertInvoice } from '../lib/creditNote'
+import { vatRateFor, vatPercentFor, completeAmounts, type EditedAmount } from '../lib/vat'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -24,9 +25,13 @@ const CATEGORIES = [
 
 const QUALITIES = ['גבוהה', 'בינונית', 'נמוכה']
 
-// Israeli VAT. Hard-coded by design (see CLAUDE.md) — named so the two directions
-// of the amount calculation below can never drift apart.
-const VAT_RATE = 0.17
+// The three amount fields, mapped to the role each plays in the VAT split. Any
+// field NOT listed here is an ordinary field and triggers no recalculation.
+const AMOUNT_FIELDS = {
+  amountBeforeVat: 'net',
+  vat:             'vat',
+  amount:          'gross',
+} as const satisfies Record<string, EditedAmount>
 
 // ── Derived status ───────────────────────────────────────────────────────────
 // The derivation (transferred → under review → waiting) lives in
@@ -62,8 +67,14 @@ function isLowConfidence(inv: Invoice): boolean {
   return q === 'low' || q === 'נמוכה'
 }
 
+// Amounts are derived to the agora, so agorot are shown when there are any —
+// but a whole-shekel total is not padded with a pointless "‎.00".
 function formatILS(n: number | null | undefined) {
-  return '₪' + (n ?? 0).toLocaleString('he-IL')
+  const v = n ?? 0
+  return '₪' + v.toLocaleString('he-IL', {
+    minimumFractionDigits: Number.isInteger(v) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 // ── Field primitives ────────────────────────────────────────────────────────
@@ -128,9 +139,10 @@ function Lbl({ t }: { t: string }) {
 }
 
 function TInput({
-  label, value, onChange, type = 'text', readOnly = false,
+  label, value, onChange, type = 'text', readOnly = false, step,
 }: {
   label: string; value: string; onChange?: (v: string) => void; type?: string; readOnly?: boolean
+  step?: string
 }) {
   const f = useFocus()
   return (
@@ -138,6 +150,7 @@ function TInput({
       <Lbl t={label} />
       <input
         type={type}
+        step={step}
         value={value}
         onChange={e => onChange?.(e.target.value)}
         readOnly={readOnly}
@@ -277,6 +290,27 @@ function Row2({ children }: { children: React.ReactNode }) {
 
 // ── Invoice Detail ──────────────────────────────────────────────────────────
 
+// Return the invoice with all THREE amounts filled in — net, VAT and total are
+// never left partially blank. `edited` names the field the user just typed (that
+// one is authoritative); omit it to fill holes only, leaving whatever the
+// document supplied untouched. The rate comes from the invoice's own date, and
+// the row's existing credit/charge sign is re-stamped, so completing amounts can
+// never flip a credit note into a charge. See ../lib/vat.ts.
+function withAmounts(inv: Invoice, edited: EditedAmount | null = null): Invoice {
+  // A credit note is negative in ALL three fields, but a partially-read one may
+  // have the minus on a field other than the total — so any negative marks it.
+  const credit = isCreditInvoice(inv)
+    || (Number(inv.amountBeforeVat) || 0) < 0
+    || (Number(inv.vat) || 0) < 0
+
+  const { net, vat, gross } = completeAmounts(
+    { net: inv.amountBeforeVat, vat: inv.vat, gross: inv.amount },
+    { rate: vatRateFor(inv.invoiceDate), edited },
+  )
+  const next = { ...inv, amountBeforeVat: net, vat, amount: gross }
+  return { ...next, ...applyCreditSign(next, credit) }
+}
+
 export function InvoiceDetail({
   invoice, derivedStatus, onBack, onSave, onOpenSupplier, onDelete,
   needsReviewConfirm = false, onMarkReviewed,
@@ -292,7 +326,11 @@ export function InvoiceDetail({
   onMarkReviewed?: () => void | Promise<void>
 }) {
   const { data: suppliersData } = useSuppliers()
-  const [form, setForm] = useState<Invoice>({ ...invoice })
+  // Opened rows are completed to all three amounts. The extractor returns 0 for
+  // whatever it could not read off the document, so invoices routinely arrive
+  // with only a total. completeAmounts fills ONLY the holes here — anything the
+  // document did print is left exactly as it was read.
+  const [form, setForm] = useState<Invoice>(() => withAmounts(invoice))
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   // Credit-note conversion: confirmation gate, because flipping the sign moves
@@ -379,37 +417,26 @@ export function InvoiceDetail({
   const baseCats = managedCats.length ? managedCats : CATEGORIES
   const catOptions = form.category && !baseCats.includes(form.category) ? [form.category, ...baseCats] : baseCats
 
-  // Editing an amount recomputes VAT (17%) and the total, then re-stamps the
-  // row's EXISTING credit/charge sign via applyCreditSign. That re-stamp is what
-  // makes typing a minus into a field a no-op: the sign of a row is owned solely
-  // by the "סמן כזיכוי" action below, so an amount edit can never silently flip a
-  // credit note back into a charge (or vice versa). applyCreditSign is idempotent,
-  // so running it on every keystroke is safe.
+  // Editing ANY of the three amounts rewrites the other two, so the form is never
+  // left with a blank among them — whichever number the document happens to print
+  // is enough to fill the row. The rate comes from the invoice's OWN date (VAT
+  // rose 17% → 18% on 1.1.2025), and the row's EXISTING sign is re-stamped from
+  // `prev`: the sign is owned solely by the "סמן כזיכוי" action below, so typing a
+  // minus into a field is a no-op and can never flip a credit note into a charge.
+  // applyCreditSign is idempotent, so running it on every keystroke is safe.
   const set = (field: keyof Invoice) => (value: any) => {
     setForm(prev => {
       const next = { ...prev, [field]: value }
 
-      // GROSS → net + VAT (works backwards from the total printed on the document).
-      // VAT is the REMAINDER (gross − net), not a second rounding, so
-      // net + VAT === gross to the agora and the total never drifts by 1₪.
-      if (field === 'amount') {
-        const gross = Math.abs(parseFloat(value) || 0)
-        const net   = Math.round(gross / (1 + VAT_RATE))
-        next.amountBeforeVat = net
-        next.vat             = gross - net
-        next.amount          = gross
-        return { ...next, ...applyCreditSign(next, isCreditInvoice(prev)) }
-      }
+      const edited = AMOUNT_FIELDS[field as keyof typeof AMOUNT_FIELDS]
+      if (!edited) return next
 
-      // net → VAT → gross (the original direction).
-      if (field === 'amountBeforeVat') {
-        next.vat = Math.round((parseFloat(value) || 0) * VAT_RATE)
-      }
-      if (field === 'amountBeforeVat' || field === 'vat') {
-        next.amount = (parseFloat(next.amountBeforeVat as any) || 0) + (parseFloat(next.vat as any) || 0)
-        return { ...next, ...applyCreditSign(next, isCreditInvoice(prev)) }
-      }
-      return next
+      const { net, vat, gross } = completeAmounts(
+        { net: next.amountBeforeVat, vat: next.vat, gross: next.amount },
+        { rate: vatRateFor(next.invoiceDate), edited },
+      )
+      const filled = { ...next, amountBeforeVat: net, vat, amount: gross }
+      return { ...filled, ...applyCreditSign(filled, isCreditInvoice(prev)) }
     })
   }
 
@@ -635,8 +662,8 @@ export function InvoiceDetail({
         {/* 2 – סכומים */}
         <Group title="סכומים">
           <Row2>
-            <TInput label='סכום לפני מע"מ (₪)' value={String(form.amountBeforeVat || '')} onChange={set('amountBeforeVat')} type="number" />
-            <TInput label='מע"מ (₪)' value={String(form.vat || '')} onChange={set('vat')} type="number" />
+            <TInput label='סכום לפני מע"מ (₪)' value={String(form.amountBeforeVat || '')} onChange={set('amountBeforeVat')} type="number" step="0.01" />
+            <TInput label='מע"מ (₪)' value={String(form.vat || '')} onChange={set('vat')} type="number" step="0.01" />
           </Row2>
           {/* The total is EDITABLE and works in both directions: type the gross that
               appears on the document and net + VAT are derived from it; type either
@@ -647,6 +674,7 @@ export function InvoiceDetail({
           }}>
             <input
               type="number"
+              step="0.01"
               value={String(form.amount || '')}
               onChange={e => set('amount')(e.target.value)}
               style={{
@@ -659,11 +687,13 @@ export function InvoiceDetail({
             <span style={{ fontSize: '14px', color: '#9CA3AF', textAlign: 'left' }}>
               סכום כולל<br />
               <span style={{ fontSize: '12px' }}>
-                ניתן לעריכה — המערכת תחשב לפי מע״מ {Math.round(VAT_RATE * 100)}%
+                ניתן לעריכה — המערכת תחשב לפי מע״מ {vatPercentFor(form.invoiceDate)}%
               </span>
             </span>
           </div>
-          {Math.abs(total - (Number(form.amount) || 0)) > 0.5 && (
+          {/* Amounts are derived to the agora, so anything above half an agora is a
+              real inconsistency in the document — not a rounding artefact. */}
+          {Math.abs(total - (Number(form.amount) || 0)) > 0.005 && (
             <p style={{ margin: '6px 2px 0', fontSize: '12px', color: '#DC2626' }}>
               שים לב: סכום לפני מע״מ + מע״מ = {formatILS(total)}, ולא {formatILS(Number(form.amount) || 0)}
             </p>

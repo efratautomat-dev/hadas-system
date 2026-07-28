@@ -80,7 +80,9 @@ See `06-RULES.md` for the enforcement model (RLS + service-role writes).
   - **`id` — "מספר במערכת"**: the system key (`INV-YYYY-NNN`). **READ-ONLY** — it is the
     target of `PUT /invoices/:id`, so editing it sent the save to a non-existent row and the
     change vanished silently.
-- **Total is editable** and derives net + VAT — see `06-RULES.md §3`.
+- **Any one of the three amounts is editable** and derives the other two, to the **agora**.
+  The three are **never left partially blank**: a row that arrives with only a total is completed
+  at ingest and again when opened. See `06-RULES.md §3`.
 
 ---
 

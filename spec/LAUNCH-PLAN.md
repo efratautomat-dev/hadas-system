@@ -194,7 +194,8 @@ The app is white-label by design. To stand up a new client:
    - Seed `allowed_users` (manager + employees) and `categories`.
 4. **Point the client build** at their Supabase: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
    `VITE_DEMO_MODE=false`.
-5. **Per-client wiring** — their Gmail labels, Drive folders, BizBox/accountant details, VAT (17%
-   hard-coded for Israel), and any standing-order/automation config.
+5. **Per-client wiring** — their Gmail labels, Drive folders, BizBox/accountant details, VAT (Israeli
+   rate bands in `src/lib/vat.ts` — 18% since 1.1.2025; a non-Israeli client needs its own
+   bands), and any standing-order/automation config.
 6. **Verify** — run the security check (§3.6) and a smoke test of ingest + capture + the two
    employee writes before handing over.

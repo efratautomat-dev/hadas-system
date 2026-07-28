@@ -63,7 +63,7 @@ considered unreliable.
 | `supplier_name` | text | YES | Denormalized supplier name as it appeared on the document. |
 | `total_amount` | numeric | YES | Gross total incl. VAT (negative for credit notes). |
 | `amount_before_vat` | numeric | YES | Net amount before VAT. |
-| `vat_amount` | numeric | YES | VAT portion (17% Israeli VAT). |
+| `vat_amount` | numeric | YES | VAT portion (Israeli VAT — 18% since 1.1.2025, 17% before; rate by invoice date, see `06-RULES.md §3`). |
 | `category` | text | YES | Expense/product category assigned to the invoice. |
 | `line_items` | **text** | YES | Extracted line items as text (note: **text**, not jsonb — differs from delivery_notes). |
 | `status` | text | YES | Stored status, default `ממתין` ("waiting"). **Display status is derived, not read from here.** |

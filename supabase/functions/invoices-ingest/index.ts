@@ -8,6 +8,7 @@
 // ╚══════════════════════════════════════════════════════════════════════════╝
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveInvoiceFolder, driveGetFolderLink } from "../_shared/drive-filing.ts";
+import { vatRateFor, completeAmounts } from "../_shared/vat.ts";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -1133,14 +1134,32 @@ ${hintLine}`;
     }
   }
   const p = parsed as Record<string, unknown>;
+  const invoice_date = String(p.invoice_date ?? "");
+
+  // The extractor returns 0 for any amount it could not read, and plenty of
+  // supplier documents print only a total. Complete the three here so the row
+  // reaches the database whole — holes only, never overwriting a figure that WAS
+  // read off the document. The rate comes from the invoice's own date.
+  // The sign is re-applied below: completion works on magnitudes, and a credit
+  // note keeps its minus (the extractor is told to return negatives, and
+  // handleInvoiceFile force-negates a known credit note anyway).
+  const negative = Number(p.total_amount ?? 0) < 0
+                || Number(p.amount_before_vat ?? 0) < 0
+                || Number(p.vat_amount ?? 0) < 0;
+  const s = negative ? -1 : 1;
+  const filled = completeAmounts(
+    { net: p.amount_before_vat, vat: p.vat_amount, gross: p.total_amount },
+    vatRateFor(invoice_date),
+  );
+
   return {
     vendor_name:       String(p.vendor_name ?? ""),
     hp:                String(p.hp ?? ""),
     invoice_number:    String(p.invoice_number ?? ""),
-    invoice_date:      String(p.invoice_date ?? ""),
-    total_amount:      Number(p.total_amount ?? 0),
-    amount_before_vat: Number(p.amount_before_vat ?? 0),
-    vat_amount:        Number(p.vat_amount ?? 0),
+    invoice_date,
+    total_amount:      s * filled.gross,
+    amount_before_vat: s * filled.net,
+    vat_amount:        s * filled.vat,
     currency:          String(p.currency ?? "ILS"),
     category:          String(p.category ?? ""),
     line_items:        Array.isArray(p.line_items) ? p.line_items.map(String) : [],
@@ -2080,13 +2099,22 @@ async function extractDeliveryNote(
     }
   }
   const p = parsed as Record<string, unknown>;
+  const date = String(p.date ?? "");
+
+  // Same three-amount completion as extractInvoice — a delivery note that prints
+  // only a total still lands with net and VAT filled. Holes only.
+  const filled = completeAmounts(
+    { net: p.amount_before_vat, vat: p.vat_amount, gross: p.amount },
+    vatRateFor(date),
+  );
+
   return {
     vendor_name:       String(p.vendor_name ?? ""),
     note_number:       String(p.note_number ?? ""),
-    date:              String(p.date ?? ""),
-    amount:            Number(p.amount ?? 0),
-    amount_before_vat: Number(p.amount_before_vat ?? 0),
-    vat_amount:        Number(p.vat_amount ?? 0),
+    date,
+    amount:            filled.gross,
+    amount_before_vat: filled.net,
+    vat_amount:        filled.vat,
     line_items:        Array.isArray(p.line_items) ? p.line_items.map(String) : [],
   };
 }

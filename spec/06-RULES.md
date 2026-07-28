@@ -130,28 +130,103 @@ direction the balance will move.
 
 ## 3. VAT
 
-- VAT rate is **17%**.
+- VAT rate is **18%** as of **1.1.2025**. It was **17%** before that (from 1.10.2015).
 - Invoices/delivery notes carry `amount_before_vat`, `vat_amount`, `total_amount`. Where only the
-  total is known, derive the split with 17%.
+  total is known, derive the split with the rate above.
+
+### RULE — the rate is keyed on the INVOICE DATE, never on "today"
+
+The rate is set by law and changes on a date, so a single constant is always wrong for half the
+data: left at 17% it mis-splits today's invoices; bumped to 18% it retroactively mis-splits every
+invoice issued before 2025. The owner still back-enters and corrects older invoices, so **both
+directions matter.**
+
+`src/lib/vat.ts` holds the bands (newest first) and `vatRateFor(date)` returns the rate in force
+on that date. The invoice form derives its rate from `form.invoiceDate`, and the hint under the
+total shows which rate is being applied, so the number is never silently wrong.
+
+| Band | Rate |
+|---|---|
+| from `2025-01-01` | 18% |
+| `2015-10-01` – `2024-12-31` | 17% |
+
+A date that is empty, unparseable, or in a new invoice falls back to **today's** rate; a date
+older than the oldest band falls back to the oldest rate rather than throwing. **When the rate
+changes again, add one row at the top of `VAT_BANDS` — nothing else changes.**
+
+**Two copies, one rule.** The frontend is bundled by Vite from `src/` and the edge functions run
+on Deno with `supabase/` excluded from the frontend build, so neither side can import the other.
+The band table therefore exists twice — `src/lib/vat.ts` and `supabase/functions/_shared/vat.ts` —
+as a deliberate mirror. **They must be changed together**, and a parity test compares them across
+160,000 cases.
+
+### RULE — all THREE amounts are ALWAYS filled
+
+An invoice carries `amount_before_vat`, `vat_amount` and `total_amount`. A supplier document
+rarely prints all three, and the AI extractor returns `0` for whatever it could not read — so rows
+used to arrive with holes. `completeAmounts()` closes them, in **two** places:
+
+1. **At ingest** (`extractInvoice` / `extractDeliveryNote`), so the row reaches the **database**
+   complete, not just the screen. This is what makes exports and reports whole.
+2. **When a row is opened** in the invoice form, which also repairs rows ingested before this rule.
+
+**Holes only.** A figure that WAS read off the document is never overwritten by a calculation —
+the document is the authority. Completion is therefore idempotent.
+
+| Known | Derivation |
+|---|---|
+| net + gross | `vat = gross − net` |
+| vat + gross | `net = gross − vat` |
+| net + vat | `gross = net + vat` |
+| gross only | `net = round₂(gross ÷ (1 + rate))`, then **`vat = gross − net`** |
+| net only | `vat = round₂(net × rate)`, then `gross = net + vat` |
+| vat only | `net = round₂(vat ÷ rate)`, then `gross = net + vat` |
+| nothing | all three `0` |
+
+Where **two** amounts are known the third is their exact difference or sum — the rate is not used
+at all, so a document that was billed at a non-standard or exempt rate is reproduced faithfully.
+**A zero VAT is a legitimate value** (exempt / foreign supplier): net = gross yields `vat = 0`
+rather than an invented VAT.
+
+Completion works on **magnitudes**; the credit/charge sign is owned by §2c (`applyCreditSign` in
+the frontend, `-Math.abs` in ingest), so filling amounts can never flip a credit note into a charge.
 
 ### RULE — the amount fields are edited in BOTH directions
 
-The invoice form lets the manager type **either** the net **or** the gross, because the number
-printed on a supplier document is sometimes one and sometimes the other.
+The invoice form lets the manager type **any one** of the three, because the number printed on a
+supplier document is sometimes the net, sometimes the VAT and sometimes only the total. **The
+typed field is authoritative and is never overwritten**; the other two are recomputed from it.
 
 | Typed | Derivation |
 |---|---|
-| `amount_before_vat` | `vat = round(net × 0.17)`, then `total = net + vat` |
-| `vat_amount` | `total = net + vat` |
-| `total_amount` (gross) | `net = round(gross ÷ 1.17)`, then **`vat = gross − net`** |
+| `amount_before_vat` | `vat = round₂(net × rate)`, then `total = net + vat` |
+| `vat_amount` | `total = net + vat` — the **net is kept** (editing VAT means correcting it, not the net). With no net yet, `net = round₂(vat ÷ rate)`. |
+| `total_amount` (gross) | `net = round₂(gross ÷ (1 + rate))`, then **`vat = gross − net`** |
+
+`rate = vatRateFor(invoice_date)` — see the band table above.
 
 **The gross direction takes VAT as the REMAINDER, never as a second rounding.** Rounding both
-net and VAT independently lets `net + vat` land 1₪ away from the gross the supplier actually
-billed. Taking the remainder guarantees **`net + vat === gross` exactly**, and the rounding
-residue is absorbed into VAT. Verified across 20,000 consecutive gross values.
+net and VAT independently lets `net + vat` land away from the gross the supplier actually billed.
+Taking the remainder guarantees **`net + vat === gross` exactly**, and the rounding residue is
+absorbed into VAT.
 
 Every amount edit re-stamps the row's existing credit/charge sign (see §2c) — so an amount edit
 can never flip a credit note into a charge.
+
+### RULE — amounts are calculated to the AGORA (2 decimals)
+
+Every derivation rounds with `round₂` = `Math.round(n × 100) / 100`. Israeli invoices are billed
+to the agora, so rounding to whole shekels would discard real money on every split. The `×100 / ÷100`
+also pins the binary-float dust (`0.1 + 0.2 = 0.30000000000000004`) that would otherwise accumulate
+through the chained derivations.
+
+- The three form inputs use `step="0.01"`.
+- The "net + VAT ≠ total" warning fires above **half an agora** (`0.005`), so it flags a genuine
+  inconsistency in the document and never a rounding artefact.
+- Display shows agorot when there are any, and does **not** pad a whole-shekel total with `.00`.
+
+Verified: across ~342,000 derived values at both rates, every result is exactly 2 decimals and
+`net + vat === gross` to the agora.
 
 ---
 
