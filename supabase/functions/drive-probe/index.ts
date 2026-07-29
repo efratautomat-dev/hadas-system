@@ -17,8 +17,17 @@ async function getGoogleAccessToken(): Promise<string> {
   return data.access_token;
 }
 
+// The Drive file fields this probe requests and reads.
+interface DriveFile {
+  id:            string;
+  name?:         string;
+  mimeType?:     string;
+  size?:         string;
+  modifiedTime?: string;
+}
+
 async function listChildren(token: string, parentId: string) {
-  const out: any[] = [];
+  const out: DriveFile[] = [];
   let pageToken: string | undefined;
   do {
     const url = new URL("https://www.googleapis.com/drive/v3/files");
@@ -36,7 +45,7 @@ async function listChildren(token: string, parentId: string) {
   return out;
 }
 
-const isFolder = (f: any) => f.mimeType === "application/vnd.google-apps.folder";
+const isFolder = (f: DriveFile) => f.mimeType === "application/vnd.google-apps.folder";
 
 async function findChild(token: string, parentId: string, name: string) {
   const kids = await listChildren(token, parentId);
@@ -71,7 +80,7 @@ Deno.serve(async (req) => {
     const sourceParam = url.searchParams.get("source") || "";
     const targetParam = url.searchParams.get("target") || "";
     const idParam = url.searchParams.get("id") || "";
-    const out: any = {};
+    const out: Record<string, unknown> = {};
 
     if (idParam) {
       // dump a folder directly by Drive id (sidesteps slash-in-name folders)

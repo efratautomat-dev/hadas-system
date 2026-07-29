@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
-import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, X, LayoutGrid, Table2, AlertTriangle, GitMerge, ArrowRightLeft } from 'lucide-react'
+import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, ChevronRight, X, LayoutGrid, Table2, AlertTriangle, GitMerge, ArrowRightLeft } from 'lucide-react'
 import { useSuppliers, type MergePreview, type MergeResult } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
 import { STATUS } from '../theme/status'
 import SupplierDetail, { type Supplier } from './SupplierDetail'
 import { Button } from './ui/Button'
 import { SummaryCards } from './ui/SummaryCards'
+// Same primitives as the categories form in Settings — shared, not copied.
+import { SectionCard, Field, FieldRow, TextInput, Select, Textarea } from './ui/form'
 
 // Active/inactive uses the FIXED functional tokens (green = active, gray = inactive),
 // never the brand palette — so the state reads the same after any reskin.
@@ -128,51 +130,13 @@ const emptyForm: EditFormState = {
   notes: '',
 }
 
-const inputBase: React.CSSProperties = {
-  height: '44px', padding: '0 14px', fontSize: '16px',
-  outline: 'none', border: '1px solid #DEDFE5', borderRadius: '12px',
-  background: 'white', width: '100%', color: '#1F2937', boxSizing: 'border-box',
-}
-
-const textareaBase: React.CSSProperties = {
-  padding: '12px 14px', fontSize: '16px',
-  outline: 'none', border: '1px solid #EEEEF2', borderRadius: '12px',
-  background: 'white', width: '100%', color: '#1F2937',
-  resize: 'vertical', minHeight: '80px', boxSizing: 'border-box',
-}
-
-function focusBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = 'var(--brand-primary)'
-}
-function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) {
-  (e.target as HTMLElement).style.borderColor = '#DEDFE5'
-}
-
-function FormField({
-  label, required, children,
-}: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>
-        {label}
-        {required && <span style={{ color: 'var(--brand-primary)' }}> *</span>}
-      </p>
-      {children}
-    </div>
-  )
-}
-
-function GroupHeader({ title }: { title: string }) {
-  return (
-    <div className="flex items-center gap-3 mb-3">
-      <div className="flex-1 h-px" style={{ background: '#EEEEF2' }} />
-      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--brand-primary)', whiteSpace: 'nowrap', letterSpacing: '0.05em' }}>
-        {title}
-      </span>
-    </div>
-  )
-}
-
+// The supplier form — a CENTERED COLUMN, built from the same SectionCard /
+// Field / TextInput primitives as the categories screen in Settings (they now
+// live in ui/form.tsx and are shared, not copied). It used to render inside a
+// grid cell in card view, which squeezed ten fields into a third of the screen.
+//
+// The caller renders it on its OWN page (see SupplierFormPage) so the column is
+// genuinely centred rather than wedged between supplier cards.
 function SupplierFormCard({
   title, form, onChange, onSave, onCancel,
 }: {
@@ -192,193 +156,125 @@ function SupplierFormCard({
   const base = managed.length ? managed : CATEGORIES
   const catOptions = form.category && !base.includes(form.category) ? [form.category, ...base] : base
 
+  const upd = <K extends keyof EditFormState>(key: K) => (v: EditFormState[K]) =>
+    onChange({ ...form, [key]: v })
+
   return (
-    <div className="bg-white rounded-2xl flex flex-col" style={{ border: '1px solid #EEEEF2' }}>
-      <div className="p-5 flex flex-col gap-5">
+    <div className="space-y-5" style={{ direction: 'rtl' }}>
 
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <button
-            onClick={onCancel}
-            className="text-gray-400 transition-colors rounded-lg p-1"
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = '#6B7280')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '')}
-          >
-            <X className="w-4 h-4" />
-          </button>
-          <h3 className="font-semibold text-right" style={{ fontSize: '16px', color: '#1A1A2E' }}>{title}</h3>
+      {/* Page title. No close button here — SupplierFormPage already carries the
+          single "back to the list" affordance, and two of them read as clutter. */}
+      <h2 className="font-bold text-gray-800" style={{ fontSize: '22px' }}>{title}</h2>
+
+      <SectionCard title="פרטי זיהוי">
+        <div className="space-y-4">
+          <Field label="שם ספק" required>
+            <TextInput value={form.name} onChange={upd('name')} placeholder="שם הספק" />
+          </Field>
+          <FieldRow>
+            <Field label="ח.פ / ע.מ">
+              <TextInput value={form.hp} onChange={upd('hp')} placeholder="000000000" dir="ltr" />
+            </Field>
+            <Field label="קטגוריה">
+              <Select value={form.category} onChange={upd('category')} options={catOptions} />
+            </Field>
+          </FieldRow>
         </div>
+      </SectionCard>
 
-        {/* ── קבוצה 1: פרטי זיהוי ── */}
-        <div>
-          <GroupHeader title="פרטי זיהוי" />
-          <div className="flex flex-col gap-3">
-            <FormField label="שם ספק" required>
-              <input
-                value={form.name}
-                onChange={(e) => onChange({ ...form, name: e.target.value })}
-                placeholder="שם הספק"
-                className="text-right placeholder-gray-300"
-                style={inputBase}
-                onFocus={focusBorder}
-                onBlur={blurBorder}
-              />
-            </FormField>
-
-            <FormField label="ח.פ / ע.מ">
-              <input
-                value={form.hp}
-                onChange={(e) => onChange({ ...form, hp: e.target.value })}
-                placeholder="000000000"
-                dir="ltr"
-                className="text-left placeholder-gray-300"
-                style={inputBase}
-                onFocus={focusBorder}
-                onBlur={blurBorder}
-              />
-            </FormField>
-
-            <FormField label="קטגוריה">
-              <select
-                value={form.category}
-                onChange={(e) => onChange({ ...form, category: e.target.value })}
-                style={{ ...inputBase, direction: 'rtl', cursor: 'pointer' }}
-                onFocus={focusBorder}
-                onBlur={blurBorder}
-              >
-                {catOptions.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </FormField>
-          </div>
+      <SectionCard title="פרטי קשר">
+        <div className="space-y-4">
+          <Field label="שם איש קשר">
+            <TextInput value={form.contact} onChange={upd('contact')} placeholder="שם מלא" />
+          </Field>
+          <FieldRow>
+            <Field label="מייל">
+              <TextInput type="email" value={form.email} onChange={upd('email')} placeholder="name@company.co.il" dir="ltr" />
+            </Field>
+            <Field label="טלפון">
+              <TextInput value={form.phone} onChange={upd('phone')} placeholder="0X-XXXXXXX" dir="ltr" />
+            </Field>
+          </FieldRow>
         </div>
+      </SectionCard>
 
-        {/* ── קבוצה 2: פרטי קשר ── */}
-        <div>
-          <GroupHeader title="פרטי קשר" />
-          <div className="flex flex-col gap-3">
-            <FormField label="שם איש קשר">
-              <input
-                value={form.contact}
-                onChange={(e) => onChange({ ...form, contact: e.target.value })}
-                placeholder="שם מלא"
-                className="text-right placeholder-gray-300"
-                style={inputBase}
-                onFocus={focusBorder}
-                onBlur={blurBorder}
-              />
-            </FormField>
-
-            <FormField label="מייל">
-              <input
-                type="email"
-                value={form.email}
-                onChange={(e) => onChange({ ...form, email: e.target.value })}
-                placeholder="name@company.co.il"
-                dir="ltr"
-                className="text-left placeholder-gray-300"
-                style={inputBase}
-                onFocus={focusBorder}
-                onBlur={blurBorder}
-              />
-            </FormField>
-
-            <FormField label="טלפון">
-              <input
-                value={form.phone}
-                onChange={(e) => onChange({ ...form, phone: e.target.value })}
-                placeholder="0X-XXXXXXX"
-                dir="ltr"
-                className="text-left placeholder-gray-300"
-                style={inputBase}
-                onFocus={focusBorder}
-                onBlur={blurBorder}
-              />
-            </FormField>
-          </div>
-        </div>
-
-        {/* ── קבוצה 3: כספי ── */}
-        <div>
-          <GroupHeader title="כספי" />
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="יתרת פתיחה">
-              <input
-                type="number"
-                value={form.openingBalance}
-                onChange={(e) => onChange({ ...form, openingBalance: e.target.value })}
-                placeholder="0"
-                dir="ltr"
-                className="text-left placeholder-gray-300"
-                style={inputBase}
-                onFocus={focusBorder}
-                onBlur={blurBorder}
-              />
-            </FormField>
-            <FormField label="תאריך יתרת פתיחה">
-              <input
-                type="date"
-                value={form.openingBalanceDate}
-                onChange={(e) => onChange({ ...form, openingBalanceDate: e.target.value })}
-                style={{ ...inputBase, direction: 'ltr' }}
-                onFocus={focusBorder}
-                onBlur={blurBorder}
-              />
-            </FormField>
-          </div>
+      <SectionCard title="כספי">
+        <div className="space-y-4">
+          <FieldRow>
+            <Field label="יתרת פתיחה">
+              <TextInput type="number" step="0.01" value={form.openingBalance} onChange={upd('openingBalance')} placeholder="0" dir="ltr" />
+            </Field>
+            <Field label="תאריך יתרת פתיחה">
+              <TextInput type="date" value={form.openingBalanceDate} onChange={upd('openingBalanceDate')} dir="ltr" />
+            </Field>
+          </FieldRow>
           {/* "בהסדר תשלום": excludes the supplier from balance tracking (balance → 0,
               invoices shown as paid). Display-only — no invoice/payment data is changed. */}
           <label
-            className="flex items-center gap-2.5 mt-3 cursor-pointer text-right"
-            style={{ fontSize: '14px', color: '#1F2937' }}
+            className="flex items-start gap-2.5 cursor-pointer text-right rounded-xl p-3.5"
+            style={{ fontSize: '14px', color: '#1F2937', background: '#F8F9FA' }}
           >
             <input
               type="checkbox"
               checked={form.paymentArrangement}
-              onChange={(e) => onChange({ ...form, paymentArrangement: e.target.checked })}
-              style={{ width: '18px', height: '18px', accentColor: 'var(--brand-primary)', cursor: 'pointer' }}
+              onChange={(e) => upd('paymentArrangement')(e.target.checked)}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--brand-primary)', cursor: 'pointer', marginTop: '2px', flexShrink: 0 }}
             />
-            <span>ספק בהסדר תשלום <span className="text-gray-400" style={{ fontSize: '12px' }}>(מוחרג ממעקב יתרה — היתרה תוצג 0 והחשבוניות כמשולמות)</span></span>
+            <span>
+              ספק בהסדר תשלום
+              <span className="block text-gray-400 mt-0.5" style={{ fontSize: '12px' }}>
+                מוחרג ממעקב יתרה — היתרה תוצג 0 והחשבוניות כמשולמות
+              </span>
+            </span>
           </label>
         </div>
+      </SectionCard>
 
-        {/* ── קבוצה 4: כללי ── */}
-        <div>
-          <GroupHeader title="כללי" />
-          <FormField label="הערות">
-            <textarea
-              value={form.notes}
-              onChange={(e) => onChange({ ...form, notes: e.target.value })}
-              placeholder="הערות נוספות..."
-              className="text-right placeholder-gray-300"
-              style={textareaBase}
-              onFocus={focusBorder}
-              onBlur={blurBorder}
-            />
-          </FormField>
-        </div>
-      </div>
+      <SectionCard title="כללי">
+        <Field label="הערות">
+          <Textarea value={form.notes} onChange={upd('notes')} placeholder="הערות נוספות..." rows={4} />
+        </Field>
+      </SectionCard>
 
       {/* Save / Cancel */}
-      <div className="flex gap-2 px-5 pb-5">
-        <Button
-          type="button"
-          variant="primary"
-          onClick={onSave}
-          disabled={!canSave}
-          className="flex-1"
-        >
+      <div className="flex gap-3 pb-2">
+        <Button type="button" variant="primary" onClick={onSave} disabled={!canSave} className="flex-1">
           שמור
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={onCancel}
-          className="flex-1"
-        >
+        <Button type="button" variant="ghost" onClick={onCancel} className="flex-1">
           ביטול
         </Button>
+      </div>
+    </div>
+  )
+}
+
+// A CLEAN PAGE for the form — it replaces the supplier list entirely rather than
+// floating over it. An earlier version dimmed the list behind a scrim; the list
+// showing through was noise, and the scrim read as a heavy modal for what is a
+// full editing task. Nothing behind, nothing dimmed: just the form, centred.
+function SupplierFormPage({ children, onCancel }: { children: React.ReactNode; onCancel: () => void }) {
+  // Esc leaves the page, matching every other dismissible surface in the app.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onCancel])
+
+  return (
+    <div style={{ direction: 'rtl' }}>
+      <button
+        onClick={onCancel}
+        className="flex items-center gap-1.5 font-semibold transition-colors mb-5"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', fontSize: '14px', padding: 0 }}
+        onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--brand-primary)')}
+        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = '#6B7280')}
+      >
+        <ChevronRight className="w-4 h-4" />
+        חזרה לרשימת הספקים
+      </button>
+      <div className="mx-auto" style={{ maxWidth: '660px' }}>
+        {children}
       </div>
     </div>
   )
@@ -593,6 +489,39 @@ export default function Suppliers({
 
   const saveAdd = () => { if (addForm.name.trim()) void doCreate(addForm, false) }
 
+  // ── Add / edit form — its OWN page ────────────────────────────────────────
+  // Returns before the list is built, exactly like the detail view below, so the
+  // form gets a clean screen instead of floating over a dimmed list. The list's
+  // search, filters and view mode are plain state and survive untouched, so
+  // cancelling lands back where the user left off.
+  // The duplicate prompt is a genuine modal and takes precedence over the page.
+  if ((showAdd || (editingId && editForm)) && !dupPrompt) {
+    const cancel = showAdd
+      ? () => { setShowAdd(false); if (prefillForAlert) onCancelAlertPrefill?.() }
+      : () => { setEditingId(null); setEditForm(null) }
+    return (
+      <SupplierFormPage onCancel={cancel}>
+        {showAdd ? (
+          <SupplierFormCard
+            title="ספק חדש"
+            form={addForm}
+            onChange={setAddForm}
+            onSave={saveAdd}
+            onCancel={cancel}
+          />
+        ) : (
+          <SupplierFormCard
+            title={`עריכת ${suppliers.find((s) => s.id === editingId)?.name ?? 'ספק'}`}
+            form={editForm!}
+            onChange={(f) => setEditForm(f)}
+            onSave={saveEdit}
+            onCancel={cancel}
+          />
+        )}
+      </SupplierFormPage>
+    )
+  }
+
   // "צור בכל זאת" — force a new supplier despite the match.
   const createAnyway = () => { if (dupPrompt) void doCreate(dupPrompt.form, true) }
 
@@ -660,7 +589,6 @@ export default function Suppliers({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="text-right">
-          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>ספקים</h1>
           <p className="text-gray-500 mt-0.5" style={{ fontSize: isTablet ? '16px' : '14px' }}>
             {suppliers.length} ספקים במערכת
           </p>
@@ -744,38 +672,19 @@ export default function Suppliers({
         </div>
       </div>
 
-      {/* List — empty state, else the chosen view */}
-      {filtered.length === 0 && !showAdd && !editingId ? (
+      {/* List — empty state, else the chosen view. The add/edit form is no longer
+          part of either view: it opens as a centred column OVER the list (see the
+          overlay at the end of this component), so both views stay intact. */}
+      {filtered.length === 0 ? (
         <div className="py-16 text-center text-gray-400">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p style={{ fontSize: '16px' }}>לא נמצאו ספקים</p>
         </div>
       ) : view === 'cards' ? (
 
-        /* ─────────── CARD VIEW (add/edit forms render inline in the grid) ─────────── */
+        /* ─────────── CARD VIEW ─────────── */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {showAdd && (
-            <SupplierFormCard
-              title="ספק חדש"
-              form={addForm}
-              onChange={setAddForm}
-              onSave={saveAdd}
-              onCancel={() => { setShowAdd(false); if (prefillForAlert) onCancelAlertPrefill?.() }}
-            />
-          )}
           {filtered.map((sup) => {
-            if (editingId === sup.id && editForm) {
-              return (
-                <SupplierFormCard
-                  key={sup.id}
-                  title={`עריכת ${sup.name}`}
-                  form={editForm}
-                  onChange={(f) => setEditForm(f)}
-                  onSave={saveEdit}
-                  onCancel={() => { setEditingId(null); setEditForm(null) }}
-                />
-              )
-            }
             const contactLine = [sup.contact, sup.phone].filter(Boolean).join(' · ') || '—'
             return (
               <div
@@ -847,30 +756,8 @@ export default function Suppliers({
 
       ) : (
 
-        /* ─────────── TABLE VIEW (add/edit forms render above the table) ─────────── */
+        /* ─────────── TABLE VIEW ─────────── */
         <div className="space-y-4">
-          {showAdd && (
-            <div style={{ maxWidth: '560px' }}>
-              <SupplierFormCard
-                title="ספק חדש"
-                form={addForm}
-                onChange={setAddForm}
-                onSave={saveAdd}
-                onCancel={() => { setShowAdd(false); if (prefillForAlert) onCancelAlertPrefill?.() }}
-              />
-            </div>
-          )}
-          {editingId && editForm && (
-            <div style={{ maxWidth: '560px' }}>
-              <SupplierFormCard
-                title={`עריכת ${suppliers.find((s) => s.id === editingId)?.name ?? 'ספק'}`}
-                form={editForm}
-                onChange={(f) => setEditForm(f)}
-                onSave={saveEdit}
-                onCancel={() => { setEditingId(null); setEditForm(null) }}
-              />
-            </div>
-          )}
           <div className="bg-white overflow-x-auto" style={{ border: '1px solid #EEEEF2', borderRadius: '16px', boxShadow: '0 1px 2px rgba(16,17,21,.04), 0 4px 16px rgba(16,17,21,.05)' }}>
             <div style={{ minWidth: '640px' }}>
               {/* header */}

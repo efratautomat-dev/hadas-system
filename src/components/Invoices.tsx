@@ -15,6 +15,7 @@ import { STATUS } from '../theme/status'
 import { STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING, deriveInvoiceStatus } from '../lib/invoiceStatus'
 import { isCreditInvoice, applyCreditSign, convertInvoice } from '../lib/creditNote'
 import { vatRateFor, vatPercentFor, completeAmounts, type EditedAmount } from '../lib/vat'
+import { useDateField } from './ui/form'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -145,17 +146,22 @@ function TInput({
   step?: string
 }) {
   const f = useFocus()
+  // Empty date fields show OUR day-first DD/MM/YYYY instead of the browser's
+  // localised placeholder (Hebrew Chrome renders the month as מ"מ). See useDateField.
+  const d = useDateField(value)
+  const isDate = type === 'date'
   return (
     <div>
       <Lbl t={label} />
       <input
-        type={type}
+        {...(isDate ? d : {})}
+        type={isDate ? d.type : type}
         step={step}
         value={value}
         onChange={e => onChange?.(e.target.value)}
         readOnly={readOnly}
-        onFocus={f.onFocus}
-        onBlur={f.onBlur}
+        onFocus={() => { if (isDate) d.onFocus(); f.onFocus() }}
+        onBlur={() => { if (isDate) d.onBlur(); f.onBlur() }}
         style={{ ...BASE, borderColor: f.on && !readOnly ? 'var(--brand-primary)' : '#DEDFE5', background: readOnly ? '#F8F8FA' : 'white' }}
       />
     </div>
@@ -169,9 +175,10 @@ function TSelect({
   options: string[] | { value: string; label: string }[]
 }) {
   const f = useFocus()
-  const opts = (options as any[]).map((o: any) =>
-    typeof o === 'string' ? { value: o, label: o } : o
-  )
+  // `options` is a union of two ARRAY types, which .map() cannot narrow on its
+  // own — widen to an array of the union ELEMENT instead, which needs no `any`.
+  const opts = (options as readonly (string | { value: string; label: string })[])
+    .map(o => (typeof o === 'string' ? { value: o, label: o } : o))
   return (
     <div>
       <Lbl t={label} />
@@ -424,7 +431,9 @@ export function InvoiceDetail({
   // `prev`: the sign is owned solely by the "סמן כזיכוי" action below, so typing a
   // minus into a field is a no-op and can never flip a credit note into a charge.
   // applyCreditSign is idempotent, so running it on every keystroke is safe.
-  const set = (field: keyof Invoice) => (value: any) => {
+  // Every caller is a field control: the text/number/date/select/link inputs hand
+  // back a string, the checkboxes a boolean. Nothing else reaches this.
+  const set = (field: keyof Invoice) => (value: string | boolean) => {
     setForm(prev => {
       const next = { ...prev, [field]: value }
 
@@ -456,8 +465,10 @@ export function InvoiceDetail({
       background: '#F3F4F6', border: '1.5px solid #DEDFE5', borderRadius: '14px',
       overflow: 'hidden', display: 'flex', flexDirection: 'column',
       ...(isWide
-        ? { flex: '1 1 46%', position: 'sticky' as const, top: '12px', height: 'calc(100vh - 150px)' }
-        : { width: '100%', height: '46vh', marginBottom: '14px' }),
+        // A true HALF of the screen for the scan, and taller: the owner reads the
+        // document while typing, so this pane is the working surface.
+        ? { flex: '1 1 50%', position: 'sticky' as const, top: '8px', height: 'calc(100vh - 96px)' }
+        : { width: '100%', height: '60vh', marginBottom: '14px' }),
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -515,8 +526,10 @@ export function InvoiceDetail({
     </div>
   )
 
+  // Near-full width on a wide screen: the old 1480px cap left a broad empty
+  // margin on either side while the document pane stayed small.
   return (
-    <div dir="rtl" style={{ maxWidth: isWide ? '1480px' : '800px', margin: '0 auto' }}>
+    <div dir="rtl" style={{ maxWidth: isWide ? '100%' : '800px', margin: '0 auto' }}>
 
       {/* Low-confidence review banner — prominent, at the very top. Clears the
           red list border once the manager confirms the invoice was checked. */}
@@ -611,7 +624,7 @@ export function InvoiceDetail({
 
       {/* Two panes: document (right, first in RTL source order) + fields (left). */}
       <div style={{
-        display: 'flex', gap: '16px', alignItems: 'flex-start',
+        display: 'flex', gap: '20px', alignItems: 'flex-start',
         flexDirection: isWide ? 'row' : 'column',
       }}>
 
@@ -620,7 +633,7 @@ export function InvoiceDetail({
       {/* Groups */}
       <div style={{
         display: 'flex', flexDirection: 'column', gap: '14px',
-        ...(isWide ? { flex: '1 1 54%', minWidth: 0 } : { width: '100%' }),
+        ...(isWide ? { flex: '1 1 50%', minWidth: 0 } : { width: '100%' }),
       }}>
 
         {/* 1 – פרטי חשבונית */}
@@ -1169,7 +1182,6 @@ export default function Invoices({
 
       {/* Header — same shape as Returns: text block, right-aligned */}
       <div className="text-right">
-        <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>חשבוניות</h1>
         <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>
           {invoices.length} חשבוניות במערכת
         </p>

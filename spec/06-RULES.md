@@ -312,3 +312,54 @@ arbitrary) and funnels **both** companies' invoices onto that one card. Name doe
 - **FUTURE:** consider a code change to `handleInvoiceFile` supporting **composite `hp`+`name`
   matching** (same `hp`, different name ⇒ different card). That would let the real `hp` be restored
   on both cards while keeping them separate.
+
+---
+
+## 8. Bizibox export — FILL the template, never imitate it
+
+**CONFIRMED (2026-07-29) by the owner's own experiment.** An export of 4 cheques +
+10 bank transfers imported only the 4 cheque rows. The identical rows pasted into a
+**freshly downloaded Bizibox template** imported in full. So the discriminator is the
+**WORKBOOK**, not the row values — and Bizibox revises its template over time, which
+is what makes a bundled copy go stale.
+
+Ruled out along the way, each by evidence rather than assumption:
+- **The type name.** Every Hebrew literal was dumped byte-for-byte: `העברה בנקאית`
+  is exactly 12 chars with a single `U+0020` in both the frontend and ingest. Clean.
+- **The אסמכתא column.** A transfer WITH a reference still failed.
+- **The date.** The transfers were future-dated.
+
+### The rules
+
+- The export **loads Bizibox's own template file and writes rows into it**
+  (`src/lib/bizboxWrite.ts`). It does **not** build a workbook from scratch.
+- The workbook is **never re-serialised**. ExcelJS's round-trip expands the
+  template's `dataValidation` ranges per cell and re-groups them into
+  **overlapping** ranges (`A2:A75` alongside `A10:A75`) — which Excel treats as
+  damaged content — and drops the template's drawings. The `.xlsx` is edited as
+  the zip of XML it is: **only `xl/worksheets/sheet1.xml` changes; the other 15
+  parts stay byte-identical.**
+- Rows are written **by header NAME**, in whatever order the template declares, so
+  a reordered or renamed column is fixed by uploading a new template alone.
+  Positional writing would silently put values in the wrong columns.
+- Written rows inherit the template's **per-cell styles** (column C carries a date
+  format) and the row's own attributes (`ht`, `customHeight`).
+- `<row>` elements are re-emitted in **ascending `r` order** — appending at the end
+  produces a file Excel reports as damaged.
+- Empty values still emit a **styled empty cell**, matching the template's shape.
+- Strings are written **inline** (`t="inlineStr"`), so `sharedStrings.xml` is never
+  touched and its existing indices cannot be corrupted.
+
+### Updating the template — Settings → ייצוא לביזיבוקס
+
+The template is read from **Storage first** (`branding/bizbox-template.xlsx`), and
+falls back to the copy bundled at `public/add_tazrim_template.xlsx`. The owner
+downloads a new template from Bizibox and uploads it there; the next export uses it.
+**No code change and no deploy.** The upload is **validated before it replaces**
+anything — an unreadable template would break the export on the day payments go out.
+
+> The template's own dropdowns declare closed vocabularies: `סוג_פעולה` is
+> `הוצאה,הכנסה` and `סוג_תשלום` is **`שיק,העברה בנקאית,אחר`** — note `שיק`, not
+> `צ'ק`. The app writes nine internal payment types, seven of which are outside
+> that list. Cheques import today regardless, so **this was NOT changed** — but it
+> is the first thing to look at if rows start failing again.

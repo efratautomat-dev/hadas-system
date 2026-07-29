@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
-import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge } from 'lucide-react'
+import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { usePayments } from '../hooks/usePayments'
+import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
+import { useReturns } from '../hooks/useReturns'
+import { useStatements } from '../hooks/useStatements'
 import { computeSupplierBalance, sumNonCancelledPayments } from '../lib/supplierBalance'
 import SectionHeader from './SectionHeader'
 import { Button } from './ui/Button'
@@ -66,8 +69,120 @@ const invoiceStatusStyle: Record<string, { bg: string; color: string }> = {
   'בטיפול': { bg: '#DBEAFE', color: '#1E40AF' },
 }
 
+// Returns carry a MIXED vocabulary — the UI writes אושר/בטיפול/נדחה while ingest
+// closes a matched return with הסתיים (see docs/07-OPEN-ISSUES). Both are live,
+// so every value is listed and anything unknown falls through to gray.
+const returnStatusStyle: Record<string, { background: string; color: string }> = {
+  'אושר':   { background: '#DCFCE7', color: '#166534' },
+  'הסתיים': { background: '#DCFCE7', color: '#166534' },
+  'נסגר':   { background: '#DCFCE7', color: '#166534' },
+  'בטיפול': { background: '#FEF9C3', color: '#A16207' },
+  'נדחה':   { background: '#FEE2E2', color: '#DC2626' },
+}
+
+const statementStatusStyle: Record<string, { background: string; color: string }> = {
+  matched:       { background: '#DCFCE7', color: '#166534' },
+  mismatch:      { background: '#FEE2E2', color: '#DC2626' },
+  pending:       { background: '#DBEAFE', color: '#1E40AF' },
+  investigating: { background: '#FEF9C3', color: '#A16207' },
+  needs_review:  { background: '#FEF9C3', color: '#A16207' },
+}
+
+const STATEMENT_STATUS_HE: Record<string, string> = {
+  matched: 'תואם', mismatch: 'אי-התאמה', pending: 'חדש',
+  investigating: 'בבדיקה', needs_review: 'בבדיקה',
+}
+
 function formatILS(n: number | null | undefined) {
   return '₪' + (n ?? 0).toLocaleString('he-IL')
+}
+
+// ── Section cards ───────────────────────────────────────────────────────────
+
+type TabKey = 'ledger' | 'invoices' | 'notes' | 'returns' | 'payments' | 'statements'
+
+// One summary card. Clicking it opens that section in the panel below; the
+// selected card carries the brand border + tint so the connection is obvious.
+function TabCard({
+  label, Icon, value, sub, selected, onClick, alerts = 0,
+}: {
+  label: string
+  Icon: typeof FileText
+  /** The headline figure — a count, or a sum for the ledger. */
+  value: string
+  sub?: string
+  selected: boolean
+  onClick: () => void
+  /** Rows needing attention; surfaced as a red badge on the card. */
+  alerts?: number
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      onClick={onClick}
+      className="bg-white rounded-2xl text-right transition-all relative"
+      style={{
+        border: `1.5px solid ${selected ? 'var(--brand-primary)' : '#E2E4E9'}`,
+        background: selected ? 'var(--brand-active-bg)' : 'white',
+        padding: '14px 16px',
+        // Touch target — the supplier screen is used on tablet (04-DESIGN).
+        minHeight: '76px',
+        cursor: 'pointer',
+        boxShadow: selected ? 'none' : '0 1px 2px rgba(16,17,21,.04)',
+      }}
+      onMouseEnter={(e) => { if (!selected) (e.currentTarget as HTMLElement).style.background = '#FAFAFC' }}
+      onMouseLeave={(e) => { if (!selected) (e.currentTarget as HTMLElement).style.background = 'white' }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <Icon className="w-4 h-4" style={{ color: selected ? 'var(--brand-primary)' : '#9CA3AF' }} />
+        <span
+          className="font-semibold truncate"
+          style={{ fontSize: '13px', color: selected ? 'var(--brand-primary)' : '#6B7280' }}
+        >
+          {label}
+        </span>
+      </div>
+      <p className="font-black mt-1" style={{ fontSize: '19px', color: selected ? 'var(--brand-primary)' : '#1F2937' }}>
+        {value}
+      </p>
+      {sub && <p className="text-gray-400" style={{ fontSize: '11px' }}>{sub}</p>}
+      {alerts > 0 && (
+        <span
+          className="absolute rounded-full font-bold flex items-center justify-center"
+          title={`${alerts} דורשות טיפול`}
+          style={{ top: '8px', insetInlineStart: '8px', minWidth: '20px', height: '20px', padding: '0 6px', background: '#FEE2E2', color: '#DC2626', fontSize: '11px' }}
+        >
+          {alerts}
+        </span>
+      )}
+    </button>
+  )
+}
+
+// The white shell every section panel sits in — matches the employee view.
+function Panel({ title, Icon, action, children }: {
+  title: string
+  Icon: typeof FileText
+  action?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
+      <SectionHeader
+        className="px-5 py-4 border-b"
+        style={{ borderColor: '#E2E4E9' }}
+        title={<><h2 className="font-bold text-gray-800">{title}</h2><Icon className="w-4 h-4 text-gray-400" /></>}
+        action={action}
+      />
+      {children}
+    </div>
+  )
+}
+
+function EmptyPanel({ text }: { text: string }) {
+  return <p className="text-center text-gray-400 py-10" style={{ fontSize: '15px' }}>{text}</p>
 }
 
 function parseDate(d: string) {
@@ -90,13 +205,27 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
+  // Which section is open. The manager sees the same card-per-section layout the
+  // employees already get, plus כרטסת and התאמת כרטסת. Cards sit on top and the
+  // chosen section renders full width beneath them — these tables are wide
+  // (תאריך·סוג·אסמכתא·חובה·זכות·יתרה) and a half-screen pane would force
+  // horizontal scrolling, especially on tablet.
+  const [tab, setTab] = useState<TabKey>('ledger')
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
+  const { data: allNotes } = useDeliveryNotes()
+  const { data: allReturns } = useReturns()
+  const { data: allStatements } = useStatements()
 
-  // Link invoices/payments to this supplier by SUPPLIER_ID, not by name
+  // Everything links to this supplier by SUPPLIER_ID, not by name
   // (spec/06-RULES.md §2b). Cancelled payments are excluded from the balance.
   const invoices = allInvoices.filter((inv) => inv.supplierId === supplier.id)
   const payments = allPayments.filter((pay) => pay.supplier_id === supplier.id && pay.status !== 'cancelled')
+  const notes      = allNotes.filter((n) => n.supplierId === supplier.id)
+  const returns    = allReturns.filter((r) => r.supplierId === supplier.id)
+  const statements = allStatements.filter((s) => s.supplier_id === supplier.id)
+  // Statements needing attention drive the warning badge on the card.
+  const statementAlerts = statements.filter((s) => s.status === 'mismatch' || s.status === 'needs_review').length
 
   const openingBalance = Number(supplier.openingBalance ?? 0)
   const totalInvoiced = invoices.reduce((s, i) => s + i.amount, 0)
@@ -246,121 +375,104 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
         </div>
       </div>
 
-      {/* ── פרטי קשר ── */}
-      <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-        {/* Card header — title pinned to the RIGHT (natural RTL flex flow).
-            justify-end was the bug: in RTL, flex "end" = left side. */}
-        <div
-          className="flex items-center gap-2 border-b"
-          style={{ padding: '14px 24px', borderColor: '#E2E4E9', background: '#FDFAFA' }}
-        >
-          <h2 className="font-bold text-gray-800" style={{ fontSize: fs('16px', '15px') }}>פרטי קשר</h2>
-          <User className="w-4 h-4 text-gray-400" />
+      {/* ── Details + money, in TWO compact strips ────────────────────────
+          This used to be ~700px of chrome before the section cards: a
+          six-row contact card, four identity cards (with קטגוריה duplicated
+          between them) and four large money cards. The six section cards —
+          the thing this screen exists for — started below the fold.
+          Borrowed from the employee view: say it once, say it tightly. */}
+      <div className="bg-white rounded-2xl shadow-sm border" style={{ borderColor: '#E2E4E9', padding: '14px 18px' }}>
+        <div className="flex flex-wrap items-center" style={{ gap: '8px 26px' }}>
+          {[
+            { Icon: Hash,          label: 'ח.פ / ע.מ',   value: supplier.hp ?? '' },
+            { Icon: Tag,           label: 'קטגוריה',      value: supplier.category },
+            { Icon: User,          label: 'איש קשר',      value: supplier.contact },
+            { Icon: Phone,         label: 'טלפון',         value: supplier.phone },
+            { Icon: Mail,          label: 'מייל',          value: supplier.email ?? '' },
+            { Icon: CreditCard,    label: 'תנאי תשלום',   value: supplier.paymentTerms },
+          ].filter(f => (f.value ?? '').toString().trim()).map(({ Icon, label, value }) => (
+            <span key={label} className="inline-flex items-center gap-2" style={{ minWidth: 0 }}>
+              <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#9CA3AF' }} />
+              <span style={{ fontSize: '12px', color: '#9CA3AF' }}>{label}</span>
+              <span className="font-semibold truncate" style={{ fontSize: '14px', color: '#1F2937' }} title={String(value)}>
+                {value}
+              </span>
+            </span>
+          ))}
+          <span className="inline-flex items-center gap-2">
+            <span style={{ fontSize: '12px', color: '#9CA3AF' }}>מזהה</span>
+            <span className="font-semibold" style={{ fontSize: '13px', color: '#9CA3AF' }}>{supplier.id}</span>
+          </span>
         </div>
+        {/* Notes only when there ARE notes — an empty labelled row is pure noise. */}
+        {supplier.notes?.trim() && (
+          <div className="flex items-start gap-2 mt-3 pt-3" style={{ borderTop: '1px solid #F1F2F4' }}>
+            <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#9CA3AF', marginTop: '3px' }} />
+            <span className="text-right" style={{ fontSize: '13px', color: '#4B5563', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+              {supplier.notes}
+            </span>
+          </div>
+        )}
+      </div>
 
-        {/* Field rows — 3-column grid (icon | label | value) so icons,
-            labels and values line up vertically across rows.
-            In RTL, col 1 sits at the right edge; col 3 holds the value. */}
+      {/* Money — one strip, not four big cards. The current balance keeps the
+          emphasis; the opening balance rides along instead of on its own line. */}
+      <div
+        className="bg-white rounded-2xl shadow-sm border grid grid-cols-2 lg:grid-cols-4"
+        style={{ borderColor: '#E2E4E9', overflow: 'hidden' }}
+      >
         {[
-          { Icon: User,  label: 'שם איש קשר', value: supplier.contact     },
-          { Icon: Phone, label: 'טלפון',       value: supplier.phone       },
-          { Icon: Mail,  label: 'מייל',         value: supplier.email ?? '' },
-          { Icon: Hash,  label: 'ח.פ / ע.מ',  value: supplier.hp    ?? '' },
-          { Icon: Tag,   label: 'קטגוריה',     value: supplier.category    },
-        ].map(({ Icon, label, value }, i) => (
-          // Forced LTR container so flex ordering is immune to inherited direction:
-          // value sits on the LEFT, label + icon group on the RIGHT. Text spans
-          // restore rtl so Hebrew/labels read correctly.
+          { label: 'סה"כ חשבוניות', value: formatILS(totalInvoiced),  sub: '',                                                     color: '#1F2937' },
+          { label: 'שולם',          value: formatILS(paidAmount),      sub: '',                                                     color: '#166534' },
+          { label: 'ממתין לתשלום', value: formatILS(pendingAmount),    sub: '',                                                     color: '#A16207' },
+          { label: 'יתרה עדכנית',  value: formatILS(currentBalance),  sub: `נכון ל־${todayStr} · פתיחה ${formatILS(openingBalance)}`, color: 'var(--brand-primary)' },
+        ].map(({ label, value, sub, color }, i) => (
           <div
             key={label}
-            style={{
-              direction: 'ltr',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '14px 24px',
-              minHeight: '52px',
-              borderTop: i > 0 ? '1px solid #E2E4E9' : undefined,
-            }}
+            className="text-center"
+            style={{ padding: '12px 10px', borderInlineStart: i > 0 ? '1px solid #F1F2F4' : undefined }}
           >
-            {/* LEFT: value */}
-            <span style={{ flex: 1, minWidth: 0, textAlign: 'left', direction: 'rtl', fontSize: fs('15px', '14px'), color: '#1F2937', fontWeight: 500 }}>
-              {value}
-            </span>
-            {/* RIGHT: label + icon */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-              <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF' }}>{label}</span>
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#F8F9FA' }}>
-                <Icon className="w-3.5 h-3.5" style={{ color: 'var(--brand-primary-dark)' }} />
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {/* הערות — same flex layout; value wraps for long text */}
-        <div
-          style={{
-            direction: 'ltr',
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: '12px',
-            padding: '14px 24px',
-            minHeight: '52px',
-            borderTop: '1px solid #E2E4E9',
-          }}
-        >
-          <span style={{ flex: 1, minWidth: 0, textAlign: 'left', direction: 'rtl', fontSize: fs('15px', '14px'), color: '#1F2937', whiteSpace: 'pre-wrap', lineHeight: 1.6, paddingTop: '2px' }}>
-            {supplier.notes}
-          </span>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flexShrink: 0 }}>
-            <span style={{ width: '110px', textAlign: 'right', direction: 'rtl', fontSize: '13px', color: '#9CA3AF', paddingTop: '5px' }}>הערות</span>
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#F8F9FA' }}>
-              <MessageSquare className="w-3.5 h-3.5" style={{ color: 'var(--brand-primary-dark)' }} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Info grid ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: 'קטגוריה',       value: supplier.category },
-          { label: 'תנאי תשלום',   value: supplier.paymentTerms },
-          { label: 'הזמנה אחרונה', value: supplier.lastOrderDate || '—' },
-          { label: 'מזהה ספק',     value: supplier.id },
-        ].map(({ label, value }) => (
-          <div key={label} className="bg-white rounded-2xl px-4 py-3 shadow-sm border text-right" style={{ borderColor: '#E2E4E9' }}>
-            <p style={{ fontSize: '11px', color: '#9CA3AF' }}>{label}</p>
-            <p className="font-bold text-gray-700 mt-0.5" style={{ fontSize: fs('15px', '14px') }}>{value}</p>
+            <p className="font-black" style={{ color, fontSize: fs('20px', '18px') }}>{value}</p>
+            <p className="text-gray-500 mt-0.5" style={{ fontSize: '12px' }}>{label}</p>
+            {sub && <p className="text-gray-400 mt-0.5" style={{ fontSize: '10px' }}>{sub}</p>}
           </div>
         ))}
       </div>
 
-      {/* ── Financial stats ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'סה"כ חשבוניות', value: formatILS(totalInvoiced),   sub: '',       color: '#1F2937' },
-          { label: 'שולם',          value: formatILS(paidAmount),       sub: '',       color: '#166534' },
-          { label: 'ממתין לתשלום', value: formatILS(pendingAmount),     sub: '',       color: '#A16207' },
-          // Headline: CURRENT computed balance with today's date (not the opening figure).
-          { label: 'יתרה עדכנית',  value: formatILS(currentBalance),   sub: todayStr, color: '#E8645A' },
-        ].map(({ label, value, sub, color }) => (
-          <div key={label} className="bg-white rounded-2xl p-4 shadow-sm border text-center" style={{ borderColor: '#E2E4E9' }}>
-            <p className="text-2xl font-black" style={{ color }}>{value}</p>
-            <p className="text-gray-500 mt-1" style={{ fontSize: fs('15px', '13px') }}>{label}</p>
-            {sub && <p className="text-gray-400 mt-0.5" style={{ fontSize: '11px' }}>{sub}</p>}
-          </div>
-        ))}
+      {/* ── Section cards — click one to open it in the panel below ── */}
+      <div role="tablist" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <TabCard
+          label="כרטסת" Icon={CreditCard} value={formatILS(currentBalance)} sub={`${ledger.length} תנועות`}
+          selected={tab === 'ledger'} onClick={() => setTab('ledger')}
+        />
+        <TabCard
+          label="חשבוניות" Icon={FileText} value={String(invoices.length)}
+          selected={tab === 'invoices'} onClick={() => setTab('invoices')}
+        />
+        <TabCard
+          label="תעודות משלוח" Icon={Truck} value={String(notes.length)}
+          selected={tab === 'notes'} onClick={() => setTab('notes')}
+        />
+        <TabCard
+          label="חזרות" Icon={RotateCcw} value={String(returns.length)}
+          selected={tab === 'returns'} onClick={() => setTab('returns')}
+        />
+        <TabCard
+          label="תשלומים" Icon={CreditCard} value={String(payments.length)}
+          selected={tab === 'payments'} onClick={() => setTab('payments')}
+        />
+        <TabCard
+          label="התאמת כרטסת" Icon={BookOpen} value={String(statements.length)} alerts={statementAlerts}
+          selected={tab === 'statements'} onClick={() => setTab('statements')}
+        />
       </div>
-
-      {/* Opening balance — separate smaller reference line (headline above is current). */}
-      <p className="text-right text-gray-400" style={{ fontSize: '12px', marginTop: '-8px' }}>
-        יתרת פתיחה: {formatILS(openingBalance)}
-        {supplier.openingBalanceDate ? ` · ${fmtDate(supplier.openingBalanceDate)}` : ''}
-      </p>
 
       {/* ── כרטסת (ledger) ── */}
-      {ledger.length > 0 && (
+      {tab === 'ledger' && (ledger.length === 0 ? (
+        <Panel title="כרטסת" Icon={CreditCard}>
+          <EmptyPanel text="אין תנועות עבור ספק זה" />
+        </Panel>
+      ) : (
         <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
           <SectionHeader
             className="px-5 py-4 border-b"
@@ -427,9 +539,10 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
           </div>
           </div>
         </div>
-      )}
+      ))}
 
       {/* ── Invoices ── */}
+      {tab === 'invoices' && (
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
         <SectionHeader
           className="px-5 py-4 border-b"
@@ -491,8 +604,99 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
           </div>
         )}
       </div>
+      )}
+
+      {/* ── תעודות משלוח ── NEW for the manager (the employees already had it) */}
+      {tab === 'notes' && (
+        <Panel title="תעודות משלוח" Icon={Truck} action={<span className="text-sm text-gray-400">{notes.length} רשומות</span>}>
+          {notes.length === 0 ? (
+            <EmptyPanel text="אין תעודות משלוח עבור ספק זה" />
+          ) : (
+            <div>
+              <div
+                className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
+                style={{ gridTemplateColumns: '1fr 110px 120px', borderColor: '#E2E4E9', fontSize: '11px', padding: '10px 16px' }}
+              >
+                <span className="text-right">תאריך · מספר</span>
+                <span className="text-center">מקור</span>
+                <span className="text-left">סכום</span>
+              </div>
+              {notes.map((n) => (
+                <div
+                  key={n.id}
+                  className="grid items-center"
+                  style={{ gridTemplateColumns: '1fr 110px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                >
+                  <p className="text-right text-gray-600" style={{ fontSize: '13px' }}>
+                    {n.noteNumber || n.id}
+                    <span className="text-gray-400"> · {n.date}</span>
+                  </p>
+                  <span className="text-center">
+                    <span
+                      className="rounded-lg font-bold"
+                      style={{ fontSize: '11px', padding: '4px 9px', ...(n.source === 'email' ? { background: '#DBEAFE', color: '#1E40AF' } : { background: '#F3F4F6', color: '#6B7280' }) }}
+                    >
+                      {n.source === 'email' ? 'הגיע במייל' : 'קליטה ידנית'}
+                    </span>
+                  </span>
+                  <span className="text-left font-black text-gray-800" style={{ fontSize: fs('15px', '14px') }}>
+                    {n.amount ? formatILS(n.amount) : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {/* ── חזרות ── NEW for the manager */}
+      {tab === 'returns' && (
+        <Panel title="חזרות" Icon={RotateCcw} action={<span className="text-sm text-gray-400">{returns.length} רשומות</span>}>
+          {returns.length === 0 ? (
+            <EmptyPanel text="אין חזרות עבור ספק זה" />
+          ) : (
+            <div>
+              <div
+                className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
+                style={{ gridTemplateColumns: '1fr 100px 120px', borderColor: '#E2E4E9', fontSize: '11px', padding: '10px 16px' }}
+              >
+                <span className="text-right">תאריך · סיבה</span>
+                <span className="text-center">סטטוס</span>
+                <span className="text-left">סכום</span>
+              </div>
+              {returns.map((r) => (
+                <div
+                  key={r.id}
+                  className="grid items-center"
+                  style={{ gridTemplateColumns: '1fr 100px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                >
+                  <div className="text-right">
+                    <p className="text-gray-600 font-medium" style={{ fontSize: '13px' }}>{r.reason || '—'}</p>
+                    <p className="text-gray-400" style={{ fontSize: '12px' }}>{r.date}</p>
+                  </div>
+                  {/* StatusBadge's gray fallback rule (06-RULES §1): returns carry a
+                      mixed vocabulary (אושר/בטיפול/נדחה from the UI, הסתיים from
+                      ingest), so an unknown value must render gray, never crash. */}
+                  <span className="text-center">
+                    <span
+                      className="rounded-lg font-bold"
+                      style={{ fontSize: '12px', padding: '4px 10px', ...(returnStatusStyle[r.status] ?? { background: '#F3F4F6', color: '#6B7280' }) }}
+                    >
+                      {r.status || '—'}
+                    </span>
+                  </span>
+                  <span className="text-left font-black text-gray-800" style={{ fontSize: fs('15px', '14px') }}>
+                    {r.amount ? formatILS(r.amount) : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      )}
 
       {/* ── Payments ── */}
+      {tab === 'payments' && (
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
         <SectionHeader
           className="px-5 py-4 border-b"
@@ -533,6 +737,58 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
           </div>
         )}
       </div>
+      )}
+
+      {/* ── התאמת כרטסת ── NEW for the manager. Every incoming statement is
+          auto-matched against the ledger; a mismatch raises an alert
+          (01-PRD §7), so the diff column is the point of this panel. */}
+      {tab === 'statements' && (
+        <Panel title="התאמת כרטסת" Icon={BookOpen} action={<span className="text-sm text-gray-400">{statements.length} רשומות</span>}>
+          {statements.length === 0 ? (
+            <EmptyPanel text="אין דפי חשבון עבור ספק זה" />
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <div
+                className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
+                style={{ gridTemplateColumns: '100px 1fr 1fr 1fr 110px', borderColor: '#E2E4E9', fontSize: '11px', minWidth: '560px', padding: '10px 16px' }}
+              >
+                <span className="text-right">חודש</span>
+                <span className="text-center">היתרה שלנו</span>
+                <span className="text-center">יתרת הספק</span>
+                <span className="text-center">הפרש</span>
+                <span className="text-center">סטטוס</span>
+              </div>
+              {statements.map((s) => {
+                const st = statementStatusStyle[s.status] ?? { background: '#F3F4F6', color: '#6B7280' }
+                return (
+                  <div
+                    key={s.id}
+                    className="grid items-center"
+                    style={{ gridTemplateColumns: '100px 1fr 1fr 1fr 110px', minWidth: '560px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                  >
+                    <span className="text-right text-gray-600 font-medium" style={{ fontSize: '13px' }}>{s.month}</span>
+                    <span className="text-center text-gray-700" style={{ fontSize: fs('14px', '13px') }}>{formatILS(s.our_balance)}</span>
+                    <span className="text-center text-gray-700" style={{ fontSize: fs('14px', '13px') }}>
+                      {s.vendor_balance == null ? '—' : formatILS(s.vendor_balance)}
+                    </span>
+                    <span
+                      className="text-center font-black"
+                      style={{ fontSize: fs('15px', '14px'), color: Math.abs(s.diff) > 0.005 ? '#DC2626' : '#166534' }}
+                    >
+                      {formatILS(s.diff)}
+                    </span>
+                    <span className="text-center">
+                      <span className="rounded-lg font-bold" style={{ fontSize: '12px', padding: '4px 10px', ...st }}>
+                        {STATEMENT_STATUS_HE[s.status] ?? s.status}
+                      </span>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Panel>
+      )}
 
       {/* ── Delete / merge buttons ── */}
       <div className="flex justify-start gap-2 pt-1 pb-2">

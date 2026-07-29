@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Search, AlertCircle, Info, AlertTriangle, Bug } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { DateField } from '../components/ui/form'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -132,7 +133,6 @@ export default function SystemLogs() {
           רענון
         </button>
         <div className="text-right">
-          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>לוגי מערכת</h1>
           <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>
             ניטור פעילות Edge Functions ובדיקת תקלות
           </p>
@@ -179,8 +179,7 @@ export default function SystemLogs() {
         </div>
         <div>
           <label className="block text-xs font-semibold text-gray-500 mb-1 text-right">מתאריך</label>
-          <input
-            type="date"
+          <DateField
             value={dateFrom}
             onChange={e => { setDateFrom(e.target.value); setPage(0) }}
             className="w-full px-3 py-2 rounded-lg border text-sm"
@@ -189,8 +188,7 @@ export default function SystemLogs() {
         </div>
         <div>
           <label className="block text-xs font-semibold text-gray-500 mb-1 text-right">עד תאריך</label>
-          <input
-            type="date"
+          <DateField
             value={dateTo}
             onChange={e => { setDateTo(e.target.value); setPage(0) }}
             className="w-full px-3 py-2 rounded-lg border text-sm"

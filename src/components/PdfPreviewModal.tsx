@@ -4,7 +4,7 @@ import { Eye, X, ExternalLink } from 'lucide-react'
 // Convert any Drive URL form (/view, /edit, /open, ?usp=...) into a /preview URL
 // suitable for embedding in an iframe. Falls back to the original URL if it
 // doesn't look like a Drive file link.
-export function toDrivePreview(url: string): string {
+function toDrivePreview(url: string): string {
   if (!url) return ''
   // Match Google Drive file ID in standard formats
   const m = url.match(/\/d\/([^/?#]+)/) || url.match(/[?&]id=([^&]+)/)
@@ -51,13 +51,18 @@ export function DocumentBody({ url, previewSrc }: { url: string; previewSrc?: st
         style={{
           display: 'block',
           margin: 'auto',
-          padding: '16px',
+          // Tight padding so the scan fills its pane — this is the surface the
+          // owner reads while typing, so every pixel of it counts.
+          padding: '6px',
           boxSizing: 'border-box',
           borderRadius: '12px',
           cursor: zoomed ? 'zoom-out' : 'zoom-in',
           ...(zoomed
+            // Click to zoom past the container and scroll around the scan.
             ? { maxWidth: 'none', maxHeight: 'none' }
-            : { maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain' }),
+            // Fill the height the CONTAINER gives us (the side pane, or the
+            // modal body) rather than a fixed slice of the viewport.
+            : { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }),
         }}
       />
     )

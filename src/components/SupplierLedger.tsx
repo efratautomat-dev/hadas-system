@@ -6,6 +6,8 @@ import { usePayments } from '../hooks/usePayments'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
+import { isoToDisplay } from '../lib/dates'
+import { DateField } from './ui/form'
 
 type EntryType = 'חשבונית' | 'תשלום' | 'זיכוי'
 
@@ -23,10 +25,6 @@ function formatILS(n: number | null | undefined) {
   return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
-function isoToDisplay(iso: string): string {
-  const [y, m, d] = iso.split('-')
-  return `${d}/${m}/${y}`
-}
 
 const typeBadge: Record<string, { bg: string; color: string }> = {
   'פתיחה':   { bg: '#F3F4F6', color: '#6B7280' },
@@ -249,7 +247,6 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="text-right">
-          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>כרטסת ספק</h1>
           <p className="text-gray-500 mt-0.5" style={{ fontSize: '15px' }}>כרטסת עסקאות מפורטת לפי ספק ותקופה</p>
         </div>
         <button
@@ -289,8 +286,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           {/* From date */}
           <div>
             <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>מתאריך</p>
-            <input
-              type="date"
+            <DateField
               value={fromDate}
               onChange={e => setFromDate(e.target.value)}
               style={{
@@ -306,8 +302,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           {/* To date */}
           <div>
             <p className="text-right mb-1.5" style={{ fontSize: '13px', color: '#6B7280', fontWeight: 500 }}>עד תאריך</p>
-            <input
-              type="date"
+            <DateField
               value={toDate}
               onChange={e => setToDate(e.target.value)}
               style={{

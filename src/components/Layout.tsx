@@ -102,7 +102,14 @@ interface AlertPrefillState {
 }
 
 export default function Layout({ userEmail, onLogout }: LayoutProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  // The rail state is REMEMBERED. Collapsing already worked (256px → 72px) but
+  // reset on every reload, so the 184px it frees was never actually kept.
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    try { return localStorage.getItem('hadas.sidebarCollapsed') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('hadas.sidebarCollapsed', isCollapsed ? '1' : '0') } catch { /* private mode */ }
+  }, [isCollapsed])
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { data: alerts, markRead, markResolved, remove: removeAlert } = useAlerts()
   const [alertForSupplier, setAlertForSupplier] = useState<AlertPrefillState | null>(null)
@@ -205,7 +212,11 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   }
 
   const sidebarWidth = isMobile ? 0 : isCollapsed ? 72 : isTablet ? 200 : 256
-  const pad = isMobile ? '12px' : isTablet ? '20px' : '32px'
+  // Page gutters. 32px all round left a wide empty margin on desktop while the
+  // content column stayed narrow; the top gutter is tightest because the sticky
+  // bar above it already separates the content from the chrome.
+  const pad = isMobile ? '12px' : isTablet ? '16px' : '20px'
+  const padTop = isMobile ? '12px' : '14px'
 
   const handlePageChange = (page: string) => {
     if (stackRef.current[stackRef.current.length - 1]?.page === page) { setMobileMenuOpen(false); return } // no-op if already here
@@ -422,7 +433,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1" style={{ padding: pad }}>
+        <main className="flex-1" style={{ padding: pad, paddingTop: padTop }}>
           {canGoBack && (
             <div style={{ marginBottom: '12px' }}>
               <button

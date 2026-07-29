@@ -2,13 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { mockDeliveryNotes, type DeliveryNote } from '../data/mockData'
+import { isoToDisplay } from '../lib/dates'
 
-function isoToDisplay(iso: string): string {
-  if (!iso) return ''
-  const parts = iso.split('T')[0].split('-')
-  if (parts.length !== 3) return iso
-  return `${parts[2]}/${parts[1]}/${parts[0]}`
-}
 
 export function useDeliveryNotes() {
   const [data, setData]       = useState<DeliveryNote[]>([])

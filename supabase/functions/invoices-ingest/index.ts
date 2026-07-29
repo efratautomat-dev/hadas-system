@@ -118,7 +118,7 @@ function makeLogger(supabase: SupabaseClient) {
     messageId?: string,
   ) {
     const line = `[${level}] ${messageId ? `(${messageId}) ` : ""}${message}`;
-    let contextStr = "";
+    let contextStr: string;
     try { contextStr = context ? JSON.stringify(context) : ""; }
     catch { contextStr = "[unserializable context]"; }
     console.log(line, contextStr);
@@ -291,7 +291,7 @@ async function gmailSendAlertEmail(
 
 // Replaces filesystem-unsafe characters and trims; falls back to placeholder if empty.
 function sanitizeForFilename(s: string): string {
-  return (s ?? "").replace(/[\/\\:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
+  return (s ?? "").replace(/[/\\:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
 }
 
 // Picks an extension from the original filename, then falls back to MIME.
@@ -318,6 +318,14 @@ function buildInvoiceFilename(
   return `${safe} - ${id}.${ext}`;
 }
 
+// ── Drive filenames for the pipelines that do NOT file to Drive yet ─────────
+// `driveUploadFile` has exactly ONE call site today — the invoice path. Delivery
+// notes, returns and statements are stored and inserted, but never uploaded to
+// Drive, so these three builders are staged and unreachable. They are kept
+// deliberately: they encode the agreed naming ("<ספק> - תעודת משלוח <מס'>"), and
+// deleting them would throw that away. Wire them up when those pipelines gain
+// their Drive upload — until then the linter is told they are unused on purpose.
+/* eslint-disable @typescript-eslint/no-unused-vars */
 function buildDeliveryNoteFilename(
   supplierName: string,
   noteNumber:   string,
@@ -350,6 +358,7 @@ function buildStatementFilename(origFilename: string, mimeType: string): string 
   const base = sanitizeForFilename(origFilename.replace(/\.[a-z0-9]+$/i, "")) || "כרטסת";
   return `${base}.${ext}`;
 }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 // ASCII-safe key for Supabase Storage. The Storage API rejects keys containing
 // non-ASCII characters (Hebrew, spaces, etc.), so display names go to Drive
@@ -634,7 +643,7 @@ function extractAnchors(html: string): Array<{ href: string; text: string }> {
 }
 
 function rawUrls(text: string): string[] {
-  return (text.match(/https?:\/\/[^\s<>"'\)\]]+/gi) ?? []).map((u) => u.replace(/[).,;]+$/, ""));
+  return (text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map((u) => u.replace(/[).,;]+$/, ""));
 }
 
 // Collects candidate invoice-file URLs from the body, mirroring the N8N
@@ -982,7 +991,7 @@ function parseJsonRobust(raw: string): unknown | null {
 async function classifyDocTypeByContent(
   doc: { mimeType: string; bytes: Uint8Array },
 ): Promise<Exclude<DocType, "unknown">> {
-  let raw = "";
+  let raw: string;
   try {
     raw = (await anthropicMessage(
       ANTHROPIC_MODEL_CLASSIFIER,
@@ -1016,7 +1025,7 @@ async function classifyDocTypeByContent(
 // legitimate invoice is never discarded here (the extractor's not_invoice hatch is
 // the final net). NEVER applied to statements/delivery-notes/returns.
 async function quickInvoiceCheck(doc: { mimeType: string; bytes: Uint8Array }): Promise<boolean> {
-  let raw = "";
+  let raw: string;
   try {
     raw = (await anthropicMessage(
       ANTHROPIC_MODEL_CLASSIFIER,

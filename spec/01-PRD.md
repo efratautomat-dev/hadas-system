@@ -40,6 +40,35 @@ See `06-RULES.md` for the enforcement model (RLS + service-role writes).
 - **Actions:** create / edit a supplier; **activate / deactivate** (inactive/active toggle); edit
   opening balance + opening-balance date; view ledger. Hard delete is blocked if invoices reference
   the supplier (`409 HAS_INVOICES`) — **deactivation replaces deletion** for suppliers with history.
+
+### Supplier form — CONFIRMED (2026-07-28)
+
+The add/edit form is a **centred 640px column over the list**, built from the **same components as
+the categories form in Settings** (`components/ui/form.tsx` — `SectionCard` / `Field` / `TextInput`
+/ `Select` / `Textarea`, shared by both screens, not copied). It previously rendered **inside a
+grid cell** in card view, squeezing ten fields across four groups into a third of the screen.
+
+- Identical in the **card and table** views — the form no longer belongs to either.
+- The list stays mounted behind it, dimmed, so search / filters / scroll survive a cancel.
+- Dismissed by **Esc**, the ✕, ביטול, or a click outside.
+- Grouped as before: פרטי זיהוי · פרטי קשר · כספי · כללי.
+
+### Supplier detail (manager) — CONFIRMED (2026-07-28)
+
+The manager gets the **same card-per-section layout the employees already have**, extended with
+the two sections that were missing entirely — **חזרות** and **התאמת כרטסת**.
+
+- **Six cards** across the top: כרטסת · חשבוניות · תעודות משלוח · חזרות · תשלומים · התאמת כרטסת.
+  Each shows its record count (כרטסת shows the current balance); **התאמת כרטסת carries a red badge**
+  counting rows in `mismatch` / `needs_review`.
+- **Clicking a card opens that section full width BENEATH the cards** — not in a side pane. These
+  tables are wide (תאריך · סוג · אסמכתא · חובה · זכות · יתרה); a half-screen pane would force
+  horizontal scrolling, and on tablet each pane would be ~380px. There is also no need to read two
+  sections at once, unlike the invoice screen where the scan and the fields are used together.
+- Header, identity fields and the four financial stat cards stay **above** the cards, always visible.
+- Everything links by **`supplier_id`**, never by name (`06-RULES.md §2b`).
+- Return statuses render through the **gray-fallback** rule (`06-RULES.md §1`) — returns carry a
+  mixed vocabulary (`אושר`/`בטיפול`/`נדחה` from the UI, `הסתיים` from ingest).
 - **NEW vs current:**
   - **Active/inactive toggle:** inactive suppliers drop out of the default list and are reachable
     only via the inactive filter — the supported way to retire a supplier while keeping history

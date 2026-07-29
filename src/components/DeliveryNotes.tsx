@@ -11,6 +11,7 @@ import { StatusBadge } from './StatusBadge'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { Button } from './ui/Button'
 import { SummaryCards } from './ui/SummaryCards'
+import { DateField } from './ui/form'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -241,7 +242,6 @@ export default function DeliveryNotes() {
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div className="text-right">
-          <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>תעודות משלוח</h1>
           <p className="text-gray-500 mt-0.5" style={{ fontSize: '15px' }}>
             {pendingCount} ממתינות לשיוך · {archivedCount} בארכיון
           </p>
@@ -332,8 +332,7 @@ export default function DeliveryNotes() {
           />
 
           {/* Date filter */}
-          <input
-            type="date"
+          <DateField
             value={filterDate}
             onChange={e => setFilterDate(e.target.value)}
             placeholder="מתאריך"
@@ -771,8 +770,7 @@ export default function DeliveryNotes() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <FieldLabel text="תאריך קבלה" />
-                      <input
-                        type="date"
+                      <DateField
                         value={form.isoDate}
                         onChange={e => setForm({ ...form, isoDate: e.target.value })}
                         style={{ ...fieldStyle, direction: 'ltr' }}

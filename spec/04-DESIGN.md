@@ -60,6 +60,11 @@ Tailwind's built-in breakpoints.
 | Tablet | 768–1024px (`md`) | Sidebar collapses to icons (or toggles open); card grid drops to 1–2 columns; tables scroll horizontally OR become stacked cards; touch-sized controls. |
 
 Rules:
+- **Cards-above-content (supplier detail):** a row of section cards on top; the selected section
+  opens **full width beneath them**. Used where the content is a **wide table** — side-by-side
+  panes would force horizontal scrolling and collapse to ~380px each on tablet. See `01-PRD.md §2`.
+- **Forms open as a centred 640px column over the list** (suppliers), matching the Settings
+  screens. A form must never render inside a grid cell.
 - **Document-beside-form (invoice detail):** two panes side by side — document **right**,
   fields **left** — above **1100px**; below that they **stack** (document first). The document
   pane is `sticky` so it stays in view while the form scrolls. See `01-PRD.md §3`. Two narrow
