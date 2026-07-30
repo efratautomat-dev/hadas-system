@@ -4,6 +4,16 @@
 > verify against the live system. This is observational — it describes what the code does today.
 
 ## Known functional limitations
+0. **`invoices-ingest` on PROD is one deploy behind (2026-07-30).**
+   The frontend shipped in PR #10 but `supabase functions deploy invoices-ingest` was not run,
+   so ingest does not yet complete the three amounts (net / VAT / total) — a document that
+   prints only a total lands with `amount_before_vat = 0` and `vat_amount = 0`.
+   **Deliberately not blocking:** the total is correct, and the invoice screen completes the
+   split the moment the row is opened (that half IS live), so nothing is lost — the DB row is
+   just incomplete until someone opens it. Deploy from a machine linked to PROD.
+   Also un-verified: the Bizibox export against the real Bizibox importer (structure verified,
+   import not). See `spec/LAUNCH-PLAN.md §3a`.
+
 1. **8192-token extraction truncation on very long invoices.**
    `supabase/functions/invoices-ingest/index.ts` (`EXTRACTION_MAX_TOKENS = 8192`). Very long
    invoices (project memory cites invoice `01/011398`) still truncate; retry doesn't help. The
@@ -19,14 +29,27 @@
    `invoices-ingest` body-link path. When an inline invoice link lands on an HTML login page, an
    alert is raised but the link isn't followed/resolved; manual handling required.
 
+3b. **✅ FIXED 2026-07-30 — the three-way ledger disagreement.**
+   Items 4 and 5 below were the visible half of a bigger problem: SupplierDetail,
+   SupplierLedger and StatementReconciliation each computed the balance their own way
+   (measured: 9,000 / 7,000 / 6,000 on one dataset). Now one engine —
+   `src/lib/supplierLedger.ts`. See `spec/06-RULES.md §9`. Two latent defects fixed with it:
+   a date window that was part of the arithmetic (movements outside it vanished from the
+   total), and undated rows absorbed into the opening balance instead of being shown.
+   Invoice status likewise now derives in all four screens, not two.
+   ⚠️ **Statements already marked `תואם` may have been matched against a stale
+   `our_balance` and need re-checking.**
+
 4. **Statement reconciliation row-matching is demo/hard-coded.**
    `src/components/StatementReconciliation.tsx` (`stmtDetails`). The matched/unmatched ledger rows
    in the detail modal are static demo data, not backend-driven. Real reconciliation matching is
    not implemented end-to-end.
 
-5. **Supplier Ledger uses hard-coded data.**
-   `src/components/SupplierLedger.tsx` reads `mockLedgerEntries` + `supplierOpeningBalances`
-   rather than a live ledger source.
+5. **~~Supplier Ledger uses hard-coded data.~~ OUTDATED — corrected 2026-07-30.**
+   `SupplierLedger.tsx` reads live hooks, not `mockLedgerEntries`. The real problem was
+   different (see 3b): it computed its own ledger with a hard-coded 2026 date window folded
+   into the arithmetic. **This entry pointed at the wrong file and cost time during the
+   investigation** — kept as a reminder to date-stamp diagnoses.
 
 6. **Settings → Backup tab is a stub.**
    `src/pages/Settings.tsx` — tab exists; export/import logic not implemented.

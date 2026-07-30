@@ -146,3 +146,41 @@ table.
   **type-appropriate** alert (and, where possible, a type-appropriate handling path), not an invoice
   one.
 - **Non-urgent** — statements are informational, not VAT invoices; fix **post-VAT**.
+
+---
+
+## Invoice approval against goods — TO BE SPECIFIED (raised 2026-07-30)
+
+The owner's idea, recorded here for a proper spec session — **not designed yet**.
+
+**Shape:** an invoice does not enter the ledger on arrival. It waits for the manager to
+approve it against the goods actually received. Anything incomplete, duplicated or
+suspicious stays in the waiting pile, surfaced as a red alert:
+*"קיימים נתונים שממתינים לבדיקת מנהל"*.
+
+**Why it is the right direction:** it attacks the root the §9 fixes only contain. Today every
+row lands in the balance the moment it arrives — undated, duplicated or not. §9 makes those
+rows *visible*; approval would stop them entering unexamined in the first place.
+
+### The open question a spec must answer
+
+If a waiting invoice is excluded from the balance, **the balance the manager sees is no longer
+what is owed** — the supplier is due the money whether or not it has been approved. That is a
+mistake in the opposite direction, and arguably worse: under-stating debt is harder to notice
+than over-stating it.
+
+**Suggested resolution, to be confirmed:** show **two** figures side by side — `מאושר` and
+`כולל ממתינות` — with the gap between them. The red alert then carries a precise meaning:
+*"3 חשבוניות בסך 12,400 ₪ ממתינות לבדיקה"*. Nothing disappears; what is in doubt is explicit.
+
+### Also to be decided
+- What blocks approval automatically (missing date? duplicate flag? low AI confidence? a
+  missing delivery note?) versus what is only flagged.
+- Whether an approved invoice is immutable, and who may un-approve.
+- Whether approval belongs to the manager only, or an employee may confirm goods receipt
+  while the manager approves the money.
+- How this interacts with §2a (return ↔ credit-note matching) and with the Bizibox export —
+  does a waiting invoice export?
+- Backfill: what happens to everything already in the ledger at switch-on.
+
+**Owner: to be specified together before any implementation.**

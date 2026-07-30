@@ -17,6 +17,8 @@ import {
   type FormState,
 } from '../Returns'
 import { isoToDisplay } from '../../lib/dates'
+import { invoiceStatusKey } from '../../lib/invoiceStatus'
+import { StatusBadge } from '../StatusBadge'
 import { DateField } from '../ui/form'
 
 export type EmployeeSection = 'invoices' | 'deliveries' | 'returns'
@@ -42,11 +44,12 @@ interface Props {
 
 // Status colors from the FIXED functional tokens (src/theme/status.ts) — same
 // palette as the manager screens: yellow=check, green=done, orange=in_progress, red.
-const invoiceStatusStyle: Record<string, { bg: string; color: string }> = {
-  'ממתין':  { bg: STATUS.yellow.bg, color: STATUS.yellow.fg },
-  'שולם':   { bg: STATUS.green.bg,  color: STATUS.green.fg },
-  'בטיפול': { bg: STATUS.orange.bg, color: STATUS.orange.fg },
-}
+// Invoice status is DERIVED, never the stored column (CLAUDE.md). Employees are
+// blocked from `alerts` at the DB (manager-only RLS), so the alert list is always
+// empty here and the "בבדיקה" state is invisible to them — an employee sees
+// "ממתין" or "הועבר לרו״ח". That is a deliberate consequence of the permission
+// model, and still strictly better than printing the unreliable stored value.
+const NO_ALERTS: never[] = []
 
 const returnStatusStyle: Record<string, { bg: string; color: string }> = {
   'אושר':   { bg: STATUS.green.bg,  color: STATUS.green.fg },
@@ -153,7 +156,7 @@ function MetaModal({ title, Icon, rows, note, items, onClose }: MetaModalData & 
 function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: () => void }) {
   const [showDoc, setShowDoc] = useState(false)
   const docUrl = (invoice.driveFileLink || invoice.storage_url || '').trim()
-  const st = invoiceStatusStyle[invoice.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
+  const statusKey = invoiceStatusKey(invoice, NO_ALERTS)
   const rows = [
     { label: 'מספר חשבונית', value: invoice.invoiceNumber || invoice.id },
     { label: 'ספק',          value: invoice.supplier || '' },
@@ -178,7 +181,7 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
         <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#EEEEF2', background: '#FAFAFC' }}>
           <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>פרטי חשבונית</h2>
           <FileText className="w-4 h-4 text-gray-400" />
-          <span className="rounded-lg font-bold" style={{ ...st, fontSize: '12px', padding: '4px 10px', marginInlineStart: 'auto' }}>{invoice.status || '—'}</span>
+          <StatusBadge status={statusKey} style={{ fontSize: '12px', padding: '4px 10px', fontWeight: 700, marginInlineStart: 'auto' }} />
         </div>
         {rows.map(({ label, value }, i) => (
           <div key={label} style={{ direction: 'ltr', display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 24px', minHeight: '52px', borderTop: i > 0 ? '1px solid #EEEEF2' : undefined }}>
@@ -496,7 +499,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
             <EmptyRow text="אין חשבוניות עבור ספק זה" />
           ) : (
             shownInvoices.map((inv) => {
-              const st = invoiceStatusStyle[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
+              const statusKey = invoiceStatusKey(inv, NO_ALERTS)
               const num = (inv as { invoiceNumber?: string }).invoiceNumber || inv.id
               return (
                 <div
@@ -509,7 +512,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
                 >
                   <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{num} · {inv.date}</p>
                   <div className="flex justify-center">
-                    <span className="rounded-lg font-bold" style={{ ...st, fontSize: '12px', padding: '4px 10px' }}>{inv.status || '—'}</span>
+                    <StatusBadge status={statusKey} style={{ fontSize: '12px', padding: '4px 10px', fontWeight: 700 }} />
                   </div>
                   {/* No amount — employees see the document, not the app's money data */}
                   <Eye className="w-4 h-4" style={{ color: '#9CA3AF' }} />

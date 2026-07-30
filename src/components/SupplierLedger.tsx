@@ -7,6 +7,7 @@ import { useAppLogo } from '../hooks/useAppLogo'
 import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
 import { isoToDisplay } from '../lib/dates'
+import { buildLedger } from '../lib/supplierLedger'
 import { DateField } from './ui/form'
 
 type EntryType = 'חשבונית' | 'תשלום' | 'זיכוי'
@@ -72,49 +73,18 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   // from tracking. Rows stay visible for reference; no invoice/payment data is changed.
   const paymentArrangement = (supplier as { paymentArrangement?: boolean } | undefined)?.paymentArrangement ?? false
 
-  // Real ledger entries for the selected supplier, keyed by SUPPLIER_ID
-  // (spec/06-RULES.md §2b). Invoices are debits; credit notes (negative invoices)
-  // and non-cancelled payments are credits. Returns are excluded — only a matching
-  // credit note (a negative invoice) moves the balance.
-  const allEntries = useMemo(() => {
-    const invEntries = allInvoices
-      .filter(inv => inv.supplierId === selectedSupplierId)
-      .map(inv => {
-        const isCredit = inv.amount < 0
-        return {
-          id: inv.id,
-          date: inv.invoiceDate || '',
-          displayDate: inv.date || '',
-          description: `${isCredit ? 'זיכוי' : 'חשבונית'} ${inv.invoiceNumber || inv.id}`,
-          type: (isCredit ? 'זיכוי' : 'חשבונית') as EntryType,
-          debit:  isCredit ? 0 : inv.amount,
-          credit: isCredit ? -inv.amount : 0,
-        }
-      })
-    const payEntries = allPayments
-      .filter(pay => pay.supplier_id === selectedSupplierId && pay.status !== 'cancelled')
-      .map(pay => ({
-        id: String(pay.id),
-        date: pay.date || '',
-        displayDate: pay.date ? isoToDisplay(pay.date) : '',
-        description: `תשלום · ${pay.type}`,
-        type: 'תשלום' as EntryType,
-        debit: 0,
-        credit: pay.amount,
-      }))
-    return [...invEntries, ...payEntries]
-  }, [allInvoices, allPayments, selectedSupplierId])
+  // ONE ledger implementation for the whole app — lib/supplierLedger. This screen
+  // used to build its own and, critically, treated the date window as part of the
+  // MATH: anything after `toDate` was dropped from the balance entirely, and an
+  // undated row sorted as "before the period" and vanished into the opening figure.
+  // The window is now a DISPLAY filter; the closing balance always counts every
+  // movement and therefore always agrees with the supplier screen.
+  const ledger = useMemo(
+    () => buildLedger(selectedSupplierId, allInvoices, allPayments, baseOpening,
+      { from: fromDate, to: toDate, paymentArrangement }),
+    [selectedSupplierId, allInvoices, allPayments, baseOpening, fromDate, toDate, paymentArrangement],
+  )
 
-  // Accumulated balance before the selected period
-  const beforePeriod      = allEntries.filter(e => e.date < fromDate)
-  const beforeNet         = beforePeriod.reduce((s, e) => s + e.debit - e.credit, 0)
-  const periodOpenBalance = baseOpening + beforeNet
-
-  // Entries within the date range
-  const inPeriod = [...allEntries.filter(e => e.date >= fromDate && e.date <= toDate)]
-    .sort((a, b) => a.date.localeCompare(b.date))
-
-  let running = periodOpenBalance
   const rows: TableRow[] = [
     {
       id: 'opening',
@@ -123,26 +93,26 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       type: 'פתיחה',
       debit: 0,
       credit: 0,
-      runningBalance: periodOpenBalance,
+      runningBalance: ledger.periodOpening,
     },
-    ...inPeriod.map(e => {
-      running += e.debit - e.credit
-      return {
-        id: e.id,
-        displayDate: e.displayDate,
-        description: e.description,
-        type: e.type as 'פתיחה' | EntryType,
-        debit: e.debit,
-        credit: e.credit,
-        runningBalance: running,
-      }
-    }),
+    ...ledger.rows.map(r => ({
+      id: r.id,
+      // An undated movement says so instead of showing a blank cell.
+      displayDate: r.undated ? 'ללא תאריך' : r.displayDate,
+      description: r.description,
+      type: r.type as TableRow['type'],
+      debit: r.debit,
+      credit: r.credit,
+      runningBalance: r.balance,
+    })),
   ]
+
+  const inPeriod = ledger.rows
 
   const totalDebit   = inPeriod.reduce((s, e) => s + e.debit, 0)
   const totalCredit  = inPeriod.reduce((s, e) => s + e.credit, 0)
-  // Flagged supplier → balance is settled (0); real running total is kept off-screen only.
-  const finalBalance = paymentArrangement ? 0 : running
+  // The TRUE closing balance — every movement, regardless of the display window.
+  const finalBalance = ledger.closingBalance
 
   // Display newest-first. The running balance above is computed in chronological
   // order (oldest→newest), so each row already carries its correct accumulated

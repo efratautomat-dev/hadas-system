@@ -32,3 +32,18 @@ export function deriveInvoiceStatus(invoice: Invoice, alerts: Alert[]): string {
   )
   return underReview ? STATUS_REVIEW : STATUS_WAITING
 }
+
+// Map the derived Hebrew status onto the unified taxonomy (spec/06-RULES.md §1):
+// waiting → new, under-review → in_progress, transferred-to-accountant → done.
+// Lives HERE, not in a screen, so every screen renders the same badge.
+export const INVOICE_STATUS_INTERNAL: Record<string, string> = {
+  [STATUS_WAITING]:     'new',
+  [STATUS_REVIEW]:      'in_progress',
+  [STATUS_TRANSFERRED]: 'done',
+}
+
+/** Derived status → the internal key StatusBadge expects. */
+export function invoiceStatusKey(invoice: Invoice, alerts: Alert[]): string {
+  const derived = deriveInvoiceStatus(invoice, alerts)
+  return INVOICE_STATUS_INTERNAL[derived] ?? derived
+}
