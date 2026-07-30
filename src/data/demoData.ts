@@ -15,6 +15,7 @@
 // from seed suppliers so the dashboard doesn't fall back to unrelated legacy mock).
 
 import seed from '../../demo-seed.json'
+import { vatRateFor } from '../lib/vat'
 
 type Row = Record<string, unknown>
 
@@ -51,7 +52,8 @@ const DUP_PAIR = new Set(['inv_025', 'inv_026'])
 
 const invoices: Row[] = seed.invoices.map((inv) => {
   const isDup = DUP_PAIR.has(inv.id)
-  const before = Math.round(inv.amount / 1.17)
+  // Split at the rate in force on the invoice's own date (17% → 18% on 1.1.2025).
+  const before = Math.round(inv.amount / (1 + vatRateFor(inv.date)))
   return {
     id: inv.id,
     invoice_number: isDup ? '4471' : inv.number,

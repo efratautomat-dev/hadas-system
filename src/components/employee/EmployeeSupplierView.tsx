@@ -14,9 +14,10 @@ import type { Invoice } from '../../data/mockData'
 import {
   FormModal as ReturnFormModal,
   emptyForm,
-  isoToDisplay,
   type FormState,
 } from '../Returns'
+import { isoToDisplay } from '../../lib/dates'
+import { DateField } from '../ui/form'
 
 export type EmployeeSection = 'invoices' | 'deliveries' | 'returns'
 
@@ -273,7 +274,7 @@ function ReceiptFormModal({ form, setForm, supplierName, employees, onSave, onCl
           </div>
           <div>
             <label style={labelStyle}>תאריך</label>
-            <input type="date" value={form.isoDate} onChange={(e) => setForm({ ...form, isoDate: e.target.value })} style={inputStyle} />
+            <DateField value={form.isoDate} onChange={(e) => setForm({ ...form, isoDate: e.target.value })} style={inputStyle} />
           </div>
           <div>
             <label style={labelStyle}>מספר תעודה (אופציונלי)</label>

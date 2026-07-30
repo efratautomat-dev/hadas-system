@@ -1,11 +1,14 @@
-import { useState, useRef } from 'react'
-import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw, Tag, GitMerge, X } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw, Tag, GitMerge, X, FileSpreadsheet, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
 import { useCategories } from '../hooks/useCategories'
 import { supabase } from '../lib/supabase'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { Button } from '../components/ui/Button'
+// Shared with the supplier form so the two screens stay visually identical.
+import { SectionCard, FieldLabel, TextInput } from '../components/ui/form'
+import { inspectTemplateFile, TEMPLATE_BUCKET, TEMPLATE_PATH, BUNDLED_TEMPLATE_URL, loadBizboxTemplate } from '../lib/bizboxTemplate'
 
 function useIsTablet() {
   const [v] = useState(
@@ -14,7 +17,7 @@ function useIsTablet() {
   return v
 }
 
-type Tab = 'profile' | 'preferences' | 'notifications' | 'backup' | 'employees' | 'categories'
+type Tab = 'profile' | 'preferences' | 'notifications' | 'backup' | 'employees' | 'categories' | 'bizbox'
 
 interface ProfileState {
   businessName: string
@@ -45,6 +48,7 @@ const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ className?: st
   { id: 'backup',        label: 'גיבוי',          Icon: Download },
   { id: 'employees',     label: 'עובדים',         Icon: Users },
   { id: 'categories',    label: 'קטגוריות',       Icon: Tag },
+  { id: 'bizbox',        label: 'ייצוא לביזיבוקס', Icon: FileSpreadsheet },
 ]
 
 const DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'DD.MM.YYYY']
@@ -92,53 +96,147 @@ function NotAvailable() {
   )
 }
 
-function SectionCard({ title, children }: { title?: string; children: React.ReactNode }) {
+// SectionCard / FieldLabel / TextInput moved to ../components/ui/form so the
+// supplier form uses the SAME components, not a look-alike copy.
+
+// Pull a human message off anything thrown. Supabase rejects with a PostgrestError
+// — a plain object carrying `message`, NOT an Error instance — so an
+// `instanceof Error` check alone silently drops the real reason.
+function errMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    const m = (err as { message?: unknown }).message
+    if (typeof m === 'string' && m) return m
+  }
+  return fallback
+}
+
+
+// ── Bizibox export template (Settings → ייצוא לביזיבוקס) ─────────────────────
+// Bizibox revises its import template, and a stale template stops importing rows
+// — checks landed while bank transfers were silently dropped, and the very same
+// rows pasted into a freshly downloaded template imported fine. The export now
+// FILLS the real template, so the template itself must be replaceable without a
+// deploy. Uploaded here → Storage → picked up by the next export.
+function BizboxTemplateManager() {
+  const [busy, setBusy]   = useState(false)
+  const [msg, setMsg]     = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [info, setInfo]   = useState<{ headers: string[]; source: 'uploaded' | 'bundled' } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const flash = (type: 'ok' | 'err', text: string) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 6000) }
+
+  // useCallback so the mount effect can list it as a dependency honestly instead
+  // of silencing the lint rule — `flash` is stable enough (it only sets state).
+  const refresh = useCallback(async () => {
+    try {
+      const t = await loadBizboxTemplate()
+      setInfo({ headers: t.headers, source: t.source })
+    } catch (e) {
+      setInfo(null)
+      setMsg({ type: 'err', text: errMessage(e, 'לא ניתן לקרוא את הטמפליט') })
+    }
+  }, [])
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    if (!/\.xlsx$/i.test(file.name)) { flash('err', 'יש להעלות קובץ xlsx שהורד מביזיבוקס'); return }
+
+    setBusy(true)
+    try {
+      // Validate BEFORE replacing: an unreadable template would break the export
+      // at the worst possible moment — the day the payments have to go out.
+      const { headers, sheetName } = await inspectTemplateFile(file)
+
+      const { error } = await supabase.storage
+        .from(TEMPLATE_BUCKET)
+        .upload(TEMPLATE_PATH, file, { upsert: true, contentType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+      if (error) throw error
+
+      await refresh()
+      flash('ok', `הטמפליט עודכן — גיליון "${sheetName}", ${headers.length} עמודות`)
+    } catch (err) {
+      flash('err', errMessage(err, 'העלאת הטמפליט נכשלה'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleReset() {
+    setBusy(true)
+    try {
+      const { error } = await supabase.storage.from(TEMPLATE_BUCKET).remove([TEMPLATE_PATH])
+      if (error) throw error
+      await refresh()
+      flash('ok', 'חזרנו לטמפליט המובנה')
+    } catch (err) {
+      flash('err', errMessage(err, 'האיפוס נכשל'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm border" style={{ borderColor: '#E2E4E9' }}>
-      {title && (
-        <div className="px-6 py-4 border-b" style={{ borderColor: '#E2E4E9' }}>
-          <h3 className="font-bold text-gray-700 text-base">{title}</h3>
+    <div className="space-y-5 mx-auto" style={{ maxWidth: '640px', direction: 'rtl' }}>
+      {msg && (
+        <div className="px-4 py-2.5 rounded-xl text-sm font-semibold" style={{ background: msg.type === 'ok' ? '#DCFCE7' : '#FEE2E2', color: msg.type === 'ok' ? '#166534' : '#DC2626' }}>
+          {msg.text}
         </div>
       )}
-      <div className="p-6">{children}</div>
+
+      <SectionCard title="טמפליט הייצוא">
+        <p className="text-sm text-gray-500 leading-relaxed mb-4">
+          הייצוא לביזיבוקס <strong className="text-gray-700">ממלא את קובץ הטמפליט של ביזיבוקס</strong> במקום לבנות
+          קובץ דומה. כשביזיבוקס מעדכנים את הטמפליט — הורידי אצלם את החדש והעלי אותו כאן,
+          והייצוא הבא כבר ישתמש בו. אין צורך בשינוי בקוד.
+        </p>
+
+        <div className="rounded-xl p-4 mb-4" style={{ background: '#F8F9FA' }}>
+          <div className="flex items-center gap-2 mb-2">
+            {info?.source === 'uploaded'
+              ? <CheckCircle2 className="w-4 h-4" style={{ color: '#16A34A' }} />
+              : <AlertTriangle className="w-4 h-4" style={{ color: '#A16207' }} />}
+            <span className="text-sm font-semibold text-gray-700">
+              {info?.source === 'uploaded' ? 'בשימוש: הטמפליט שהעלית' : 'בשימוש: הטמפליט המובנה'}
+            </span>
+          </div>
+          {info?.headers?.length
+            ? (
+              <p className="text-xs text-gray-500">
+                עמודות שזוהו: {info.headers.join(' · ')}
+              </p>
+            )
+            : <p className="text-xs text-gray-400">טוען…</p>}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <input ref={fileRef} type="file" accept=".xlsx" onChange={handleUpload} style={{ display: 'none' }} />
+          <Button variant="primary" onClick={() => fileRef.current?.click()} disabled={busy}>
+            <Upload className="w-4 h-4" />
+            העלאת טמפליט חדש
+          </Button>
+          <a
+            href={BUNDLED_TEMPLATE_URL}
+            download
+            className="inline-flex items-center gap-1.5 rounded-xl font-semibold"
+            style={{ border: '1px solid #E2E4E9', padding: '10px 16px', fontSize: '14px', color: '#6B7280', background: 'white' }}
+          >
+            <Download className="w-4 h-4" />
+            הורדת הטמפליט הנוכחי
+          </a>
+          {info?.source === 'uploaded' && (
+            <Button variant="ghost" onClick={handleReset} disabled={busy}>
+              <RefreshCw className="w-4 h-4" />
+              חזרה למובנה
+            </Button>
+          )}
+        </div>
+      </SectionCard>
     </div>
-  )
-}
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="block text-sm font-semibold text-gray-600 mb-1.5">{children}</label>
-}
-
-function TextInput({
-  value,
-  onChange,
-  placeholder,
-  type = 'text',
-  disabled,
-}: {
-  value: string
-  onChange?: (v: string) => void
-  placeholder?: string
-  type?: string
-  disabled?: boolean
-}) {
-  return (
-    <input
-      type={type}
-      value={value}
-      onChange={e => onChange?.(e.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-      className="w-full rounded-xl border text-sm text-gray-800 outline-none transition-all"
-      style={{
-        borderColor: '#E2E4E9',
-        padding: '10px 14px',
-        background: disabled ? '#F8F9FA' : 'white',
-        color: disabled ? '#9CA3AF' : undefined,
-      }}
-      onFocus={e => { if (!disabled) (e.target as HTMLInputElement).style.borderColor = '#E8645A' }}
-      onBlur={e => { (e.target as HTMLInputElement).style.borderColor = '#E2E4E9' }}
-    />
   )
 }
 
@@ -410,8 +508,7 @@ export default function Settings() {
       showLogoMsg('success', 'הלוגו עודכן בהצלחה ✓')
     } catch (err) {
       console.error('[logo] upload failed:', err)
-      const msg = err instanceof Error ? err.message
-        : (err as any)?.message ?? 'שגיאה בהעלאה — נסי שוב'
+      const msg = errMessage(err, 'שגיאה בהעלאה — נסי שוב')
       showLogoMsg('error', msg)
     } finally {
       setLogoUploading(false)
@@ -432,7 +529,7 @@ export default function Settings() {
       showLogoMsg('success', 'הלוגו אופס לברירת המחדל ✓')
     } catch (err) {
       console.error('[logo] reset failed:', err)
-      const msg = err instanceof Error ? err.message : (err as any)?.message ?? 'שגיאה — נסי שוב'
+      const msg = errMessage(err, 'שגיאה — נסי שוב')
       showLogoMsg('error', msg)
     } finally {
       setLogoUploading(false)
@@ -1050,12 +1147,12 @@ export default function Settings() {
     ),
 
     categories: <CategoriesManager />,
+    bizbox:     <BizboxTemplateManager />,
   }
 
   return (
     <div className="space-y-6" style={{ direction: 'rtl' }}>
       <div>
-        <h1 className="text-2xl font-black text-gray-800">הגדרות</h1>
         <p className="text-gray-500 text-sm mt-0.5">ניהול פרופיל, העדפות והתראות המערכת</p>
       </div>
 

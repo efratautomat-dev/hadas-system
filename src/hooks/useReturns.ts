@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
+import { isoToDisplay } from '../lib/dates'
 
 export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -28,12 +29,6 @@ export interface ReturnEntry {
   messageLink?:             string | null  // DB: message_link
 }
 
-function isoToDisplay(iso: string): string {
-  if (!iso) return ''
-  const parts = iso.split('T')[0].split('-')
-  if (parts.length !== 3) return iso
-  return `${parts[2]}/${parts[1]}/${parts[0]}`
-}
 
 export function useReturns() {
   const [data, setData]       = useState<ReturnEntry[]>([])

@@ -20,10 +20,24 @@ The stored `status` column is considered unreliable (it drifts), so the UI ignor
 badge. Alert↔invoice matching checks `gmailMessageId` and several payload id fields
 (`invoiceId`, `existingInvoiceId`, `duplicateInvoiceId`, `relatedId`).
 
-### A2. VAT auto-calculation = 17 %
-`src/components/Invoices.tsx` (invoice form). On editing pre-VAT amount:
-`vat = round(amountBeforeVat * 0.17)`, then `total = amountBeforeVat + vat`. `Math.round`
-guards floating-point drift. (17 % is hard-coded — Israeli VAT.)
+### A2. VAT auto-calculation — rate by invoice date (18 % since 1.1.2025)
+`src/lib/vat.ts` (frontend) and `supabase/functions/_shared/vat.ts` (Deno copy — must be kept
+identical). `rate = vatRateFor(invoice_date)` — **18 % from 2025-01-01, 17 % before it.** Keying
+on the invoice's own date rather than "today" is what keeps back-entered pre-2025 invoices
+splitting correctly.
+
+**All three amounts are always filled** by `completeAmounts()`, which runs both at **ingest**
+(`extractInvoice` / `extractDeliveryNote` — so the DB row is complete) and when a row is **opened**
+in the form (repairing older rows). It fills **holes only** — anything the extractor actually read
+off the document wins over a calculation. Where two of the three are known the third is their exact
+difference or sum and the rate is not consulted at all; only a lone amount is split by the rate.
+
+Editing any one of the three rewrites the other two; the typed field is authoritative. Gross →
+`net = round₂(gross / (1 + rate))`, then `vat = gross − net` (**remainder**, so `net + vat === gross`
+exactly). Net → `vat = round₂(net * rate)`. VAT → the net is kept and the total absorbs the change.
+
+**Everything rounds to the agora** (`round₂ = Math.round(n * 100) / 100`), not to whole shekels;
+that also pins floating-point drift. The "net + VAT ≠ total" warning fires above `0.005`.
 
 ### A3. Duplicate detection — **frontend pairing**
 `src/components/Invoices.tsx`. Two invoices are a duplicate pair when **`invoiceNumber` +

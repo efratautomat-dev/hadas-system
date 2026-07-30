@@ -8,6 +8,7 @@
 // ╚══════════════════════════════════════════════════════════════════════════╝
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveInvoiceFolder, driveGetFolderLink } from "../_shared/drive-filing.ts";
+import { vatRateFor, completeAmounts } from "../_shared/vat.ts";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -117,7 +118,7 @@ function makeLogger(supabase: SupabaseClient) {
     messageId?: string,
   ) {
     const line = `[${level}] ${messageId ? `(${messageId}) ` : ""}${message}`;
-    let contextStr = "";
+    let contextStr: string;
     try { contextStr = context ? JSON.stringify(context) : ""; }
     catch { contextStr = "[unserializable context]"; }
     console.log(line, contextStr);
@@ -290,7 +291,7 @@ async function gmailSendAlertEmail(
 
 // Replaces filesystem-unsafe characters and trims; falls back to placeholder if empty.
 function sanitizeForFilename(s: string): string {
-  return (s ?? "").replace(/[\/\\:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
+  return (s ?? "").replace(/[/\\:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
 }
 
 // Picks an extension from the original filename, then falls back to MIME.
@@ -317,6 +318,14 @@ function buildInvoiceFilename(
   return `${safe} - ${id}.${ext}`;
 }
 
+// ── Drive filenames for the pipelines that do NOT file to Drive yet ─────────
+// `driveUploadFile` has exactly ONE call site today — the invoice path. Delivery
+// notes, returns and statements are stored and inserted, but never uploaded to
+// Drive, so these three builders are staged and unreachable. They are kept
+// deliberately: they encode the agreed naming ("<ספק> - תעודת משלוח <מס'>"), and
+// deleting them would throw that away. Wire them up when those pipelines gain
+// their Drive upload — until then the linter is told they are unused on purpose.
+/* eslint-disable @typescript-eslint/no-unused-vars */
 function buildDeliveryNoteFilename(
   supplierName: string,
   noteNumber:   string,
@@ -349,6 +358,7 @@ function buildStatementFilename(origFilename: string, mimeType: string): string 
   const base = sanitizeForFilename(origFilename.replace(/\.[a-z0-9]+$/i, "")) || "כרטסת";
   return `${base}.${ext}`;
 }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 // ASCII-safe key for Supabase Storage. The Storage API rejects keys containing
 // non-ASCII characters (Hebrew, spaces, etc.), so display names go to Drive
@@ -633,7 +643,7 @@ function extractAnchors(html: string): Array<{ href: string; text: string }> {
 }
 
 function rawUrls(text: string): string[] {
-  return (text.match(/https?:\/\/[^\s<>"'\)\]]+/gi) ?? []).map((u) => u.replace(/[).,;]+$/, ""));
+  return (text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map((u) => u.replace(/[).,;]+$/, ""));
 }
 
 // Collects candidate invoice-file URLs from the body, mirroring the N8N
@@ -981,7 +991,7 @@ function parseJsonRobust(raw: string): unknown | null {
 async function classifyDocTypeByContent(
   doc: { mimeType: string; bytes: Uint8Array },
 ): Promise<Exclude<DocType, "unknown">> {
-  let raw = "";
+  let raw: string;
   try {
     raw = (await anthropicMessage(
       ANTHROPIC_MODEL_CLASSIFIER,
@@ -1015,7 +1025,7 @@ async function classifyDocTypeByContent(
 // legitimate invoice is never discarded here (the extractor's not_invoice hatch is
 // the final net). NEVER applied to statements/delivery-notes/returns.
 async function quickInvoiceCheck(doc: { mimeType: string; bytes: Uint8Array }): Promise<boolean> {
-  let raw = "";
+  let raw: string;
   try {
     raw = (await anthropicMessage(
       ANTHROPIC_MODEL_CLASSIFIER,
@@ -1133,14 +1143,32 @@ ${hintLine}`;
     }
   }
   const p = parsed as Record<string, unknown>;
+  const invoice_date = String(p.invoice_date ?? "");
+
+  // The extractor returns 0 for any amount it could not read, and plenty of
+  // supplier documents print only a total. Complete the three here so the row
+  // reaches the database whole — holes only, never overwriting a figure that WAS
+  // read off the document. The rate comes from the invoice's own date.
+  // The sign is re-applied below: completion works on magnitudes, and a credit
+  // note keeps its minus (the extractor is told to return negatives, and
+  // handleInvoiceFile force-negates a known credit note anyway).
+  const negative = Number(p.total_amount ?? 0) < 0
+                || Number(p.amount_before_vat ?? 0) < 0
+                || Number(p.vat_amount ?? 0) < 0;
+  const s = negative ? -1 : 1;
+  const filled = completeAmounts(
+    { net: p.amount_before_vat, vat: p.vat_amount, gross: p.total_amount },
+    vatRateFor(invoice_date),
+  );
+
   return {
     vendor_name:       String(p.vendor_name ?? ""),
     hp:                String(p.hp ?? ""),
     invoice_number:    String(p.invoice_number ?? ""),
-    invoice_date:      String(p.invoice_date ?? ""),
-    total_amount:      Number(p.total_amount ?? 0),
-    amount_before_vat: Number(p.amount_before_vat ?? 0),
-    vat_amount:        Number(p.vat_amount ?? 0),
+    invoice_date,
+    total_amount:      s * filled.gross,
+    amount_before_vat: s * filled.net,
+    vat_amount:        s * filled.vat,
     currency:          String(p.currency ?? "ILS"),
     category:          String(p.category ?? ""),
     line_items:        Array.isArray(p.line_items) ? p.line_items.map(String) : [],
@@ -2080,13 +2108,22 @@ async function extractDeliveryNote(
     }
   }
   const p = parsed as Record<string, unknown>;
+  const date = String(p.date ?? "");
+
+  // Same three-amount completion as extractInvoice — a delivery note that prints
+  // only a total still lands with net and VAT filled. Holes only.
+  const filled = completeAmounts(
+    { net: p.amount_before_vat, vat: p.vat_amount, gross: p.amount },
+    vatRateFor(date),
+  );
+
   return {
     vendor_name:       String(p.vendor_name ?? ""),
     note_number:       String(p.note_number ?? ""),
-    date:              String(p.date ?? ""),
-    amount:            Number(p.amount ?? 0),
-    amount_before_vat: Number(p.amount_before_vat ?? 0),
-    vat_amount:        Number(p.vat_amount ?? 0),
+    date,
+    amount:            filled.gross,
+    amount_before_vat: filled.net,
+    vat_amount:        filled.vat,
     line_items:        Array.isArray(p.line_items) ? p.line_items.map(String) : [],
   };
 }

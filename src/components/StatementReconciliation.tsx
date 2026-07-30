@@ -415,7 +415,6 @@ export default function StatementReconciliation({ initialStatementId }: { initia
         </div>
       )}
       <div>
-        <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>התאמת כרטסות ספקים</h1>
         <p className="text-gray-500 text-sm mt-0.5">השוואת יתרות מול דפי חשבון ספקים</p>
       </div>
 

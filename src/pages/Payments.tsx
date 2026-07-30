@@ -7,6 +7,9 @@ import { useSuppliers } from '../hooks/useSuppliers'
 import { usePayments as usePaymentsData } from '../hooks/usePayments'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow } from '../components/ui/tableStyles'
 import { Button } from '../components/ui/Button'
+import { loadBizboxTemplate } from '../lib/bizboxTemplate'
+import { writeRowsIntoTemplate } from '../lib/bizboxWrite'
+import { DateField } from '../components/ui/form'
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -344,10 +347,12 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
     if (rows.length === 0) return
     const fileName = `bizbox_${todayStr()}.xlsx`
     try {
-      const ExcelJS = (await import('exceljs')).default
-      const wb = new ExcelJS.Workbook()
-      const ws = wb.addWorksheet('גיליון1')
-      ws.addRow(['סוג_פעולה', 'סוג_תשלום', 'תאריך', 'אסמכתא', 'סכום', 'תיאור'])
+      // Fill Bizibox's OWN template instead of building a look-alike workbook.
+      // A from-scratch file carried none of the template's metadata and Bizibox
+      // rejected rows from it — the same rows pasted into a fresh Bizibox
+      // template imported fine. Prefers an uploaded template (Settings) over the
+      // bundled copy, so a Bizibox revision needs no deploy. See lib/bizboxTemplate.
+      const { bytes, headerRow, headers, source } = await loadBizboxTemplate()
       const F = String.fromCharCode;
       const HMON = [
         F(1497,1504,1493,1488,1512),
@@ -364,35 +369,48 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
         F(1491,1510,1502,1489,1512)
       ];
       const payMonth = (d: string | null) => { if (!d) return ""; const m = parseInt(d.split("-")[1], 10); return HMON[m-1] || ""; };
-      rows.forEach(p => {
-        // Bizibox accepts ONLY the literal strings "הוצאה" / "הכנסה" in the
-        // סוג_פעולה column. Other values (e.g. "חיוב"/"זיכוי"/"חובה"/"זכות")
-        // trigger "שורה מספר X חזר פירוט הוצאה הכנסה" on import.
-        //
-        // Bizibox has separate חובה/זכות columns internally and the action
-        // chooses which column receives the amount — so the סכום column must
-        // always be a POSITIVE magnitude. We detect refunds via negative
-        // p.amount and flip them to income, then write |amount|.
-        const amount = Number(p.amount) || 0
-        const action = amount < 0 ? 'הכנסה' : 'הוצאה'
-        ws.addRow([
-          action,
-          normalizeBizboxType(p.type),
-          fmtDate(p.valueDate || p.date),
-          p.ref ?? '',
-          Math.abs(amount),
-          [p.supplier ?? '', payMonth(p.date), p.notes ?? ''].filter(Boolean).join(' '),
-        ])
-      })
-      const buffer = await wb.xlsx.writeBuffer()
+
+      // Write BY HEADER NAME, in whatever order the template declares. If Bizibox
+      // reorders or renames a column in a future template, the upload alone fixes
+      // the export — positional writing would silently put values in wrong columns.
+      const COLUMN_BUILDERS: Record<string, (p: Payment) => string | number> = {
+        'סוג_פעולה': p => ((Number(p.amount) || 0) < 0 ? 'הכנסה' : 'הוצאה'),
+        'סוג_תשלום': p => normalizeBizboxType(p.type),
+        'תאריך':     p => fmtDate(p.valueDate || p.date),
+        'אסמכתא':    p => p.ref ?? '',
+        'סכום':      p => Math.abs(Number(p.amount) || 0),
+        'תיאור':     p => [p.supplier ?? '', payMonth(p.date), p.notes ?? ''].filter(Boolean).join(' '),
+      }
+      const unknown = headers.filter(h => h && !(h in COLUMN_BUILDERS))
+      if (unknown.length) {
+        // A column we have no value for is left EMPTY rather than guessed at, and
+        // the manager is told — an unnoticed new required column is exactly how a
+        // silent import failure starts.
+        console.warn('[bizbox] template has columns the export does not fill:', unknown)
+      }
+
+      // Bizibox accepts ONLY the literal strings "הוצאה" / "הכנסה" in the
+      // סוג_פעולה column. Other values (e.g. "חיוב"/"זיכוי"/"חובה"/"זכות")
+      // trigger "שורה מספר X חזר פירוט הוצאה הכנסה" on import.
+      //
+      // Bizibox has separate חובה/זכות columns internally and the action chooses
+      // which column receives the amount — so the סכום column must always be a
+      // POSITIVE magnitude. Refunds are detected via a negative p.amount, flipped
+      // to income, and written as |amount|.
+      const cellRows = rows.map(p =>
+        headers.map(h => (COLUMN_BUILDERS[h] ? COLUMN_BUILDERS[h](p) : ''))
+      )
+
+      // Rows are injected into the template's own bytes — see lib/bizboxWrite for
+      // why the workbook is never re-serialised.
+      const blob = await writeRowsIntoTemplate(bytes, cellRows, headerRow + 1)
+      console.log(`[bizbox] wrote ${rows.length} rows into the ${source} template`,
+        { headers, firstDataRow: headerRow + 1 })
 
       // חותמים קודם ב-DB; רק אם הצליח — מורידים את הקובץ.
       // (הסדר ההפוך היה מסכן כפילויות בביזבוקס אם החתימה נכשלת אחרי ההורדה)
       await markBizboxExported(rows.map(p => p.id))
 
-      const blob = new Blob([buffer], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -942,9 +960,8 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     <label style={labelStyle}>
                       תאריך תשלום <span style={{ color: '#DC2626' }}>*</span>
                     </label>
-                    <input
+                    <DateField
                       style={inputStyle}
-                      type="date"
                       value={form.date}
                       onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
                       required
@@ -971,9 +988,8 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                       the payment date on save; enter a future date for post-dated. */}
                   <div>
                     <label style={labelStyle}>תאריך ערך</label>
-                    <input
+                    <DateField
                       style={inputStyle}
-                      type="date"
                       value={form.valueDate}
                       onChange={(e) => setForm((f) => ({ ...f, valueDate: e.target.value }))}
                       onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
@@ -1528,9 +1544,8 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 </div>
                 <div>
                   <label style={labelStyle}>תאריך תשלום</label>
-                  <input
+                  <DateField
                     style={inputStyle}
-                    type="date"
                     value={editForm.date}
                     onChange={(e) => setEditForm((f) => f && { ...f, date: e.target.value })}
                     required
@@ -1551,9 +1566,8 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                 </div>
                 <div>
                   <label style={labelStyle}>תאריך ערך</label>
-                  <input
+                  <DateField
                     style={inputStyle}
-                    type="date"
                     value={editForm.valueDate}
                     onChange={(e) => setEditForm((f) => f && { ...f, valueDate: e.target.value })}
                     onFocus={(e) => (e.target.style.borderColor = 'var(--brand-primary-dark)')}
@@ -1799,12 +1813,12 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                       <div>
                         <label style={{ fontSize: '11px', fontWeight: 700, color: '#6B7280', display: 'block', marginBottom: '4px' }}>מתאריך</label>
-                        <input type="date" value={bizboxFrom} onChange={e => setBizboxFrom(e.target.value)}
+                        <DateField value={bizboxFrom} onChange={e => setBizboxFrom(e.target.value)}
                           style={{ ...inputStyle, borderRadius: '10px', minHeight: '40px', fontSize: '14px' }} />
                       </div>
                       <div>
                         <label style={{ fontSize: '11px', fontWeight: 700, color: '#6B7280', display: 'block', marginBottom: '4px' }}>עד תאריך</label>
-                        <input type="date" value={bizboxTo} onChange={e => setBizboxTo(e.target.value)}
+                        <DateField value={bizboxTo} onChange={e => setBizboxTo(e.target.value)}
                           style={{ ...inputStyle, borderRadius: '10px', minHeight: '40px', fontSize: '14px' }} />
                       </div>
                     </div>

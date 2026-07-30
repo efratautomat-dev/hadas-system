@@ -94,7 +94,8 @@ Deno.serve(async (req) => {
   try {
     const token = await getToken();
     if (url.searchParams.get("phase") === "overflow") {
-      const rep: any[] = [];
+      // Free-form report rows: each phase records a different shape.
+      const rep: Record<string, unknown>[] = [];
       for (const fid of OVERFLOW_FILES) {
         if (dryRun) { rep.push({ file: fid, action: "WILL COPY to overflow" }); continue; }
         const r = await copyFile(token, fid, OVERFLOW);
@@ -106,7 +107,8 @@ Deno.serve(async (req) => {
       const mainMay = TARGET["2026-05"];
       const sourceFiles = await listFiles(token, SOURCE_MAY);
       const invoices = await dbInvoices("2026-05");
-      const rep: any[] = [];
+      // Free-form report rows: each phase records a different shape.
+      const rep: Record<string, unknown>[] = [];
       let copied = 0, already = 0, notfound = 0, toCar = 0;
       for (const inv of invoices) {
         const car = CAR_IDS.includes(inv.id);
@@ -133,7 +135,7 @@ Deno.serve(async (req) => {
     }
     const target = TARGET[month];
     const invoices = await dbInvoices(month);
-    const report: any[] = [];
+    const report: Record<string, unknown>[] = [];
     let willCopy = 0, already = 0, broken = 0, viaFolder = 0;
 
     for (const inv of invoices) {

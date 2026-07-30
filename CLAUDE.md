@@ -87,7 +87,14 @@ POST mode. Details and every magic number are in `docs/04-BUSINESS-LOGIC.md` and
   `Invoices.tsx` (transferred → under-review-if-alert → waiting); the stored `status` column is
   considered unreliable and ignored for display. Same pattern for supplier balances (computed in
   `useSuppliers.ts`).
-- **VAT is hard-coded 17%** (Israeli VAT) in the invoice form.
+- **VAT rate is keyed on the invoice date**, not on "today" — Israeli VAT is **18% since
+  1.1.2025** and **17%** before it. Never reintroduce a bare `0.17` / `0.18`; use
+  `vatRateFor(date)`. Amounts are computed to the **agora** (`round₂`), never to whole shekels,
+  and **all three** (net / VAT / total) are always filled by `completeAmounts()` — holes only,
+  so a figure read off the document is never overwritten. See `spec/06-RULES.md §3`.
+- **`src/lib/vat.ts` and `supabase/functions/_shared/vat.ts` are twins.** Vite can't import from
+  `supabase/` and Deno can't import from `src/`, so the VAT bands and the completion rules exist
+  twice on purpose — **change both together** or ingest and the UI will disagree.
 - **Israeli dates are day-first** (`DD/MM/YY`), never US month-first — in both ingest parsing and
   the UI.
 - **Credit notes are negative invoices** — amounts forced negative in ingest, never trusting the

@@ -40,6 +40,35 @@ See `06-RULES.md` for the enforcement model (RLS + service-role writes).
 - **Actions:** create / edit a supplier; **activate / deactivate** (inactive/active toggle); edit
   opening balance + opening-balance date; view ledger. Hard delete is blocked if invoices reference
   the supplier (`409 HAS_INVOICES`) — **deactivation replaces deletion** for suppliers with history.
+
+### Supplier form — CONFIRMED (2026-07-28)
+
+The add/edit form is a **centred 640px column over the list**, built from the **same components as
+the categories form in Settings** (`components/ui/form.tsx` — `SectionCard` / `Field` / `TextInput`
+/ `Select` / `Textarea`, shared by both screens, not copied). It previously rendered **inside a
+grid cell** in card view, squeezing ten fields across four groups into a third of the screen.
+
+- Identical in the **card and table** views — the form no longer belongs to either.
+- The list stays mounted behind it, dimmed, so search / filters / scroll survive a cancel.
+- Dismissed by **Esc**, the ✕, ביטול, or a click outside.
+- Grouped as before: פרטי זיהוי · פרטי קשר · כספי · כללי.
+
+### Supplier detail (manager) — CONFIRMED (2026-07-28)
+
+The manager gets the **same card-per-section layout the employees already have**, extended with
+the two sections that were missing entirely — **חזרות** and **התאמת כרטסת**.
+
+- **Six cards** across the top: כרטסת · חשבוניות · תעודות משלוח · חזרות · תשלומים · התאמת כרטסת.
+  Each shows its record count (כרטסת shows the current balance); **התאמת כרטסת carries a red badge**
+  counting rows in `mismatch` / `needs_review`.
+- **Clicking a card opens that section full width BENEATH the cards** — not in a side pane. These
+  tables are wide (תאריך · סוג · אסמכתא · חובה · זכות · יתרה); a half-screen pane would force
+  horizontal scrolling, and on tablet each pane would be ~380px. There is also no need to read two
+  sections at once, unlike the invoice screen where the scan and the fields are used together.
+- Header, identity fields and the four financial stat cards stay **above** the cards, always visible.
+- Everything links by **`supplier_id`**, never by name (`06-RULES.md §2b`).
+- Return statuses render through the **gray-fallback** rule (`06-RULES.md §1`) — returns carry a
+  mixed vocabulary (`אושר`/`בטיפול`/`נדחה` from the UI, `הסתיים` from ingest).
 - **NEW vs current:**
   - **Active/inactive toggle:** inactive suppliers drop out of the default list and are reachable
     only via the inactive filter — the supported way to retire a supplier while keeping history
@@ -56,11 +85,33 @@ See `06-RULES.md` for the enforcement model (RLS + service-role writes).
 
 - **Purpose:** every supplier invoice (and credit note as a negative invoice).
 - **User sees:** list with supplier, number, date, total, status, duplicate/error flags;
-  detail view with the parsed line items and the source document (Drive / signed Storage URL).
+  **two-pane detail view** — the source document on the **right**, every field on the **left**.
 - **Actions:** create manual invoice; edit; change status; delete (trashes the Drive file first,
-  then cleans alerts + Storage + row); mark "sent to accountant" (→ done).
+  then cleans alerts + Storage + row); mark "sent to accountant" (→ done);
+  **convert charge ⇄ credit note** (`06-RULES.md §2c`).
 - **NEW vs current:** status uses the unified taxonomy (`ממתין`→`new`, sent-to-accountant→`done`).
   `line_items` is unified to **jsonb** (see `02-ERD.md`).
+
+### Detail view — CONFIRMED (2026-07-28)
+
+- **Two panes, no preview popup.** The document renders **inline on the right** and is
+  **sticky**, so it stays put while the fields on the left scroll — the owner types while
+  looking at the scan. The old eye-icon → modal is replaced by **"הגדל"** (full screen) and
+  an open-in-new-tab link in the pane header; both still use the shared renderer, so
+  multi-page PDFs keep the browser/Drive viewer.
+- **Stacks below 1100px** (document above, fields below) rather than squeezing two panes.
+- **"אין מסמך מצורף" state** for rows with neither `storage_url` nor `drive_file_link`.
+- The pane resolves its URL **on mount** with a **1-hour** signed Storage URL (the old 120s
+  preview URL expired mid-review).
+- **Two invoice numbers, clearly separated:**
+  - **`invoice_number` — "מספר חשבונית של הספק"**: the number printed on the document.
+    Editable, and it is the **headline** of the detail view.
+  - **`id` — "מספר במערכת"**: the system key (`INV-YYYY-NNN`). **READ-ONLY** — it is the
+    target of `PUT /invoices/:id`, so editing it sent the save to a non-existent row and the
+    change vanished silently.
+- **Any one of the three amounts is editable** and derives the other two, to the **agora**.
+  The three are **never left partially blank**: a row that arrives with only a total is completed
+  at ingest and again when opened. See `06-RULES.md §3`.
 
 ---
 

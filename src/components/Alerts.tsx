@@ -52,7 +52,7 @@ const b = (label: string, Icon: AlertTypeConf['Icon'], bucket: Bucket): AlertTyp
 // Keys cover every type the backend emits (grep `alerts.insert({type:` in
 // supabase/functions) plus the legacy mock-data types. Exported so the
 // Dashboard's "Recent Alerts" card uses the same config.
-export const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
+const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // ── Urgent (red): broken ingest / duplicates ──
   invoice_ingest_failed:       b('פענוח נכשל — טיפול ידני', FileWarning,   'urgent'),
   invoice_duplicate:           b('כפילות',                  Copy,          'urgent'),
@@ -456,7 +456,6 @@ export default function Alerts({
     <div className="space-y-6">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-black text-gray-800">התראות מערכת</h1>
         <p className="text-gray-500 text-sm mt-0.5">
           מעקב אחר חריגים והתראות הדורשים טיפול
         </p>

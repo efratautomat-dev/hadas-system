@@ -101,11 +101,132 @@ Invoices link to suppliers by the supplier's **business number (`hp` / ח.פ)**,
 
 ---
 
+## 2c. Credit-note sign correction (mis-classified credit notes)
+
+Ingest decides the sign at intake: a credit note (`docType === "return_doc"`) has all three
+amounts forced negative with `-Math.abs`, never trusting the extractor
+(`invoices-ingest/index.ts`). When the **classifier misses** one, the credit note lands as a
+**positive charge** and *increases* the supplier's debt instead of reducing it.
+
+The manager corrects this from the invoice screen — **"סמן כזיכוי"** (and the reverse,
+**"סמן כחשבונית חיוב"**), behind a confirmation that shows the before → after total and the
+direction the balance will move.
+
+- **The sign and `invoice_type` are ONE unit.** Both are produced together by
+  `applyCreditSign` (`src/lib/creditNote.ts`) and written in a single update, so a row can
+  never be negative while typed as `חשבונית`.
+- **Conversion is IDEMPOTENT** — it uses the same `-Math.abs` convention as ingest, never
+  `* -1`. Applying it twice cannot bounce the sign back.
+- **Sign is owned solely by that action.** Editing an amount field re-stamps the row's
+  existing sign, so **typing a minus into the form cannot flip a row** — this is what makes
+  the double-minus bug impossible.
+- **`isCreditInvoice` keys on the AMOUNT, not on `invoice_type`** — the amount is what drives
+  the balance (`supplierBalance.ts`) and the ledger, and legacy rows carry a negative total
+  with `invoice_type` unset.
+- **Reversible**, and it changes no other field. No migration and no `hadas-api` change were
+  needed: `invoice_type` and the three amount columns are already in the update allowlist.
+
+---
+
 ## 3. VAT
 
-- VAT rate is **17%**.
+- VAT rate is **18%** as of **1.1.2025**. It was **17%** before that (from 1.10.2015).
 - Invoices/delivery notes carry `amount_before_vat`, `vat_amount`, `total_amount`. Where only the
-  total is known, derive the split with 17%.
+  total is known, derive the split with the rate above.
+
+### RULE — the rate is keyed on the INVOICE DATE, never on "today"
+
+The rate is set by law and changes on a date, so a single constant is always wrong for half the
+data: left at 17% it mis-splits today's invoices; bumped to 18% it retroactively mis-splits every
+invoice issued before 2025. The owner still back-enters and corrects older invoices, so **both
+directions matter.**
+
+`src/lib/vat.ts` holds the bands (newest first) and `vatRateFor(date)` returns the rate in force
+on that date. The invoice form derives its rate from `form.invoiceDate`, and the hint under the
+total shows which rate is being applied, so the number is never silently wrong.
+
+| Band | Rate |
+|---|---|
+| from `2025-01-01` | 18% |
+| `2015-10-01` – `2024-12-31` | 17% |
+
+A date that is empty, unparseable, or in a new invoice falls back to **today's** rate; a date
+older than the oldest band falls back to the oldest rate rather than throwing. **When the rate
+changes again, add one row at the top of `VAT_BANDS` — nothing else changes.**
+
+**Two copies, one rule.** The frontend is bundled by Vite from `src/` and the edge functions run
+on Deno with `supabase/` excluded from the frontend build, so neither side can import the other.
+The band table therefore exists twice — `src/lib/vat.ts` and `supabase/functions/_shared/vat.ts` —
+as a deliberate mirror. **They must be changed together**, and a parity test compares them across
+160,000 cases.
+
+### RULE — all THREE amounts are ALWAYS filled
+
+An invoice carries `amount_before_vat`, `vat_amount` and `total_amount`. A supplier document
+rarely prints all three, and the AI extractor returns `0` for whatever it could not read — so rows
+used to arrive with holes. `completeAmounts()` closes them, in **two** places:
+
+1. **At ingest** (`extractInvoice` / `extractDeliveryNote`), so the row reaches the **database**
+   complete, not just the screen. This is what makes exports and reports whole.
+2. **When a row is opened** in the invoice form, which also repairs rows ingested before this rule.
+
+**Holes only.** A figure that WAS read off the document is never overwritten by a calculation —
+the document is the authority. Completion is therefore idempotent.
+
+| Known | Derivation |
+|---|---|
+| net + gross | `vat = gross − net` |
+| vat + gross | `net = gross − vat` |
+| net + vat | `gross = net + vat` |
+| gross only | `net = round₂(gross ÷ (1 + rate))`, then **`vat = gross − net`** |
+| net only | `vat = round₂(net × rate)`, then `gross = net + vat` |
+| vat only | `net = round₂(vat ÷ rate)`, then `gross = net + vat` |
+| nothing | all three `0` |
+
+Where **two** amounts are known the third is their exact difference or sum — the rate is not used
+at all, so a document that was billed at a non-standard or exempt rate is reproduced faithfully.
+**A zero VAT is a legitimate value** (exempt / foreign supplier): net = gross yields `vat = 0`
+rather than an invented VAT.
+
+Completion works on **magnitudes**; the credit/charge sign is owned by §2c (`applyCreditSign` in
+the frontend, `-Math.abs` in ingest), so filling amounts can never flip a credit note into a charge.
+
+### RULE — the amount fields are edited in BOTH directions
+
+The invoice form lets the manager type **any one** of the three, because the number printed on a
+supplier document is sometimes the net, sometimes the VAT and sometimes only the total. **The
+typed field is authoritative and is never overwritten**; the other two are recomputed from it.
+
+| Typed | Derivation |
+|---|---|
+| `amount_before_vat` | `vat = round₂(net × rate)`, then `total = net + vat` |
+| `vat_amount` | `total = net + vat` — the **net is kept** (editing VAT means correcting it, not the net). With no net yet, `net = round₂(vat ÷ rate)`. |
+| `total_amount` (gross) | `net = round₂(gross ÷ (1 + rate))`, then **`vat = gross − net`** |
+
+`rate = vatRateFor(invoice_date)` — see the band table above.
+
+**The gross direction takes VAT as the REMAINDER, never as a second rounding.** Rounding both
+net and VAT independently lets `net + vat` land away from the gross the supplier actually billed.
+Taking the remainder guarantees **`net + vat === gross` exactly**, and the rounding residue is
+absorbed into VAT.
+
+Every amount edit re-stamps the row's existing credit/charge sign (see §2c) — so an amount edit
+can never flip a credit note into a charge.
+
+### RULE — amounts are calculated to the AGORA (2 decimals)
+
+Every derivation rounds with `round₂` = `Math.round(n × 100) / 100`. Israeli invoices are billed
+to the agora, so rounding to whole shekels would discard real money on every split. The `×100 / ÷100`
+also pins the binary-float dust (`0.1 + 0.2 = 0.30000000000000004`) that would otherwise accumulate
+through the chained derivations.
+
+- The three form inputs use `step="0.01"`.
+- The "net + VAT ≠ total" warning fires above **half an agora** (`0.005`), so it flags a genuine
+  inconsistency in the document and never a rounding artefact.
+- Display shows agorot when there are any, and does **not** pad a whole-shekel total with `.00`.
+
+Verified: across ~342,000 derived values at both rates, every result is exactly 2 decimals and
+`net + vat === gross` to the agora.
 
 ---
 
@@ -166,3 +287,79 @@ quantities the employee needs. Because the real cost data (balance, payment tota
 editable invoice page) is **already** hidden, an **incidental number inside a free-text line item
 is acceptable** and we deliberately do **not** attempt to strip it. Likewise, if an amount is
 printed on the document image itself, that is just the source document, not app data.
+
+---
+
+## 7. Supplier-matching exceptions (data)
+
+The ingest pipeline matches an incoming invoice to a supplier by **ח.פ / עוסק (`hp`) alone** — a
+tax-id match is authoritative; **name (`findBestSupplier`, 0.85 fuzzy) is only a fallback used when
+`hp` is absent or unmatched** (see `handleInvoiceFile`). So two supplier cards that share the same
+`hp` will collide: the pipeline picks whichever card the query returns first (no `ORDER BY` → effectively
+arbitrary) and funnels **both** companies' invoices onto that one card. Name does **not** disambiguate.
+
+### EXCEPTION (2026-07-13) — LUMIERE (SUP-027) & ST FASHION (SUP-018), shared עוסק 315297390
+- **LUMIERE (`SUP-027`)** and **ST FASHION (`SUP-018`)** are **two SEPARATE companies of the same
+  owner** that legally share **ONE עוסק number: `315297390`**. They must stay as two distinct cards.
+- Because the pipeline keys on `hp` alone, keeping both with `hp = 315297390` would funnel both
+  companies' invoices onto a single card. So we **deliberately CLEARED the `hp` column on BOTH cards**.
+- With `hp` blank, matching **falls back to name** (`findBestSupplier`, 0.85). Since **`LUMIERE`** vs
+  **`ST FASHION`** are distinct names, each invoice routes to the correct card and they **stay separate**.
+- The **real עוסק `315297390` is kept for reference here (and in the cards' notes), NOT in the `hp`
+  column.** Do not "restore" it to `hp` without the code change below.
+- **Trade-off:** these two lose `hp`-based dedup (a mistyped/variant name could spawn a duplicate) —
+  keep their `name`/`alt_names` aligned with how the extractor reads each vendor.
+- **FUTURE:** consider a code change to `handleInvoiceFile` supporting **composite `hp`+`name`
+  matching** (same `hp`, different name ⇒ different card). That would let the real `hp` be restored
+  on both cards while keeping them separate.
+
+---
+
+## 8. Bizibox export — FILL the template, never imitate it
+
+**CONFIRMED (2026-07-29) by the owner's own experiment.** An export of 4 cheques +
+10 bank transfers imported only the 4 cheque rows. The identical rows pasted into a
+**freshly downloaded Bizibox template** imported in full. So the discriminator is the
+**WORKBOOK**, not the row values — and Bizibox revises its template over time, which
+is what makes a bundled copy go stale.
+
+Ruled out along the way, each by evidence rather than assumption:
+- **The type name.** Every Hebrew literal was dumped byte-for-byte: `העברה בנקאית`
+  is exactly 12 chars with a single `U+0020` in both the frontend and ingest. Clean.
+- **The אסמכתא column.** A transfer WITH a reference still failed.
+- **The date.** The transfers were future-dated.
+
+### The rules
+
+- The export **loads Bizibox's own template file and writes rows into it**
+  (`src/lib/bizboxWrite.ts`). It does **not** build a workbook from scratch.
+- The workbook is **never re-serialised**. ExcelJS's round-trip expands the
+  template's `dataValidation` ranges per cell and re-groups them into
+  **overlapping** ranges (`A2:A75` alongside `A10:A75`) — which Excel treats as
+  damaged content — and drops the template's drawings. The `.xlsx` is edited as
+  the zip of XML it is: **only `xl/worksheets/sheet1.xml` changes; the other 15
+  parts stay byte-identical.**
+- Rows are written **by header NAME**, in whatever order the template declares, so
+  a reordered or renamed column is fixed by uploading a new template alone.
+  Positional writing would silently put values in the wrong columns.
+- Written rows inherit the template's **per-cell styles** (column C carries a date
+  format) and the row's own attributes (`ht`, `customHeight`).
+- `<row>` elements are re-emitted in **ascending `r` order** — appending at the end
+  produces a file Excel reports as damaged.
+- Empty values still emit a **styled empty cell**, matching the template's shape.
+- Strings are written **inline** (`t="inlineStr"`), so `sharedStrings.xml` is never
+  touched and its existing indices cannot be corrupted.
+
+### Updating the template — Settings → ייצוא לביזיבוקס
+
+The template is read from **Storage first** (`branding/bizbox-template.xlsx`), and
+falls back to the copy bundled at `public/add_tazrim_template.xlsx`. The owner
+downloads a new template from Bizibox and uploads it there; the next export uses it.
+**No code change and no deploy.** The upload is **validated before it replaces**
+anything — an unreadable template would break the export on the day payments go out.
+
+> The template's own dropdowns declare closed vocabularies: `סוג_פעולה` is
+> `הוצאה,הכנסה` and `סוג_תשלום` is **`שיק,העברה בנקאית,אחר`** — note `שיק`, not
+> `צ'ק`. The app writes nine internal payment types, seven of which are outside
+> that list. Cheques import today regardless, so **this was NOT changed** — but it
+> is the first thing to look at if rows start failing again.

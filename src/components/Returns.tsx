@@ -14,6 +14,8 @@ import { StatusBadge } from './StatusBadge'
 import { Button } from './ui/Button'
 import { SummaryCards } from './ui/SummaryCards'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
+import { isoToDisplay } from '../lib/dates'
+import { DateField } from './ui/form'
 
 export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -91,10 +93,6 @@ function fmtILS(n: number | null | undefined) {
   return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
-export function isoToDisplay(iso: string): string {
-  const [y, m, d] = iso.split('-')
-  return `${d}/${m}/${y}`
-}
 
 export function emptyForm(): FormState {
   return {
@@ -206,8 +204,7 @@ export function FormModal({ form, setForm, isEdit, onSave, onClose, suppliers, i
           {/* Date only — returns are tracking-only (no amount at creation) */}
           <div>
             <label style={labelBase}>תאריך *</label>
-            <input
-              type="date"
+            <DateField
               value={form.dateIso}
               onChange={(e) => setForm({ ...form, dateIso: e.target.value })}
               dir="ltr"
@@ -487,7 +484,6 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="text-right">
-          <h1 className="text-2xl font-black text-gray-800">חזרות וזיכויים</h1>
           <p className="text-gray-500 text-sm mt-0.5">ניהול החזרות וזיכויים מול ספקים</p>
         </div>
         <Button variant="primary" onClick={openAdd}>

@@ -58,7 +58,7 @@ function makeLogger(supabase: SupabaseClient) {
     messageId?: string,
   ) {
     const line = `[${level}] ${messageId ? `(${messageId}) ` : ""}${message}`;
-    let contextStr = "";
+    let contextStr: string;
     try { contextStr = context ? JSON.stringify(context) : ""; }
     catch { contextStr = "[unserializable context]"; }
     console.log(line, contextStr);
@@ -262,7 +262,7 @@ function normalizeBizboxType(raw: string): string {
 function parseIsoDate(raw: string): string {
   const d = raw.trim();
   // DD/MM/YYYY or D/M/YYYY
-  const dm = d.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  const dm = d.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   if (dm) {
     return `${dm[3]}-${dm[2].padStart(2, "0")}-${dm[1].padStart(2, "0")}`;
   }
@@ -288,8 +288,17 @@ const ALL_LABELS = [
 // matching, so labels/values glued to decorations are still found.
 function stripDecorations(s: string): string {
   return s
+    // The ZWJ (U+200D) inside the class is DELIBERATE: emoji arrive as joined
+    // sequences and the joiner must be stripped with them, or the leftover
+    // joiner glues a label to its value. eslint flags combined characters in a
+    // class because it can split a grapheme - here splitting is exactly the point.
+    // eslint-disable-next-line no-misleading-character-class
     .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200D}]/gu, "")
     .replace(/\*/g, "")
+    // NBSP (U+00A0) -> ordinary space. The "irregular whitespace" is the thing
+    // being MATCHED, not a typo: Hebrew Gmail/Outlook bodies are full of them,
+    // and a label followed by NBSP would never match a plain-space label.
+    // eslint-disable-next-line no-irregular-whitespace
     .replace(/ /g, " ");
 }
 

@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, Search, ChevronRight, ExternalLink, Eye, Save, AlertTriangle, X, Trash2, Wallet, CheckCircle, Clock } from 'lucide-react'
+import { FileText, Search, ChevronRight, ExternalLink, Eye, Save, AlertTriangle, X, Trash2, Wallet, CheckCircle, Clock, RotateCcw } from 'lucide-react'
 import { type Invoice, type Alert } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
-import { PdfPreviewButton, PdfPreviewModal } from './PdfPreviewModal'
+import { PdfPreviewButton, PdfPreviewModal, DocumentBody } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge } from './StatusBadge'
 import { Button } from './ui/Button'
@@ -13,6 +13,9 @@ import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from '.
 import { SummaryCards } from './ui/SummaryCards'
 import { STATUS } from '../theme/status'
 import { STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING, deriveInvoiceStatus } from '../lib/invoiceStatus'
+import { isCreditInvoice, applyCreditSign, convertInvoice } from '../lib/creditNote'
+import { vatRateFor, vatPercentFor, completeAmounts, type EditedAmount } from '../lib/vat'
+import { useDateField } from './ui/form'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -22,6 +25,14 @@ const CATEGORIES = [
 ]
 
 const QUALITIES = ['גבוהה', 'בינונית', 'נמוכה']
+
+// The three amount fields, mapped to the role each plays in the VAT split. Any
+// field NOT listed here is an ordinary field and triggers no recalculation.
+const AMOUNT_FIELDS = {
+  amountBeforeVat: 'net',
+  vat:             'vat',
+  amount:          'gross',
+} as const satisfies Record<string, EditedAmount>
 
 // ── Derived status ───────────────────────────────────────────────────────────
 // The derivation (transferred → under review → waiting) lives in
@@ -57,8 +68,14 @@ function isLowConfidence(inv: Invoice): boolean {
   return q === 'low' || q === 'נמוכה'
 }
 
+// Amounts are derived to the agora, so agorot are shown when there are any —
+// but a whole-shekel total is not padded with a pointless "‎.00".
 function formatILS(n: number | null | undefined) {
-  return '₪' + (n ?? 0).toLocaleString('he-IL')
+  const v = n ?? 0
+  return '₪' + v.toLocaleString('he-IL', {
+    minimumFractionDigits: Number.isInteger(v) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 // ── Field primitives ────────────────────────────────────────────────────────
@@ -92,6 +109,18 @@ function useIsMobile() {
   return v
 }
 
+// Wide enough to show the document and the form side by side without either
+// becoming unusable. Below this the invoice screen stacks them instead.
+function useIsWide() {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1100)
+  useEffect(() => {
+    const h = () => setV(window.innerWidth >= 1100)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return v
+}
+
 function useIsTablet() {
   const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 640 && window.innerWidth <= 1024)
   useEffect(() => {
@@ -111,21 +140,28 @@ function Lbl({ t }: { t: string }) {
 }
 
 function TInput({
-  label, value, onChange, type = 'text', readOnly = false,
+  label, value, onChange, type = 'text', readOnly = false, step,
 }: {
   label: string; value: string; onChange?: (v: string) => void; type?: string; readOnly?: boolean
+  step?: string
 }) {
   const f = useFocus()
+  // Empty date fields show OUR day-first DD/MM/YYYY instead of the browser's
+  // localised placeholder (Hebrew Chrome renders the month as מ"מ). See useDateField.
+  const d = useDateField(value)
+  const isDate = type === 'date'
   return (
     <div>
       <Lbl t={label} />
       <input
-        type={type}
+        {...(isDate ? d : {})}
+        type={isDate ? d.type : type}
+        step={step}
         value={value}
         onChange={e => onChange?.(e.target.value)}
         readOnly={readOnly}
-        onFocus={f.onFocus}
-        onBlur={f.onBlur}
+        onFocus={() => { if (isDate) d.onFocus(); f.onFocus() }}
+        onBlur={() => { if (isDate) d.onBlur(); f.onBlur() }}
         style={{ ...BASE, borderColor: f.on && !readOnly ? 'var(--brand-primary)' : '#DEDFE5', background: readOnly ? '#F8F8FA' : 'white' }}
       />
     </div>
@@ -139,9 +175,10 @@ function TSelect({
   options: string[] | { value: string; label: string }[]
 }) {
   const f = useFocus()
-  const opts = (options as any[]).map((o: any) =>
-    typeof o === 'string' ? { value: o, label: o } : o
-  )
+  // `options` is a union of two ARRAY types, which .map() cannot narrow on its
+  // own — widen to an array of the union ELEMENT instead, which needs no `any`.
+  const opts = (options as readonly (string | { value: string; label: string })[])
+    .map(o => (typeof o === 'string' ? { value: o, label: o } : o))
   return (
     <div>
       <Lbl t={label} />
@@ -260,6 +297,27 @@ function Row2({ children }: { children: React.ReactNode }) {
 
 // ── Invoice Detail ──────────────────────────────────────────────────────────
 
+// Return the invoice with all THREE amounts filled in — net, VAT and total are
+// never left partially blank. `edited` names the field the user just typed (that
+// one is authoritative); omit it to fill holes only, leaving whatever the
+// document supplied untouched. The rate comes from the invoice's own date, and
+// the row's existing credit/charge sign is re-stamped, so completing amounts can
+// never flip a credit note into a charge. See ../lib/vat.ts.
+function withAmounts(inv: Invoice, edited: EditedAmount | null = null): Invoice {
+  // A credit note is negative in ALL three fields, but a partially-read one may
+  // have the minus on a field other than the total — so any negative marks it.
+  const credit = isCreditInvoice(inv)
+    || (Number(inv.amountBeforeVat) || 0) < 0
+    || (Number(inv.vat) || 0) < 0
+
+  const { net, vat, gross } = completeAmounts(
+    { net: inv.amountBeforeVat, vat: inv.vat, gross: inv.amount },
+    { rate: vatRateFor(inv.invoiceDate), edited },
+  )
+  const next = { ...inv, amountBeforeVat: net, vat, amount: gross }
+  return { ...next, ...applyCreditSign(next, credit) }
+}
+
 export function InvoiceDetail({
   invoice, derivedStatus, onBack, onSave, onOpenSupplier, onDelete,
   needsReviewConfirm = false, onMarkReviewed,
@@ -275,9 +333,29 @@ export function InvoiceDetail({
   onMarkReviewed?: () => void | Promise<void>
 }) {
   const { data: suppliersData } = useSuppliers()
-  const [form, setForm] = useState<Invoice>({ ...invoice })
+  // Opened rows are completed to all three amounts. The extractor returns 0 for
+  // whatever it could not read off the document, so invoices routinely arrive
+  // with only a total. completeAmounts fills ONLY the holes here — anything the
+  // document did print is left exactly as it was read.
+  const [form, setForm] = useState<Invoice>(() => withAmounts(invoice))
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [reviewing, setReviewing] = useState(false)
+  // Credit-note conversion: confirmation gate, because flipping the sign moves
+  // the supplier's balance by twice the invoice total.
+  const [confirmCredit, setConfirmCredit] = useState(false)
+
+  const isCredit = isCreditInvoice(form)
+
+  // Flip charge ⇄ credit note. Sign + invoice_type are written together by
+  // convertInvoice, so the row can never be negative while typed as a charge.
+  // Saved immediately (not left pending in the form) so the balance and the
+  // ledger reflect the correction right away.
+  const convertToCredit = (credit: boolean) => {
+    const next = convertInvoice(form, credit)
+    setForm(next)
+    setConfirmCredit(false)
+    onSave(next)
+  }
 
   // Mark this low-confidence invoice as human-reviewed. Update local form.status
   // too so a later "שמור" doesn't write back the stale status and un-review it.
@@ -306,6 +384,39 @@ export function InvoiceDetail({
     alert('לא ניתן לפתוח את הקובץ כעת')
   }
 
+  // ── Side-by-side document pane ──────────────────────────────────────────────
+  // The pane shows the document immediately, so resolve a viewable URL on mount
+  // instead of on click. Same precedence as openDocument() (signed storage URL →
+  // Drive link), but with a 1-hour signed URL: the pane stays mounted for as long
+  // as the invoice is open, and a 120s URL would expire mid-review.
+  // Keyed on the ORIGINAL invoice (not `form`) so editing fields doesn't re-fetch.
+  const [docSrc, setDocSrc] = useState<{ url: string; direct: boolean } | null>(null)
+  const [docState, setDocState] = useState<'loading' | 'ready' | 'none'>('loading')
+
+  useEffect(() => {
+    let cancelled = false
+    const settle = (src: { url: string; direct: boolean } | null) => {
+      if (cancelled) return
+      setDocSrc(src)
+      setDocState(src ? 'ready' : 'none')
+    }
+    ;(async () => {
+      const path = (invoice.storage_url ?? '').trim()
+      if (path) {
+        if (/^https?:\/\//i.test(path)) return settle({ url: path, direct: true })
+        const { data, error } = await supabase.storage.from('documents').createSignedUrl(path, 3600)
+        if (!error && data?.signedUrl) return settle({ url: data.signedUrl, direct: true })
+        console.error('[invoices] pane createSignedUrl failed:', error)
+      }
+      const drive = (invoice.driveFileLink ?? '').trim()
+      if (drive) return settle({ url: drive, direct: false })
+      settle(null)
+    })()
+    return () => { cancelled = true }
+  }, [invoice.storage_url, invoice.driveFileLink])
+
+  const isWide = useIsWide()
+
   // Category options from the managed pool (Settings → categories), with fallback
   // to the built-in list and the current value always selectable.
   const { data: cats } = useCategories()
@@ -313,16 +424,28 @@ export function InvoiceDetail({
   const baseCats = managedCats.length ? managedCats : CATEGORIES
   const catOptions = form.category && !baseCats.includes(form.category) ? [form.category, ...baseCats] : baseCats
 
-  const set = (field: keyof Invoice) => (value: any) => {
+  // Editing ANY of the three amounts rewrites the other two, so the form is never
+  // left with a blank among them — whichever number the document happens to print
+  // is enough to fill the row. The rate comes from the invoice's OWN date (VAT
+  // rose 17% → 18% on 1.1.2025), and the row's EXISTING sign is re-stamped from
+  // `prev`: the sign is owned solely by the "סמן כזיכוי" action below, so typing a
+  // minus into a field is a no-op and can never flip a credit note into a charge.
+  // applyCreditSign is idempotent, so running it on every keystroke is safe.
+  // Every caller is a field control: the text/number/date/select/link inputs hand
+  // back a string, the checkboxes a boolean. Nothing else reaches this.
+  const set = (field: keyof Invoice) => (value: string | boolean) => {
     setForm(prev => {
       const next = { ...prev, [field]: value }
-      if (field === 'amountBeforeVat') {
-        next.vat = Math.round((parseFloat(value) || 0) * 0.17)
-      }
-      if (field === 'amountBeforeVat' || field === 'vat') {
-        next.amount = (parseFloat(next.amountBeforeVat as any) || 0) + (parseFloat(next.vat as any) || 0)
-      }
-      return next
+
+      const edited = AMOUNT_FIELDS[field as keyof typeof AMOUNT_FIELDS]
+      if (!edited) return next
+
+      const { net, vat, gross } = completeAmounts(
+        { net: next.amountBeforeVat, vat: next.vat, gross: next.amount },
+        { rate: vatRateFor(next.invoiceDate), edited },
+      )
+      const filled = { ...next, amountBeforeVat: net, vat, amount: gross }
+      return { ...filled, ...applyCreditSign(filled, isCreditInvoice(prev)) }
     })
   }
 
@@ -334,8 +457,79 @@ export function InvoiceDetail({
   const total = (Number(form.amountBeforeVat) || 0) + (Number(form.vat) || 0)
   const internalStatus = INVOICE_STATUS_INTERNAL[derivedStatus] ?? derivedStatus
 
+  // Two-pane document view: the scan on the RIGHT, every field on the LEFT.
+  // `dir="rtl"` already lays flex children right-to-left, so the document simply
+  // comes first in source order. Below 1100px the two stack instead.
+  const documentPane = (
+    <div style={{
+      background: '#F3F4F6', border: '1.5px solid #DEDFE5', borderRadius: '14px',
+      overflow: 'hidden', display: 'flex', flexDirection: 'column',
+      ...(isWide
+        // A true HALF of the screen for the scan, and taller: the owner reads the
+        // document while typing, so this pane is the working surface.
+        ? { flex: '1 1 50%', position: 'sticky' as const, top: '8px', height: 'calc(100vh - 96px)' }
+        : { width: '100%', height: '60vh', marginBottom: '14px' }),
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '8px 12px', background: '#FAFAFC', borderBottom: '1px solid #E2E4E9', flexShrink: 0,
+      }}>
+        <span style={{ fontSize: '13px', fontWeight: 600, color: '#6B7280' }}>מסמך מקור</span>
+        {docSrc && (
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              type="button"
+              onClick={() => setDocPreview(docSrc)}
+              title="הגדל למסך מלא"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '5px 10px',
+                borderRadius: '8px', border: '1px solid #DEDFE5', background: 'white',
+                color: 'var(--brand-primary)', cursor: 'pointer', fontSize: '12px', fontFamily: 'inherit',
+              }}
+            >
+              <Eye size={13} />
+              הגדל
+            </button>
+            <a
+              href={docSrc.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="פתח בכרטיסייה חדשה"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '5px 10px',
+                borderRadius: '8px', border: '1px solid #DEDFE5', background: 'white',
+                color: 'var(--brand-primary)', fontSize: '12px', textDecoration: 'none',
+              }}
+            >
+              <ExternalLink size={13} />
+            </a>
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', minHeight: 0 }}>
+        {docState === 'loading' ? (
+          <div style={{ margin: 'auto', fontSize: '13px', color: '#9CA3AF' }}>טוען מסמך…</div>
+        ) : docState === 'none' ? (
+          <div style={{ margin: 'auto', textAlign: 'center', color: '#9CA3AF', padding: '20px' }}>
+            <FileText size={34} style={{ margin: '0 auto 10px', display: 'block', opacity: 0.5 }} />
+            <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>אין מסמך מצורף</div>
+            <div style={{ fontSize: '12px' }}>לחשבונית הזו לא נשמר קובץ מקור</div>
+          </div>
+        ) : (
+          <DocumentBody
+            url={docSrc!.url}
+            previewSrc={docSrc!.direct ? docSrc!.url : undefined}
+          />
+        )}
+      </div>
+    </div>
+  )
+
+  // Near-full width on a wide screen: the old 1480px cap left a broad empty
+  // margin on either side while the document pane stayed small.
   return (
-    <div dir="rtl" style={{ maxWidth: '800px', margin: '0 auto' }}>
+    <div dir="rtl" style={{ maxWidth: isWide ? '100%' : '800px', margin: '0 auto' }}>
 
       {/* Low-confidence review banner — prominent, at the very top. Clears the
           red list border once the manager confirms the invoice was checked. */}
@@ -364,6 +558,16 @@ export function InvoiceDetail({
             <Save size={16} />
             שמור
           </Button>
+          <Button
+            variant="ghost"
+            onClick={() => setConfirmCredit(true)}
+            title={isCredit
+              ? 'החזרת המסמך לחשבונית חיוב — הסכומים יחזרו לחיוביים'
+              : 'המסמך הוא למעשה זיכוי — הסכומים יהפכו לשליליים ויקזזו את יתרת הספק'}
+          >
+            <RotateCcw size={16} />
+            {isCredit ? 'סמן כחשבונית חיוב' : 'סמן כזיכוי'}
+          </Button>
           {onDelete && (
             <Button variant="danger" onClick={() => setConfirmDelete(true)}>
               <Trash2 size={16} />
@@ -375,7 +579,17 @@ export function InvoiceDetail({
         <div style={{ textAlign: 'center', flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
             <StatusBadge status={internalStatus} style={{ fontWeight: 600, padding: '4px 12px' }} />
-            <h2 style={{ margin: 0, fontSize: '19px', fontWeight: 600, color: '#1F2937' }}>{form.id}</h2>
+            {/* Headline is the SUPPLIER's invoice number — that's what the owner
+                matches against the paper document. The system id stays visible
+                next to it, in a lighter weight, for support/lookup. */}
+            <h2 style={{ margin: 0, fontSize: '19px', fontWeight: 600, color: '#1F2937' }}>
+              {form.invoiceNumber || form.id}
+            </h2>
+            {form.invoiceNumber && (
+              <span style={{ fontSize: '13px', color: '#9CA3AF' }} title="מספר במערכת">
+                {form.id}
+              </span>
+            )}
           </div>
           {form.supplier && form.supplierId && onOpenSupplier ? (
             <button
@@ -408,14 +622,34 @@ export function InvoiceDetail({
         </button>
       </div>
 
+      {/* Two panes: document (right, first in RTL source order) + fields (left). */}
+      <div style={{
+        display: 'flex', gap: '20px', alignItems: 'flex-start',
+        flexDirection: isWide ? 'row' : 'column',
+      }}>
+
+        {documentPane}
+
       {/* Groups */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <div style={{
+        display: 'flex', flexDirection: 'column', gap: '14px',
+        ...(isWide ? { flex: '1 1 50%', minWidth: 0 } : { width: '100%' }),
+      }}>
 
         {/* 1 – פרטי חשבונית */}
         <Group title="פרטי חשבונית">
           <Row2>
-            <TInput label="מספר חשבונית" value={form.id} onChange={set('id')} />
+            {/* The supplier's OWN invoice number — the one printed on the document.
+                Distinct from `id`, which is the system-generated key (INV-YYYY-NNN). */}
+            <TInput label="מספר חשבונית של הספק" value={form.invoiceNumber ?? ''} onChange={set('invoiceNumber')} />
             <TInput label="תאריך חשבונית" value={form.invoiceDate} onChange={set('invoiceDate')} type="date" />
+          </Row2>
+          <Row2>
+            {/* READ-ONLY: `id` is the row's primary key and the target of the save
+                request (PUT /invoices/:id). Editing it would send the update to a
+                row that doesn't exist. Correct the SUPPLIER's number above instead. */}
+            <TInput label="מספר במערכת" value={form.id} readOnly />
+            <div />
           </Row2>
           <Row2>
             <div>
@@ -441,16 +675,42 @@ export function InvoiceDetail({
         {/* 2 – סכומים */}
         <Group title="סכומים">
           <Row2>
-            <TInput label='סכום לפני מע"מ (₪)' value={String(form.amountBeforeVat || '')} onChange={set('amountBeforeVat')} type="number" />
-            <TInput label='מע"מ (₪)' value={String(form.vat || '')} onChange={set('vat')} type="number" />
+            <TInput label='סכום לפני מע"מ (₪)' value={String(form.amountBeforeVat || '')} onChange={set('amountBeforeVat')} type="number" step="0.01" />
+            <TInput label='מע"מ (₪)' value={String(form.vat || '')} onChange={set('vat')} type="number" step="0.01" />
           </Row2>
+          {/* The total is EDITABLE and works in both directions: type the gross that
+              appears on the document and net + VAT are derived from it; type either
+              of those and the gross recomputes. */}
           <div style={{
             background: '#FAFAFC', border: '1.5px solid #F0D4DA', borderRadius: '12px',
-            padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px',
           }}>
-            <span style={{ fontSize: '24px', fontWeight: 600, color: 'var(--brand-primary)' }}>{formatILS(total)}</span>
-            <span style={{ fontSize: '14px', color: '#9CA3AF' }}>סכום כולל (מחושב אוטומטית)</span>
+            <input
+              type="number"
+              step="0.01"
+              value={String(form.amount || '')}
+              onChange={e => set('amount')(e.target.value)}
+              style={{
+                fontSize: '24px', fontWeight: 600, color: 'var(--brand-primary)',
+                background: 'white', border: '1.5px solid #F0D4DA', borderRadius: '10px',
+                padding: '6px 12px', width: '190px', fontFamily: 'inherit', direction: 'ltr',
+                textAlign: 'right',
+              }}
+            />
+            <span style={{ fontSize: '14px', color: '#9CA3AF', textAlign: 'left' }}>
+              סכום כולל<br />
+              <span style={{ fontSize: '12px' }}>
+                ניתן לעריכה — המערכת תחשב לפי מע״מ {vatPercentFor(form.invoiceDate)}%
+              </span>
+            </span>
           </div>
+          {/* Amounts are derived to the agora, so anything above half an agora is a
+              real inconsistency in the document — not a rounding artefact. */}
+          {Math.abs(total - (Number(form.amount) || 0)) > 0.005 && (
+            <p style={{ margin: '6px 2px 0', fontSize: '12px', color: '#DC2626' }}>
+              שים לב: סכום לפני מע״מ + מע״מ = {formatILS(total)}, ולא {formatILS(Number(form.amount) || 0)}
+            </p>
+          )}
         </Group>
 
         {/* 3 – פרטי שולח */}
@@ -519,9 +779,11 @@ export function InvoiceDetail({
         </Group>
 
       </div>
+      </div>
 
       {/* Delete confirmation — Drive file is removed too, hence the explicit warning.
-          Deletes by the ORIGINAL invoice.id, never form.id (the id field is editable). */}
+          Deletes by the ORIGINAL invoice.id, never form.id — belt-and-braces now
+          that the id field is read-only. */}
       {confirmDelete && onDelete && (
         <div
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
@@ -547,6 +809,60 @@ export function InvoiceDetail({
               </Button>
               <Button variant="ghost" className="flex-1" onClick={() => setConfirmDelete(false)}>
                 חזרה
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credit-note conversion confirmation. Shows the concrete before → after
+          total and the direction the supplier balance will move, because the
+          balance shifts by twice the invoice amount. Reversible via the same
+          button, so no destructive-action wording. */}
+      {confirmCredit && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          onClick={() => setConfirmCredit(false)}
+        >
+          <div
+            style={{ background: 'white', borderRadius: '20px', width: '100%', maxWidth: '440px', padding: '32px', textAlign: 'center' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ fontSize: '44px', marginBottom: '12px' }}>🔁</div>
+            <h3 style={{ margin: '0 0 10px', fontSize: '18px', fontWeight: 700, color: '#1F2937' }}>
+              {isCredit ? 'החזרה לחשבונית חיוב' : 'סימון כחשבונית זיכוי'}
+            </h3>
+            <p style={{ margin: '0 0 18px', fontSize: '14px', color: '#6B7280', lineHeight: 1.6 }}>
+              {isCredit
+                ? 'המסמך יחזור להיות חשבונית חיוב רגילה, והסכומים יחזרו להיות חיוביים.'
+                : 'המסמך יסומן כזיכוי. הסכומים יהפכו לשליליים, כך שהזיכוי יקזז את יתרת הספק במקום להגדיל אותה.'}
+            </p>
+
+            <div style={{
+              background: '#FAFAFC', border: '1.5px solid #F0D4DA', borderRadius: '12px',
+              padding: '14px 18px', marginBottom: '18px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+            }}>
+              <span style={{ fontSize: '18px', fontWeight: 600, color: '#9CA3AF', textDecoration: 'line-through' }}>
+                {formatILS(total)}
+              </span>
+              <ChevronRight size={18} color="#9CA3AF" />
+              <span style={{ fontSize: '22px', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                {formatILS(isCredit ? Math.abs(total) : -Math.abs(total))}
+              </span>
+            </div>
+
+            <p style={{ margin: '0 0 24px', fontSize: '13px', color: '#6B7280' }}>
+              יתרת הספק {form.supplier ? `"${form.supplier}" ` : ''}
+              {isCredit ? 'תגדל' : 'תקטן'} ב־{formatILS(Math.abs(total) * 2)}.
+            </p>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Button variant="primary" className="flex-1" onClick={() => convertToCredit(!isCredit)}>
+                {isCredit ? 'כן, החזר לחיוב' : 'כן, סמן כזיכוי'}
+              </Button>
+              <Button variant="ghost" className="flex-1" onClick={() => setConfirmCredit(false)}>
+                ביטול
               </Button>
             </div>
           </div>
@@ -866,7 +1182,6 @@ export default function Invoices({
 
       {/* Header — same shape as Returns: text block, right-aligned */}
       <div className="text-right">
-        <h1 className="text-2xl font-semibold" style={{ color: '#1A1A2E' }}>חשבוניות</h1>
         <p className="text-gray-500 mt-0.5" style={{ fontSize: '14px' }}>
           {invoices.length} חשבוניות במערכת
         </p>

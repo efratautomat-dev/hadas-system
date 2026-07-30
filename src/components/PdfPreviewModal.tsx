@@ -4,7 +4,7 @@ import { Eye, X, ExternalLink } from 'lucide-react'
 // Convert any Drive URL form (/view, /edit, /open, ?usp=...) into a /preview URL
 // suitable for embedding in an iframe. Falls back to the original URL if it
 // doesn't look like a Drive file link.
-export function toDrivePreview(url: string): string {
+function toDrivePreview(url: string): string {
   if (!url) return ''
   // Match Google Drive file ID in standard formats
   const m = url.match(/\/d\/([^/?#]+)/) || url.match(/[?&]id=([^&]+)/)
@@ -26,6 +26,57 @@ function isImageUrl(u?: string): boolean {
   return IMAGE_EXT.test(u.split(/[?#]/)[0])
 }
 
+// The document itself — a constrained <img> for image files, an iframe (browser /
+// Drive viewer, which handles multi-page PDFs) otherwise. Shared by the modal and
+// by the side-by-side pane on the invoice screen so both render identically.
+export function DocumentBody({ url, previewSrc }: { url: string; previewSrc?: string }) {
+  const previewUrl = previewSrc ?? toDrivePreview(url)
+  const isImage = isImageUrl(previewSrc) || isImageUrl(url)
+  const [zoomed, setZoomed] = useState(false)
+
+  if (!previewUrl) {
+    return (
+      <div className="flex items-center justify-center h-full w-full text-gray-400 text-sm">
+        לא ניתן להציג תצוגה מקדימה לקישור זה
+      </div>
+    )
+  }
+  if (isImage) {
+    return (
+      <img
+        src={previewUrl}
+        alt="תצוגה מקדימה"
+        onClick={() => setZoomed(z => !z)}
+        title={zoomed ? 'הקטן תצוגה' : 'הגדל תצוגה'}
+        style={{
+          display: 'block',
+          margin: 'auto',
+          // Tight padding so the scan fills its pane — this is the surface the
+          // owner reads while typing, so every pixel of it counts.
+          padding: '6px',
+          boxSizing: 'border-box',
+          borderRadius: '12px',
+          cursor: zoomed ? 'zoom-out' : 'zoom-in',
+          ...(zoomed
+            // Click to zoom past the container and scroll around the scan.
+            ? { maxWidth: 'none', maxHeight: 'none' }
+            // Fill the height the CONTAINER gives us (the side pane, or the
+            // modal body) rather than a fixed slice of the viewport.
+            : { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }),
+        }}
+      />
+    )
+  }
+  return (
+    <iframe
+      src={previewUrl}
+      title="PDF preview"
+      style={{ width: '100%', height: '100%', border: 'none' }}
+      allow="autoplay"
+    />
+  )
+}
+
 interface PdfPreviewModalProps {
   url: string
   // When provided, used directly as the iframe src (already a final URL, e.g. a
@@ -36,9 +87,6 @@ interface PdfPreviewModalProps {
 }
 
 export function PdfPreviewModal({ url, previewSrc, onClose }: PdfPreviewModalProps) {
-  const previewUrl = previewSrc ?? toDrivePreview(url)
-  const isImage = isImageUrl(previewSrc) || isImageUrl(url)
-  const [zoomed, setZoomed] = useState(false)
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -81,38 +129,9 @@ export function PdfPreviewModal({ url, previewSrc, onClose }: PdfPreviewModalPro
           <h3 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>תצוגה מקדימה</h3>
         </div>
 
-        {/* Body: constrained <img> for image files, iframe (browser/Drive viewer) otherwise */}
+        {/* Body — shared renderer (image vs iframe) */}
         <div className="flex-1" style={{ background: '#F3F4F6', overflow: 'auto', display: 'flex' }}>
-          {!previewUrl ? (
-            <div className="flex items-center justify-center h-full w-full text-gray-400 text-sm">
-              לא ניתן להציג תצוגה מקדימה לקישור זה
-            </div>
-          ) : isImage ? (
-            <img
-              src={previewUrl}
-              alt="תצוגה מקדימה"
-              onClick={() => setZoomed(z => !z)}
-              title={zoomed ? 'הקטן תצוגה' : 'הגדל תצוגה'}
-              style={{
-                display: 'block',
-                margin: 'auto',
-                padding: '16px',
-                boxSizing: 'border-box',
-                borderRadius: '12px',
-                cursor: zoomed ? 'zoom-out' : 'zoom-in',
-                ...(zoomed
-                  ? { maxWidth: 'none', maxHeight: 'none' }
-                  : { maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain' }),
-              }}
-            />
-          ) : (
-            <iframe
-              src={previewUrl}
-              title="PDF preview"
-              style={{ width: '100%', height: '100%', border: 'none' }}
-              allow="autoplay"
-            />
-          )}
+          <DocumentBody url={url} previewSrc={previewSrc} />
         </div>
       </div>
     </div>
