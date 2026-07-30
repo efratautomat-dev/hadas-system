@@ -5,8 +5,8 @@ import { usePayments } from '../hooks/usePayments'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { useReturns } from '../hooks/useReturns'
 import { useStatements } from '../hooks/useStatements'
-import { computeSupplierBalance, sumNonCancelledPayments } from '../lib/supplierBalance'
-import { buildLedger } from '../lib/supplierLedger'
+import { sumNonCancelledPayments } from '../lib/supplierBalance'
+import { buildLedger, isExcludedFromBalance } from '../lib/supplierLedger'
 import { useAlerts } from '../hooks/useAlerts'
 import { invoiceStatusKey } from '../lib/invoiceStatus'
 import { StatusBadge } from './StatusBadge'
@@ -228,12 +228,20 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   const statementAlerts = statements.filter((s) => s.status === 'mismatch' || s.status === 'needs_review').length
 
   const openingBalance = Number(supplier.openingBalance ?? 0)
-  const totalInvoiced = invoices.reduce((s, i) => s + i.amount, 0)
   // "בהסדר תשלום": display-only — this supplier is excluded from balance tracking.
   // Balance/pending read 0; invoices keep their status and get a "בהסדר" tag. No data touched.
   const paymentArrangement = supplier.paymentArrangement ?? false
-  // Current balance via the SHARED helper — identical to the suppliers list card.
-  const currentBalance = computeSupplierBalance(openingBalance, invoices, payments, { paymentArrangement })
+
+  // ONE balance for this screen, from the ledger engine — headline, ledger card
+  // and statement panel all read it. Computing the headline separately is exactly
+  // how the list card and this page drifted apart: the helper counts EVERY invoice,
+  // while the list (and now the ledger) leave flagged duplicate/errored rows out.
+  const ledgerResult = buildLedger(supplier.id, invoices, payments, openingBalance, { paymentArrangement })
+  const currentBalance = ledgerResult.closingBalance
+
+  // Σ invoices for the KPI card excludes flagged rows for the same reason — a
+  // suspected duplicate should not inflate the headline total either.
+  const totalInvoiced = invoices.reduce((s, i) => s + (isExcludedFromBalance(i) ? 0 : i.amount), 0)
   // "שולם" = money actually paid out = Σ non-cancelled payments (NOT an invoice flag,
   // which never carries 'שולם'). "ממתין לתשלום" = outstanding still owed = the balance.
   const paidAmount    = sumNonCancelledPayments(payments)
@@ -243,10 +251,6 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   // then invoices (+, debit), credit notes (negative invoices → −, credit), and
   // non-cancelled payments (−, credit), with a running total. Returns are NOT here
   // — only their matching credit note (a negative invoice) moves the balance.
-  // The ledger comes from lib/supplierLedger — the SAME engine the dedicated
-  // ledger screen uses, so the two can no longer disagree. No date window here:
-  // this card shows the supplier's whole history.
-  const ledgerResult = buildLedger(supplier.id, invoices, payments, openingBalance, { paymentArrangement })
 
   const ledger = [
     ...(openingBalance !== 0
