@@ -3,6 +3,9 @@ import { CheckCircle2, AlertTriangle, Clock, Search as SearchIcon, X, ArrowLeftR
 import { useStatements } from '../hooks/useStatements'
 import type { VendorStatementStatus } from '../hooks/useStatements'
 import { useSuppliers } from '../hooks/useSuppliers'
+import { useInvoices } from '../hooks/useInvoices'
+import { usePayments } from '../hooks/usePayments'
+import { buildLedger } from '../lib/supplierLedger'
 import { printStatementPDF } from '../utils/pdf'
 import { openStoredFile } from '../lib/storage'
 import { supabase } from '../lib/supabase'
@@ -340,9 +343,38 @@ export default function StatementReconciliation({ initialStatementId }: { initia
     : '76px minmax(0,1.5fr) 84px minmax(0,1.05fr) minmax(0,1.05fr) 82px 96px minmax(0,1.9fr)'
   const gridMin = isMobile ? '360px' : '920px'
 
+  const { data: allInvoices } = useInvoices()
+  const { data: allPayments } = usePayments()
+
+  // `our_balance` is a STORED column, written once when the statement arrived and
+  // never refreshed — so it drifted from the real ledger with every invoice,
+  // payment and credit-note correction that followed. One supplier read -2,635 on
+  // the supplier card and 2,199 here.
+  //
+  // The comparison that matters is the vendor's figure against OUR balance TODAY,
+  // so it is recomputed live from the same ledger engine every other screen uses
+  // (spec/01-PRD §7: "every incoming statement is auto-matched against the
+  // supplier ledger"). The stored column is kept untouched as a record of what was
+  // true on the day the statement was filed.
   useEffect(() => {
-    setStatements(serverStatements as VendorStatement[])
-  }, [serverStatements])
+    setStatements((serverStatements as VendorStatement[]).map(st => {
+      const sup = suppliersData.find(x => x.id === st.supplier_id) as
+        { openingBalance?: number; paymentArrangement?: boolean } | undefined
+      if (!sup) return st
+      const live = buildLedger(
+        st.supplier_id, allInvoices, allPayments, sup.openingBalance ?? 0,
+        { paymentArrangement: sup.paymentArrangement },
+      ).closingBalance
+      const vendor = st.vendor_balance
+      return {
+        ...st,
+        our_balance: live,
+        // Diff follows the recomputed balance; an unknown vendor figure keeps 0
+        // rather than inventing a mismatch.
+        diff: vendor == null ? 0 : live - vendor,
+      }
+    }))
+  }, [serverStatements, suppliersData, allInvoices, allPayments])
 
   // Deep-link from a statement_save_failed alert → open that statement's detail
   // once the list has loaded (once per id).

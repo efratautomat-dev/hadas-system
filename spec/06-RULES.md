@@ -363,3 +363,58 @@ anything — an unreadable template would break the export on the day payments g
 > `צ'ק`. The app writes nine internal payment types, seven of which are outside
 > that list. Cheques import today regardless, so **this was NOT changed** — but it
 > is the first thing to look at if rows start failing again.
+
+---
+
+## 9. ONE ledger, ONE status — no screen computes these itself
+
+**Found 2026-07-30 from a live report:** the same supplier read **-2,635** on the supplier
+card and **2,199** in the statements table. The cause was not stale data or a sync delay —
+**three screens computed the same figure three different ways.** On a single test dataset
+they returned 9,000 / 7,000 / 6,000.
+
+### RULE — the ledger has exactly one implementation
+
+`src/lib/supplierLedger.ts` (`buildLedger`). SupplierDetail, SupplierLedger and
+StatementReconciliation all call it. It obeys §2 (`opening + Σ invoices − Σ non-cancelled
+payments`; credit notes are negative invoices; returns never move the balance) and links by
+`supplier_id`, never by name (§2b).
+
+Two defects it fixes, both invisible until the implementations were compared:
+
+- **A date window is a DISPLAY filter, never part of the arithmetic.** The ledger screen
+  filtered to a hard-coded `2026-01-01 … 2026-12-31` and dropped anything outside it from the
+  **total** — an invoice dated next year silently vanished from the balance. `closingBalance`
+  now always counts every movement, whatever is on screen.
+- **An undated movement must be VISIBLE.** With `date = ''`, `'' < '2026-01-01'` is true, so
+  the row sorted into "before the period" and was absorbed into the opening figure: it moved
+  the balance without ever appearing. Undated rows now sort FIRST, carry `undated: true`, and
+  render as `ללא תאריך`. `buildLedger` also reports `undatedCount` / `undatedTotal`.
+
+### RULE — `our_balance` is recomputed, never read
+
+`vendor_statements.our_balance` is written once when the statement is filed and nothing
+refreshes it, so it drifts with every invoice, payment and credit-note correction that
+follows. **The comparison that matters is the vendor's figure against our ledger TODAY**
+(`01-PRD §7`), so both the statements screen and the statements panel inside the supplier
+detail recompute it live via `buildLedger`. The stored column is left untouched as a record
+of what was true on the filing date.
+
+> This also means a statement can be marked **`תואם` with a diff of 0 while the real gap is
+> large** — the match was decided against the stale number. Re-check anything already marked
+> matched.
+
+### RULE — invoice status is DERIVED, in every screen
+
+`deriveInvoiceStatus` was imported by only two screens; SupplierDetail and
+EmployeeSupplierView printed the raw `status` column, which CLAUDE.md explicitly calls
+unreliable. That is why a status changed on the invoices screen still showed its old value
+inside the supplier. All four screens now go through `invoiceStatusKey()` → `StatusBadge`,
+so the badge cannot differ between screens.
+
+`INVOICE_STATUS_INTERNAL` lives in `lib/invoiceStatus.ts`, not in a screen.
+
+> **Employees never see `בבדיקה`.** The review state is derived from `alerts`, which is
+> manager-only at the DB (RLS). An employee's alert list is always empty, so they see
+> `ממתין` or `הועבר לרו״ח`. A consequence of the permission model, not a bug — and still
+> better than printing the unreliable stored column.

@@ -12,7 +12,7 @@ import { supabase } from '../lib/supabase'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { SummaryCards } from './ui/SummaryCards'
 import { STATUS } from '../theme/status'
-import { STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING, deriveInvoiceStatus } from '../lib/invoiceStatus'
+import { STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING, deriveInvoiceStatus, INVOICE_STATUS_INTERNAL } from '../lib/invoiceStatus'
 import { isCreditInvoice, applyCreditSign, convertInvoice } from '../lib/creditNote'
 import { vatRateFor, vatPercentFor, completeAmounts, type EditedAmount } from '../lib/vat'
 import { useDateField } from './ui/form'
@@ -47,13 +47,8 @@ const AMOUNT_FIELDS = {
 // once this is set. Reused via the existing PUT /invoices/:id/status endpoint.
 const STATUS_REVIEWED    = 'נבדק'
 
-// Map the derived Hebrew status onto the unified taxonomy (spec/06-RULES.md §1):
-// waiting → new, under-review → in_progress, transferred-to-accountant → done.
-const INVOICE_STATUS_INTERNAL: Record<string, string> = {
-  [STATUS_WAITING]:     'new',
-  [STATUS_REVIEW]:      'in_progress',
-  [STATUS_TRANSFERRED]: 'done',
-}
+// INVOICE_STATUS_INTERNAL moved to lib/invoiceStatus so every screen — not just
+// this one — maps the derived status through the SAME table.
 
 
 // Low parse-confidence flag → full red row border in the LIST (dates may be

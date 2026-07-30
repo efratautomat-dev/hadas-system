@@ -6,6 +6,10 @@ import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { useReturns } from '../hooks/useReturns'
 import { useStatements } from '../hooks/useStatements'
 import { computeSupplierBalance, sumNonCancelledPayments } from '../lib/supplierBalance'
+import { buildLedger } from '../lib/supplierLedger'
+import { useAlerts } from '../hooks/useAlerts'
+import { invoiceStatusKey } from '../lib/invoiceStatus'
+import { StatusBadge } from './StatusBadge'
 import SectionHeader from './SectionHeader'
 import { Button } from './ui/Button'
 
@@ -63,11 +67,8 @@ interface Props {
   onToggleActive?: (nextActive: boolean) => void
 }
 
-const invoiceStatusStyle: Record<string, { bg: string; color: string }> = {
-  'ממתין':  { bg: '#FEF9C3', color: '#A16207' },
-  'שולם':   { bg: '#DCFCE7', color: '#166534' },
-  'בטיפול': { bg: '#DBEAFE', color: '#1E40AF' },
-}
+// invoiceStatusStyle removed: it keyed on the STORED vocabulary (ממתין/שולם/בטיפול),
+// which the derived status never produces. Rendering now goes through StatusBadge.
 
 // Returns carry a MIXED vocabulary — the UI writes אושר/בטיפול/נדחה while ingest
 // closes a matched return with הסתיים (see docs/07-OPEN-ISSUES). Both are live,
@@ -185,14 +186,8 @@ function EmptyPanel({ text }: { text: string }) {
   return <p className="text-center text-gray-400 py-10" style={{ fontSize: '15px' }}>{text}</p>
 }
 
-function parseDate(d: string) {
-  if (d.includes('-')) {
-    const [year, month, day] = d.split('-').map(Number)
-    return new Date(year, month - 1, day).getTime()
-  }
-  const [day, month, year] = d.split('/').map(Number)
-  return new Date(year, month - 1, day).getTime()
-}
+// parseDate removed — ordering now happens in lib/supplierLedger, on the ISO date
+// rather than on the day-first display string this used to re-parse.
 
 function fmtDate(d: string): string {
   if (!d) return ''
@@ -216,6 +211,11 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   const { data: allNotes } = useDeliveryNotes()
   const { data: allReturns } = useReturns()
   const { data: allStatements } = useStatements()
+  // Invoice status is DERIVED, never read from the stored column (CLAUDE.md:
+  // "the stored status column is considered unreliable and ignored for display").
+  // This screen used to print inv.status raw, which is why a status changed on the
+  // invoices screen still showed the OLD value here.
+  const { data: alerts } = useAlerts()
 
   // Everything links to this supplier by SUPPLIER_ID, not by name
   // (spec/06-RULES.md §2b). Cancelled payments are excluded from the balance.
@@ -243,36 +243,27 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   // then invoices (+, debit), credit notes (negative invoices → −, credit), and
   // non-cancelled payments (−, credit), with a running total. Returns are NOT here
   // — only their matching credit note (a negative invoice) moves the balance.
-  const txEntries = [
-    ...invoices.map((inv) => {
-      const isCredit = inv.amount < 0   // credit note = negative invoice
-      return {
-        id: inv.id,
-        date: inv.date,
-        description: `${isCredit ? 'זיכוי' : 'חשבונית'} ${inv.invoiceNumber || inv.id}`,
-        debit:  isCredit ? 0 : inv.amount,
-        credit: isCredit ? -inv.amount : 0,
-      }
-    }),
-    ...payments.map((pay) => ({
-      id: String(pay.id),
-      date: pay.date,
-      description: `תשלום · ${pay.type}`,
-      debit: 0,
-      credit: pay.amount,
-    })),
-  ].sort((a, b) => parseDate(a.date) - parseDate(b.date))
+  // The ledger comes from lib/supplierLedger — the SAME engine the dedicated
+  // ledger screen uses, so the two can no longer disagree. No date window here:
+  // this card shows the supplier's whole history.
+  const ledgerResult = buildLedger(supplier.id, invoices, payments, openingBalance, { paymentArrangement })
 
-  let running = openingBalance
   const ledger = [
     ...(openingBalance !== 0
-      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance }]
+      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false }]
       : []),
-    ...txEntries.map((e) => {
-      running += e.debit - e.credit
-      return { ...e, balance: running }
-    }),
+    ...ledgerResult.rows.map(r => ({
+      id: r.id,
+      date: r.undated ? 'ללא תאריך' : r.displayDate,
+      description: r.description,
+      debit: r.debit,
+      credit: r.credit,
+      balance: r.balance,
+      undated: r.undated,
+    })),
   ]
+  const txEntries = ledgerResult.rows
+
   // running (final) equals currentBalance from the shared helper — same formula.
   const totalDebit  = txEntries.reduce((s, e) => s + e.debit, 0)
   const totalCredit = txEntries.reduce((s, e) => s + e.credit, 0)
@@ -562,7 +553,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               <span className="text-left">סכום</span>
             </div>
             {invoices.map((inv) => {
-              const st = invoiceStatusStyle[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
+              const statusKey = invoiceStatusKey(inv, alerts)
               const clickable = !!onOpenInvoice
               return (
                 <div
@@ -582,9 +573,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                 >
                   <p className="text-right text-gray-400" style={{ fontSize: '12px' }}>{inv.id} · {inv.date}</p>
                   <div className="flex justify-center items-center gap-1.5 flex-wrap">
-                    <span className="rounded-lg font-bold" style={{ ...st, fontSize: '12px', padding: '4px 10px' }}>
-                      {inv.status}
-                    </span>
+                    <StatusBadge status={statusKey} style={{ fontSize: '12px', padding: '4px 10px', fontWeight: 700 }} />
                     {paymentArrangement && (
                       <span
                         className="rounded-lg font-bold"
@@ -760,6 +749,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               </div>
               {statements.map((s) => {
                 const st = statementStatusStyle[s.status] ?? { background: '#F3F4F6', color: '#6B7280' }
+                // Our side of the comparison is the ledger AS IT IS NOW.
+                const liveBalance = ledgerResult.closingBalance
+                const liveDiff = s.vendor_balance == null ? 0 : liveBalance - s.vendor_balance
                 return (
                   <div
                     key={s.id}
@@ -767,15 +759,18 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                     style={{ gridTemplateColumns: '100px 1fr 1fr 1fr 110px', minWidth: '560px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
                   >
                     <span className="text-right text-gray-600 font-medium" style={{ fontSize: '13px' }}>{s.month}</span>
-                    <span className="text-center text-gray-700" style={{ fontSize: fs('14px', '13px') }}>{formatILS(s.our_balance)}</span>
+                    {/* LIVE balance, not the stored our_balance column — the stored
+                        value was written when the statement arrived and never
+                        refreshed, so it drifted from the ledger shown above it. */}
+                    <span className="text-center text-gray-700" style={{ fontSize: fs('14px', '13px') }}>{formatILS(liveBalance)}</span>
                     <span className="text-center text-gray-700" style={{ fontSize: fs('14px', '13px') }}>
                       {s.vendor_balance == null ? '—' : formatILS(s.vendor_balance)}
                     </span>
                     <span
                       className="text-center font-black"
-                      style={{ fontSize: fs('15px', '14px'), color: Math.abs(s.diff) > 0.005 ? '#DC2626' : '#166534' }}
+                      style={{ fontSize: fs('15px', '14px'), color: Math.abs(liveDiff) > 0.005 ? '#DC2626' : '#166534' }}
                     >
-                      {formatILS(s.diff)}
+                      {formatILS(liveDiff)}
                     </span>
                     <span className="text-center">
                       <span className="rounded-lg font-bold" style={{ fontSize: '12px', padding: '4px 10px', ...st }}>
