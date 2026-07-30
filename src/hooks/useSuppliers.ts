@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { mockSuppliers } from '../data/mockData'
 import { computeSupplierBalance } from '../lib/supplierBalance'
+import { isExcludedFromBalance } from '../lib/supplierLedger'
 
 export type SupplierRow = typeof mockSuppliers[number]
 
@@ -60,13 +61,19 @@ export function useSuppliers() {
         // Count ALL invoices per supplier (the card's invoice count is unchanged),
         // but EXCLUDE is_duplicate / has_error rows from the BALANCE sum — a possible
         // duplicate or errored invoice must not move the supplier's balance.
+        //
+        // That exclusion used to live ONLY here, which is exactly why this card kept
+        // showing a different figure from the supplier page and the ledger for any
+        // supplier holding such a row. The test now comes from the shared ledger
+        // module (isExcludedFromBalance), so the rule is written once and every
+        // screen answers the same.
         const invById: Record<string, { total_amount: number }[]> = {}
         const invCountById: Record<string, number> = {}
         for (const inv of invoiceRows ?? []) {
           const sid = inv.supplier_id as string | null
           if (!sid) continue
           invCountById[sid] = (invCountById[sid] ?? 0) + 1
-          if (inv.is_duplicate || inv.has_error) continue
+          if (isExcludedFromBalance(inv)) continue
           const list = (invById[sid] ??= [])
           list.push({ total_amount: Number(inv.total_amount ?? 0) })
         }

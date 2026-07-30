@@ -29,6 +29,8 @@ export interface LedgerRow {
   credit: number
   /** Running balance INCLUDING this row. */
   balance: number
+  /** Flagged duplicate/errored: shown, but NOT counted in the balance. */
+  excluded: boolean
   /**
    * True when the source row carried no date. Such a row still counts towards the
    * balance, but it used to sort as "before the period" (since `'' < any date`)
@@ -46,6 +48,30 @@ interface InvoiceLike {
   invoiceDate?: string | null
   date?: string | null
   invoiceNumber?: string | null
+  // Flags set by ingest. Both accepted in snake_case too, because the suppliers
+  // list reads straight from the view without going through useInvoices.
+  isDuplicate?: boolean | null
+  hasError?: boolean | null
+  is_duplicate?: boolean | null
+  has_error?: boolean | null
+}
+
+/**
+ * A row flagged as a possible duplicate or as errored does NOT move the balance —
+ * a suspected double-charge must not inflate what the supplier is owed.
+ *
+ * This rule already existed, but ONLY inside useSuppliers, so the list card and
+ * every other screen disagreed for any supplier holding such a row. It lives here
+ * now, which is what makes the figure the same everywhere. The row is still
+ * RETURNED and flagged, never hidden — same principle as an undated row.
+ */
+export function isExcludedFromBalance(inv: {
+  isDuplicate?: boolean | null
+  hasError?: boolean | null
+  is_duplicate?: boolean | null
+  has_error?: boolean | null
+}): boolean {
+  return !!(inv.isDuplicate ?? inv.is_duplicate) || !!(inv.hasError ?? inv.has_error)
 }
 
 interface PaymentLike {
@@ -87,14 +113,18 @@ export function buildLedgerEntries(
       const amount = num(i.total_amount ?? i.amount)
       const credit = isCreditRow(amount)
       const iso = invoiceIso(i)
+      const excluded = isExcludedFromBalance(i)
       return {
         id: i.id,
         isoDate: iso,
         displayDate: iso ? isoToDisplay(iso) : '',
         description: `${credit ? 'זיכוי' : 'חשבונית'} ${i.invoiceNumber || i.id}`,
         type: (credit ? 'זיכוי' : 'חשבונית') as LedgerEntryType,
-        debit:  credit ? 0 : amount,
-        credit: credit ? -amount : 0,
+        // An excluded row contributes ZERO to every running total, while keeping
+        // its real amount visible to the caller through `excluded`.
+        debit:  excluded ? 0 : (credit ? 0 : amount),
+        credit: excluded ? 0 : (credit ? -amount : 0),
+        excluded,
         undated: !iso,
       }
     })
@@ -111,6 +141,7 @@ export function buildLedgerEntries(
         type: 'תשלום' as LedgerEntryType,
         debit: 0,
         credit: num(p.amount),
+        excluded: false,
         undated: !iso,
       }
     })
@@ -138,6 +169,8 @@ export interface LedgerResult {
   /** Undated movements — surfaced so the caller can flag them. */
   undatedCount: number
   undatedTotal: number
+  /** Rows excluded from the balance as duplicate/errored — surfaced, not hidden. */
+  excludedCount: number
 }
 
 /**
@@ -174,6 +207,7 @@ export function buildLedger(
   })
 
   const undated = entries.filter(e => e.undated)
+  const excluded = entries.filter(e => e.excluded)
   return {
     rows,
     periodOpening,
@@ -181,5 +215,6 @@ export function buildLedger(
     closingBalance: opts?.paymentArrangement ? 0 : closing,
     undatedCount: undated.length,
     undatedTotal: undated.reduce((s, e) => s + e.debit - e.credit, 0),
+    excludedCount: excluded.length,
   }
 }

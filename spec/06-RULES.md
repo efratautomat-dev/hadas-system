@@ -373,6 +373,14 @@ card and **2,199** in the statements table. The cause was not stale data or a sy
 **three screens computed the same figure three different ways.** On a single test dataset
 they returned 9,000 / 7,000 / 6,000.
 
+> **Why this kept coming back.** It was never a synchronisation problem — no figure was
+> stale and no refresh was missing. The same business rule was written independently in
+> several places and each copy chose differently: the list excluded flagged invoices, the
+> supplier page counted everything, the ledger counted everything inside a 2026 window, and
+> the statement screen counted nothing and read a stored number. Fixing one could not fix the
+> others because **they shared no code**. That is why each round revealed "another one".
+> The remedy is not another refresh — it is that the rule exists once.
+
 ### RULE — the ledger has exactly one implementation
 
 `src/lib/supplierLedger.ts` (`buildLedger`). SupplierDetail, SupplierLedger and
@@ -390,6 +398,21 @@ Two defects it fixes, both invisible until the implementations were compared:
   the row sorted into "before the period" and was absorbed into the opening figure: it moved
   the balance without ever appearing. Undated rows now sort FIRST, carry `undated: true`, and
   render as `ללא תאריך`. `buildLedger` also reports `undatedCount` / `undatedTotal`.
+
+### RULE — a flagged row is SHOWN but not COUNTED
+
+An invoice flagged `is_duplicate` or `has_error` does not move the balance: a suspected
+double-charge must not inflate what a supplier is owed.
+
+**This rule already existed — but only inside `useSuppliers`.** Every other screen counted
+those rows, so the supplier CARD in the list disagreed with the supplier PAGE and the ledger
+for any supplier holding one. It was the last of the four divergences and the hardest to see,
+because both figures looked plausible.
+
+`isExcludedFromBalance()` in `lib/supplierLedger.ts` is now the only place that decides.
+A flagged row is returned by `buildLedger` with `excluded: true` and contributes **zero** to
+every running total — **visible, not hidden**, the same principle as an undated row.
+`excludedCount` reports how many there are.
 
 ### RULE — `our_balance` is recomputed, never read
 
