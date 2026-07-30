@@ -4,6 +4,16 @@
 > verify against the live system. This is observational — it describes what the code does today.
 
 ## Known functional limitations
+0. **`invoices-ingest` on PROD is one deploy behind (2026-07-30).**
+   The frontend shipped in PR #10 but `supabase functions deploy invoices-ingest` was not run,
+   so ingest does not yet complete the three amounts (net / VAT / total) — a document that
+   prints only a total lands with `amount_before_vat = 0` and `vat_amount = 0`.
+   **Deliberately not blocking:** the total is correct, and the invoice screen completes the
+   split the moment the row is opened (that half IS live), so nothing is lost — the DB row is
+   just incomplete until someone opens it. Deploy from a machine linked to PROD.
+   Also un-verified: the Bizibox export against the real Bizibox importer (structure verified,
+   import not). See `spec/LAUNCH-PLAN.md §3a`.
+
 1. **8192-token extraction truncation on very long invoices.**
    `supabase/functions/invoices-ingest/index.ts` (`EXTRACTION_MAX_TOKENS = 8192`). Very long
    invoices (project memory cites invoice `01/011398`) still truncate; retry doesn't help. The

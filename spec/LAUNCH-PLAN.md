@@ -106,7 +106,7 @@ Execute in order (the SQL must land before the functions that write the new colu
    SECRET/REFRESH_TOKEN`, `DRIVE_FOLDER_*`. (`SUPABASE_URL`/`SERVICE_ROLE_KEY` auto-injected.)
    Without ANTHROPIC/GMAIL/DRIVE, ingest + camera capture fail (this is why upload works in prod
    but not dev — dev leaves them unset by design).
-4. **Storage** — create the **`branding`** storage bucket on PROD (used by Settings → system-logo
+4. **Storage** — ✅ **DONE 2026-07-30** (see §3a). Create the **`branding`** storage bucket on PROD (used by Settings → system-logo
    upload: `storage.from('branding')` + `app_settings.app_logo_url`). Dev only has `documents`, so
    logo upload is dev-broken; prod needs the bucket. (`documents` bucket + read policy also required.)
 5. **Frontend env (Vercel)** — point PROD build at the PROD Supabase: `VITE_SUPABASE_URL`,
@@ -115,6 +115,64 @@ Execute in order (the SQL must land before the functions that write the new colu
    (base-table reads = 42501, payments/statements/alerts = 0 rows, writes 403 except the two
    allowlisted), `allowed_users` correct, no service key in the client bundle, RLS on all sensitive
    tables. Re-run the minted-JWT F12 test against prod.
+
+---
+
+## 3a. DEPLOYMENT LOG — 2026-07-30 (PR #10)
+
+What actually shipped, what did not, and how the push was made to work — recorded because
+the last round hit two "how did I do this last time?" walls that nothing in the repo answered.
+
+### Shipped to prod (merged to `main`, Vercel built)
+- VAT **18% keyed on the invoice date** (17% for pre-2025 invoices), amounts to the **agora**,
+  and **all three amounts always filled** when an invoice is opened (`06-RULES.md §3`).
+- Credit-note sign correction (`§2c`), two-way amount editing, two-pane invoice view.
+- Bizibox export now **fills Bizibox's own template** instead of imitating it (`§8`), plus
+  Settings → **ייצוא לביזיבוקס** to upload a revised template without a deploy.
+- Supplier form as its own page; supplier detail rebuilt around six section cards
+  (`01-PRD.md §2`); layout chrome cut from 38% of the screen to 25%.
+- Lint 71 → 33, and two real defects found on the way (see the commit body of `be5543a`).
+
+### Run manually on PROD by the owner
+- The `branding` storage bucket + policies — see `supabase/migrations/20260729000000_*.sql`.
+  **This closes §3 step 4 below**, which had been an unenforced manual checklist item; it is
+  also why the system-logo upload had been broken all along.
+  > The owner keeps TEST and PROD as **two separate Supabase projects** and runs PROD SQL
+  > herself. This machine has never been linked to PROD, has no Supabase CLI and no
+  > `supabase login` — keep it that way.
+
+### NOT deployed — still pending
+- `supabase functions deploy invoices-ingest` — three-amount completion **at ingest**.
+  **Not blocking:** invoices still ingest correctly and the total is right; only the
+  net/VAT split arrives empty, and the invoice screen fills it the moment the row is
+  opened (that half IS live). Deploy from a machine linked to PROD when convenient.
+
+### Verified structurally, NOT against the real system
+- **Bizibox import.** The generated file is byte-identical to the template in 15 of its 16
+  parts, validations intact. Only a real import proves it fixes the original symptom
+  (4 cheques imported, 10 bank transfers silently dropped). **Test with the client and
+  count rows in vs rows out.** Note the export **stamps payments as exported**, so a test
+  run removes them from the next batch.
+
+### Pushing from THIS server (the thing that was not written down)
+The server had no GitHub credentials at all — no SSH key, no credential helper, no token —
+because the original pushes were made from the owner's own laptop, where the credentials
+live. Nothing was lost; it simply was never here. Fixed permanently:
+
+```bash
+ssh-keygen -t ed25519 -C "hadas-server" -f ~/.ssh/hadas_github -N ""
+cat ~/.ssh/hadas_github.pub        # add at github.com/settings/keys
+git remote set-url origin git@github.com:efratautomat-dev/hadas-system.git
+```
+
+with a matching `~/.ssh/config` block (`Host github.com` → `IdentityFile ~/.ssh/hadas_github`,
+`IdentitiesOnly yes`). The private key never leaves the server; only the public half is pasted
+into GitHub. Pushes from here now just work.
+
+### Release route
+`prod-cutover` → PR → `main`. `main` is the Vercel **production branch**, so the merge is what
+reaches the client — the client's URL never changes. Pushing `prod-cutover` alone deploys
+nothing. This was PR #10; #1–#9 followed the same route.
 
 ---
 
