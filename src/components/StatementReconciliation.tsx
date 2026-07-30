@@ -366,12 +366,21 @@ export default function StatementReconciliation({ initialStatementId }: { initia
         { paymentArrangement: sup.paymentArrangement },
       ).closingBalance
       const vendor = st.vendor_balance
+      const liveDiff = vendor == null ? 0 : live - vendor
       return {
         ...st,
         our_balance: live,
         // Diff follows the recomputed balance; an unknown vendor figure keeps 0
         // rather than inventing a mismatch.
-        diff: vendor == null ? 0 : live - vendor,
+        diff: liveDiff,
+        // The VERDICT must follow the live diff too. Recomputing the diff alone
+        // left rows reading "תואם" beside a large gap — the verdict was decided
+        // against the stale our_balance and never revisited. Only the two
+        // comparison outcomes are overridden; pending / investigating /
+        // needs_review are WORKFLOW states the manager owns, and are left alone.
+        status: (st.status === 'matched' || st.status === 'mismatch')
+          ? (vendor != null && Math.abs(liveDiff) > 0.005 ? 'mismatch' : 'matched')
+          : st.status,
       }
     }))
   }, [serverStatements, suppliersData, allInvoices, allPayments])

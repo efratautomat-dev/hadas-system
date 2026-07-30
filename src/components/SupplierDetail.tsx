@@ -752,6 +752,12 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                 // Our side of the comparison is the ledger AS IT IS NOW.
                 const liveBalance = ledgerResult.closingBalance
                 const liveDiff = s.vendor_balance == null ? 0 : liveBalance - s.vendor_balance
+                // The verdict follows the LIVE diff — a row must never read "תואם"
+                // next to a gap. Workflow states (pending/investigating) are the
+                // manager's and are left as they are.
+                const liveStatus = (s.status === 'matched' || s.status === 'mismatch')
+                  ? (s.vendor_balance != null && Math.abs(liveDiff) > 0.005 ? 'mismatch' : 'matched')
+                  : s.status
                 return (
                   <div
                     key={s.id}
@@ -773,8 +779,8 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                       {formatILS(liveDiff)}
                     </span>
                     <span className="text-center">
-                      <span className="rounded-lg font-bold" style={{ fontSize: '12px', padding: '4px 10px', ...st }}>
-                        {STATEMENT_STATUS_HE[s.status] ?? s.status}
+                      <span className="rounded-lg font-bold" style={{ fontSize: '12px', padding: '4px 10px', ...(statementStatusStyle[liveStatus] ?? st) }}>
+                        {STATEMENT_STATUS_HE[liveStatus] ?? liveStatus}
                       </span>
                     </span>
                   </div>
