@@ -114,7 +114,10 @@ raising `statement_mismatch` on a gap. A statement never creates a supplier card
   so a figure read off the document is never overwritten. See `spec/06-RULES.md §3`.
 - **Twinned files: `run npm run lint` decides, not your memory.** Vite can't import from
   `supabase/` and Deno can't import from `src/`, so some rules exist twice on purpose.
-  `scripts/check-twins.mjs` (part of `npm run lint`) is the enforcement:
+  `scripts/check-twins.mjs` (part of `npm run lint` AND `npm run build`) is the
+  enforcement. It skips the pairs when the whole `supabase/` tree is absent — the
+  Vercel build excludes it via `.vercelignore`, so there is nothing to compare
+  there. A twin missing from a tree that DOES exist still fails. The pairs:
   - `src/lib/ledgerEngine.ts` ↔ `supabase/functions/_shared/ledgerEngine.ts` — the balance
     rule, **byte-identical below the header**. The check fails on one character of drift.
     `src/lib/supplierLedger.ts` is a thin wrapper adding `displayDate`; screens import that.

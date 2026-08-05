@@ -11,9 +11,19 @@
 // This script is the guard that a comment cannot be. It compares each twin pair
 // below its header comment block and exits non-zero the moment they diverge.
 //
-//   node scripts/check-twins.mjs        (also runs as part of `npm run lint`)
+//   node scripts/check-twins.mjs        (runs as part of `npm run lint` AND `npm run build`)
+//
+// ── Frontend-only build contexts ─────────────────────────────────────────────
+// `.vercelignore` excludes `supabase/`, so in the VERCEL build the Deno half of
+// every pair does not exist at all. That is deliberate, not drift — there is
+// nothing to compare and nothing to be wrong. The script detects the whole tree
+// being absent and skips those pairs.
+//
+// A MISSING FILE INSIDE AN EXISTING TREE is the opposite case and still fails:
+// that means a twin was deleted or renamed, which is exactly the silent breakage
+// this guard exists to catch.
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -72,9 +82,31 @@ const PAIRS = [
 ]
 
 let failed = 0
+let skipped = 0
 const say = (...m) => console.log(...m)
 
+// Is the Deno half of the repo present at all? Absent = a frontend-only build
+// (Vercel, via .vercelignore). Present = every twin must be there.
+const denoTreePresent = existsSync(resolve(ROOT, 'supabase/functions'))
+
 for (const pair of PAIRS) {
+  const missing = [pair.a, pair.b].filter(f => !existsSync(resolve(ROOT, f)))
+  if (missing.length) {
+    if (!denoTreePresent && missing.every(f => f.startsWith('supabase/'))) {
+      skipped++
+      say(`  skipped   ${pair.a}  (no supabase/ tree here — frontend-only build)`)
+      continue
+    }
+    failed++
+    say('')
+    say(`  MISSING   ${pair.what}`)
+    for (const f of missing) say(`            ${f} does not exist`)
+    say('            A twin was deleted or renamed. Restore it, or remove the pair')
+    say('            from PAIRS in scripts/check-twins.mjs on purpose.')
+    say('')
+    continue
+  }
+
   const [ba, bb] = [body(pair.a), body(pair.b)]
 
   if (!pair.divergent) {
@@ -124,4 +156,7 @@ if (failed) {
   say(`check-twins: ${failed} twin pair(s) out of sync.`)
   process.exit(1)
 }
-say(`check-twins: ${PAIRS.length} twin pair(s) in order.`)
+say(
+  `check-twins: ${PAIRS.length - skipped} twin pair(s) in order` +
+  (skipped ? `, ${skipped} skipped (frontend-only build).` : '.'),
+)
