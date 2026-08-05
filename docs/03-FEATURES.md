@@ -87,13 +87,21 @@
   `/returns/:id`, `/returns/:id/status`.
 
 ## Statement Reconciliation (`StatementReconciliation.tsx`)
-- **Sees:** vendor statements (supplier, month, our balance, vendor balance, diff status); detail
-  modal with our-rows vs vendor-rows and matched/unmatched flags.
-- **Does:** open detail, update vendor balance, change status, print, view source file.
-- **Data:** `useStatements`, `useSuppliers`. Statuses `matched`/`mismatch`/`pending`/
-  `investigating`/`needs_review` (unknown → fallback badge). **Row-match detail is hard-coded
-  demo data** (`stmtDetails`) — real matching not yet backend-driven (see 07). View file via
-  `src/lib/storage.ts`. Writes via `POST /statements`, `PUT /statements/:id/resolve`.
+- **Sees:** the statement list, then a full **page** per statement: the supplier's own document
+  on the right, our live ledger on the left, and a header carrying לפי הספק / לפי הכרטסת שלנו /
+  הפרש with the verdict. A chip states **how** the statement was matched to this supplier
+  (`match_method`) next to a `שינוי ספק` override.
+- **Does:** open the page, correct the supplier, enter the vendor balance by hand, change status,
+  write a reconciliation note (persisted to `resolution_notes`), expand the document, open the
+  full ledger, and compose a mail/WhatsApp message about the gap — **composing only; sending is
+  deliberately inert.**
+- **Data:** `useStatements`, `useSuppliers`, `useInvoices`, `usePayments`. Statuses
+  `matched`/`mismatch`/`pending`/`investigating`/`needs_review` (unknown → fallback badge).
+  Our balance is **always recomputed live** via `buildLedger`; the stored `our_balance` column is
+  a record of the filing date and is never displayed. The screen deliberately does **not** pass
+  `paymentArrangement` into `buildLedger` (that option zeroes the total for display) — such a
+  supplier gets the true figure and **no verdict**. View file via `src/lib/storage.ts`. Writes
+  via `POST /statements`, `PUT /statements/:id/resolve`.
 
 ## Alerts (`Alerts.tsx`)
 - **Sees:** filterable alerts (by status new/read/resolved, by 4 type buckets), each card with

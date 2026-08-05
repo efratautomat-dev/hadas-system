@@ -184,6 +184,44 @@ the two sections that were missing entirely — **חזרות** and **התאמת 
   ledger; on mismatch an alert is created.** Status: `pending`→`new`, `matched`→`matched`,
   `mismatch`→`mismatch`, `investigating`/`needs_review`→`in_progress`. Manager-only.
 
+### SPECIFIED (2026-08-02) — how the reconciliation actually works
+
+Six decisions taken with the owner. They are what the implementation follows; treat a
+divergence from any of them as a bug, not as latitude.
+
+1. **The AI extracts ONE number: the supplier's closing balance.** Plus `hp` and the
+   statement's own period, for filing. It does **not** parse the statement's rows.
+   No unambiguous closing balance on the document ⇒ `null`, never a guess or a
+   self-computed total.
+2. **The comparison is balance-against-balance.** The line-by-line detail is read by
+   eye — the supplier's document sits beside our ledger and the manager finds the gap.
+   Row-to-row matching is deliberately **out of scope**; the screen exists to make the
+   two totals and their difference obvious, not to automate the argument.
+3. **The comparison runs in ingest, when the statement arrives** — not when someone
+   opens the screen. A gap nobody has looked at still raises `statement_mismatch`.
+   This is why the ledger engine has a Deno twin (`06-RULES.md §9`).
+4. **A statement with no ח.פ and no usable name is identified by the sending address.**
+   Order: `hp` → `suppliers.email` → name (0.85 fuzzy) → the address that has sent this
+   supplier's **invoices** before (`invoices.email_sender`) → orphan. **Exact evidence
+   beats a guess**, which is why the address is tried before the name — the heading of a
+   כרטסת is frequently *our* card in *their* books, so the name is exactly where a fuzzy
+   match goes wrong. The route taken is
+   stored in `match_method` and **shown to the manager**, with a `שינוי ספק` override —
+   an automatic match is offered, never imposed. A statement **never creates a supplier
+   card**: the heading of a כרטסת is frequently *our* name in *their* books, so a card
+   minted from it would then attract real invoices and split a live balance in two.
+5. **The reconciliation view is a full page**, not a modal.
+6. **Mail and WhatsApp are composed but not sent.** The message is prefilled from the
+   real figures and is editable; the send button is deliberately inert.
+
+**A supplier `בהסדר תשלום` gets no verdict.** The flag means "excluded from balance
+tracking", so ingest records the figures and raises nothing, and the screen shows the
+**true** ledger figure with a banner instead of a verdict. It must **not** pass
+`paymentArrangement` into `buildLedger` — that option zeroes the closing balance for
+display and would print ₪0 beside the supplier's real number.
+
+**Still not built:** sending; row-level matching (out of scope by decision 2).
+
 ---
 
 ## 8. Alerts

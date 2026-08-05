@@ -47,8 +47,27 @@ Unknown types fall back to a **neutral gray badge showing the raw type string** 
 | `supplier_details_review` | ספק – לבדיקת פרטים | orange | open the supplier to review AI-suggested detail changes |
 | `return_amount_mismatch` | פער בהחזר | red/urgent | open the return to reconcile the amount against the arrived credit note |
 
-> `statement_mismatch` (אי-התאמת כרטסת, red) is also raised by statement auto-matching (PRD §7);
-> it routes to StatementReconciliation.
+> `statement_mismatch` (אי-התאמת כרטסת, red) is **now raised for real** by statement
+> reconciliation on ingest (PRD §7), not only by mock data. It routes to the SPECIFIC
+> statement via `payload.statementId`, and as of 2026-08-02 carries an `urgent` bucket so it
+> appears in the type filter.
+
+---
+
+## The 3 no-file types for non-invoice documents (added 2026-08-02)
+
+| Type key | Hebrew label | Color | Click action |
+|---|---|---|---|
+| `statement_no_file` | כרטסת ללא קובץ | yellow | open the source email — nothing was saved anywhere |
+| `delivery_note_no_file` | תעודת משלוח ללא קובץ | yellow | open the source email |
+| `return_no_file` | זיכוי/חזרה ללא קובץ | yellow | open the source email |
+
+These exist because subject classification now runs **before** the "no usable document"
+guard (`09-IDEAS.md §10`). Previously that guard was hard-coded to `invoice_*`, so a כרטסת
+whose file could not be fetched was reported as a failed **invoice** and never reached
+`vendor_statements` at all. The specific cause rides in the Hebrew message and in
+`payload.reason` (`filtered` / `link_failed` / `no_attachment`) rather than multiplying the
+type keys. There is no row to open for any of them — the email is the only place to act.
 
 ---
 

@@ -22,6 +22,11 @@ Type shorthand: `timestamptz` = `timestamp with time zone`. "Null" column = `is_
 | `20260605000000_documents_read_policy.sql` | storage.objects read policy |
 | `20260614000000_invoices_composite_msgid_index.sql` | composite unique index on invoices |
 | `20260618000000_ingest_failures.sql` | `ingest_failures` |
+| `20260802000000_vendor_statements_sender_and_match_method.sql` | `vendor_statements.email_sender` + `match_method` (+ CHECK) |
+| `20260802010000_returns_email_sender.sql` | `returns.email_sender` |
+
+(Migrations between `20260618000000` and `20260802000000` are omitted here — RLS,
+storage and RPC changes that add no columns; see `supabase/migrations/` for the full list.)
 
 Tables that exist only outside the migrations (`suppliers`, `employees`, `allowed_users`,
 `app_settings`, and the base columns of `invoices`/`payments`/`returns`/`delivery_notes`/
@@ -158,8 +163,18 @@ Indexes:
 | `supplier_credit_note_date` | date | YES | |
 | `supplier_credit_note_amount` | numeric | YES | |
 | `storage_url` | text | YES | |
+| `email_sender` | text | YES | From address of the credit-note email that closed the return |
 
 Indexes: `returns_pkey` UNIQUE(`id`); `idx_returns_supplier` (`supplier_id`).
+
+`email_sender` (migration `20260802010000`) completes the set: every document type that
+arrives by email now keeps its sending address on the row — `invoices.email_sender`,
+`delivery_notes.source_email`, `vendor_statements.email_sender` and now this one. It is
+written by `invoices-ingest` on the **UPDATE** that closes a matched return (the
+credit-note path never inserts a `returns` row), and is whitelisted in `hadas-api`'s
+`returnToRow` so a hand correction can carry it too. An **unmatched** credit note has no
+return row at all, so its address stays in the `unmatched_credit_note` alert payload
+(`senderEmail`) — that is the only place it can live.
 UI status vocabulary: `אושר` / `בטיפול` / `נדחה`; the ingest path also uses `הסתיים` ("completed").
 (Vocabulary mismatch flagged in 07.)
 
@@ -208,6 +223,8 @@ Indexes: `delivery_notes_pkey` UNIQUE(`id`); `idx_delivery_notes_status` (`statu
 | `resolution_notes` | text | YES | |
 | `storage_url` | text | YES | |
 | `drive_file_link` | text | YES | |
+| `email_sender` | text | YES | From address of the email it arrived on |
+| `match_method` | text | YES | how the supplier was resolved — CHECK `hp`/`name`/`email`/`invoice_email`/`manual`/`none`, NULL allowed |
 
 Indexes:
 - `vendor_statements_pkey` UNIQUE(`id`)

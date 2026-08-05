@@ -20,10 +20,15 @@
    function detects `stop_reason == "max_tokens"` and reports TRUNCATED. Candidate fix per memory:
    raise to 16000 or cap `line_items`. (See 04 §F3.)
 
-2. **Non-invoice matching logic is stubbed.**
-   `invoices-ingest/README.md` + `handleNonInvoice` (delivery_notes / statements / returns).
-   Documents are extracted, supplier-resolved and inserted, but advanced matching is incomplete;
-   look for TODO comments in that handler.
+2. **Non-invoice matching logic is stubbed.** — **STATEMENTS FIXED 2026-08-02; delivery
+   notes and returns still open.**
+   `invoices-ingest/README.md` + `handleNonInvoice`. For **statements** the handler now
+   extracts the closing balance and `hp`, resolves the supplier through an ordered chain
+   (hp → `suppliers.email` → name → `invoices.email_sender` → orphan) recording which rule
+   fired in `match_method`, reconciles against the ledger on arrival and raises
+   `statement_mismatch`. See `spec/01-PRD.md §7`. Delivery notes and returns are unchanged —
+   they are still inserted without advanced matching, and both still link by **name only**
+   (`spec/LAUNCH-PLAN.md` Gap #1 remains open for them).
 
 3. **HTML-login-page link fallback not auto-resolved.**
    `invoices-ingest` body-link path. When an inline invoice link lands on an HTML login page, an
@@ -38,12 +43,28 @@
    total), and undated rows absorbed into the opening balance instead of being shown.
    Invoice status likewise now derives in all four screens, not two.
    ⚠️ **Statements already marked `תואם` may have been matched against a stale
-   `our_balance` and need re-checking.**
+   `our_balance` and need re-checking.** → run `node scripts/statement-drift-report.mjs`
+   (read-only; prints every `matched` statement whose difference is no longer zero, and
+   refuses to call an empty anonymous read "nothing to review"). Nothing is auto-corrected.
 
-4. **Statement reconciliation row-matching is demo/hard-coded.**
-   `src/components/StatementReconciliation.tsx` (`stmtDetails`). The matched/unmatched ledger rows
-   in the detail modal are static demo data, not backend-driven. Real reconciliation matching is
-   not implemented end-to-end.
+3c. **A FOURTH copy was found on 2026-08-02 — `hadas-api`'s `reconcileStatement`.**
+   It computed the balance inline, did **not** exclude `is_duplicate`/`has_error` rows, and
+   used a `< 0.01` tolerance where the owner's rule is exactly zero. It now imports the same
+   engine. The lesson from 3b held: the copies were found one at a time, each looking
+   plausible on its own. `scripts/check-twins.mjs` now fails the build if the frontend engine
+   and its Deno twin diverge by a single byte, so the next copy cannot drift silently.
+   It also **pins the `vat.ts` pair by SHA** — those two are genuinely *not* byte twins
+   (the UI copy carries the `edited` path and display helpers; `completeAmounts` has a
+   different signature on each side), though the VAT bands and hole-filling order do agree.
+   Touching either fails the check until a human re-reads both and re-pins deliberately.
+
+4. **✅ FIXED 2026-08-02 — statement detail was static demo data.**
+   `stmtDetails` (a single hard-coded `VS-002` fixture; every other statement showed
+   "אין פירוט זמין לכרטסת זו") is gone. The detail is now a full **page** reading the real
+   ledger via `buildLedger`, beside the supplier's own document.
+   **Row-level matching is not "not implemented yet" — it is out of scope by decision**
+   (`spec/01-PRD.md §7`, decision 2): the AI extracts only the supplier's closing balance
+   and the manager reads the detail by eye. Do not reopen this as a gap.
 
 5. **~~Supplier Ledger uses hard-coded data.~~ OUTDATED — corrected 2026-07-30.**
    `SupplierLedger.tsx` reads live hooks, not `mockLedgerEntries`. The real problem was
@@ -53,6 +74,48 @@
 
 6. **Settings → Backup tab is a stub.**
    `src/pages/Settings.tsx` — tab exists; export/import logic not implemented.
+
+25. **⚠️ Statuses do not work well — full re-spec required (raised by the owner 2026-08-05).**
+   `הועבר לרו״ח` is entered as a CHECKBOX but behaves as a STATUS that overrides every
+   other value (`src/lib/invoiceStatus.ts:29`), which reads as "a status that isn't
+   updated everywhere". Add to that: four different status vocabularies across the
+   tables, a returns vocabulary that ingest and the UI genuinely disagree on (item 16),
+   and the mandatory gray StatusBadge fallback missing from three screens.
+   **Not a bug to patch — it needs a specification.** Written up with the current
+   state and the open questions in `spec/11-STATUS-REDESIGN.md`.
+
+26. **Goods-in → payment pipeline screen — TO BE SPECIFIED (raised 2026-08-05).**
+   A single screen following each delivery from arrival to payment. The parts exist
+   as separate entities; what is missing is the link between them — above all
+   **there is no payment↔invoice relation** today (a payment moves the supplier's
+   balance without closing specific invoices), so "this invoice is paid" is not
+   currently expressible. Skeleton and open questions in
+   `spec/12-GOODS-TO-PAYMENT-PIPELINE.md`. Depends on item 25.
+
+27. **Summary tiles hidden app-wide (owner's decision, 2026-08-05).**
+   `SHOW_SUMMARY_CARDS = false` in `src/components/ui/SummaryCards.tsx`. Every call
+   site was left in place, so flipping the one constant restores them.
+   ⚠️ On six screens those tiles were also the **status filter** (`onClick`/`active`);
+   hiding them removed that control. The filter state still exists in each screen —
+   only the way to reach it is gone. Decide whether a compact filter row replaces it.
+
+28. **Receipts already in `invoices` — audit, then decide (2026-08-05).**
+   Ingest now refuses receipts, but rows that arrived before that are still there,
+   counting toward supplier balances as phantom invoices.
+   `node scripts/receipt-audit.mjs` (READ-ONLY) lists them with their document links.
+   It is a **text heuristic**, not a verdict — it matches `קבלה` across the subject,
+   `invoice_type`, number and line items, and deliberately EXCLUDES every spelling of
+   `חשבונית מס קבלה`, which is a valid tax invoice and must stay.
+   ⚠️ Recommended remedy is `has_error = true`, **not** delete: it removes the row from
+   every balance while keeping it visible and auditable (the "shown but not counted"
+   rule, `spec/06-RULES.md §9`). Deleting destroys the arrival record and orphans the
+   Drive/Storage file.
+
+29. **Dashboard rework — TO BE SPECIFIED, queued LAST (2026-08-05).**
+   The owner wants the home screen to be *effective*. Deliberately scheduled after
+   the status re-spec and the pipeline, because what a dashboard should show is
+   largely decided by those two. Questions captured at the end of
+   `spec/12-GOODS-TO-PAYMENT-PIPELINE.md`.
 
 ## Cutover / production-readiness
 7. **N8N still owns the production `חשבונית` label.**

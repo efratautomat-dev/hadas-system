@@ -414,6 +414,34 @@ A flagged row is returned by `buildLedger` with `excluded: true` and contributes
 every running total — **visible, not hidden**, the same principle as an undated row.
 `excludedCount` reports how many there are.
 
+### RULE — the twin is enforced, not requested (2026-08-02)
+
+Deno cannot import from `src/`, so the moment ingest needed the balance the rule had to
+exist twice. That is the exact shape of the bug above, so it is guarded mechanically:
+the pure rules live in `src/lib/ledgerEngine.ts` with **zero imports**, are copied verbatim
+to `supabase/functions/_shared/ledgerEngine.ts`, and `scripts/check-twins.mjs` (wired into
+`npm run lint`) fails on a single byte of divergence below the header comment.
+`src/lib/supplierLedger.ts` is now a thin wrapper that adds `displayDate` — screens import
+it unchanged.
+
+**A fourth copy was found the same day:** `hadas-api`'s `reconcileStatement` computed the
+balance inline, counting flagged rows and allowing a `0.01` tolerance. It imports the engine
+now. Four copies, found one at a time over two days, each plausible in isolation — which is
+the whole argument for the guard.
+
+### RULE — a display concern never enters the arithmetic (second instance)
+
+§9 opened with a date window folded into the total. `paymentArrangement` is the same
+mistake, still live: `buildLedger` returns `closingBalance: 0` for a flagged supplier —
+a *display* decision ("היתרה מוחרגת ממעקב") made inside the engine.
+
+Statement reconciliation must therefore **not** pass the option: it needs the true figure
+to place beside the supplier's own number, or the header prints ₪0 and invents an enormous
+gap. The flag is honoured differently — **no verdict is drawn at all**, in ingest and on
+screen alike, and a banner says why. The clean fix is to move the zeroing out to the two
+supplier views that want it; until then, the option is a display helper and reconciliation
+does not use it.
+
 ### RULE — `our_balance` is recomputed, never read
 
 `vendor_statements.our_balance` is written once when the statement is filed and nothing
