@@ -118,3 +118,43 @@ textarea:focus {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(169, 29, 58, 0.30);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SQUARE-SOFT — owner's decision, 2026-08-05.
+   Frames and buttons are no longer pill-rounded. One knob controls the whole
+   app; there is deliberately NO per-component radius left to hunt down.
+
+   Done here rather than by editing hundreds of call sites because the app mixes
+   Tailwind `rounded-*` classes with inline `borderRadius`, and only a global
+   rule can reach both. `!important` is required precisely because inline styles
+   would otherwise win.
+
+   To adjust: change --ui-radius (0 = perfectly sharp).
+   To revert: delete this block. Nothing else was touched.
+
+   Genuinely CIRCULAR elements are exempt — avatars, the notification dot, the
+   loading spinner, status pills. A square avatar is not "soft square", it is a
+   different design. Those are marked `rounded-full` / 999px / 50% and keep it.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root {
+  --ui-radius: 2px;
+}
+
+*:not([class*="rounded-full"]):not(.keep-radius),
+*:not([class*="rounded-full"]):not(.keep-radius)::before,
+*:not([class*="rounded-full"]):not(.keep-radius)::after {
+  border-radius: var(--ui-radius) !important;
+}
+
+/* Inline `borderRadius: 999px | 50%` carries no class, so it cannot be matched
+   above. These are the circular/pill cases in the codebase; keep them round. */
+.keep-radius,
+[style*="border-radius: 999px"],
+[style*="border-radius: 50%"] {
+  border-radius: 999px !important;
+}
+
+/* The scrollbar thumb reads as a hairline, not a frame — keep it soft. */
+::-webkit-scrollbar-thumb {
+  border-radius: 3px !important;
+}

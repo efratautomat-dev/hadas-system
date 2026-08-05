@@ -4,6 +4,11 @@ import { api } from '../lib/api'
 
 export type VendorStatementStatus = 'matched' | 'mismatch' | 'pending' | 'investigating' | 'needs_review'
 
+/** HOW the statement was matched to its supplier — drives the "identified by …"
+ *  line and the manual-override button on the statements screen.
+ *  `none` = arrived but unmatched (orphan); null = row predates the column. */
+export type StatementMatchMethod = 'hp' | 'name' | 'email' | 'invoice_email' | 'manual' | 'none'
+
 export interface VendorStatement {
   id: string
   supplier_id: string
@@ -16,6 +21,10 @@ export interface VendorStatement {
   uploaded_at: string
   storage_url: string | null     // path in the private "documents" bucket
   drive_file_link: string | null
+  email_sender: string | null    // From address of the email it arrived on
+  match_method: StatementMatchMethod | null
+  /** The manager's reconciliation note, written while comparing the two ledgers. */
+  resolution_notes: string | null
 }
 
 export function useStatements() {
@@ -53,6 +62,9 @@ export function useStatements() {
           uploaded_at:    r.uploaded_at    ?? '',
           storage_url:     r.storage_url     ?? null,
           drive_file_link: r.drive_file_link ?? null,
+          email_sender:    r.email_sender    ?? null,
+          match_method:    (r.match_method as StatementMatchMethod) ?? null,
+          resolution_notes: r.resolution_notes ?? null,
         })) as VendorStatement[])
         setError(null)
       } else {
@@ -90,6 +102,17 @@ export function useStatements() {
     ourBalance?: number
     vendorBalance?: number | null
     diff?: number
+    /** Assign a statement to a supplier — an orphan, or a correction of a wrong
+     *  automatic match. hadas-api gained the `supplier_id` handling for this;
+     *  before that a "change supplier" call would have been rejected outright. */
+    supplierId?: string
+    /** Sending address, if the screen ever corrects it. */
+    senderEmail?: string | null
+    /** Normally omitted: passing `supplierId` alone makes hadas-api record the
+     *  match as `manual`, which is what the "change supplier" override means. */
+    matchMethod?: StatementMatchMethod
+    /** The "הערות התאמה" note — what explains the gap. Persisted, not per-session. */
+    resolutionNotes?: string
   }) => {
     console.log('[useStatements] resolve payload:', { id, ...body })
     try {

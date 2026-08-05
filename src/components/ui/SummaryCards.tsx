@@ -32,7 +32,18 @@ export interface SummaryItem {
   active?: boolean
 }
 
+// ── HIDDEN app-wide (owner's decision, 2026-08-05) ───────────────────────────
+// The summary tiles are switched off on every screen until it is decided whether
+// and how they come back. Flipping this ONE constant restores them everywhere —
+// every call site was left untouched on purpose, so nothing has to be rebuilt.
+//
+// ⚠️ On most screens these tiles doubled as the STATUS FILTER (they pass
+// `onClick` + `active`). Hiding them therefore also hides that filter. The
+// filtering state itself still exists in each screen; only the control is gone.
+const SHOW_SUMMARY_CARDS = false
+
 export function SummaryCards({ items, className = '' }: { items: SummaryItem[]; className?: string }) {
+  if (!SHOW_SUMMARY_CARDS) return null
   // Responsive columns by count: 1-2 → 2-up, 4 → 2-up then 4-up, else 3-up.
   const cols =
     items.length <= 2 ? 'sm:grid-cols-2' :

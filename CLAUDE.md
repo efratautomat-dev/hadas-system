@@ -23,15 +23,22 @@ AI/JSON repair) that are invisible from the UI.
 ```bash
 npm run dev        # Vite dev server on http://localhost:5173
 npm run build      # tsc -b (typecheck) then vite build -> dist/
-npm run lint       # eslint .
+npm run lint       # check-twins THEN eslint . (see "Twinned files" below)
+npm run check:twins # the twin guard on its own
 npm run preview    # preview the production build
 
 npx playwright test                              # run the demo-walkthrough E2E (boots dev server, demo mode)
 npx playwright test e2e/demo-walkthrough.spec.ts # run a single spec
+
+node scripts/statement-drift-report.mjs          # READ-ONLY: which `תואם` statements no longer reconcile
 ```
 
-There is **no unit-test runner** and no `git` repo. The only tests are Playwright E2E under
-`e2e/` (a marketing walkthrough in demo mode) and a template test in `tests/`.
+There is **no unit-test runner**. The only tests are Playwright E2E under `e2e/`
+(a marketing walkthrough in demo mode) and a template test in `tests/`.
+
+⚠️ **`npm run lint` does not exit 0** — there is a pre-existing baseline of **31 eslint
+errors** in `src/`, unrelated to any recent work. Check that your change adds none rather
+than expecting green. The `check-twins` half *does* pass and must stay passing.
 
 ### Backend (Supabase, deployed via CLI — not part of `npm`)
 
@@ -70,10 +77,23 @@ RLS enforces the same boundary at the DB (defense in depth). `hadas-api` accepts
 `x-hadas-key` (machines/cron) **or** a Bearer JWT whose email is in `allowed_users`.
 
 ### Ingest pipeline (`invoices-ingest`)
-The heart of the system. Gmail (labeled) → format/logo gate → magic-byte type sniff → subject +
-Haiku type classification → Sonnet extraction → robust JSON repair → supplier match/create →
-dedup → Drive + Storage upload → DB insert → alerts. Also serves an in-app **camera capture**
-POST mode. Details and every magic number are in `docs/04-BUSINESS-LOGIC.md` and `docs/05-API.md`.
+The heart of the system. Gmail (labeled) → **subject type classification** → format/logo gate → magic-byte type sniff →
+Haiku content classification (only if the subject was inconclusive) → Sonnet extraction → robust
+JSON repair → supplier match/create → dedup → Drive + Storage upload → DB insert → alerts. Also
+serves an in-app **camera capture** POST mode. Details and every magic number are in
+`docs/04-BUSINESS-LOGIC.md` and `docs/05-API.md`.
+
+**Subject classification runs FIRST, before the "no usable document" guard** — keep it that
+way. When the guard ran first it was hard-coded to `invoice_*` alerts, so a כרטסת whose file
+couldn't be fetched was reported as a failed *invoice* and never reached `vendor_statements`
+(`spec/09-IDEAS.md §10`).
+
+**Statements** (`כרטסת`) are reconciled at ingest: Sonnet extracts only the supplier's
+**closing balance** (plus `hp` and the period — never the rows), the supplier is resolved by
+hp → `suppliers.email` → name → `invoices.email_sender` → orphan, with the route recorded in
+`match_method`, and the balance is compared against `buildLedger` with **no tolerance band**,
+raising `statement_mismatch` on a gap. A statement never creates a supplier card. See
+`spec/01-PRD.md §7`.
 
 ## Conventions that will bite you
 
@@ -92,9 +112,19 @@ POST mode. Details and every magic number are in `docs/04-BUSINESS-LOGIC.md` and
   `vatRateFor(date)`. Amounts are computed to the **agora** (`round₂`), never to whole shekels,
   and **all three** (net / VAT / total) are always filled by `completeAmounts()` — holes only,
   so a figure read off the document is never overwritten. See `spec/06-RULES.md §3`.
-- **`src/lib/vat.ts` and `supabase/functions/_shared/vat.ts` are twins.** Vite can't import from
-  `supabase/` and Deno can't import from `src/`, so the VAT bands and the completion rules exist
-  twice on purpose — **change both together** or ingest and the UI will disagree.
+- **Twinned files: `run npm run lint` decides, not your memory.** Vite can't import from
+  `supabase/` and Deno can't import from `src/`, so some rules exist twice on purpose.
+  `scripts/check-twins.mjs` (part of `npm run lint`) is the enforcement:
+  - `src/lib/ledgerEngine.ts` ↔ `supabase/functions/_shared/ledgerEngine.ts` — the balance
+    rule, **byte-identical below the header**. The check fails on one character of drift.
+    `src/lib/supplierLedger.ts` is a thin wrapper adding `displayDate`; screens import that.
+    Four independent copies of this rule caused the bug in `spec/06-RULES.md §9` — the guard
+    is why a fifth cannot appear quietly.
+  - `src/lib/vat.ts` ↔ `supabase/functions/_shared/vat.ts` — **not** byte twins and not
+    expected to be: the UI copy carries the `edited` path and display helpers, and
+    `completeAmounts` has a different signature on each side. The VAT bands and hole-filling
+    order *do* agree. The pair is pinned by SHA, so touching either fails the check until
+    someone re-reads both sides and re-pins on purpose.
 - **Israeli dates are day-first** (`DD/MM/YY`), never US month-first — in both ingest parsing and
   the UI.
 - **Credit notes are negative invoices** — amounts forced negative in ingest, never trusting the

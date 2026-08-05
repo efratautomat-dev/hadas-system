@@ -144,8 +144,36 @@ All function actions write to the `system_logs` table with `source = 'invoices-i
 
 ---
 
+## Vendor statements (כרטסת)
+
+A statement is the only document type that is **reconciled on arrival**, so it has a few rules of its own. All of it lives in the `else` branch of `handleNonInvoice`.
+
+**Extraction** (`extractStatement`) is deliberately narrow — `{"vendor_name":"","hp":"","closing_balance":null,"period":""}`. `closing_balance` is the supplier's final balance due at the foot of the page and is the **only** amount extracted: it is the one figure the reconciliation compares, and the line detail is reviewed by eye against the attached document. When the page has no unambiguous closing balance the model returns `null` — it never guesses, because a guessed balance produces a confident wrong verdict. The amount is rounded to the agora (`round₂`) and is **not** run through `completeAmounts()`; a statement has no VAT split.
+
+**Supplier identification** (`resolveStatementSupplier`) is an ordered chain, and which rule fired is recorded in `vendor_statements.match_method`:
+
+| # | signal | column matched | `match_method` |
+|---|---|---|---|
+| 1 | ח.פ off the document | `suppliers.hp` (exact, digits-only) | `hp` |
+| 2 | vendor name | `findBestSupplier`, 0.85 fuzzy (+ `alt_names`) | `name` |
+| 3 | sending address | `suppliers.email` (exact, case-insensitive) | `email` |
+| 4 | sending address | the newest `invoices.email_sender` that matches → that invoice's `supplier_id` | `invoice_email` |
+| 5 | — | nothing matched → `supplier_id = null` | `none` |
+
+Steps 3–4 exist because a statement is a printout of the supplier's *own* bookkeeping and frequently carries neither ח.פ nor a company name we can match, leaving the sending address as the only signal. The whole `From` header is stored in `vendor_statements.email_sender`; only the address part is compared.
+
+> **A statement never creates a supplier.** Every other path (`resolveSupplier`) auto-creates one and raises `supplier_incomplete`. Here that rule inverts: the extracted name is unreliable in exactly the cases where matching failed, so auto-creating would mint an empty card from a mis-read heading — which then becomes a fuzzy-match target for real **invoices** and splits a live supplier's balance in two. An unmatched statement is filed as an **orphan** (`match_method = 'none'`) and the manager assigns it from a dropdown.
+
+**Reconciliation** runs only when the supplier *and* the closing balance are both known. It loads that supplier's invoices, payments and `opening_balance` and calls `buildLedger` from `../_shared/ledgerEngine.ts` — the byte-locked twin of `src/lib/ledgerEngine.ts`, so the server and the screen cannot disagree (`spec/06-RULES.md §9`). `status` is `matched` when the difference is **exactly zero** (no tolerance band) and `mismatch` otherwise; a mismatch raises a `statement_mismatch` alert carrying `statementId` for UI routing. If either side is missing, the row stays `needs_review` with no alert — there is nothing to compare. `our_balance` / `diff` are written as a **record of the filing date only**; nothing reads them back, every screen recomputes live.
+
+`month` now takes the statement's **own** period when the document states one, falling back to the email-received month only when it doesn't (a June כרטסת routinely arrives in July).
+
+---
+
 ## Limitations / TODOs
 
-- Non-invoice doc types (delivery notes, statements, returns) are uploaded to Drive but the **matching logic into their dedicated tables is stubbed**. Look for `TODO` comments in `handleNonInvoice`.
+- Delivery notes and returns are matched into their dedicated tables; **statements** are fully handled (see above). Historically this bullet claimed the matching was stubbed — it no longer is.
+- A supplier flagged **בהסדר תשלום** gets no automatic verdict: the ledger engine forces such a balance to `0` for display, so a comparison against a real vendor figure would read as a mismatch every time. The true figures are recorded and the row is left `needs_review`. **Pending an owner decision.**
+- `returns` has no sender/email column, so the address a credit note arrived from cannot be persisted on the row (it is kept in the `unmatched_credit_note` alert payload only). Needs a migration to fix properly.
 - Inline-link emails that hit an HTML login page generate an alert but don't auto-resolve the link.
 - The AI extractor decides the category freely from the `categories` table; a per-supplier override is set as a hint only after at least one prior invoice from that supplier has been categorised.

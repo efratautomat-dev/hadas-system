@@ -58,6 +58,9 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   invoice_duplicate:           b('כפילות',                  Copy,          'urgent'),
   duplicate_invoice:           b('כפילות',                  Copy,          'urgent'), // legacy alias
   return_amount_mismatch:      b('פער בהחזר',               AlertCircle,   'urgent'),
+  // Raised for real by the statement reconciliation on ingest — no longer a
+  // mock-only type, so it gets a bucket and appears in the type filter.
+  statement_mismatch:          b('אי-התאמת כרטסת',          Scale,         'urgent'),
 
   // ── Action (orange): a human action is required ──
   supplier_incomplete:         b('ספק – חסר פרטים',         UserPlus,      'action'),
@@ -71,6 +74,15 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   invoice_no_attachment:       b('ללא קובץ',                Paperclip,     'check'),
   invoice_no_valid_attachment: b('ללא קובץ תקין',           FileX,         'check'),
   invoice_link_failed:         b('הורדה נכשלה',             Unlink,        'check'),
+  // Same "no usable document" case as the three above, but for the non-invoice
+  // types. They exist because subject classification now runs BEFORE the
+  // no-file guard — previously a כרטסת whose file could not be fetched was
+  // reported as a failed INVOICE and never reached vendor_statements at all
+  // (spec/09-IDEAS.md §10). The specific reason (filtered / link_failed /
+  // no_attachment) rides in the message and payload, not in the type.
+  statement_no_file:           b('כרטסת ללא קובץ',          Scale,         'check'),
+  delivery_note_no_file:       b('תעודת משלוח ללא קובץ',    Truck,         'check'),
+  return_no_file:              b('זיכוי/חזרה ללא קובץ',     Receipt,       'check'),
 
   // ── Info (gray): informational ──
   invoice_old_date:            b('תאריך מוקדם',             Clock,         'info'),
@@ -78,7 +90,6 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // ── Legacy / mock-only types (kept so demo + mock data still render; no
   //     bucket → intentionally absent from the bucket type filter) ──
   delivery_note:               { label: 'תעודת משלוח',     Icon: Truck,         bg: '#DBEAFE', color: '#1E40AF' },
-  statement_mismatch:          { label: 'אי-התאמת כרטסת', Icon: Scale,         bg: '#FEE2E2', color: '#DC2626' },
   invoice_unclassified:        { label: 'לא סווג',         Icon: HelpCircle,    bg: '#F3F4F6', color: '#4B5563' },
   extraction_failed:           { label: 'פענוח נכשל',      Icon: FileWarning,   bg: '#FEE2E2', color: '#B91C1C' },
 }
@@ -348,7 +359,14 @@ export function resolveAlertDestination(
 
   // Genuinely no file/invoice yet (missing or invalid attachment) → open the source
   // email so the user can attach a valid file manually (07-ALERTS #9, #10).
-  if (t === 'invoice_no_attachment' || t === 'invoice_no_valid_attachment') {
+  // The three non-invoice variants are the same situation for a כרטסת / delivery
+  // note / credit note: nothing was saved anywhere, so the email IS the only
+  // place to act. There is no row to open.
+  if (
+    t === 'invoice_no_attachment'  || t === 'invoice_no_valid_attachment' ||
+    t === 'statement_no_file'      || t === 'delivery_note_no_file'       ||
+    t === 'return_no_file'
+  ) {
     if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
     handlers.onPageChange?.('alerts')
     return
@@ -440,6 +458,9 @@ export default function Alerts({
     activeColor = 'var(--brand-primary-dark)',
   ) => (
     <button
+      // The chips are rendered from .map(), so each needs its own key — the label
+      // is unique within both filter rows.
+      key={label}
       onClick={onClick}
       className="px-3 py-1.5 rounded-xl text-sm font-semibold transition-all"
       style={{

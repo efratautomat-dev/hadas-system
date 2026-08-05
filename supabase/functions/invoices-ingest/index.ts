@@ -8,7 +8,12 @@
 // ╚══════════════════════════════════════════════════════════════════════════╝
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveInvoiceFolder, driveGetFolderLink } from "../_shared/drive-filing.ts";
-import { vatRateFor, completeAmounts } from "../_shared/vat.ts";
+import { vatRateFor, completeAmounts, round2 } from "../_shared/vat.ts";
+// The supplier ledger engine — byte-locked twin of src/lib/ledgerEngine.ts (see
+// scripts/check-twins.mjs). Reconciling a statement on arrival MUST use the same
+// engine the screen uses, or the server and the screen disagree — which is the
+// exact failure spec/06-RULES.md §9 exists to prevent.
+import { buildLedger, statementDiff, statementVerdict } from "../_shared/ledgerEngine.ts";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -862,7 +867,7 @@ async function resolveDocFromLinks(
 // "skip" was retired with the old subject+text classifier (classifyWithAI). Stage 2
 // always resolves to a concrete type (subject → classifyDocTypeByContent, which
 // defaults to "invoice"), so "unknown" is only ever transient before that step.
-type DocType = "invoice" | "delivery_note" | "statement" | "return_doc" | "unknown";
+type DocType = "invoice" | "delivery_note" | "statement" | "return_doc" | "receipt" | "unknown";
 
 function classifyBySubject(subject: string): DocType {
   const s = (subject ?? "").trim();
@@ -872,6 +877,11 @@ function classifyBySubject(subject: string): DocType {
   // הזמנה (order) is routed as a delivery note in this system, per N8N convention.
   if (s.includes("משלוח") || s.includes("הזמנה"))                   return "delivery_note";
   if (s.includes("חשבונית"))                                       return "invoice";
+  // A RECEIPT is proof of payment, not a tax document — it must never become an
+  // invoice row (owner's rule, 2026-08-05). Checked AFTER "חשבונית" on purpose:
+  // "חשבונית מס קבלה" is a combined document and IS a valid tax invoice, so the
+  // "חשבונית" branch above must claim it first. Only a bare קבלה lands here.
+  if (s.includes("קבלה"))                                          return "receipt";
   // The customer self-sends hand-received documents titled generically "מסמך"
   // (and can't reliably label them). With no specific keyword above, force
   // content-based detection rather than guessing. Specific keywords win first,
@@ -879,6 +889,20 @@ function classifyBySubject(subject: string): DocType {
   if (s.includes("מסמך"))                                          return "unknown";
   return "unknown";
 }
+
+// ── "the document type is known but the FILE isn't there" alerts ────────────
+// ONE type per non-invoice document type — not one per (type × reason). The
+// reason (filtered attachment / link failed / nothing attached) rides in the
+// Hebrew message and in the payload's `reason` key, so the owner still sees WHY
+// without the alert taxonomy exploding into nine near-identical entries.
+//
+// invoice / unknown are absent on purpose: they keep the three long-standing
+// invoice_* types, which the frontend and existing rows already know.
+const NO_FILE_ALERT: Partial<Record<DocType, { type: string; title: string; docLabel: string }>> = {
+  statement:     { type: "statement_no_file",     title: "כרטסת ללא קובץ",         docLabel: "כרטסת" },
+  delivery_note: { type: "delivery_note_no_file", title: "תעודת משלוח ללא קובץ",   docLabel: "תעודת משלוח" },
+  return_doc:    { type: "return_no_file",        title: "זיכוי/חזרה ללא קובץ",     docLabel: "תעודת זיכוי/חזרה" },
+};
 
 // ─── Anthropic helpers ─────────────────────────────────────────────────────
 
@@ -1000,10 +1024,11 @@ async function classifyDocTypeByContent(
         content: [
           buildDocumentBlock(doc.mimeType, doc.bytes),
           { type: "text", text:
-`סווג את סוג המסמך לפי תוכנו בלבד. ענה במילה אחת בלבד מתוך: חשבונית / כרטסת / משלוח / זיכוי
+`סווג את סוג המסמך לפי תוכנו בלבד. ענה במילה אחת בלבד מתוך: חשבונית / כרטסת / משלוח / זיכוי / קבלה
 
 - כרטסת: דוח מצטבר עם ריבוי תנועות/שורות (תאריך, חובה, זכות), יתרת פתיחה ויתרת סגירה, או הכותרות "כרטסת", "ריכוז תנועות", "דוח יתרות", "הנהלת חשבונות". זהו ריכוז של כמה עסקאות לאורך תקופה — לא חשבונית בודדת, גם אם מופיעים בו סכומים רבים. אם יש יותר מעסקה אחת ויתרה מצטברת → כרטסת (ולא חשבונית).
-- חשבונית: מסמך של עסקה בודדת עם "חשבונית מס" / "חשבונית מקור" / קבלה ומספר חשבונית יחיד.
+- חשבונית: מסמך של עסקה בודדת עם הכותרת "חשבונית מס" או "חשבונית מקור" ומספר חשבונית יחיד.
+- קבלה: אישור על תשלום שהתקבל בלבד — הכותרת "קבלה" ללא המילה "חשבונית", לרוב עם אסמכתא/מספר שיק/פרטי אמצעי תשלום ובלי פירוט פריטים שנמכרו. שים לב: מסמך שכותרתו "חשבונית מס קבלה" (או "חשבונית מס / קבלה") הוא חשבונית לכל דבר — ענה "חשבונית". רק מסמך שהוא קבלה בלבד → "קבלה".
 - משלוח: תעודת משלוח / הזמנה.
 - זיכוי: תעודת זיכוי / חשבונית זיכוי / החזר.` },
         ],
@@ -1016,6 +1041,9 @@ async function classifyDocTypeByContent(
   if (raw.includes("כרטסת"))                       return "statement";
   if (raw.includes("זיכוי") || raw.includes("החזר")) return "return_doc";
   if (raw.includes("משלוח") || raw.includes("הזמנה")) return "delivery_note";
+  // Bare קבלה only — "חשבונית מס קבלה" contains "חשבונית" and was already caught
+  // by the invoice default below via the model answering "חשבונית".
+  if (raw.includes("קבלה") && !raw.includes("חשבונית")) return "receipt";
   return "invoice"; // default safe path
 }
 
@@ -1034,7 +1062,7 @@ async function quickInvoiceCheck(doc: { mimeType: string; bytes: Uint8Array }): 
         content: [
           buildDocumentBlock(doc.mimeType, doc.bytes),
           { type: "text", text:
-`האם זהו מסמך עסקי (חשבונית / קבלה / תעודה), או חומר פרסומי (פרסומת / דף שיווקי / ניוזלטר / קטלוג)?
+`האם זהו מסמך עסקי (חשבונית / תעודה), או חומר פרסומי (פרסומת / דף שיווקי / ניוזלטר / קטלוג)?
 ענה במילה אחת בלבד: "כן" אם מסמך עסקי, "לא" אם חומר פרסומי. אם אינך בטוח — ענה "כן".` },
         ],
       }],
@@ -1229,7 +1257,30 @@ function similarityScore(a: string, b: string): number {
   return Math.max(editScore, tokenScore, containScore);
 }
 
-interface SupplierRow { id: string; name: string; category: string | null; hp: string | null; alt_names?: string[] | null }
+interface SupplierRow {
+  id: string; name: string; category: string | null; hp: string | null;
+  alt_names?: string[] | null;
+  // Contact address on the supplier card. Statements frequently carry neither ח.פ
+  // nor a usable company name, and then the SENDING address is the only signal we
+  // have — see resolveStatementSupplier.
+  email?: string | null;
+}
+
+// A `From` header is usually `Display Name <addr@host>`, sometimes a bare address.
+// Returns the lower-cased address only, or "" when there isn't one.
+function extractEmailAddress(from: string | null | undefined): string {
+  const s = (from ?? "").trim();
+  if (!s) return "";
+  const angled = s.match(/<([^>]+)>/);
+  const candidate = (angled ? angled[1] : s).trim().replace(/^["']|["']$/g, "");
+  return /^[^\s@]+@[^\s@]+$/.test(candidate) ? candidate.toLowerCase() : "";
+}
+
+// Escape the LIKE metacharacters so an address containing `_` (very common:
+// `first_last@host`) is matched literally instead of as a single-char wildcard.
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
 
 function findBestSupplier(typed: string, suppliers: SupplierRow[], threshold = 0.85): SupplierRow | null {
   let best: { row: SupplierRow; score: number } | null = null;
@@ -1831,7 +1882,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   if (messageIds.length === 0) return result;
 
   // Load suppliers + categories once
-  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp, alt_names");
+  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp, alt_names, email");
   const suppliers: SupplierRow[] = supplierRows ?? [];
   const { data: catRows } = await supabase.from("categories").select("name");
   const categoryNames: string[] = (catRows ?? []).map((r: { name: string }) => r.name);
@@ -1872,6 +1923,55 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
 
       await log("info", "processing", { subject, from, labelIds: message.labelIds ?? [] }, msgId);
 
+      // ── Stage 2a: document TYPE from the SUBJECT — computed HERE, before the
+      // "no usable document" guard below (spec/09-IDEAS.md §10).
+      //
+      // It used to run after that guard, and the guard's alert types/messages are
+      // hard-coded to invoice_*. So a כרטסת email whose file could not be fetched
+      // was reported as a failed INVOICE and never reached vendor_statements at
+      // all. classifyBySubject depends on nothing but the subject string, so it
+      // belongs up here; the AI CONTENT fallback stays below, where a file exists.
+      let docType = classifyBySubject(subject);
+
+      // ── RECEIPTS DO NOT ENTER THE SYSTEM (owner's rule, 2026-08-05) ──
+      // A קבלה is proof that a payment was made; it carries no tax obligation and
+      // duplicates an invoice that already exists (or will). Letting one in creates
+      // a phantom invoice row and inflates what a supplier is owed.
+      //
+      // NOTE the asymmetry with every other rejection in this loop: a receipt is NOT
+      // an anomaly and raises NO alert. Suppliers send receipts routinely, so
+      // alerting would manufacture a queue out of ordinary correspondence. It is
+      // logged instead — visible in לוגי מערכת, countable, and silent.
+      //
+      // A "חשבונית מס קבלה" is a COMBINED document and a valid tax invoice; both
+      // classifiers claim it for "חשבונית" first, so it never reaches here.
+      //
+      // Checked TWICE — once on the subject (below, before any attachment is even
+      // downloaded) and once after the content router — because a receipt with a
+      // generic subject is only recognised from the file itself. Without the early
+      // check, a receipt with no fetchable file would trip the no-file guard and
+      // raise an invoice_no_attachment alert: exactly the noise this avoids.
+      const skipIfReceipt = async (): Promise<boolean> => {
+        if (docType !== "receipt") return false;
+        await log("info", "receipt — deliberately NOT ingested (receipts are not invoices)",
+          { subject, from }, msgId);
+        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+        result.skipped++;
+        return true;
+      };
+      if (await skipIfReceipt()) continue;
+
+      // A manually-applied "החזר חלקי" label means: this is an ordinary invoice
+      // for special (partial-return subfolder) filing — never let a "החזר"/"זיכוי"
+      // keyword in the subject/content reroute it off the invoice path. Applied
+      // here (rather than after Stage 2b) so the guard below also sees the invoice
+      // verdict this label forces; a labelled email with an inconclusive subject
+      // now skips the content router entirely, which the override would have
+      // overruled anyway.
+      const isPartialReturn =
+        partialRefundLabelId !== null && (message.labelIds ?? []).includes(partialRefundLabelId);
+      if (isPartialReturn) docType = "invoice";
+
       // ── Stage 1: sort by FILE FORMAT (logo/size gate; PDFs unconditional) ──
       const rawAtt = findAttachments(message);
       const { files: attFiles, dropped } = await sortAttachmentsByFormat(token, msgId, rawAtt);
@@ -1908,49 +2008,61 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         }
       }
 
-      // No document at all → alert + mark processed.
+      // No document at all → alert + mark processed. The alert is now chosen by the
+      // SUBJECT-classified docType, so a כרטסת/תעודת משלוח/זיכוי that lost its file
+      // is reported as such instead of as a failed invoice. `unknown` (no keyword in
+      // the subject) keeps the invoice wording — with no file there is nothing left
+      // to classify by, and invoices are the overwhelming majority.
       if (usableFiles.length === 0) {
         const hadFiltered = rawAtt.length > 0; // had attachments, all dropped by Stage 1
-        const alertType   = hadFiltered    ? "invoice_no_valid_attachment"
-                          : attemptedLinks ? "invoice_link_failed"
-                          :                  "invoice_no_attachment";
-        const alertTitle  = hadFiltered    ? "מייל ללא קובץ חשבונית מזוהה"
-                          : attemptedLinks ? "הורדת חשבונית מקישור נכשלה"
-                          :                  "מייל ללא קובץ מצורף";
-        const alertMessage = hadFiltered
+        // WHY there is no file — the one thing the owner needs in order to act.
+        const reason = hadFiltered ? "filtered" : attemptedLinks ? "link_failed" : "no_attachment";
+        const reasonText = hadFiltered
+          ? `נמצאו ${rawAtt.length} קבצים אך כולם סוננו (לוגו/קובץ קטן מ-50KB)`
+          : attemptedLinks
+          ? "הורדת הקובץ מהקישורים במייל נכשלה"
+          : "לא נמצא קובץ PDF/תמונה ולא קישור להורדה";
+
+        const noFile = NO_FILE_ALERT[docType];   // null for invoice/unknown
+        const alertType  = noFile ? noFile.type : hadFiltered ? "invoice_no_valid_attachment"
+                                                : attemptedLinks ? "invoice_link_failed"
+                                                : "invoice_no_attachment";
+        const alertTitle = noFile ? noFile.title : hadFiltered ? "מייל ללא קובץ חשבונית מזוהה"
+                                                : attemptedLinks ? "הורדת חשבונית מקישור נכשלה"
+                                                : "מייל ללא קובץ מצורף";
+        const alertMessage = noFile
+          ? `המייל "${subject}" זוהה לפי הנושא כ${noFile.docLabel}, אך ${reasonText}. יש לבדוק ידנית.`
+          : hadFiltered
           ? `במייל "${subject}" נמצאו ${rawAtt.length} קבצים אך כולם סוננו (לוגו/קובץ קטן מ-50KB)`
           : attemptedLinks
           ? `לא ניתן היה להוריד מסמך מהקישורים במייל "${subject}". יש לבדוק ידנית.`
           : `במייל "${subject}" לא נמצא קובץ PDF/תמונה או קישור להורדה. יש לבדוק ידנית.`;
 
-        await log("warn", `no usable document — ${alertType}`,
+        await log("warn", `no usable document — ${alertType} (docType: ${docType}, reason: ${reason})`,
           { rawAtt: rawAtt.length, dropped, linkFailures }, msgId);
         await insertAlertOnce(supabase, log, msgId, {
           type:    alertType,
           title:   alertTitle,
           message: alertMessage,
-          payload: { gmailMessageId: msgId, subject, from, messageLink, linkFailures, droppedFiles: dropped },
+          payload: {
+            gmailMessageId: msgId, subject, from, messageLink,
+            docType, reason, linkFailures, droppedFiles: dropped,
+          },
         });
         await gmailModifyLabels(token, msgId, [destNeedsReview, destProcessed], [sourceLabelId, "UNREAD"]);
         result.alerts++;
         continue;
       }
 
-      // ── Stage 2: document TYPE — subject first, AI content only if inconclusive ──
-      let docType = classifyBySubject(subject);
+      // ── Stage 2b: document TYPE, AI content router — ONLY when the subject was
+      // inconclusive. This one needs the file, so it stays here, below the guard.
       if (docType === "unknown") {
         docType = await classifyDocTypeByContent(usableFiles[0]);
         await log("info", `subject inconclusive — content router → ${docType}`, undefined, msgId);
+        if (await skipIfReceipt()) continue;
       } else {
         await log("info", `docType from subject → ${docType}`, undefined, msgId);
       }
-
-      // A manually-applied "החזר חלקי" label means: this is an ordinary invoice
-      // for special (partial-return subfolder) filing — never let a "החזר"/"זיכוי"
-      // keyword in the subject/content reroute it off the invoice path.
-      const isPartialReturn =
-        partialRefundLabelId !== null && (message.labelIds ?? []).includes(partialRefundLabelId);
-      if (isPartialReturn) docType = "invoice";
 
       // Credit notes (זיכוי) are ingested as NEGATIVE invoices via the invoice
       // pipeline — NOT as returns rows — so the balance moves exactly once.
@@ -2177,23 +2289,43 @@ async function extractReturn(
 }
 
 interface ExtractedStatement {
-  vendor_name: string;
+  vendor_name:     string;
+  hp:              string;
+  /** The supplier's FINAL balance due at the foot of the statement, or null when
+   *  the document has no unambiguous closing figure. NEVER a guess. */
+  closing_balance: number | null;
+  /** The statement's OWN period as `YYYY-MM`, or "" when it isn't stated. */
+  period:          string;
 }
 
-// Statements (כרטסת / supplier ledgers) only need the vendor name here — enough to
-// resolve a supplier_id so the row shows a name. Balances/period are left for the
-// user to fill during review. Keep the prompt minimal and cheap.
+const STATEMENT_JSON_SHAPE = '{"vendor_name":"","hp":"","closing_balance":null,"period":""}';
+const STATEMENT_MAX_TOKENS = 512;   // was 256 — the shape is wider now
+
+// Statements (כרטסת / supplier ledgers) are deliberately extracted NARROW: the
+// vendor identity (name + ח.פ), the statement's own period, and ONE amount — the
+// closing balance. That single number is what the whole reconciliation compares
+// against; the line detail is reviewed by eye against the attached document, so
+// there is nothing to gain (and accuracy to lose) from extracting it.
+//
+// `closing_balance` is null-or-nothing on purpose: a guessed balance would produce
+// a confident, wrong verdict, which is worse than no verdict at all.
 async function extractStatement(
   doc: { mimeType: string; bytes: Uint8Array },
 ): Promise<ExtractedStatement> {
   const prompt =
-    "אתה מנתח כרטסות ספק (דפי חשבון / כרטסת הנהלת חשבונות). חלץ את שם הספק בלבד וחזור ב-JSON בלבד, ללא הסברים.\n" +
-    '{"vendor_name":""}\n' +
-    "כללים: vendor_name = שם הספק/החברה שאליו שייכת הכרטסת (לרוב בכותרת המסמך).";
+    "אתה מנתח כרטסות ספק (דפי חשבון / כרטסת הנהלת חשבונות). חלץ את הפרטים וחזור ב-JSON בלבד, ללא הסברים.\n" +
+    STATEMENT_JSON_SHAPE + "\n" +
+    "כללים:\n" +
+    "vendor_name = שם הספק/החברה שאליו שייכת הכרטסת (לרוב בכותרת המסמך).\n" +
+    "hp = מספר ח.פ / ע.מ של הספק, ספרות בלבד. אם אינו מופיע במסמך — מחרוזת ריקה.\n" +
+    "closing_balance = יתרת הסגירה של הספק בתחתית הכרטסת (היתרה לתשלום / יתרה סופית), " +
+    "מספר בלבד ללא סימני מטבע ובלי מפרידי אלפים. יתרת זכות = מספר שלילי. " +
+    "אם אין במסמך יתרת סגירה חד-משמעית — החזר null. אין לנחש, אין לסכם ואין לחשב יתרה בעצמך.\n" +
+    "period = החודש/התקופה של הכרטסת עצמה בפורמט YYYY-MM. אם התקופה אינה מצוינת — מחרוזת ריקה.";
   const raw = await anthropicMessage(
     ANTHROPIC_MODEL_EXTRACTOR,
     [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
-    256,
+    STATEMENT_MAX_TOKENS,
   );
   let parsed = parseJsonRobust(raw);
   if (parsed === null) {
@@ -2201,9 +2333,9 @@ async function extractStatement(
       ANTHROPIC_MODEL_EXTRACTOR,
       [{ role: "user", content: [
         buildDocumentBlock(doc.mimeType, doc.bytes),
-        { type: "text", text: 'ענה ב-JSON בלבד ללא markdown וללא הסבר:\n{"vendor_name":""}' },
+        { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" + STATEMENT_JSON_SHAPE },
       ] }],
-      256,
+      STATEMENT_MAX_TOKENS,
     );
     parsed = parseJsonRobust(retryRaw);
     if (parsed === null) {
@@ -2211,7 +2343,244 @@ async function extractStatement(
     }
   }
   const p = parsed as Record<string, unknown>;
-  return { vendor_name: String(p.vendor_name ?? "") };
+  return {
+    vendor_name:     String(p.vendor_name ?? ""),
+    hp:              normalizeHp(p.hp == null ? "" : String(p.hp)),
+    // Rounded to the agora like every other amount here (round₂). NOT run through
+    // completeAmounts(): a statement is not an invoice and carries no VAT split.
+    closing_balance: parseClosingBalance(p.closing_balance),
+    period:          normalizeStatementPeriod(p.period),
+  };
+}
+
+// null unless the model returned a real, finite number. A string is tolerated
+// (models quote amounts) but only after stripping currency/thousands noise; an
+// empty/unparsable value stays null so the caller can tell "no balance" from 0.
+function parseClosingBalance(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? round2(v) : null;
+  if (typeof v !== "string") return null;
+  // Accounting notations that carry the SIGN, handled before the sign character is
+  // stripped: "(1,234.50)" and a trailing "1234.50-" are both NEGATIVE. Losing
+  // either would flip a credit balance into a debit — a silent, confident error.
+  const parenNegative = /^\s*\(.*\)\s*$/.test(v);
+  const trailingMinus = /-\s*$/.test(v);
+  let cleaned = v.replace(/[₪,\s]/g, "").replace(/[^\d.\-+]/g, "").replace(/[-+]/g, "");
+  if (!/\d/.test(cleaned)) return null;
+  if (parenNegative || trailingMinus || /^\s*-/.test(v)) cleaned = "-" + cleaned;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? round2(n) : null;
+}
+
+// The statement's own period → "YYYY-MM". Israeli dates are DAY-first, so a
+// three-part D/M/YYYY is read day-first (never US month-first); a two-part
+// M/YYYY is month + year. Anything else → "" and the caller falls back.
+function normalizeStatementPeriod(v: unknown): string {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const pad = (x: string) => x.padStart(2, "0");
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})(?:[-/.]\d{1,2})?$/);      // YYYY-MM[-DD]
+  if (m) return `${m[1]}-${pad(m[2])}`;
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);             // DD/MM/YYYY (day-first)
+  if (m) return `${m[3]}-${pad(m[2])}`;
+  m = s.match(/^(\d{1,2})[-/.](\d{4})$/);                           // MM/YYYY
+  if (m) return `${m[2]}-${pad(m[1])}`;
+  return "";
+}
+
+// ─── Statement supplier identification ─────────────────────────────────────
+//
+// Mirrors the `match_method` vocabulary pinned by migration 20260802000000
+// (`hp | name | email | invoice_email | manual | none`). `manual` is the UI's
+// value only — ingest never writes it.
+type StatementMatchMethod = "hp" | "name" | "email" | "invoice_email" | "none";
+
+/**
+ * Ordered identification chain for an incoming כרטסת, recording WHICH rule fired.
+ *
+ *   1. ח.פ off the document       → suppliers.hp exact           → "hp"
+ *   2. vendor name                → findBestSupplier (0.85 fuzzy) → "name"
+ *   3. sending address            → suppliers.email exact         → "email"
+ *   4. sending address            → the most recent invoice that arrived from the
+ *                                   SAME address → that invoice's supplier_id → "invoice_email"
+ *   5. nothing                    → null + "none" (an orphan the manager assigns)
+ *
+ * Steps 3–4 are the point of the chain: a statement is a printout of the
+ * supplier's OWN bookkeeping and very often carries neither ח.פ nor a company
+ * name we can match (the heading is frequently OUR card in THEIR books), so the
+ * address it was sent from is the only signal left.
+ *
+ * ⚠️ This function NEVER creates a supplier — unlike `resolveSupplier` (invoices /
+ * delivery notes / credit notes), which auto-creates + raises `supplier_incomplete`.
+ * On a statement that rule inverts: the extracted name is unreliable in exactly the
+ * cases where matching fails, so auto-creating would mint an empty card named after
+ * a mis-read heading — and worse, that junk card then becomes a fuzzy-match target
+ * for real INVOICES, silently splitting a live supplier's balance in two. An orphan
+ * statement is visible, one dropdown from being fixed, and moves nothing. A junk
+ * supplier is invisible and moves the ledger. So: orphan.
+ */
+async function resolveStatementSupplier(
+  supabase:  SupabaseClient,
+  log:       Logger,
+  msgId:     string,
+  suppliers: SupplierRow[],
+  args: { hp: string; vendorName: string; senderAddress: string },
+): Promise<{ supplierId: string | null; method: StatementMatchMethod }> {
+  // 1. ח.פ — authoritative across every name-spelling difference.
+  const normHp = normalizeHp(args.hp);
+  if (normHp) {
+    const byHp = suppliers.find((s) => normalizeHp(s.hp) === normHp) ?? null;
+    if (byHp) {
+      await log("info", `statement supplier matched by ח.פ → ${byHp.id}`, { hp: normHp }, msgId);
+      return { supplierId: byHp.id, method: "hp" };
+    }
+  }
+
+  // 2. The address on the supplier card — an EXACT match, compared
+  //    case-insensitively and tolerating a `Display Name <addr>` value on either
+  //    side. It is tried BEFORE the fuzzy name because exact evidence must beat a
+  //    guess, and the name on a כרטסת is exactly where the guess goes wrong: the
+  //    heading is frequently OUR card in THEIR books.
+  const addr = args.senderAddress;
+  if (addr) {
+    const byEmail = suppliers.find((s) => {
+      const raw = (s.email ?? "").trim().toLowerCase();
+      return !!raw && (raw === addr || extractEmailAddress(s.email) === addr);
+    }) ?? null;
+    if (byEmail) {
+      await log("info", `statement supplier matched by supplier email → ${byEmail.id}`, { addr }, msgId);
+      return { supplierId: byEmail.id, method: "email" };
+    }
+  }
+
+  // 3. Vendor name — the existing 0.85 fuzzy path (also scores alt_names).
+  if (args.vendorName) {
+    const byName = findBestSupplier(args.vendorName, suppliers);
+    if (byName) {
+      await log("info", `statement supplier matched by name → ${byName.id}`,
+        { vendorName: args.vendorName, matchedName: byName.name }, msgId);
+      return { supplierId: byName.id, method: "name" };
+    }
+  }
+
+  if (addr) {
+    // 4. The address we have already seen send INVOICES. `invoices.email_sender`
+    //    stores the whole `From` header, which is either the bare address or
+    //    `Display Name <addr@host>` — so match those two shapes and nothing else.
+    //    A bare `%addr%` would also hit `xa@b.com`, and because `.limit()` applies
+    //    BEFORE the exact re-check below, 25 such near-misses would have hidden a
+    //    real match entirely. Anchoring on the angle bracket makes that impossible.
+    const esc = escapeLike(addr);
+    const { data: rows, error } = await supabase
+      .from("invoices")
+      .select("supplier_id, email_sender, received_at")
+      .not("supplier_id", "is", null)
+      .or(`email_sender.ilike.%<${esc}>%,email_sender.ilike.${esc}`)
+      .order("received_at", { ascending: false, nullsFirst: false })
+      .limit(25);
+    if (error) {
+      await log("warn", `statement sender→invoice lookup failed: ${error.message}`, { addr }, msgId);
+    } else {
+      const hit = (rows ?? []).find(
+        (r: { email_sender: string | null }) => extractEmailAddress(r.email_sender) === addr,
+      );
+      if (hit?.supplier_id) {
+        await log("info", `statement supplier matched by a previous invoice from ${addr} → ${hit.supplier_id}`,
+          { addr }, msgId);
+        return { supplierId: hit.supplier_id as string, method: "invoice_email" };
+      }
+    }
+  }
+
+  await log("info", "statement supplier NOT identified — filing as an orphan",
+    { hp: normHp || null, vendorName: args.vendorName || null, senderAddress: addr || null }, msgId);
+  return { supplierId: null, method: "none" };
+}
+
+// ─── Statement reconciliation on arrival ───────────────────────────────────
+
+interface StatementLedgerResult {
+  ourBalance:         number;
+  paymentArrangement: boolean;
+}
+
+/**
+ * OUR balance for a supplier, computed by the SHARED ledger engine — the identical
+ * `buildLedger` the statements screen, the supplier page and the supplier list all
+ * call (spec/06-RULES.md §9). The DB rows are re-shaped here into exactly the field
+ * names `useInvoices` / `usePayments` hand it; feeding it anything else would make
+ * the twin worthless and put the server back in disagreement with the screen.
+ *
+ * Returns null when a read failed — the caller then leaves the statement at
+ * `needs_review` rather than filing a verdict it could not compute.
+ */
+async function computeStatementLedger(
+  supabase:   SupabaseClient,
+  log:        Logger,
+  msgId:      string,
+  supplierId: string,
+): Promise<StatementLedgerResult | null> {
+  // All three reads are independent — the supplier row is only consumed once the
+  // ledger is built, so awaiting it on its own just serialised a round-trip inside
+  // the per-email loop.
+  const [
+    { data: sup, error: supErr },
+    { data: invRows, error: invErr },
+    { data: payRows, error: payErr },
+  ] = await Promise.all([
+    supabase.from("suppliers")
+      .select("opening_balance, payment_arrangement")
+      .eq("id", supplierId)
+      .maybeSingle(),
+    supabase.from("invoices")
+      .select("id, supplier_id, total_amount, invoice_date, invoice_number, is_duplicate, has_error")
+      .eq("supplier_id", supplierId),
+    supabase.from("payments")
+      .select("id, supplier_id, amount, payment_date, payment_type, status")
+      .eq("supplier_id", supplierId),
+  ]);
+  if (supErr) {
+    await log("warn", `statement reconcile: supplier read failed: ${supErr.message}`, { supplierId }, msgId);
+    return null;
+  }
+  if (invErr || payErr) {
+    await log("warn",
+      `statement reconcile: ledger read failed: ${invErr?.message ?? payErr?.message}`, { supplierId }, msgId);
+    return null;
+  }
+
+  // ── The mapping, field for field, as the frontend hooks do it ──
+  // useInvoices:  supplier_id→supplierId, invoice_date→invoiceDate (ISO, sliced to
+  //               10), invoice_number→invoiceNumber, is_duplicate→isDuplicate,
+  //               has_error→hasError; total_amount rides along under its own name.
+  // usePayments:  supplier_id, amount, payment_date→date, payment_type→type, status
+  //               (null → "pending", as the hook's `?? 'pending'` does).
+  const invoices = (invRows ?? []).map((r: Record<string, unknown>) => ({
+    id:            String(r.id),
+    supplierId:    (r.supplier_id as string | null) ?? "",
+    total_amount:  Number(r.total_amount ?? 0),
+    invoiceDate:   String(r.invoice_date ?? "").slice(0, 10),
+    invoiceNumber: (r.invoice_number as string | null) ?? "",
+    isDuplicate:   (r.is_duplicate as boolean | null) ?? false,
+    hasError:      (r.has_error as boolean | null) ?? false,
+  }));
+  const payments = (payRows ?? []).map((r: Record<string, unknown>) => ({
+    id:          String(r.id),
+    supplier_id: (r.supplier_id as string | null) ?? "",
+    amount:      Number(r.amount ?? 0),
+    date:        (r.payment_date as string | null) ?? "",
+    type:        (r.payment_type as string | null) ?? "",
+    status:      String(r.status ?? "pending"),
+  }));
+
+  // NOTE: `paymentArrangement` is deliberately NOT passed to buildLedger here — see
+  // the caller. What is stored is the TRUE ledger figure; the flag decides whether a
+  // VERDICT may be drawn from it.
+  const ledger = buildLedger(supplierId, invoices, payments, sup?.opening_balance ?? 0);
+  return {
+    ourBalance:         round2(ledger.closingBalance),
+    paymentArrangement: !!sup?.payment_arrangement,
+  };
 }
 
 // ─── Non-invoice doc handlers ──────────────────────────────────────────────
@@ -2239,6 +2608,11 @@ async function handleNonInvoice(
 
   // Supplier link key (spec/06-RULES.md §2b): business number (ח.פ) is the PRIMARY
   // join key; fuzzy NAME is only a secondary fallback when hp is missing/unmatched.
+  //
+  // Used by the delivery-note and credit-note paths ONLY. Statements deliberately do
+  // NOT come here — they use resolveStatementSupplier, which widens the chain to the
+  // sending address and, critically, never CREATES a supplier. See that function for
+  // why auto-creation is right for a delivery note and wrong for a כרטסת.
   const resolveSupplier = async (vendorName: string, hp = ""): Promise<string | null> => {
     const normHp = normalizeHp(hp);
     // 1. PRIMARY — ח.פ exact match (authoritative across name-spelling differences).
@@ -2393,6 +2767,13 @@ async function handleNonInvoice(
           amount:           extracted.amount,
           creditNoteNumber: extracted.credit_note_number,
           storagePath:       storagePath || null,
+          // An UNMATCHED credit note never reaches a `returns` row, so the alert
+          // payload is the only place its sending address can live. (A MATCHED one
+          // now persists it on the row itself — `returns.email_sender`,
+          // migration 20260802010000.)
+          senderEmail:      ctx.from || null,
+          subject:          ctx.subject,
+          messageLink:      ctx.messageLink,
         },
       });
       await log("info", `unmatched credit note - alert created (${reason})`,
@@ -2439,6 +2820,7 @@ async function handleNonInvoice(
         supplier_credit_note_amount: actualAmount,
         gmail_message_id:            msgId,
         storage_url:                 storagePath || null,
+        email_sender:                ctx.from || null,
         status:                      "הסתיים",
       })
       .eq("id", existing.id);
@@ -2471,24 +2853,32 @@ async function handleNonInvoice(
     // statement — uploaded to Storage only; no Drive upload (Storage-only is by
     // design for non-invoice docs; the file is viewable via a signed URL in the UI).
     //
-    // Best-effort vendor extraction → supplier_id so the supplier name shows.
-    // resolveSupplier matches an existing supplier or creates one (with a
-    // "supplier_incomplete" alert). Extraction failure must NEVER block the save —
-    // the statement file is valuable on its own and the user can set the supplier
-    // during review — so we swallow the error and fall back to supplier_id=null.
-    let supplierId: string | null = null;
+    // Extraction failure must NEVER block the save — the statement file is valuable
+    // on its own and the user can set the supplier during review — so the error is
+    // swallowed and identification carries on WITHOUT the document's own fields.
+    // That is not a degraded path: steps 3–4 of the chain below (the sending
+    // address) work perfectly well with no extraction at all.
+    const senderAddress = extractEmailAddress(ctx.from);
+    let extracted: ExtractedStatement | null = null;
     try {
-      const extracted = await extractStatement(ctx.doc);
-      // NAME-FALLBACK: extractStatement captures vendor_name only (minimal-by-design
-      // prompt), so this links by name only. Add `hp` to the statement prompt for hp-primary.
-      supplierId = await resolveSupplier(extracted.vendor_name);
-      await log("info", "statement vendor resolved",
-        { vendor: extracted.vendor_name, supplierId }, msgId);
+      extracted = await extractStatement(ctx.doc);
+      await log("info", "statement extracted", {
+        vendor: extracted.vendor_name, hp: extracted.hp || null,
+        closingBalance: extracted.closing_balance, period: extracted.period || null,
+      }, msgId);
     } catch (e) {
       await log("warn",
-        `statement vendor extraction failed (saving without supplier): ${e instanceof Error ? e.message : e}`,
+        `statement extraction failed (identifying by sender only): ${e instanceof Error ? e.message : e}`,
         { filename: ctx.doc.filename }, msgId);
     }
+
+    const { supplierId, method: matchMethod } = await resolveStatementSupplier(
+      supabase, log, msgId, suppliers, {
+        hp:            extracted?.hp ?? "",
+        vendorName:    extracted?.vendor_name ?? "",
+        senderAddress,
+      },
+    );
 
     let storagePath = "";
     try {
@@ -2508,33 +2898,108 @@ async function handleNonInvoice(
 
     // vendor_statements schema has no email_subject / message_link /
     // gmail_message_id / received_at columns — only supplier_id, status,
-    // storage_url, drive_file_link, and two NOT-NULL columns without defaults:
-    // `month` and `vendor_balance`. `month` is a text column rendered as-is in the
-    // UI; we default it to the email-received month (YYYY-MM), which the user can
-    // correct. `vendor_balance` is seeded to 0 as a placeholder — the row is
-    // needs_review, so the user enters the real balance when reviewing.
-    const statementMonth = ctx.emailTs.slice(0, 7); // "YYYY-MM" from the ISO emailTs
-    const { error } = await supabase.from("vendor_statements").insert({
+    // storage_url, drive_file_link, email_sender, match_method, and two NOT-NULL
+    // columns without defaults: `month` and `vendor_balance`.
+    //
+    // `month` is a text column rendered as-is in the UI. It now takes the
+    // statement's OWN period when the document states one, and only falls back to
+    // the email-received month when it doesn't — a כרטסת for June routinely arrives
+    // in July, and the old fallback filed every one of them under the wrong month.
+    const statementMonth = extracted?.period || ctx.emailTs.slice(0, 7);
+    // `vendor_balance` is NOT NULL, so an unreadable closing balance keeps today's 0
+    // placeholder — paired with status 'needs_review', which is what tells the owner
+    // (and the code below) that the 0 is a placeholder and not a real figure.
+    const vendorBalance = extracted?.closing_balance ?? null;
+
+    // ── Reconcile on arrival (01-PRD §7) ──────────────────────────────────────
+    // Only possible when we know BOTH sides: which supplier, and what they say the
+    // balance is. Missing either → today's behaviour, `needs_review` and NO gap
+    // alert (there is nothing to compare, and an alert would be a false positive).
+    let ourBalance: number | null = null;
+    let diff:       number | null = null;
+    let status = "needs_review";
+    let paymentArrangement = false;
+    if (supplierId && vendorBalance !== null) {
+      const ledger = await computeStatementLedger(supabase, log, msgId, supplierId);
+      if (ledger) {
+        ourBalance         = ledger.ourBalance;
+        diff               = statementDiff(ourBalance, vendorBalance);
+        paymentArrangement = ledger.paymentArrangement;
+        // A supplier marked בהסדר תשלום is the ONE case with no honest verdict.
+        // The flag means "מוחרג ממעקב יתרה" — the owner has deliberately stopped
+        // tracking what this supplier is owed — so we file the TRUE ledger figure
+        // as the arrival record and draw no verdict and no alert. Settled, not
+        // pending: spec/01-PRD.md §7. The reconciliation screen does the same.
+        if (paymentArrangement) {
+          await log("info",
+            "statement supplier is on a payment arrangement — recording balances, no automatic verdict",
+            { supplierId, ourBalance, vendorBalance, diff }, msgId);
+        } else {
+          // One rule for the whole system — see `statementVerdict` in the engine.
+          status = statementVerdict(ourBalance, vendorBalance) ?? status;
+        }
+      }
+    }
+
+    const { data: inserted, error } = await supabase.from("vendor_statements").insert({
       supplier_id:     supplierId,
-      status:          "needs_review",
+      status,
       storage_url:     storagePath || null,
       drive_file_link: null,
       month:           statementMonth,
-      vendor_balance:  0,
-    });
-    if (error) {
+      vendor_balance:  vendorBalance ?? 0,
+      // A RECORD OF THE FILING DATE ONLY. spec/06-RULES.md §9: this column is never
+      // read back for display — every screen recomputes the balance live from the
+      // same engine — so writing it here can never put a stale figure on screen.
+      our_balance:     ourBalance ?? 0,
+      diff:            diff ?? 0,
+      email_sender:    ctx.from || null,
+      match_method:    matchMethod,
+    }).select("id").single();
+    if (error || !inserted) {
       // Only log/alert FAILURE on a real error — never log "recorded" for a row
       // that didn't persist.
-      await log("error", `vendor_statements insert failed: ${error.message}`, { code: error.code }, msgId);
+      await log("error", `vendor_statements insert failed: ${error?.message}`, { code: error?.code }, msgId);
       await insertAlertOnce(supabase, log, msgId, {
         type:    "statement_save_failed",
         title:   "שמירת כרטסת נכשלה",
         message: `לא ניתן היה לשמור כרטסת מהמייל "${ctx.subject}". יש לבדוק ידנית.`,
-        payload: { gmailMessageId: msgId, subject: ctx.subject, filename: ctx.doc.filename, error: error.message, storagePath: storagePath || null },
+        payload: { gmailMessageId: msgId, subject: ctx.subject, filename: ctx.doc.filename, error: error?.message, storagePath: storagePath || null },
       });
       return false; // DB write failed — leave email for retry
     }
-    await log("info", "statement recorded", { storagePath, month: statementMonth }, msgId);
+
+    const statementId = String(inserted.id);
+    if (status === "mismatch") {
+      const supplierName =
+        suppliers.find((s) => s.id === supplierId)?.name || extracted?.vendor_name || "ספק לא מזוהה";
+      // dedupKeys=["statementId"] so two statements riding ONE email each raise
+      // their own alert instead of the second being suppressed.
+      await insertAlertOnce(supabase, log, msgId, {
+        type:    "statement_mismatch",
+        title:   "אי-התאמה בכרטסת",
+        message: `אי-התאמה בכרטסת ${statementMonth} מול ${supplierName}: ` +
+                 `יתרה לפי הספק ${vendorBalance}, היתרה לפי הספרים שלנו ${ourBalance}, הפרש ${diff}.`,
+        payload: {
+          gmailMessageId: msgId,
+          statementId,                       // routing key — opens the statement (Alerts.tsx)
+          supplierId,
+          typedSupplierName: supplierName,
+          vendorBalance, ourBalance, diff,
+          month:          statementMonth,
+          matchMethod,
+          senderEmail:    ctx.from || null,
+          subject:        ctx.subject,
+          messageLink:    ctx.messageLink,
+          storagePath:    storagePath || null,
+        },
+      }, ["statementId"]);
+    }
+
+    await log("info", "statement recorded", {
+      statementId, storagePath, month: statementMonth, supplierId, matchMethod,
+      vendorBalance, ourBalance, diff, status, paymentArrangement,
+    }, msgId);
     return true;
   }
 }
@@ -2623,7 +3088,7 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
 
   // Google token (for Drive — generic OAuth, not Gmail-specific) + reference data.
   const token = await getGoogleAccessToken();
-  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp, alt_names");
+  const { data: supplierRows } = await supabase.from("suppliers").select("id, name, category, hp, alt_names, email");
   const suppliers: SupplierRow[] = supplierRows ?? [];
   const { data: catRows } = await supabase.from("categories").select("name");
   const categoryNames: string[] = (catRows ?? []).map((r: { name: string }) => r.name);
