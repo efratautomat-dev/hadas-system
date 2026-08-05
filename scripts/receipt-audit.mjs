@@ -45,6 +45,7 @@
 // is exactly what a read-only audit must not be able to do.
 
 import { createClient } from '@supabase/supabase-js'
+import { receiptMatches } from './lib/receiptRule.mjs'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -89,28 +90,8 @@ if (email && password) {
   if (error) die(`sign-in failed for ${email}: ${error.message}`)
 }
 
-// ── The rule ──────────────────────────────────────────────────────────────────
-// A hit needs the word קבלה somewhere. A COMBINED spelling anywhere in the same
-// field cancels that field's hit — "חשבונית מס קבלה" is an invoice, full stop.
-const RECEIPT = /קבלה/
-const COMBINED = [
-  /חשבונית\s*מס\s*[\/\-–]?\s*קבלה/,   // חשבונית מס קבלה · חשבונית מס/קבלה · חשבונית מס-קבלה
-  /חשבונית\s*[\/\-–]\s*קבלה/,          // חשבונית/קבלה
-  /קבלה\s*[\/\-–]\s*חשבונית/,          // קבלה/חשבונית (reversed)
-  /חשבונית\s*מס\s*קבלה/,
-]
-const FIELDS = [
-  ['email_subject', 'נושא המייל'],
-  ['invoice_type', 'סוג המסמך'],
-  ['invoice_number', 'מספר המסמך'],
-  ['line_items', 'פירוט'],
-]
-
-const looksLikeReceipt = text => {
-  const t = String(text ?? '')
-  if (!RECEIPT.test(t)) return false
-  return !COMBINED.some(rx => rx.test(t))
-}
+// The rule lives in scripts/lib/receiptRule.mjs — shared with data-health so the
+// two reports can never disagree about what a receipt is.
 
 const { data: rows, error } = await supabase
   .from('invoices')
@@ -147,9 +128,7 @@ if (all.length === 0) {
 
 const hits = []
 for (const r of all) {
-  const matched = FIELDS
-    .filter(([col]) => looksLikeReceipt(r[col]))
-    .map(([, label]) => label)
+  const matched = receiptMatches(r)
   if (matched.length) hits.push({ row: r, matched })
 }
 
