@@ -19,11 +19,16 @@
 // nothing to compare and nothing to be wrong. The script detects the whole tree
 // being absent and skips those pairs.
 //
-// A MISSING FILE INSIDE AN EXISTING TREE is the opposite case and still fails:
-// that means a twin was deleted or renamed, which is exactly the silent breakage
-// this guard exists to catch.
+// A MISSING FILE while the tree still HAS content is the opposite case and still
+// fails: that means a twin was deleted or renamed, which is exactly the silent
+// breakage this guard exists to catch.
+//
+// Note the test is "does the tree contain any files", NOT "does the directory
+// exist". Vercel's .vercelignore removes the FILES and leaves the (now empty)
+// directories behind — a first attempt at this checked for the directory, found
+// it, concluded the tree was present, and failed the build.
 
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -85,9 +90,19 @@ let failed = 0
 let skipped = 0
 const say = (...m) => console.log(...m)
 
-// Is the Deno half of the repo present at all? Absent = a frontend-only build
-// (Vercel, via .vercelignore). Present = every twin must be there.
-const denoTreePresent = existsSync(resolve(ROOT, 'supabase/functions'))
+/** Any file at all under this path? Empty and absent both count as "nothing here". */
+function hasAnyFile(rel) {
+  const abs = resolve(ROOT, rel)
+  if (!existsSync(abs)) return false
+  for (const e of readdirSync(abs, { withFileTypes: true, recursive: true })) {
+    if (e.isFile()) return true
+  }
+  return false
+}
+
+// Is the Deno half of the repo present at all? Empty or absent = a frontend-only
+// build (Vercel strips it via .vercelignore). Any content = every twin must be there.
+const denoTreePresent = hasAnyFile('supabase/functions')
 
 for (const pair of PAIRS) {
   const missing = [pair.a, pair.b].filter(f => !existsSync(resolve(ROOT, f)))
