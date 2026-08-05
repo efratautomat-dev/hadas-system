@@ -21,9 +21,10 @@ type Row = Record<string, unknown>
 
 // Origin-based URL to the bundled sample document, used so the in-app PDF/preview
 // modal renders a real page without any Supabase Storage call.
-const DOC_URL =
-  (typeof window !== 'undefined' ? window.location.origin : '') +
-  '/demo/sample-invoice.html'
+const demoDoc = (file: string) =>
+  (typeof window !== 'undefined' ? window.location.origin : '') + '/demo/' + file
+
+const DOC_URL = demoDoc('sample-invoice.html')
 
 // ── lookups ──────────────────────────────────────────────────────────────────
 const nameToId: Record<string, string> = {}
@@ -122,18 +123,30 @@ const returns: Row[] = seed.returns.map((r) => ({
 
 // ── vendor_statements ────────────────────────────────────────────────────────
 // useStatements reads: supplier_id, month, our_balance, vendor_balance, diff,
-// status, uploaded_at, storage_url, drive_file_link
+// status, uploaded_at, storage_url, drive_file_link, email_sender, match_method
+// (+ resolution_notes — the manager's reconciliation note).
+//
+// `closing_balance` is what the SUPPLIER's document says. `our_balance` is left
+// to the screen, which recomputes it live from these same invoices/payments via
+// the shared ledger engine — so the demo can never show a figure the seed's own
+// rows don't produce. Each statement's document is a bundled HTML page under
+// public/demo/ whose rows add up to exactly that closing balance; the seed's
+// `_why` field records what explains each gap.
 const vendor_statements: Row[] = seed.vendor_statements.map((v) => ({
   id: v.id,
-  supplier_id: nameToId[v.supplier_name] ?? '',
+  // An empty supplier_name is an ORPHAN — arrived with no supplier match at all.
+  supplier_id: v.supplier_name ? nameToId[v.supplier_name] ?? '' : '',
   month: v.period,
-  our_balance: v.closing_balance,
+  our_balance: 0,
   vendor_balance: v.closing_balance,
   diff: 0,
-  status: 'matched',
-  uploaded_at: '2026-06-01',
-  storage_url: null,
+  status: v.status,
+  uploaded_at: v.uploaded_at,
+  storage_url: demoDoc(v.document),
   drive_file_link: null,
+  email_sender: v.email_sender,
+  match_method: v.match_method,
+  resolution_notes: v.resolution_notes,
 }))
 
 // ── alerts ───────────────────────────────────────────────────────────────────
@@ -148,6 +161,7 @@ const ALERT_DATE: Record<string, string> = {
   al_03: '2026-06-10',
   al_04: '2026-06-09',
   al_05: '2026-06-08',
+  al_06: '2026-07-02',
 }
 const ALERT_STATUS: Record<string, string> = {
   al_01: 'unread',
@@ -155,6 +169,7 @@ const ALERT_STATUS: Record<string, string> = {
   al_03: 'unread',
   al_04: 'read',
   al_05: 'unread',
+  al_06: 'unread',
 }
 function alertPayload(a: (typeof seed.alerts)[number]): Row {
   switch (a.type) {
@@ -171,6 +186,10 @@ function alertPayload(a: (typeof seed.alerts)[number]): Row {
       return { typedSupplierName: 'מכבסת היוקרה', supplierName: 'מכבסת היוקרה', supplierId: 'sup_09' }
     case 'invoice_old_date':
       return { existingInvoiceId: a.entity_id ?? '', invoiceId: a.entity_id ?? '' }
+    // statementId is the routing key the alerts screen uses to deep-link into
+    // ONE statement's reconciliation page (Alerts.routeAlert).
+    case 'statement_mismatch':
+      return { statementId: a.entity_id ?? '', typedSupplierName: 'הדפסות רימון', supplierId: 'sup_03' }
     default:
       return {}
   }

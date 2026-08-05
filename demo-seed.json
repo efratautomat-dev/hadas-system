@@ -625,12 +625,68 @@
   "vendor_statements": [
     {
       "id": "stmt_01",
-      "supplier_name": "סיטונאות אופיר",
-      "period": "מאי 2026",
-      "opening_balance": 12500,
-      "total_invoices": 38200,
-      "total_payments": 31000,
-      "closing_balance": 19700
+      "supplier_name": "תוויות פלוס",
+      "period": "יוני 2026",
+      "opening_balance": 0,
+      "total_invoices": 95910,
+      "total_payments": 47470,
+      "closing_balance": 48440,
+      "status": "matched",
+      "match_method": "hp",
+      "email_sender": "office8@tavit.co.il",
+      "uploaded_at": "2026-07-02",
+      "document": "sample-statement-tavit.html",
+      "resolution_notes": "",
+      "_why": "תואם — היתרה זהה לכרטסת שלנו (48,440)"
+    },
+    {
+      "id": "stmt_02",
+      "supplier_name": "הדפסות רימון",
+      "period": "יוני 2026",
+      "opening_balance": 0,
+      "total_invoices": 152480,
+      "total_payments": 57260,
+      "closing_balance": 95220,
+      "status": "mismatch",
+      "match_method": "email",
+      "email_sender": "office3@rimon.co.il",
+      "uploaded_at": "2026-07-02",
+      "document": "sample-statement-rimon.html",
+      "resolution_notes": "",
+      "_why": "הפרש 43,560 — חשבונית 4471 חויבה פעמיים (7,190 + 36,370) ושתי הרשומות מסומנות אצלנו ככפילות אפשרית ואינן נספרות"
+    },
+    {
+      "id": "stmt_03",
+      "supplier_name": "טקסטיל הגליל בע\"מ",
+      "period": "יוני 2026",
+      "opening_balance": 0,
+      "total_invoices": 32080,
+      "total_payments": 5050,
+      "total_credits": 4200,
+      "closing_balance": 22830,
+      "status": "investigating",
+      "match_method": "name",
+      "email_sender": "office1@textil.co.il",
+      "uploaded_at": "2026-07-02",
+      "document": "sample-statement-textil.html",
+      "resolution_notes": "הספק כבר רשם את תעודת הזיכוי Z-3391 על 4,200 ₪; אצלנו ההחזרה סגורה אך חשבונית הזיכוי טרם נקלטה.",
+      "_why": "הפרש 4,200 — בדיוק תעודת הזיכוי Z-3391 של ההחזרה ret_01"
+    },
+    {
+      "id": "stmt_04",
+      "supplier_name": "",
+      "period": "יוני 2026",
+      "opening_balance": 0,
+      "total_invoices": 49750,
+      "total_payments": 0,
+      "closing_balance": 49750,
+      "status": "needs_review",
+      "match_method": "none",
+      "email_sender": "dekel.office2026@gmail.com",
+      "uploaded_at": "2026-07-03",
+      "document": "sample-statement-unmatched.html",
+      "resolution_notes": "",
+      "_why": "כרטסת ללא שיוך — במסמך אין ח.פ והשם המסחרי אינו מוכר; שיוך ידני ל\"ציוד משרדי דקל\" מביא להתאמה מלאה (49,750)"
     }
   ],
   "alerts": [
@@ -673,6 +729,14 @@
       "detail": "ספק קיים שחסרים לו פרטים",
       "entity_id": null,
       "severity": "medium"
+    },
+    {
+      "id": "al_06",
+      "type": "statement_mismatch",
+      "title": "אי-התאמת כרטסת",
+      "detail": "כרטסת יוני 2026 מ\"הדפסות רימון\" — הפרש 43,560 ₪ מול הכרטסת שלנו",
+      "entity_id": "stmt_02",
+      "severity": "high"
     }
   ]
 }

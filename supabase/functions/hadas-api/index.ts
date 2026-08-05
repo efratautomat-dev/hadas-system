@@ -1,5 +1,11 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { resolveInvoiceFolder, driveMoveFile, driveGetFolderLink } from "../_shared/drive-filing.ts";
+import { round2 } from "../_shared/vat.ts";
+// The supplier ledger engine — byte-locked twin of src/lib/ledgerEngine.ts (see
+// scripts/check-twins.mjs). Reconciling a statement here MUST use the same engine
+// the screen and invoices-ingest use, or this function becomes a FOURTH copy of the
+// balance rule — the exact failure spec/06-RULES.md §9 exists to prevent.
+import { buildLedger, statementDiff, statementVerdict } from "../_shared/ledgerEngine.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -667,7 +673,7 @@ async function unlinkDeliveryNote(supabase: SupabaseClient, id: string): Promise
 
 // ─── Returns ──────────────────────────────────────────────────────────────────
 // Whitelist: supplier_id, date (from dateIso), amount, reason, invoice_id,
-//            status, created_by
+//            status, created_by, email_sender
 // Excluded: id (DB auto-generates), date display string, supplier name (no column),
 //           dateIso key (value maps to `date`), originalInvoiceId key → invoice_id
 
@@ -681,6 +687,14 @@ function returnToRow(body: Record<string, unknown>): Record<string, unknown> {
   if (body.originalInvoiceId !== undefined) row.invoice_id  = body.originalInvoiceId;
   if (body.status            !== undefined) row.status      = body.status;
   if (body.employeeId        !== undefined) row.employee_id = body.employeeId || null;
+  // Sending address of the supplier credit note that closed this return
+  // (migration 20260802010000). Ingest writes it directly with the service role;
+  // it is whitelisted here so a re-file / hand correction through the API can
+  // carry it too instead of silently dropping it. snake_case first, camelCase
+  // second so the frontend value wins — same ordering rule as the statement and
+  // invoice mappings.
+  if (body.email_sender      !== undefined) row.email_sender = body.email_sender;
+  if (body.senderEmail       !== undefined) row.email_sender = body.senderEmail;
   // Intentionally excluded: body.id, body.date (display), body.supplier (no column), body.createdBy (display)
   return row;
 }
@@ -726,8 +740,12 @@ async function updateReturnStatus(req: Request, supabase: SupabaseClient, id: st
 }
 
 // ─── Statements ───────────────────────────────────────────────────────────────
-// Whitelist: supplier_id, month, our_balance, vendor_balance, diff, status, uploaded_at
+// Whitelist: supplier_id, month, our_balance, vendor_balance, diff, status, uploaded_at,
+//            email_sender, match_method
 // Excluded: supplier_name (no DB column), id (DB auto-generates)
+// email_sender / match_method record WHO sent the statement and HOW the supplier was
+// resolved, so the screen can say so and offer an override. Same camelCase-OR-snake_case
+// acceptance as the invoice mapping above (senderEmail → email_sender).
 
 async function createStatement(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
@@ -743,6 +761,8 @@ async function createStatement(req: Request, supabase: SupabaseClient): Promise<
       diff:           body.diff          ?? 0,
       status:         body.status        ?? "pending",
       uploaded_at:    body.uploadedAt    ?? body.uploaded_at    ?? new Date().toISOString(),
+      email_sender:   body.senderEmail   ?? body.email_sender   ?? null,
+      match_method:   body.matchMethod   ?? body.match_method   ?? null,
       // supplier_name intentionally excluded — no such column in vendor_statements
     })
     .select("id").single();
@@ -763,6 +783,27 @@ async function resolveStatement(req: Request, supabase: SupabaseClient, id: stri
   if (body.ourBalance    !== undefined) updates.our_balance    = body.ourBalance;
   if (body.vendorBalance !== undefined) updates.vendor_balance = body.vendorBalance;
   if (body.diff          !== undefined) updates.diff           = body.diff;
+  // snake_case first, camelCase second so the frontend value wins — same ordering
+  // rule as invoiceToRow (a frontend edit ships BOTH representations).
+  if (body.email_sender  !== undefined) updates.email_sender   = body.email_sender;
+  if (body.senderEmail   !== undefined) updates.email_sender   = body.senderEmail;
+  // The reconciliation note the manager writes while comparing the two ledgers.
+  // Without this the screen's "הערות התאמה" box had nowhere to land and a save
+  // came back "No fields to update" — the note lived only until the page closed.
+  if (body.resolution_notes !== undefined) updates.resolution_notes = body.resolution_notes;
+  if (body.resolutionNotes  !== undefined) updates.resolution_notes = body.resolutionNotes;
+
+  // Assigning a supplier HERE is by definition a hand correction — that is what the
+  // screen's "change supplier" override does — so the route is recorded as 'manual'.
+  const supplierId = body.supplierId ?? body.supplier_id;
+  if (supplierId !== undefined) {
+    updates.supplier_id  = supplierId;
+    updates.match_method = "manual";
+  }
+  // ...unless the caller states the route explicitly (e.g. re-running an automatic
+  // match through this endpoint), which overrides the 'manual' default above.
+  if (body.match_method  !== undefined) updates.match_method   = body.match_method;
+  if (body.matchMethod   !== undefined) updates.match_method   = body.matchMethod;
 
   if (Object.keys(updates).length === 0) return json({ error: "No fields to update" }, 400);
   const { error } = await supabase.from("vendor_statements").update(updates).eq("id", id);
@@ -771,17 +812,105 @@ async function resolveStatement(req: Request, supabase: SupabaseClient, id: stri
 }
 
 // ─── Statement reconciliation (StatementReconciliation §7) ─────────────────────
-// OUR ledger balance for a supplier — SAME formula as the frontend computeSupplierBalance:
-// opening_balance + Σ invoice totals − Σ non-cancelled payments. Credit notes are negative
-// invoices (already netted in). Reconciliation only FLAGS the gap; it never edits data (§5).
-async function computeOurBalance(supabase: SupabaseClient, supplierId: string): Promise<number> {
-  const { data: sup } = await supabase.from("suppliers").select("opening_balance").eq("id", supplierId).maybeSingle();
-  const opening = Number(sup?.opening_balance ?? 0);
-  const { data: invs } = await supabase.from("invoices").select("total_amount").eq("supplier_id", supplierId);
-  const sumInv = (invs ?? []).reduce((s: number, i) => s + (Number(i.total_amount) || 0), 0);
-  const { data: pays } = await supabase.from("payments").select("amount, status").eq("supplier_id", supplierId);
-  const sumPay = (pays ?? []).reduce((s: number, p) => p.status === "cancelled" ? s : s + (Number(p.amount) || 0), 0);
-  return Math.round((opening + sumInv - sumPay) * 100) / 100;
+// Reconciliation only FLAGS the gap; it never edits data (§5).
+//
+// This used to hold an inline `computeOurBalance` — a FOURTH copy of the balance rule
+// (spec/06-RULES.md §9), and it chose differently from every other copy in two ways:
+//   · it summed EVERY invoice, including rows flagged is_duplicate / has_error, so a
+//     suspected double-charge inflated what the supplier was owed here while the
+//     screens excluded it;
+//   · it matched on |diff| < 0.01, a tolerance band the owner's rule does not have —
+//     `תואם` is diff EXACTLY zero.
+// Both are gone: the figure now comes from the shared engine and nothing else.
+
+interface StatementLedgerResult {
+  ourBalance:         number;
+  paymentArrangement: boolean;
+  /** Carried along so the mismatch alert does not re-read the same supplier row. */
+  supplierName:       string;
+}
+
+/**
+ * OUR balance for a supplier, computed by the SHARED ledger engine — the identical
+ * `buildLedger` the statements screen, the supplier page and the supplier list all
+ * call (spec/06-RULES.md §9). The DB rows are re-shaped here into exactly the field
+ * names `useInvoices` / `usePayments` hand it; feeding it anything else would make
+ * the twin worthless and put the server back in disagreement with the screen.
+ *
+ * ⚠️ The body below is a deliberate line-for-line copy of `computeStatementLedger`
+ * in invoices-ingest. Two functions writing the same column from the same engine
+ * must map the raw rows the same way, or the divergence merely moves from the
+ * arithmetic into the mapping. Change both together.
+ *
+ * Returns null when a read failed — the caller then leaves the statement's status
+ * alone rather than filing a verdict it could not compute.
+ */
+async function computeStatementLedger(
+  supabase:   SupabaseClient,
+  supplierId: string,
+): Promise<StatementLedgerResult | null> {
+  // All three reads are independent — the supplier row is only consumed after the
+  // ledger is built, so awaiting it first just serialised a round-trip. `name` rides
+  // along because the caller needs it for the mismatch alert and was re-reading this
+  // same row to get it.
+  const [
+    { data: sup, error: supErr },
+    { data: invRows, error: invErr },
+    { data: payRows, error: payErr },
+  ] = await Promise.all([
+    supabase.from("suppliers")
+      .select("name, opening_balance, payment_arrangement")
+      .eq("id", supplierId)
+      .maybeSingle(),
+    supabase.from("invoices")
+      .select("id, supplier_id, total_amount, invoice_date, invoice_number, is_duplicate, has_error")
+      .eq("supplier_id", supplierId),
+    supabase.from("payments")
+      .select("id, supplier_id, amount, payment_date, payment_type, status")
+      .eq("supplier_id", supplierId),
+  ]);
+  if (supErr) {
+    console.error("[reconcileStatement] supplier read failed:", supErr.message);
+    return null;
+  }
+  if (invErr || payErr) {
+    console.error("[reconcileStatement] ledger read failed:", invErr?.message ?? payErr?.message);
+    return null;
+  }
+
+  // ── The mapping, field for field, as the frontend hooks do it ──
+  // useInvoices:  supplier_id→supplierId, invoice_date→invoiceDate (ISO, sliced to
+  //               10), invoice_number→invoiceNumber, is_duplicate→isDuplicate,
+  //               has_error→hasError; total_amount rides along under its own name.
+  // usePayments:  supplier_id, amount, payment_date→date, payment_type→type, status
+  //               (null → "pending", as the hook's `?? 'pending'` does).
+  const invoices = (invRows ?? []).map((r: Record<string, unknown>) => ({
+    id:            String(r.id),
+    supplierId:    (r.supplier_id as string | null) ?? "",
+    total_amount:  Number(r.total_amount ?? 0),
+    invoiceDate:   String(r.invoice_date ?? "").slice(0, 10),
+    invoiceNumber: (r.invoice_number as string | null) ?? "",
+    isDuplicate:   (r.is_duplicate as boolean | null) ?? false,
+    hasError:      (r.has_error as boolean | null) ?? false,
+  }));
+  const payments = (payRows ?? []).map((r: Record<string, unknown>) => ({
+    id:          String(r.id),
+    supplier_id: (r.supplier_id as string | null) ?? "",
+    amount:      Number(r.amount ?? 0),
+    date:        (r.payment_date as string | null) ?? "",
+    type:        (r.payment_type as string | null) ?? "",
+    status:      String(r.status ?? "pending"),
+  }));
+
+  // NOTE: `paymentArrangement` is deliberately NOT passed to buildLedger here — see
+  // the caller. What is stored is the TRUE ledger figure; the flag decides whether a
+  // VERDICT may be drawn from it.
+  const ledger = buildLedger(supplierId, invoices, payments, sup?.opening_balance ?? 0);
+  return {
+    ourBalance:         round2(ledger.closingBalance),
+    paymentArrangement: !!sup?.payment_arrangement,
+    supplierName:       (sup?.name as string | null) ?? "",
+  };
 }
 
 // Auto-match a vendor statement against our ledger. MATCH → status 'matched'.
@@ -789,14 +918,41 @@ async function computeOurBalance(supabase: SupabaseClient, supplierId: string): 
 // super-rules). A subsequent match resolves the prior alert.
 async function reconcileStatement(supabase: SupabaseClient, id: string): Promise<Response> {
   const { data: st } = await supabase.from("vendor_statements")
-    .select("id, supplier_id, vendor_balance, month").eq("id", id).maybeSingle();
+    .select("id, supplier_id, vendor_balance, month, status").eq("id", id).maybeSingle();
   if (!st) return json({ error: "Statement not found" }, 404);
 
-  const ourBalance    = await computeOurBalance(supabase, st.supplier_id as string);
+  // No supplier → nothing to compare against. Same call as invoices-ingest
+  // (`if (supplierId && vendorBalance !== null)`): leave the row at needs_review
+  // rather than filing a verdict against an empty ledger. The old code queried
+  // `supplier_id = null`, got a 0 balance back and confidently wrote 'mismatch'.
+  if (!st.supplier_id) {
+    return json({ success: true, status: st.status ?? "needs_review", ourBalance: null, vendorBalance: Number(st.vendor_balance ?? 0), diff: null });
+  }
+
+  const ledger = await computeStatementLedger(supabase, st.supplier_id as string);
+  if (!ledger) return json({ error: "Ledger read failed" }, 500);
+
+  const ourBalance    = ledger.ourBalance;
   const vendorBalance = Number(st.vendor_balance ?? 0);
-  const diff          = Math.round((ourBalance - vendorBalance) * 100) / 100;   // our − vendor
-  const matched       = Math.abs(diff) < 0.01;
-  const status        = matched ? "matched" : "mismatch";
+  // One rule for the whole system — `statementVerdict` in the ledger engine, which
+  // rounds to the agora first and allows no tolerance band. It replaced the old
+  // inline `< 0.01` here, which silently passed a real one-agora gap as matched.
+  const diff          = statementDiff(ourBalance, vendorBalance);   // our − vendor
+  const matched       = statementVerdict(ourBalance, vendorBalance) === "matched";
+
+  // A supplier marked בהסדר תשלום is the ONE case with no honest verdict: the flag
+  // means "מוחרג ממעקב יתרה". Record the TRUE ledger figures, draw no verdict, raise
+  // no alert. Settled, not pending: spec/01-PRD.md §7. Same in ingest and on screen.
+  if (ledger.paymentArrangement) {
+    await supabase.from("vendor_statements").update({ our_balance: ourBalance, diff }).eq("id", id);
+    console.warn(
+      `[reconcileStatement] supplier ${st.supplier_id} is on a payment arrangement — ` +
+      `recorded balances, no automatic verdict (our ${ourBalance}, vendor ${vendorBalance}, diff ${diff})`,
+    );
+    return json({ success: true, status: st.status ?? null, ourBalance, vendorBalance, diff, paymentArrangement: true });
+  }
+
+  const status = matched ? "matched" : "mismatch";
 
   await supabase.from("vendor_statements").update({ our_balance: ourBalance, diff, status }).eq("id", id);
 
@@ -804,8 +960,8 @@ async function reconcileStatement(supabase: SupabaseClient, id: string): Promise
     .eq("type", "statement_mismatch").eq("payload->>statementId", id).neq("status", "resolved").limit(1);
 
   if (!matched) {
-    const { data: sup } = await supabase.from("suppliers").select("name").eq("id", st.supplier_id as string).maybeSingle();
-    const name = sup?.name ?? "ספק";
+    // The name came back with the ledger read above — no second round-trip.
+    const name = ledger.supplierName || "ספק";
     const { data: existing } = await openAlert();
     if (!existing?.length) {
       await supabase.from("alerts").insert({

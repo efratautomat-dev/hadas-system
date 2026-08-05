@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "build": "node scripts/check-twins.mjs && tsc -b && vite build",
+    "lint": "node scripts/check-twins.mjs && eslint .",
+    "check:twins": "node scripts/check-twins.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
