@@ -42,6 +42,9 @@
    a date window that was part of the arithmetic (movements outside it vanished from the
    total), and undated rows absorbed into the opening balance instead of being shown.
    Invoice status likewise now derives in all four screens, not two.
+   ✅ **MEASURED 2026-08-06 — nothing to re-check.** The production scan found
+   **0** statements marked `תואם` whose difference is no longer zero, and 0 orphans.
+   The warning below stands as the method, not as outstanding work.
    ⚠️ **Statements already marked `תואם` may have been matched against a stale
    `our_balance` and need re-checking.** → run `node scripts/statement-drift-report.mjs`
    (read-only; prints every `matched` statement whose difference is no longer zero, and
@@ -91,6 +94,15 @@
    balance without closing specific invoices), so "this invoice is paid" is not
    currently expressible. Skeleton and open questions in
    `spec/12-GOODS-TO-PAYMENT-PIPELINE.md`. Depends on item 25.
+
+26b. **Data cleanup — measured 2026-08-06, deferred by the owner.**
+   ~25 items total: 14 duplicate-invoice groups (only 9 surplus rows still counted,
+   ₪24,817), 2 duplicate-supplier groups, 9 receipts (₪42,410 still counted — one of
+   which is a NEGATIVE amount and is probably a credit note misread as a receipt).
+   **Conclusion: no cleanup screen is warranted at this volume** — the existing tools
+   cover it. Full picture, the suspected false positive, and the suggested order in
+   `spec/DATA-CLEANUP.md`. Re-measure with `node scripts/data-health.mjs` before
+   revisiting that conclusion.
 
 27. **Summary tiles hidden app-wide (owner's decision, 2026-08-05).**
    `SHOW_SUMMARY_CARDS = false` in `src/components/ui/SummaryCards.tsx`. Every call
