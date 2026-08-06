@@ -126,10 +126,10 @@ if (statements.length === 0) {
 const supplierIds = [...new Set(statements.map(s => s.supplier_id).filter(Boolean))]
 
 const supplierIdSet = new Set(supplierIds)
-const suppliers = (await readTable('suppliers', 'id, name, opening_balance, payment_arrangement'))
+const suppliers = (await readTable('suppliers_v', 'id, name, opening_balance, payment_arrangement'))
   .filter(r => supplierIdSet.has(r.id))
 const invRows = (await readTable(
-  'invoices', 'id, supplier_id, total_amount, invoice_date, invoice_number, is_duplicate, has_error',
+  'invoices_v', 'id, supplier_id, total_amount, invoice_date, invoice_number, is_duplicate, has_error',
 )).filter(r => supplierIdSet.has(r.supplier_id))
 const payRows = (await readTable(
   'payments', 'id, supplier_id, amount, payment_date, payment_type, status',

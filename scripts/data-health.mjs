@@ -90,10 +90,12 @@ if (fixture) {
   const conn = await connect(ROOT, 'data-health')
   ;({ projectRef, signedIn, email } = conn)
   ;[invoices, suppliers, payments, statements, alerts] = await Promise.all([
-    conn.read('invoices', 'id, supplier_id, supplier_name, invoice_number, invoice_date, total_amount, ' +
+    // suppliers_v / invoices_v, not the base tables: the app reads these
+    // role-aware masking views and only they are granted to authenticated users.
+    conn.read('invoices_v', 'id, supplier_id, supplier_name, invoice_number, invoice_date, total_amount, ' +
                           'amount_before_vat, vat_amount, email_subject, invoice_type, line_items, ' +
                           'is_duplicate, has_error, created_at'),
-    conn.read('suppliers', 'id, name, hp, alt_names, email, opening_balance, payment_arrangement'),
+    conn.read('suppliers_v', 'id, name, hp, alt_names, email, opening_balance, payment_arrangement'),
     conn.read('payments', 'id, supplier_id, amount, payment_date, payment_type, status'),
     // Only what the report actually uses — asking for a column it does not need
     // would make the whole run fail on a project where that column is missing.

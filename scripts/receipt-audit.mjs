@@ -60,7 +60,7 @@ const { read, projectRef, signedIn, email } = await connect(ROOT, 'receipt-audit
 // The rule lives in scripts/lib/receiptRule.mjs — shared with data-health so the
 // two reports can never disagree about what a receipt is.
 
-const rows = await read('invoices',
+const rows = await read('invoices_v',
   'id, supplier_id, supplier_name, invoice_number, invoice_date, total_amount, ' +
   'email_subject, invoice_type, line_items, is_duplicate, has_error, ' +
   'drive_file_link, storage_url, message_link, created_at')
