@@ -59,10 +59,9 @@
 // carries full write authority — exactly what a read-only report must not hold. If
 // you find yourself reaching for one, the fix is a manager login, not more power.
 
-import { createClient } from '@supabase/supabase-js'
 import { fileURLToPath } from 'node:url'
+import { connect } from './lib/connect.mjs'
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
 const SELF = fileURLToPath(import.meta.url)
@@ -95,76 +94,22 @@ const args    = new Set(process.argv.slice(2))
 const asJson  = args.has('--json')
 const showAll = args.has('--all')
 
-// ── Environment ───────────────────────────────────────────────────────────────
-if (existsSync(resolve(ROOT, '.env'))) {
-  try { process.loadEnvFile(resolve(ROOT, '.env')) } catch { /* shell env only */ }
-}
-
-const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
-const key = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
-
-const die = msg => { console.error(`statement-drift-report: ${msg}`); process.exit(1) }
-
-if (!url) die('no project URL. Set SUPABASE_URL (or VITE_SUPABASE_URL). See .env.example.')
-if (!key) die('no anon key. Set VITE_SUPABASE_ANON_KEY (or SUPABASE_ANON_KEY). See .env.example.')
-
-/**
- * Is this a service-role / secret key? Two shapes are in circulation:
- *   · legacy — a JWT whose payload carries `"role": "service_role"`;
- *   · current — an opaque secret key prefixed `sb_secret_`.
- * Either one bypasses RLS and can write. This script needs neither, so holding one
- * is a mistake worth stopping for rather than a convenience worth allowing.
- */
-function isPrivilegedKey(k) {
-  if (/^sb_secret_/.test(k)) return true
-  const parts = k.split('.')
-  if (parts.length !== 3) return false
-  try {
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
-    return payload?.role === 'service_role' || payload?.role === 'supabase_admin'
-  } catch { return false }
-}
-
-if (isPrivilegedKey(key)) {
-  die(
-    'that is a SERVICE-ROLE key, and this report refuses to run with one.\n' +
-    '  A service-role key bypasses RLS and carries full write authority. This script\n' +
-    '  only ever SELECTs, and must not be able to do more than it needs.\n' +
-    '  Use VITE_SUPABASE_ANON_KEY, plus HADAS_REPORT_EMAIL / HADAS_REPORT_PASSWORD for a\n' +
-    '  manager login if RLS is enabled.',
-  )
-}
-if (process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.SUPABASE_SERVICE_ROLE_KEY === key) {
-  die('SUPABASE_SERVICE_ROLE_KEY was supplied as the client key. Read access is enough — use the anon key.')
-}
-
-const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
-
-// ── Optional manager sign-in (RLS: vendor_statements + payments are manager-only) ──
-const email    = process.env.HADAS_REPORT_EMAIL || ''
-const password = process.env.HADAS_REPORT_PASSWORD || ''
-if (email && password) {
-  const { error } = await supabase.auth.signInWithPassword({ email, password })
-  if (error) die(`sign-in failed for ${email}: ${error.message}`)
-}
+// Credentials, project-match verification and sign-in: lib/connect.mjs, shared
+// with the other reports so the resolution order cannot drift between them.
+const { read: readTable, projectRef, signedIn, email, die } = await connect(ROOT, 'statement-drift-report')
 
 // ── Read ──────────────────────────────────────────────────────────────────────
-const read = async (table, columns, apply = q => q) => {
-  const { data, error } = await apply(supabase.from(table).select(columns))
-  if (error) die(`read of ${table} failed: ${error.message}`)
-  return data ?? []
-}
-
-const statements = await read(
+// Filtering happens in code rather than in the query: the shared reader takes a
+// table and a column list and nothing else, which keeps every report's access
+// pattern identical and auditable.
+const statements = (await readTable(
   'vendor_statements',
   'id, supplier_id, month, our_balance, vendor_balance, diff, status',
-  q => q.eq('status', 'matched'),
-)
+)).filter(s => s.status === 'matched')
 
 if (statements.length === 0) {
   // Silence here is ambiguous, and reporting "all clear" would be a lie if RLS
   // simply returned nothing. Say which it is.
-  const signedIn = Boolean(email && password)
   console.log('No statements in `matched` status were returned.')
   if (!signedIn) {
     console.log(
@@ -180,18 +125,15 @@ if (statements.length === 0) {
 
 const supplierIds = [...new Set(statements.map(s => s.supplier_id).filter(Boolean))]
 
-const suppliers = await read(
-  'suppliers', 'id, name, opening_balance, payment_arrangement',
-  q => q.in('id', supplierIds),
-)
-const invRows = await read(
+const supplierIdSet = new Set(supplierIds)
+const suppliers = (await readTable('suppliers', 'id, name, opening_balance, payment_arrangement'))
+  .filter(r => supplierIdSet.has(r.id))
+const invRows = (await readTable(
   'invoices', 'id, supplier_id, total_amount, invoice_date, invoice_number, is_duplicate, has_error',
-  q => q.in('supplier_id', supplierIds),
-)
-const payRows = await read(
+)).filter(r => supplierIdSet.has(r.supplier_id))
+const payRows = (await readTable(
   'payments', 'id, supplier_id, amount, payment_date, payment_type, status',
-  q => q.in('supplier_id', supplierIds),
-)
+)).filter(r => supplierIdSet.has(r.supplier_id))
 
 // ── The mapping, field for field, as the frontend hooks do it ──
 // Byte-identical to `computeStatementLedger` in invoices-ingest and hadas-api.

@@ -46,12 +46,11 @@
 // failure that would make this whole report worse than useless — the repo's `.env`
 // points at TEST, so the default is exactly the wrong project for this job.
 
-import { createClient } from '@supabase/supabase-js'
-import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { receiptMatches } from './lib/receiptRule.mjs'
+import { connect } from './lib/connect.mjs'
 
 const SELF = fileURLToPath(import.meta.url)
 const ROOT = resolve(dirname(SELF), '..')
@@ -79,13 +78,7 @@ const asJson = args.has('--json')
 const full = args.has('--full')
 const fixture = argv.includes('--fixture') ? argv[argv.indexOf('--fixture') + 1] : null
 
-if (existsSync(resolve(ROOT, '.env'))) {
-  try { process.loadEnvFile(resolve(ROOT, '.env')) } catch { /* shell env only */ }
-}
-
-const die = msg => { console.error(`data-health: ${msg}`); process.exit(1) }
-
-let invoices, suppliers, payments, statements, alerts, projectRef, email = '', password = ''
+let invoices, suppliers, payments, statements, alerts, projectRef, signedIn = false, email = ''
 
 if (fixture) {
   const { readFileSync } = await import('node:fs')
@@ -94,60 +87,19 @@ if (fixture) {
   statements = f.vendor_statements ?? []
   projectRef = `FIXTURE ${fixture}`
 } else {
-
-const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
-const key = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
-if (!url) die('no project URL. Set SUPABASE_URL (or VITE_SUPABASE_URL).')
-if (!key) die('no anon key. Set VITE_SUPABASE_ANON_KEY (or SUPABASE_ANON_KEY).')
-
-function isPrivilegedKey(k) {
-  if (/^sb_secret_/.test(k)) return true
-  const parts = k.split('.')
-  if (parts.length !== 3) return false
-  try {
-    const p = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
-    return p?.role === 'service_role' || p?.role === 'supabase_admin'
-  } catch { return false }
-}
-if (isPrivilegedKey(key)) {
-  die('that is a SERVICE-ROLE key. This report only SELECTs and must not be able to write.\n' +
-      '  Use the anon key plus HADAS_REPORT_EMAIL / HADAS_REPORT_PASSWORD.')
-}
-
-projectRef = (url.match(/https:\/\/([a-z0-9]+)\.supabase\.co/) || [])[1] || url
-const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
-
-email = process.env.HADAS_REPORT_EMAIL || ''
-password = process.env.HADAS_REPORT_PASSWORD || ''
-if (email && password) {
-  const { error } = await supabase.auth.signInWithPassword({ email, password })
-  if (error) die(`sign-in failed for ${email}: ${error.message}`)
-}
-
-const read = async (table, columns) => {
-  const { data, error } = await supabase.from(table).select(columns)
-  if (error) {
-    const denied = /permission denied|row-level security|RLS/i.test(error.message)
-    die(`read of ${table} failed: ${error.message}` +
-        (denied && !(email && password)
-          ? '\n  This is RLS. Set HADAS_REPORT_EMAIL / HADAS_REPORT_PASSWORD to a MANAGER login.'
-          : ''))
-  }
-  return data ?? []
-}
-
-;[invoices, suppliers, payments, statements, alerts] = await Promise.all([
-  read('invoices', 'id, supplier_id, supplier_name, invoice_number, invoice_date, total_amount, ' +
-                   'amount_before_vat, vat_amount, email_subject, invoice_type, line_items, ' +
-                   'is_duplicate, has_error, created_at'),
-  read('suppliers', 'id, name, hp, alt_names, email, opening_balance, payment_arrangement'),
-  read('payments', 'id, supplier_id, amount, payment_date, payment_type, status'),
-  // Only what the report actually uses — asking for a column it does not need
-  // would make the whole run fail on a project where that column is missing.
-  read('vendor_statements', 'id, supplier_id, month, our_balance, vendor_balance, diff, status'),
-  read('alerts', 'id, type, status, created_at'),
-])
-
+  const conn = await connect(ROOT, 'data-health')
+  ;({ projectRef, signedIn, email } = conn)
+  ;[invoices, suppliers, payments, statements, alerts] = await Promise.all([
+    conn.read('invoices', 'id, supplier_id, supplier_name, invoice_number, invoice_date, total_amount, ' +
+                          'amount_before_vat, vat_amount, email_subject, invoice_type, line_items, ' +
+                          'is_duplicate, has_error, created_at'),
+    conn.read('suppliers', 'id, name, hp, alt_names, email, opening_balance, payment_arrangement'),
+    conn.read('payments', 'id, supplier_id, amount, payment_date, payment_type, status'),
+    // Only what the report actually uses — asking for a column it does not need
+    // would make the whole run fail on a project where that column is missing.
+    conn.read('vendor_statements', 'id, supplier_id, month, our_balance, vendor_balance, diff, status'),
+    conn.read('alerts', 'id, type, status, created_at'),
+  ])
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -285,7 +237,7 @@ say('  │  דוח בריאות נתונים — קריאה בלבד. שום ד�
 say('  ╰──────────────────────────────────────────────────────────────────────────╯')
 say('')
 say(`  פרויקט: ${projectRef}`)
-say(`  התחברות: ${email ? `${email} (מנהלת)` : 'אנונימית — ייתכן ש-RLS מסתיר שורות'}`)
+say(`  התחברות: ${signedIn ? `${email} (מנהלת)` : 'אנונימית — ייתכן ש-RLS מסתיר שורות'}`)
 say(`  נסרקו: ${invoices.length} חשבוניות · ${suppliers.length} ספקים · ${payments.length} תשלומים · ${statements.length} כרטסות`)
 say('')
 say('  ⚠️  ודאי שהפרויקט למעלה הוא הפרודקשן. קובץ ה-.env בריפו מצביע על TEST.')
