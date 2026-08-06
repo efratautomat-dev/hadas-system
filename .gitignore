@@ -35,3 +35,6 @@ dist-ssr
 
 # Supabase CLI local state (link ref, pooler host, versions — env-specific, never commit)
 supabase/.temp/
+
+# Claude Code work log (local, per-machine)
+.claude/work-log.md

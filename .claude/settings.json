@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "TaskCreated": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ read -r l; printf '%s  ▶ התחלה  %s\\n' \"$(date '+%Y-%m-%d %H:%M')\" \"$(printf '%s' \"$l\" | jq -r '.task.subject // .subject // .task_id // \"—\"')\" >> .claude/work-log.md; } 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ read -r l; printf '%s  ✔ סיום    %s\\n' \"$(date '+%Y-%m-%d %H:%M')\" \"$(printf '%s' \"$l\" | jq -r '.task.subject // .subject // .task_id // \"—\"')\" >> .claude/work-log.md; } 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '\\n─── סשן חדש · %s ───\\n' \"$(date '+%Y-%m-%d %H:%M')\" >> .claude/work-log.md 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
