@@ -183,4 +183,51 @@ than over-stating it.
   does a waiting invoice export?
 - Backfill: what happens to everything already in the ledger at switch-on.
 
+### NARROWER VARIANT the owner raised 2026-08-09 — an AMOUNT THRESHOLD
+
+Same feature, much smaller blast radius: **only invoices above ~₪20,000 wait.**
+Everything below keeps entering automatically, exactly as today.
+
+**Shape as described:**
+- Invoice arrives over the threshold → does NOT enter automatically.
+- An alert is raised carrying **all the extracted details** and asking: approve?
+- **Approve** → the invoice enters the ledger normally.
+- **Reject** → the document is removed from the system *and from Drive*.
+
+**Why this variant is the stronger starting point:** it sidesteps the open question
+above. If every invoice waits, the balance stops reflecting what is owed, and the
+doc already notes that under-stating debt is harder to notice than over-stating it.
+With a threshold, only large invoices wait — the distortion is bounded, countable,
+and each waiting item is big enough to be obvious. It is also shippable without
+first solving goods-matching, which the full version depends on.
+
+**⚠️ Open, and NOT yet decided — what "reject" does.**
+As described, reject DELETES the document from the system and from Drive. That
+runs against the principle the rest of the system is built on — "shown but not
+counted": duplicates, errored rows and flagged invoices all stay visible and
+filed, and merely stop moving the balance.
+
+The concrete risk: an invoice that arrived is a business fact. The supplier sent
+it whether or not it was approved. Deleting the Drive copy destroys the evidence
+of what was sent, and a rejection made in error — or a supplier who later insists
+they billed — has nothing to appeal to.
+
+*Alternative that looks identical to the user:* reject marks the row `נדחתה`,
+excludes it from every balance, hides it from the normal screens, and **moves the
+file to a "נדחו" folder in Drive** instead of deleting it. Indistinguishable day
+to day; the difference only shows up on the day it is needed.
+
+**Owner to decide:** full delete, or move-and-mark.
+
+**Also to decide for this variant:**
+- The exact threshold, and whether it is configurable in Settings rather than a
+  constant in code.
+- Which amount it tests — the total, or the pre-VAT figure. (A ₪20K net invoice is
+  ₪23.6K gross; the two cross the line at different points.)
+- Whether a waiting invoice counts toward the supplier balance meanwhile
+  (see the two-figure `מאושר` / `כולל ממתינות` resolution above).
+- What happens if the extractor could not read an amount at all — a null total
+  must not silently bypass the gate.
+- Whether an approved-then-regretted invoice can be un-approved.
+
 **Owner: to be specified together before any implementation.**
