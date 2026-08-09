@@ -201,23 +201,27 @@ With a threshold, only large invoices wait — the distortion is bounded, counta
 and each waiting item is big enough to be obvious. It is also shippable without
 first solving goods-matching, which the full version depends on.
 
-**⚠️ Open, and NOT yet decided — what "reject" does.**
-As described, reject DELETES the document from the system and from Drive. That
-runs against the principle the rest of the system is built on — "shown but not
-counted": duplicates, errored rows and flagged invoices all stay visible and
-filed, and merely stop moving the balance.
+**DECIDED 2026-08-09 — reject DELETES, behind a second confirmation.**
+The concern was raised that deleting the Drive copy destroys the evidence of what
+the supplier sent, against the "shown but not counted" principle the rest of the
+system follows. The owner's answer, and it is a good one: **these invoices are
+usually mistakes** — that is the whole reason for the gate — and nothing is
+deleted by the system on its own. Every deletion passes through a human decision
+on an alert that shows the full extracted detail.
 
-The concrete risk: an invoice that arrived is a business fact. The supplier sent
-it whether or not it was approved. Deleting the Drive copy destroys the evidence
-of what was sent, and a rejection made in error — or a supplier who later insists
-they billed — has nothing to appeal to.
+So: **reject → delete from the system and from Drive**, gated by a second
+"are you sure?" confirmation before it happens. Two deliberate human actions, on
+a document a human has just read in full.
 
-*Alternative that looks identical to the user:* reject marks the row `נדחתה`,
-excludes it from every balance, hides it from the normal screens, and **moves the
-file to a "נדחו" folder in Drive** instead of deleting it. Indistinguishable day
-to day; the difference only shows up on the day it is needed.
+**DECIDED — an unreadable amount needs no special handling.**
+`invoice_low_confidence` already covers it: ingest fires that alert whenever the
+extractor is unsure, emails the manager, and files the invoice as `נדרש בירור`
+(`invoices-ingest/index.ts:1516-1528`). An invoice whose total could not be read
+therefore reaches a human through that queue rather than this one. Verified in
+code, not assumed.
 
-**Owner to decide:** full delete, or move-and-mark.
+**DECIDED — this ships independently.** No dependency on the goods→payment
+pipeline or on the status re-spec. It can be built whenever the owner wants it.
 
 **Also to decide for this variant:**
 - The exact threshold, and whether it is configurable in Settings rather than a
@@ -226,8 +230,6 @@ to day; the difference only shows up on the day it is needed.
   ₪23.6K gross; the two cross the line at different points.)
 - Whether a waiting invoice counts toward the supplier balance meanwhile
   (see the two-figure `מאושר` / `כולל ממתינות` resolution above).
-- What happens if the extractor could not read an amount at all — a null total
-  must not silently bypass the gate.
 - Whether an approved-then-regretted invoice can be un-approved.
 
 **Owner: to be specified together before any implementation.**
