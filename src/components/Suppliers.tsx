@@ -120,6 +120,10 @@ type EditFormState = {
   openingBalanceDate: string
   paymentArrangement: boolean
   notes: string
+  /** Extra spellings this supplier is known by, one per line. Fed to the same
+   *  0.85 fuzzy matcher as `name`, so an unrecognised heading on a statement or
+   *  invoice matches the existing card instead of falling through to orphan. */
+  altNames: string
 }
 
 const emptyForm: EditFormState = {
@@ -128,6 +132,7 @@ const emptyForm: EditFormState = {
   openingBalance: '', openingBalanceDate: '',
   paymentArrangement: false,
   notes: '',
+  altNames: '',
 }
 
 // The supplier form — a CENTERED COLUMN, built from the same SectionCard /
@@ -170,6 +175,18 @@ function SupplierFormCard({
         <div className="space-y-4">
           <Field label="שם ספק" required>
             <TextInput value={form.name} onChange={upd('name')} placeholder="שם הספק" />
+          </Field>
+          <Field label="שמות נוספים">
+            <Textarea
+              value={form.altNames}
+              onChange={upd('altNames')}
+              placeholder={'שם אחד בכל שורה\nלמשל: איך שהספק כותב את עצמו על הכרטסת'}
+              rows={3}
+            />
+            <p className="text-gray-400 mt-1" style={{ fontSize: '11.5px' }}>
+              איות נוסף שהספק מופיע בו על מסמכים. המערכת משתמשת בזה כדי לזהות
+              חשבוניות וכרטסות שהשם עליהן שונה מהשם כאן.
+            </p>
           </Field>
           <FieldRow>
             <Field label="ח.פ / ע.מ">
@@ -284,6 +301,11 @@ function SupplierFormPage({ children, onCancel }: { children: React.ReactNode; o
 
 type StatusFilter = 'all' | 'פעיל' | 'לא פעיל'
 
+/** Textarea (one name per line) → the `text[]` column. Blank lines dropped. */
+function splitAltNames(v: string): string[] {
+  return v.split('\n').map(x => x.trim()).filter(Boolean)
+}
+
 function supplierToForm(sup: Supplier): EditFormState {
   return {
     name: sup.name,
@@ -296,6 +318,9 @@ function supplierToForm(sup: Supplier): EditFormState {
     openingBalanceDate: sup.openingBalanceDate ?? '',
     paymentArrangement: sup.paymentArrangement ?? false,
     notes: sup.notes ?? '',
+    altNames: (Array.isArray((sup as { alt_names?: string[] }).alt_names)
+      ? (sup as { alt_names?: string[] }).alt_names!
+      : []).join('\n'),
   }
 }
 
@@ -446,6 +471,7 @@ export default function Suppliers({
       openingBalance: balance, openingBalanceDate: editForm.openingBalanceDate,
       paymentArrangement: editForm.paymentArrangement,
       notes: editForm.notes,
+      alt_names: splitAltNames(editForm.altNames),
     }
     const savedId = editingId
     setEditingId(null)
@@ -467,6 +493,7 @@ export default function Suppliers({
       openingBalance: balance, openingBalanceDate: form.openingBalanceDate,
       paymentArrangement: form.paymentArrangement,
       notes: form.notes,
+      alt_names: splitAltNames(form.altNames),
     }
     const pendingAlert = prefillForAlert   // capture before UI resets
     try {

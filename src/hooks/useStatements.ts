@@ -139,5 +139,18 @@ export function useStatements() {
     }
   }
 
-  return { data, loading, error, create, resolve }
+  /**
+   * Delete a statement and the stored copy of its document.
+   *
+   * Safe as a HARD delete, unlike a supplier: a statement is a report that
+   * nothing references, and the balance it is compared against is computed from
+   * invoices and payments — removing one moves no money. The row is removed from
+   * local state immediately so the list does not show a ghost until the next load.
+   */
+  const remove = async (id: string) => {
+    await api.delete(`/statements/${id}`)
+    setData(prev => prev.filter(s => s.id !== id))
+  }
+
+  return { data, loading, error, create, resolve, remove }
 }

@@ -1316,6 +1316,34 @@ async function createAlert(req: Request, supabase: SupabaseClient): Promise<Resp
   return json({ id: data.id }, 201);
 }
 
+// Delete a statement, and the stored copy of the document with it.
+//
+// A statement is a REPORT, not a financial record: nothing references it, and the
+// ledger it is compared against is computed from invoices and payments, so
+// removing one moves no balance. That is what makes a hard delete safe here where
+// suppliers get deactivation instead.
+//
+// The Storage object goes too. Leaving it behind would accumulate files no screen
+// can reach and no one can account for — the row is the only handle on them.
+// A Storage failure is logged and does NOT block the row delete: an orphaned file
+// is a smaller problem than a row the owner cannot get rid of.
+async function deleteStatement(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { data: stmt } = await supabase
+    .from("vendor_statements").select("id, storage_url").eq("id", id).maybeSingle();
+  if (!stmt) return json({ error: "statement not found" }, 404);
+
+  let storage = "skipped";
+  const path = (stmt.storage_url ?? "").trim();
+  if (path && !/^https?:\/\//i.test(path)) {
+    const { error: rmErr } = await supabase.storage.from("documents").remove([path]);
+    storage = rmErr ? `failed: ${rmErr.message}` : "deleted";
+  }
+
+  const { error } = await supabase.from("vendor_statements").delete().eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, storage });
+}
+
 // ─── Employees ────────────────────────────────────────────────────────────────
 
 async function listEmployees(supabase: SupabaseClient): Promise<Response> {
@@ -1624,6 +1652,9 @@ Deno.serve(async (req: Request) => {
     const stmtReconcileMatch = path.match(/^\/statements\/([^/]+)\/reconcile$/);
     if (stmtReconcileMatch && req.method === "POST")
       return await reconcileStatement(supabase, stmtReconcileMatch[1]);
+    const stmtIdMatch = path.match(/^\/statements\/([^/]+)$/);
+    if (stmtIdMatch && req.method === "DELETE")
+      return await deleteStatement(supabase, stmtIdMatch[1]);
 
     // ── Employees ─────────────────────────────────────────────────────────────
     if (path === "/employees") {
