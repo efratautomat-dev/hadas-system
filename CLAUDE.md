@@ -41,8 +41,8 @@ node scripts/statement-drift-report.mjs          # READ-ONLY: which `תואם` s
 There is **no unit-test runner**. The only tests are Playwright E2E under `e2e/`
 (a marketing walkthrough in demo mode) and a template test in `tests/`.
 
-⚠️ **`npm run lint` does not exit 0** — there is a pre-existing baseline of **31 eslint
-errors** in `src/`, unrelated to any recent work. Check that your change adds none rather
+⚠️ **`npm run lint` does not exit 0** — there is a pre-existing baseline of **32 eslint
+errors** (measured 19.08.2026) in `src/`, unrelated to any recent work. Check that your change adds none rather
 than expecting green. The `check-twins` half *does* pass and must stay passing.
 
 ### Backend (Supabase, deployed via CLI — not part of `npm`)
@@ -137,6 +137,20 @@ raising `statement_mismatch` on a gap. A statement never creates a supplier card
   the UI.
 - **Credit notes are negative invoices** — amounts forced negative in ingest, never trusting the
   extractor's sign.
+- **A new place to write notes must be REGISTERED, not just built.** The supplier
+  notes panel is a cross-section: every note the system holds about a supplier
+  appears in one column, whichever screen it was written on, each one carrying a
+  link back to the exact record it came from. `src/lib/noteSources.ts` is the
+  single list that makes that true — table, supplier column, how to read the text
+  and a date out of a row, and the navigation intent that reopens it. **Adding a
+  screen or column that stores free text about a supplier means adding one entry
+  there**, and the panel picks up its filter chip, tag, counts and back-link with
+  no further change. Two rules the entries must keep: a collected note is
+  READ-ONLY in the panel (it is edited where it was written — two editable copies
+  of one string is two sources of truth), and `open()` must land on the record
+  itself, never on its list. A note taken out of its context is half the
+  information. If a new source can't express itself in that shape, widen the
+  shape — do not special-case it inside the panel or the hook.
 - **Return vocabulary mismatch:** UI uses `אושר`/`בטיפול`/`נדחה`; ingest closes returns with
   `הסתיים`. Both are live — don't unify them without checking `docs/07-OPEN-ISSUES.md`.
 

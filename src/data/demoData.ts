@@ -30,6 +30,24 @@ const DOC_URL = demoDoc('sample-invoice.html')
 const nameToId: Record<string, string> = {}
 for (const s of seed.suppliers) nameToId[s.name] = s.id
 
+// ── free-text notes scattered across the demo dataset ────────────────────────
+// The supplier notes panel collects every note the system already holds about a
+// supplier — from the supplier card, a payment, a return, a statement — and
+// shows them in one column (see src/lib/noteSources.ts). The seed carries a
+// statement note but nothing on the other three, so the demo showed an empty
+// feature. These fill that in on ONE supplier (sup_01), which already has a
+// payment, a return and a resolved statement, so the walkthrough can show all
+// four sources side by side. Fictitious, like the rest of the seed.
+const DEMO_SUPPLIER_NOTES: Record<string, string> = {
+  sup_01: 'משלוחים ימי ב׳ ו‑ה׳ בבוקר בלבד. איש קשר: יעל, שלוחה 3. חשבוניות נשלחות מכתובת ההנהלה ולא מהמחסן.',
+}
+const DEMO_PAYMENT_NOTES: Record<string, string> = {
+  pay_01: 'שולם בהעברה אחרי שהצ׳ק הראשון בוטל בטעות. אסמכתא חדשה נשלחה ליעל באותו יום.',
+}
+const DEMO_RETURN_DETAILS: Record<string, string> = {
+  ret_01: 'שני גלילים עם פגם ארוג לרוחב כל היריעה. הנהג לקח בחזרה, זיכוי הובטח לחודש הבא.',
+}
+
 // ── suppliers ────────────────────────────────────────────────────────────────
 // useSuppliers reads: id, name, hp, contact, opening_balance, email, phone, category
 const suppliers: Row[] = seed.suppliers.map((s) => ({
@@ -41,6 +59,7 @@ const suppliers: Row[] = seed.suppliers.map((s) => ({
   phone: s.phone,
   category: s.category,
   opening_balance: 0,
+  notes: DEMO_SUPPLIER_NOTES[s.id] ?? '',
 }))
 
 // ── invoices ─────────────────────────────────────────────────────────────────
@@ -91,7 +110,7 @@ const payments: Row[] = seed.payments.map((p) => ({
   payment_date: p.date,
   value_date: p.date,
   reference: p.invoice_id,
-  notes: '',
+  notes: DEMO_PAYMENT_NOTES[p.id] ?? '',
   status: 'paid',
   bizbox_exported_at: null,
   created_at: `${p.date}T08:00:00`,
@@ -110,7 +129,7 @@ const returns: Row[] = seed.returns.map((r) => ({
   date: r.date,
   amount: r.amount,
   reason: r.reason,
-  detail: '',
+  detail: DEMO_RETURN_DETAILS[r.id] ?? '',
   invoice_id: null,
   status: RETURN_STATUS[r.status] ?? 'בטיפול',
   employee_id: null,

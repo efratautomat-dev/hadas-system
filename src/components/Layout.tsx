@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { NotesTargetProvider } from '../lib/notesTarget'
 import { useNotesTargetValue } from '../lib/notesTargetContext'
-import { SupplierNotesPanel } from './SupplierNotesPanel'
+import { SupplierNotesPanel, NOTES_PANEL_WIDTH } from './SupplierNotesPanel'
 import type { NoteTag } from '../hooks/useSupplierNotes'
+import type { NoteOpenIntent } from '../lib/noteSources'
 import { Bell, Search, Menu, ArrowRight } from 'lucide-react'
 import Sidebar from './Sidebar'
 import Dashboard from './Dashboard'
@@ -97,6 +97,9 @@ interface NavEntry {
   paymentsSupplierFilter?: string
   returnsEditId?: string
   statementViewId?: string
+  /** Open this exact payment's row on arrival. Set when a collected note in the
+   *  notes panel links back to the payment it was written on. */
+  paymentOpenId?: string
 }
 
 interface AlertPrefillState {
@@ -114,18 +117,6 @@ const PAGE_NOTE_TAG: Record<string, NoteTag> = {
   reconciliation: 'statements',
 }
 
-/** Mounted once, inside the provider, so it can read what the screen declared. */
-function NotesPanelSlot({ activePage }: { activePage: string }) {
-  const { supplierId, supplierName } = useNotesTargetValue()
-  return (
-    <SupplierNotesPanel
-      supplierId={supplierId}
-      supplierName={supplierName}
-      tag={PAGE_NOTE_TAG[activePage] ?? 'suppliers'}
-    />
-  )
-}
-
 export default function Layout({ userEmail, onLogout }: LayoutProps) {
   // The rail state is REMEMBERED. Collapsing already worked (256px → 72px) but
   // reset on every reload, so the 184px it frees was never actually kept.
@@ -136,6 +127,17 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     try { localStorage.setItem('hadas.sidebarCollapsed', isCollapsed ? '1' : '0') } catch { /* private mode */ }
   }, [isCollapsed])
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  // ── Notes panel ───────────────────────────────────────────────────────────
+  // Which supplier the open screen is about, declared by that screen. Read HERE
+  // and not only inside the panel, because it decides whether the page content
+  // is shifted over to make room.
+  const notesTarget = useNotesTargetValue()
+  const [notesOpen, setNotesOpen] = useState(() => {
+    try { return localStorage.getItem('hadas.notesOpen') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('hadas.notesOpen', notesOpen ? '1' : '0') } catch { /* private mode */ }
+  }, [notesOpen])
   const { data: alerts, markRead, markResolved, remove: removeAlert } = useAlerts()
   const [alertForSupplier, setAlertForSupplier] = useState<AlertPrefillState | null>(null)
   // Single source of truth for navigation — index 0 is always the origin (dashboard)
@@ -234,6 +236,20 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     } else {
       handlePageChange('invoices')
     }
+  }
+
+  // The notes panel SQUEEZES the page instead of covering it: the content column
+  // gives up exactly the panel's width and reflows inside what is left, so the
+  // row you were reading is never hidden behind the thing you just opened.
+  // On mobile there is no width to give up, so there it stays an overlay.
+  const notesPush = !isMobile && notesTarget.supplierId && notesOpen ? NOTES_PANEL_WIDTH : 0
+
+  // A collected note names the record it came from; this is how it gets there.
+  // The intent is already NavEntry-shaped, so a NEW note source needs no change
+  // here — only its own entry in lib/noteSources.ts.
+  const handleOpenNoteRecord = (intent: NoteOpenIntent) => {
+    const { page, ...fields } = intent
+    pushNav({ page, ...fields } as NavEntry)
   }
 
   const sidebarWidth = isMobile ? 0 : isCollapsed ? 72 : isTablet ? 200 : 256
@@ -336,7 +352,12 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onDuplicateDismissed={goBack}
       />
     )
-    if (activePage === 'payments')       return <Payments initialSupplier={currentNav.paymentsSupplierFilter} />
+    if (activePage === 'payments')       return (
+      <Payments
+        initialSupplier={currentNav.paymentsSupplierFilter}
+        initialPaymentId={currentNav.paymentOpenId}
+      />
+    )
     if (activePage === 'deliveries')     return <DeliveryNotes />
     if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
@@ -348,7 +369,6 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
 
   return (
     <AppLogoProvider>
-    <NotesTargetProvider>
     <div className="min-h-screen" style={{ backgroundColor: '#F8F8FA', direction: 'rtl' }}>
 
       {/* The supplier notes panel — ONE instance for the whole app. Mounted here
@@ -356,7 +376,14 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
           the tag comes straight from the active page. It floats over the content
           on the LEFT (the nav sidebar owns the right edge under RTL), so no
           screen has to reserve room for it. */}
-      <NotesPanelSlot activePage={activePage} />
+      <SupplierNotesPanel
+        supplierId={notesTarget.supplierId}
+        supplierName={notesTarget.supplierName}
+        tag={PAGE_NOTE_TAG[activePage] ?? 'suppliers'}
+        open={notesOpen}
+        onToggle={() => setNotesOpen(o => !o)}
+        onOpenRecord={handleOpenNoteRecord}
+      />
 
       {/* Mobile overlay */}
       {isMobile && mobileMenuOpen && (
@@ -385,7 +412,8 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         className="flex flex-col min-h-screen"
         style={{
           marginRight: `${sidebarWidth}px`,
-          transition: isMobile ? 'none' : 'margin-right 0.3s',
+          marginLeft:  `${notesPush}px`,
+          transition: isMobile ? 'none' : 'margin-right 0.3s, margin-left 0.25s ease',
         }}
       >
         {/* Top bar */}
@@ -502,7 +530,6 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         </main>
       </div>
     </div>
-    </NotesTargetProvider>
     </AppLogoProvider>
   )
 }

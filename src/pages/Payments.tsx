@@ -254,9 +254,12 @@ function SupplierSelect({
 
 interface PaymentsProps {
   initialSupplier?: string
+  /** Open this payment's row on arrival — how a collected note in the supplier
+   *  notes panel gets back to the payment it was written on. */
+  initialPaymentId?: string
 }
 
-export default function Payments({ initialSupplier }: PaymentsProps = {}) {
+export default function Payments({ initialSupplier, initialPaymentId }: PaymentsProps = {}) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const { data: serverSuppliers, loading: suppliersLoading } = useSuppliers()
@@ -538,6 +541,24 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
     setEditId(null)
     setEditForm(null)
   }
+
+  // Arriving with a payment to open. The rows load asynchronously, so this waits
+  // for the one asked for and opens it once: without the ref, closing the row
+  // while still on this screen would immediately reopen it.
+  const autoOpenedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!initialPaymentId || autoOpenedRef.current === initialPaymentId) return
+    if (!payments.some((p) => p.id === initialPaymentId)) return
+    autoOpenedRef.current = initialPaymentId
+    // Opening a row IS setting state, and it has to happen once the rows land —
+    // there is no render-time value to derive it from. Guarded by the ref above,
+    // so it runs exactly once and cannot cascade.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    openEdit(initialPaymentId)
+    // openEdit is a stable function declaration in this component; listing it
+    // would re-run the effect on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPaymentId, payments])
 
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault()
