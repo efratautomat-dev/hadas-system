@@ -113,6 +113,9 @@ create table if not exists public.invoices (
   gmail_label_source  text,                          -- 'צילום ידני' for camera capture
   month_folder_link   text,
   storage_url         text,                          -- in-bucket path, not a URL
+  -- Pre-VAT amount passed the approval threshold at ingest and the owner has not
+  -- decided yet. The row still COUNTS in the balance; the ledger flags it.
+  awaiting_approval   boolean     not null default false,
   constraint invoices_pkey primary key (id)
 );
 

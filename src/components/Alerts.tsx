@@ -2,7 +2,7 @@ import { useState, useLayoutEffect } from 'react'
 import {
   Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus,
   HelpCircle, FileX, Paperclip, Unlink, AlertTriangle, Clock,
-  FileWarning, Receipt, AlertCircle, Tag, Mail, X,
+  FileWarning, Receipt, AlertCircle, Tag, Mail, X, ShieldCheck, AlertOctagon,
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
@@ -72,6 +72,9 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   supplier_details_review:     b('ספק – לבדיקת פרטים',      UserPlus,      'action'),
   unmatched_credit_note:       b('זיכוי ללא חזרה',          Receipt,       'action'),
   statement_save_failed:       b('שמירת כרטסת נכשלה',       Scale,         'action'),
+  // The approval gate. ACTION, not urgent: nothing is broken and nothing was
+  // lost — the invoice is filed and counted. What is outstanding is a decision.
+  invoice_approval_required:   b('חשבונית גדולה — נדרש אישור', ShieldCheck, 'action'),
 
   // ── Check (yellow): worth a look / verify ──
   invoice_low_confidence:      b('וודאות נמוכה',            AlertTriangle, 'check'),
@@ -343,6 +346,14 @@ export function resolveAlertDestination(
     return
   }
 
+  // The approval gate is decided in a popup on the alerts screen — approving or
+  // rejecting needs the document and the figures side by side, and rejection
+  // DELETES the invoice, so it must not be one stray click away in a list.
+  if (t === 'invoice_approval_required') {
+    handlers.onPageChange?.('alerts')
+    return
+  }
+
   // Open the INVOICE detail so the owner can compare the source document against the
   // parsed data. Prefer a payload invoiceId, then resolve by gmail_message_id (the
   // invoice row can be written after the alert), else fall back to the invoices list.
@@ -437,6 +448,7 @@ export default function Alerts({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   // document_misclassified opens an in-page re-classify popup (not a page nav).
   const [reclassifyAlert, setReclassifyAlert] = useState<Alert | null>(null)
+  const [approvalAlert, setApprovalAlert]     = useState<Alert | null>(null)
 
   // Restore the remembered scroll position after the list has rendered. Using
   // useLayoutEffect (pre-paint) avoids a visible jump from 0 to the saved spot.
@@ -566,6 +578,9 @@ export default function Alerts({
                 // Misclassified documents open an in-page re-classify popup instead
                 // of navigating away (spec 07-ALERTS #8).
                 if ((alert.type as string) === 'document_misclassified') { setReclassifyAlert(alert); return }
+                // Same reasoning: the approval decision happens here, over the
+                // document, not after navigating away from it.
+                if ((alert.type as string) === 'invoice_approval_required') { setApprovalAlert(alert); return }
                 // Remember where we are so we can return here after the alert
                 // is handled (e.g. resolving a duplicate in the popup).
                 onScrollSave?.(window.scrollY)
@@ -583,6 +598,42 @@ export default function Alerts({
             />
           ))}
         </div>
+      )}
+
+      {approvalAlert && (
+        <ApprovalModal
+          alert={approvalAlert}
+          onClose={() => setApprovalAlert(null)}
+          onDecide={async (decision) => {
+            const a  = approvalAlert
+            const p  = (a.payload ?? {}) as Record<string, unknown>
+            const id = (p.invoiceId as string | undefined) ?? a.relatedId
+            setApprovalAlert(null)
+            if (!id) {
+              console.error('[approval] alert carries no invoiceId — resolving alert only')
+              onMarkResolved(a.id)
+              return
+            }
+            try {
+              if (decision === 'approve') {
+                await api.put(`/invoices/${id}/approve`, {})
+              } else {
+                // Rejection deletes the invoice AND its Drive copy, its Storage
+                // copy and its sibling alerts — hadas-api's deleteInvoice owns
+                // all of it. The Drive file goes to the TRASH, not to nothing,
+                // which is the only reason a mistake here is survivable.
+                await api.delete(`/invoices/${id}`)
+              }
+            } catch (e) {
+              // Do NOT resolve the alert on a failure: leaving it in the queue is
+              // how the owner finds out the decision did not take.
+              console.error('[approval] decision failed — alert left open:', e)
+              window.alert('הפעולה נכשלה. ההתראה נשארה פתוחה — אפשר לנסות שוב.')
+              return
+            }
+            onMarkResolved(a.id)
+          }}
+        />
       )}
 
       {reclassifyAlert && (
@@ -614,6 +665,193 @@ export default function Alerts({
           }}
         />
       )}
+    </div>
+  )
+}
+
+// ── Approval popup (invoice_approval_required) ──────────────────────────────
+// An invoice whose PRE-VAT amount passed the threshold in Settings. It is
+// already filed and already counted in the supplier's balance — what is missing
+// is the owner's decision.
+//
+// The document and the figures sit side by side because the decision needs both:
+// the amounts as extracted, and the page they were read off. Rejection is behind
+// a SECOND confirmation and is spelled out in full, because it deletes the
+// invoice, the Drive copy and the Storage copy — invoices this size are usually
+// mistakes, but "usually" is not a reason to make destruction one click.
+function ApprovalModal({
+  alert, onClose, onDecide,
+}: {
+  alert: Alert
+  onClose: () => void
+  onDecide: (decision: 'approve' | 'reject') => void
+}) {
+  const p = (alert.payload ?? {}) as Record<string, unknown>
+  const driveLink   = p.driveFileLink as string | undefined
+  const storagePath = p.storageUrl    as string | undefined
+  const mailLink    = p.messageLink   as string | undefined
+  const [docUrl, setDocUrl]       = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy]           = useState(false)
+
+  useLayoutEffect(() => {
+    if (!storagePath) return
+    let alive = true
+    supabase.storage.from('documents').createSignedUrl(storagePath, 120).then(({ data }) => {
+      if (alive && data?.signedUrl) setDocUrl(data.signedUrl)
+    })
+    return () => { alive = false }
+  // storagePath is stable for the lifetime of this modal
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const ils = (v: unknown): string => {
+    const n = Number(v ?? NaN)
+    if (!Number.isFinite(n)) return '—'
+    return '\u20AA' + Math.round(Math.abs(n)).toLocaleString('he-IL') + (n < 0 ? '-' : '')
+  }
+
+  const rows: [string, string][] = [
+    ['ספק',            String(p.supplierName ?? '') || '—'],
+    ['מספר חשבונית',   String(p.invoiceNumber ?? '') || '—'],
+    ['תאריך',          String(p.invoiceDate ?? '') || '—'],
+    ['סכום לפני מע״מ', ils(p.amountBeforeVat)],
+    ['מע״מ',           ils(p.vatAmount)],
+    ['סה״כ',           ils(p.totalAmount)],
+    ['קטגוריה',        String(p.category ?? '') || '—'],
+  ]
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        dir="rtl"
+        style={{ background: 'white', borderRadius: '20px', width: '100%', maxWidth: '720px', maxHeight: '92vh', overflowY: 'auto' }}
+      >
+        {/* Header */}
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid #EEEEF2', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: '4px' }}>
+            <X className="w-5 h-5" />
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h2 style={{ fontSize: '17px', fontWeight: 600, color: '#1F2937', margin: 0 }}>חשבונית גדולה — נדרש אישור</h2>
+            <ShieldCheck className="w-5 h-5" style={{ color: '#C2410C' }} />
+          </div>
+        </div>
+
+        <div style={{ padding: '16px 22px 0' }}>
+          <p style={{ fontSize: '13px', color: '#6B7280', margin: '0 0 12px', lineHeight: 1.6 }}>
+            הסכום לפני מע״מ עבר את סף האישור{p.threshold != null ? ` (${ils(p.threshold)})` : ''}.
+            החשבונית כבר נשמרה ונספרת ביתרת הספק — נותרה ההכרעה.
+          </p>
+        </div>
+
+        {/* Figures + document, side by side */}
+        <div style={{ padding: '0 22px', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px' }}>
+              <tbody>
+                {rows.map(([k, v]) => (
+                  <tr key={k}>
+                    <td style={{ padding: '7px 0', color: '#6B7280', whiteSpace: 'nowrap' }}>{k}</td>
+                    <td style={{ padding: '7px 0', fontWeight: 600, color: '#1F2125', textAlign: 'left', fontVariantNumeric: 'tabular-nums' }}>{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {(driveLink || mailLink) && (
+              <div style={{ display: 'flex', gap: '10px', marginTop: '8px', flexWrap: 'wrap' }}>
+                {driveLink && (
+                  <a href={driveLink} target="_blank" rel="noreferrer" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                    פתיחה ב-Drive ↗
+                  </a>
+                )}
+                {mailLink && (
+                  <a href={mailLink} target="_blank" rel="noreferrer" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                    פתיחת המייל ↗
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ flex: '1 1 280px', minWidth: 0 }}>
+            {docUrl ? (
+              <iframe
+                src={docUrl}
+                title="מסמך מקור"
+                style={{ width: '100%', height: '300px', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB' }}
+              />
+            ) : (
+              <div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB', color: '#9CA3AF', fontSize: '13px', textAlign: 'center', padding: '12px' }}>
+                {storagePath ? 'טוען את המסמך…' : 'אין תצוגת מסמך — אפשר לפתוח ב-Drive'}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Decision */}
+        <div style={{ padding: '18px 22px 22px' }}>
+          {!confirming ? (
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => { setBusy(true); onDecide('approve') }}
+                disabled={busy}
+                style={{
+                  flex: '1 1 200px', height: '46px', borderRadius: '12px', border: 'none', fontWeight: 700,
+                  fontSize: '15px', fontFamily: 'inherit', cursor: busy ? 'wait' : 'pointer',
+                  background: 'var(--brand-primary)', color: 'white', opacity: busy ? 0.6 : 1,
+                }}
+              >אישור החשבונית</button>
+              <button
+                onClick={() => setConfirming(true)}
+                disabled={busy}
+                style={{
+                  flex: '1 1 200px', height: '46px', borderRadius: '12px', fontWeight: 700,
+                  fontSize: '15px', fontFamily: 'inherit', cursor: 'pointer',
+                  background: 'white', color: '#B91C1C', border: '1.5px solid #FCA5A5',
+                }}
+              >דחייה ומחיקה</button>
+            </div>
+          ) : (
+            <div style={{ border: '1.5px solid #FCA5A5', background: '#FEF2F2', borderRadius: '14px', padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
+                <AlertOctagon className="w-5 h-5" style={{ color: '#B91C1C', flexShrink: 0, marginTop: '1px' }} />
+                <div>
+                  <p style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#B91C1C' }}>למחוק את החשבונית?</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#7F1D1D', lineHeight: 1.6 }}>
+                    השורה תימחק מהמערכת, היתרה של {String(p.supplierName ?? 'הספק')} תרד ב-{ils(p.totalAmount)},
+                    והקובץ יעבור ל<b>אשפת ה-Drive</b> (משם אפשר לשחזר). גם התראות אחרות מאותו מייל ייסגרו.
+                  </p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => { setBusy(true); onDecide('reject') }}
+                  disabled={busy}
+                  style={{
+                    flex: '1 1 180px', height: '44px', borderRadius: '12px', border: 'none', fontWeight: 700,
+                    fontSize: '14.5px', fontFamily: 'inherit', cursor: busy ? 'wait' : 'pointer',
+                    background: '#B91C1C', color: 'white', opacity: busy ? 0.6 : 1,
+                  }}
+                >כן, למחוק</button>
+                <button
+                  onClick={() => setConfirming(false)}
+                  disabled={busy}
+                  style={{
+                    flex: '1 1 120px', height: '44px', borderRadius: '12px', fontWeight: 700,
+                    fontSize: '14.5px', fontFamily: 'inherit', cursor: 'pointer',
+                    background: 'white', color: '#6B7280', border: '1.5px solid #E2E4E9',
+                  }}
+                >ביטול</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

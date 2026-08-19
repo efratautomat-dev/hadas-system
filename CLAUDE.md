@@ -137,6 +137,18 @@ raising `statement_mismatch` on a gap. A statement never creates a supplier card
   the UI.
 - **Credit notes are negative invoices** — amounts forced negative in ingest, never trusting the
   extractor's sign.
+- **The approval gate counts and marks; it never hides.** An invoice over
+  `app_settings.invoice_approval_threshold` (compared **pre-VAT**, via `Math.abs`
+  so a large credit note is caught too) is filed normally and **still moves the
+  supplier's balance** — it carries `invoices.awaiting_approval` and the ledger
+  flags the row via `pendingApproval`. That flag is modelled on `undated`, NOT on
+  `excluded`: `excluded` zeroes debit/credit, `undated` counts and surfaces. A
+  balance that quietly omits a real, filed invoice shows less than is owed, which
+  is the worse of the two errors — so the fix is always a louder mark, never a
+  smaller number. An empty threshold means the gate is OFF; never default it to a
+  figure nobody chose. Rejection reuses `deleteInvoice` and is destructive
+  (row + Drive→trash + Storage + sibling alerts), so it stays behind a second
+  confirmation.
 - **A new place to write notes must be REGISTERED, not just built.** The supplier
   notes panel is a cross-section: every note the system holds about a supplier
   appears in one column, whichever screen it was written on, each one carrying a

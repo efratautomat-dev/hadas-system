@@ -362,6 +362,28 @@ async function updateInvoice(req: Request, supabase: SupabaseClient, id: string)
   return json({ success: true, drive });
 }
 
+/**
+ * Clear the approval gate on one invoice.
+ *
+ * APPROVAL ONLY. Rejection is a DELETE — it removes the row, the Drive copy and
+ * the alerts — and that already exists as deleteInvoice below. There is
+ * deliberately no way to re-raise the flag from here: the gate is set by ingest
+ * from the threshold in force at the time, and letting the UI put an invoice
+ * back into "waiting" would invent a state nothing measured.
+ */
+async function approveInvoice(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { data, error } = await supabase
+    .from("invoices")
+    .update({ awaiting_approval: false })
+    .eq("id", id)
+    .select("id");
+  if (error) return json({ error: error.message }, 500);
+  // An id that matched nothing is a 404, not a success: the caller is about to
+  // mark an alert resolved on the strength of this answer.
+  if (!data || data.length === 0) return json({ error: "Invoice not found" }, 404);
+  return json({ success: true });
+}
+
 async function updateInvoiceStatus(req: Request, supabase: SupabaseClient, id: string): Promise<Response> {
   const { status } = await req.json();
   if (!status) return json({ error: "status is required" }, 400);
@@ -1654,6 +1676,10 @@ Deno.serve(async (req: Request) => {
     const invoiceStatusMatch = path.match(/^\/invoices\/([^/]+)\/status$/);
     if (invoiceStatusMatch && req.method === "PUT")
       return await updateInvoiceStatus(req, supabase, invoiceStatusMatch[1]);
+
+    const invoiceApproveMatch = path.match(/^\/invoices\/([^/]+)\/approve$/);
+    if (invoiceApproveMatch && req.method === "PUT")
+      return await approveInvoice(supabase, invoiceApproveMatch[1]);
 
     const invoiceMatch = path.match(/^\/invoices\/([^/]+)$/);
     if (invoiceMatch) {

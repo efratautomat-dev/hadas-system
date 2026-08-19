@@ -121,6 +121,7 @@ function comparableRow(stmt: { supplier_id: string; vendor_balance: number | nul
 const EMPTY_LEDGER: LedgerResult = {
   rows: [], periodOpening: 0, closingBalance: 0,
   undatedCount: 0, undatedTotal: 0, excludedCount: 0,
+  pendingApprovalCount: 0, pendingApprovalTotal: 0,
 }
 
 function StatusBadge({ status }: { status: VendorStatementStatus }) {

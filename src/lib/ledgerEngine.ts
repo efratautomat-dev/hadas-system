@@ -82,6 +82,17 @@ export interface LedgerRow {
    * agree with the rows under it. Callers must surface these, not hide them.
    */
   undated: boolean
+  /**
+   * An invoice over the approval threshold that the owner has not yet approved
+   * or rejected.
+   *
+   * Modelled on `undated`, NOT on `excluded`, and the difference is the whole
+   * decision: `excluded` zeroes debit/credit, `undated` COUNTS AND MARKS. The
+   * owner chose counting — a balance that quietly omits a real, filed invoice
+   * shows less than is owed, and that is the more dangerous of the two errors.
+   * The mark is what stops it from being invisible.
+   */
+  pendingApproval: boolean
 }
 
 interface InvoiceLike {
@@ -98,6 +109,8 @@ interface InvoiceLike {
   hasError?: boolean | null
   is_duplicate?: boolean | null
   has_error?: boolean | null
+  awaitingApproval?: boolean | null
+  awaiting_approval?: boolean | null
 }
 
 /**
@@ -116,6 +129,18 @@ export function isExcludedFromBalance(inv: {
   has_error?: boolean | null
 }): boolean {
   return !!(inv.isDuplicate ?? inv.is_duplicate) || !!(inv.hasError ?? inv.has_error)
+}
+
+/**
+ * Waiting on the owner's decision (see LedgerRow.pendingApproval). Accepts both
+ * spellings for the same reason isExcludedFromBalance does: the suppliers list
+ * reads the view directly, without going through useInvoices' camelCase mapping.
+ */
+export function isAwaitingApproval(inv: {
+  awaitingApproval?: boolean | null
+  awaiting_approval?: boolean | null
+}): boolean {
+  return !!(inv.awaitingApproval ?? inv.awaiting_approval)
 }
 
 interface PaymentLike {
@@ -170,6 +195,7 @@ export function buildLedgerEntries(
         excluded,
         movement: amount,
         undated: !iso,
+        pendingApproval: isAwaitingApproval(i),
       }
     })
 
@@ -187,6 +213,8 @@ export function buildLedgerEntries(
         excluded: false,
         movement: -num(p.amount),
         undated: !iso,
+        // Only invoices pass through the approval gate.
+        pendingApproval: false,
       }
     })
 
@@ -215,6 +243,13 @@ export interface LedgerResult {
   undatedTotal: number
   /** Rows excluded from the balance as duplicate/errored — surfaced, not hidden. */
   excludedCount: number
+  /**
+   * Invoices counted in the balance that the owner has not yet approved.
+   * `pendingApprovalTotal` is how much of `closingBalance` is still undecided —
+   * the figure the supplier screen puts above the ledger in words.
+   */
+  pendingApprovalCount: number
+  pendingApprovalTotal: number
 }
 
 /**
@@ -252,6 +287,11 @@ export function buildLedger(
 
   const undated = entries.filter(e => e.undated)
   const excluded = entries.filter(e => e.excluded)
+  // Counted from ALL entries, never from the windowed rows: how much of what is
+  // owed is still undecided does not change because the screen is showing one
+  // month. Excluded rows are left out — they contribute nothing to the balance,
+  // so nothing of theirs is pending.
+  const pending = entries.filter(e => e.pendingApproval && !e.excluded)
   return {
     rows,
     periodOpening,
@@ -260,5 +300,7 @@ export function buildLedger(
     undatedCount: undated.length,
     undatedTotal: undated.reduce((s, e) => s + e.debit - e.credit, 0),
     excludedCount: excluded.length,
+    pendingApprovalCount: pending.length,
+    pendingApprovalTotal: round2(pending.reduce((s, e) => s + e.debit - e.credit, 0)),
   }
 }

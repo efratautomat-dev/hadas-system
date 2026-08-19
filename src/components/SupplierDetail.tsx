@@ -258,7 +258,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
 
   const ledger = [
     ...(openingBalance !== 0
-      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false }]
+      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false }]
       : []),
     ...ledgerResult.rows.map(r => ({
       id: r.id,
@@ -268,6 +268,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
       credit: r.credit,
       balance: r.balance,
       undated: r.undated,
+      pendingApproval: r.pendingApproval,
     })),
   ]
   const txEntries = ledgerResult.rows
@@ -486,6 +487,16 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               ספק בהסדר תשלום — היתרה מסולקת (0) ומוחרגת ממעקב. התנועות מוצגות למידע בלבד; לא בוצע שינוי בנתונים.
             </div>
           )}
+          {/* Invoices over the approval threshold. They ARE in the balance above —
+              the owner chose counting-and-marking over a second "approved only"
+              figure. This line is the marking half: it says how much of the
+              balance is still undecided, so the number is never read as settled. */}
+          {ledgerResult.pendingApprovalCount > 0 && (
+            <div className="text-right" style={{ padding: '10px 20px', background: '#FFEDD5', color: '#9A3412', fontSize: '13px', fontWeight: 600 }}>
+              קיימות תנועות שממתינות לאישור — {ledgerResult.pendingApprovalCount} חשבוניות בסך {formatILS(ledgerResult.pendingApprovalTotal)}.
+              הן נספרות ביתרה למעלה. ההכרעה נמצאת במסך ההתראות.
+            </div>
+          )}
           {/* Table header */}
           <div style={{ overflowX: 'auto' }}>
           <div
@@ -509,6 +520,12 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               </span>
               <span className="text-gray-600 text-right" style={{ fontSize: fs('14px', '13px') }}>
                 {entry.description}
+                {entry.pendingApproval && (
+                  <span
+                    className="rounded-md font-bold"
+                    style={{ fontSize: '10.5px', padding: '2px 6px', background: '#FFEDD5', color: '#9A3412', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
+                  >ממתינה לאישור</span>
+                )}
               </span>
               <span className="text-center font-medium" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>
                 {entry.credit > 0 ? formatILS(entry.credit) : '—'}

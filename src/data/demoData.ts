@@ -70,6 +70,14 @@ const suppliers: Row[] = seed.suppliers.map((s) => ({
 // comparison modal is demonstrable. No invoices are added or removed.
 const DUP_PAIR = new Set(['inv_025', 'inv_026'])
 
+// ── the approval gate, in the demo ───────────────────────────────────────────
+// One invoice held for the owner's decision, so the gate is visible without an
+// ingest run. inv_018 (טקסטיל הגליל, ₪27,030 → ₪22,907 pre-VAT) is a real seed
+// row and clears the seeded ₪20,000 threshold on its own arithmetic — no figure
+// was invented to make the demo work. It also sits on the supplier that carries
+// the notes demo, so one screen shows both features.
+const DEMO_AWAITING_APPROVAL = new Set(['inv_018'])
+
 const invoices: Row[] = seed.invoices.map((inv) => {
   const isDup = DUP_PAIR.has(inv.id)
   // Split at the rate in force on the invoice's own date (17% → 18% on 1.1.2025).
@@ -88,6 +96,7 @@ const invoices: Row[] = seed.invoices.map((inv) => {
     status: inv.status,
     is_duplicate: isDup,
     has_error: false,
+    awaiting_approval: DEMO_AWAITING_APPROVAL.has(inv.id),
     // Paid invoices are treated as already forwarded to the accountant so the
     // derived-status badges show a realistic mix (green "הועבר לרו״ח").
     transferred_at: inv.status === 'שולם' ? `${inv.date}T12:00:00` : null,
@@ -213,15 +222,50 @@ function alertPayload(a: (typeof seed.alerts)[number]): Row {
       return {}
   }
 }
-const alerts: Row[] = seed.alerts.map((a) => ({
-  id: a.id,
-  type: a.type,
-  created_at: ALERT_DATE[a.id] ?? '2026-06-08',
-  message: a.detail,
-  status: ALERT_STATUS[a.id] ?? 'unread',
-  resolved: false,
-  payload: alertPayload(a),
-}))
+const alerts: Row[] = [
+  ...seed.alerts.map((a) => ({
+    id: a.id,
+    type: a.type,
+    created_at: ALERT_DATE[a.id] ?? '2026-06-08',
+    message: a.detail,
+    status: ALERT_STATUS[a.id] ?? 'unread',
+    resolved: false,
+    payload: alertPayload(a),
+  })),
+  // The approval gate's alert, for the invoice held above. Its payload carries
+  // everything the decision popup shows, exactly as ingest writes it — the point
+  // of that payload is that the owner never has to go looking for a figure, and
+  // a demo with half of it would hide the part worth demonstrating.
+  {
+    id: 'alert_approval_01',
+    type: 'invoice_approval_required',
+    created_at: '2026-04-17',
+    title: 'חשבונית גדולה — נדרש אישור',
+    message: 'חשבונית 2491 מ-טקסטיל הגליל בע״מ על ₪22,907 לפני מע״מ עברה את סף האישור (₪20,000). נא לאשר או לדחות.',
+    status: 'unread',
+    resolved: false,
+    payload: {
+      gmailMessageId:  'demo-msg-inv-018',
+      invoiceId:       'inv_018',
+      supplierId:      'sup_01',
+      supplierName:    'טקסטיל הגליל בע"מ',
+      invoiceNumber:   '2491',
+      invoiceDate:     '2026-04-17',
+      amountBeforeVat: 22907,
+      vatAmount:       4123,
+      totalAmount:     27030,
+      threshold:       20000,
+      isCreditNote:    false,
+      category:        'בדים',
+      lineItems:       'בד כותנה סרוק — 400 מטר\nבד ג׳ינס כבד — 120 מטר',
+      driveFileLink:   DOC_URL,
+      storageUrl:      DOC_URL,
+      subject:         'חשבונית 2491 — טקסטיל הגליל בע"מ',
+      from:            'office1@textil.co.il',
+      messageLink:     '',
+    },
+  },
+]
 
 // ── delivery_notes ───────────────────────────────────────────────────────────
 // The seed has no delivery notes, but the dashboard shows a "תעודות משלוח" card
@@ -268,7 +312,10 @@ export const demoTables: Record<string, Row[]> = {
   delivery_notes,
   employees,
   allowed_users,
-  app_settings: [],
+  // The approval threshold the demo's held invoice is measured against. The demo
+  // client serves reads from here; writes are stubbed, so changing it in Settings
+  // shows the success state without mutating the walkthrough.
+  app_settings: [{ key: 'invoice_approval_threshold', value: '20000' }],
   // A couple of notes on the first demo supplier, so the panel demonstrates the
   // thing that matters: notes written on DIFFERENT screens gathering on one
   // supplier card, each carrying the tag of where it came from.
