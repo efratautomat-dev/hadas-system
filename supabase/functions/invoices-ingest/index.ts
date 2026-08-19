@@ -2366,6 +2366,9 @@ async function extractReturn(
 
 interface ExtractedStatement {
   vendor_name:     string;
+  /** The RECIPIENT named on the statement — always us. Extracted purely so the
+   *  matcher can refuse a vendor_name that is really the recipient; never stored. */
+  customer_name:   string;
   hp:              string;
   /** The supplier's FINAL balance due at the foot of the statement, or null when
    *  the document has no unambiguous closing figure. NEVER a guess. */
@@ -2374,7 +2377,7 @@ interface ExtractedStatement {
   period:          string;
 }
 
-const STATEMENT_JSON_SHAPE = '{"vendor_name":"","hp":"","closing_balance":null,"period":""}';
+const STATEMENT_JSON_SHAPE = '{"vendor_name":"","customer_name":"","hp":"","closing_balance":null,"period":""}';
 // 512 was not enough and made this feature fail 100% of the time: the statement
 // prompt is the only all-Hebrew, rule-heavy prompt in the file, and Hebrew runs
 // roughly one token per 1–2 characters, so the answer was cut off mid-JSON,
@@ -2423,7 +2426,17 @@ async function extractStatement(
     STATEMENT_JSON_SHAPE + "\n" +
     STATEMENT_JSON_ONLY + "\n" +
     "כללים:\n" +
-    "vendor_name = שם הספק/החברה שאליו שייכת הכרטסת (לרוב בכותרת המסמך).\n" +
+    // A כרטסת carries TWO company names: the supplier who ISSUED it and the
+    // customer it is ADDRESSED TO — which is always us. "שייכת" was ambiguous
+    // enough that the extractor returned the recipient, and the statement then
+    // matched our own supplier card and moved a balance belonging to nobody.
+    "vendor_name = שם החברה שהנפיקה את הכרטסת — הספק, כלומר הצד שאנחנו חייבים לו כסף.\n" +
+    "  שים לב: בכרטסת מופיעים תמיד שני שמות — המנפיק (הספק) והנמען (הלקוח, כלומר אנחנו).\n" +
+    "  vendor_name הוא תמיד המנפיק, לעולם לא הנמען. הנמען מופיע בדרך כלל אחרי \"לכבוד\" / \"עבור\" /\n" +
+    "  \"כרטסת לקוח\" — אותו יש להתעלם ממנו לחלוטין.\n" +
+    "  אם אינך מצליח להבחין בוודאות מי המנפיק ומי הנמען — החזר מחרוזת ריקה. אל תנחש.\n" +
+    "customer_name = שם הנמען (הלקוח) כפי שמופיע במסמך, או מחרוזת ריקה. שדה זה נועד\n" +
+    "  לאימות בלבד — הוא מאפשר לוודא ש-vendor_name אינו הנמען.\n" +
     "hp = מספר ח.פ / ע.מ של הספק, ספרות בלבד. אם אינו מופיע במסמך — מחרוזת ריקה.\n" +
     "closing_balance = יתרת הסגירה של הספק בתחתית הכרטסת (היתרה לתשלום / יתרה סופית), " +
     "מספר בלבד ללא סימני מטבע ובלי מפרידי אלפים. יתרת זכות = מספר שלילי. " +
@@ -2461,6 +2474,7 @@ async function extractStatement(
   const p = parsed as Record<string, unknown>;
   return {
     vendor_name:     String(p.vendor_name ?? ""),
+    customer_name:   String(p.customer_name ?? ""),
     hp:              normalizeHp(p.hp == null ? "" : String(p.hp)),
     // Rounded to the agora like every other amount here (round₂). NOT run through
     // completeAmounts(): a statement is not an invoice and carries no VAT split.
@@ -2560,6 +2574,8 @@ async function resolveStatementSupplier(
   suppliers: SupplierRow[],
   args: {
     hp: string; vendorName: string; subject: string; senderAddress: string
+    /** The RECIPIENT named on the document — us. Never a valid supplier answer. */
+    customerName?: string
     /** The mailbox we are reading, resolved from Gmail itself. See getIngestMailbox. */
     ingestMailbox: string | null
   },
@@ -2576,7 +2592,21 @@ async function resolveStatementSupplier(
 
   // 2. Vendor name off the DOCUMENT — the existing 0.85 fuzzy path (also scores
   //    alt_names). The document is about the supplier; the envelope is not.
-  if (args.vendorName) {
+  // A כרטסת names BOTH parties. If the extractor handed back the recipient (us)
+  // as the vendor, matching it would land the statement on our own supplier card
+  // and move a balance that belongs to nobody — which is exactly what happened in
+  // production. The prompt now distinguishes the two; this refuses the answer even
+  // when it does not. Same 0.85 matcher, so "הדס" and "חנות הדס" both fail here.
+  const vendorIsActuallyTheCustomer =
+    !!args.customerName && !!args.vendorName &&
+    !!findBestSupplier(args.vendorName, [{ id: "__customer__", name: args.customerName } as SupplierRow]);
+  if (vendorIsActuallyTheCustomer) {
+    await log("warn",
+      "the extracted vendor_name is the statement's RECIPIENT, not its issuer — ignoring it",
+      { vendorName: args.vendorName, customerName: args.customerName }, msgId);
+  }
+
+  if (args.vendorName && !vendorIsActuallyTheCustomer) {
     const byName = findBestSupplier(args.vendorName, suppliers);
     if (byName) {
       await log("info", `statement supplier matched by name → ${byName.id}`,
@@ -3075,6 +3105,7 @@ async function handleNonInvoice(
       supabase, slog, msgId, suppliers, {
         hp:            extracted?.hp ?? "",
         vendorName:    extracted?.vendor_name ?? "",
+        customerName:  extracted?.customer_name ?? "",
           subject:       ctx.subject ?? "",
         senderAddress,
         ingestMailbox: ctx.token ? await getIngestMailbox(ctx.token, slog, msgId) : null,
