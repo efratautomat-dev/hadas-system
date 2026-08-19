@@ -14,6 +14,7 @@ import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
 import { usePayments } from '../hooks/usePayments'
 import { buildLedger, type LedgerResult } from '../lib/supplierLedger'
+import { useNotesTarget } from '../lib/notesTargetContext'
 import { statementDiff, statementVerdict } from '../lib/ledgerEngine'
 import { printStatementPDF } from '../utils/pdf'
 import { openStoredFile } from '../lib/storage'
@@ -313,6 +314,11 @@ function DetailPage({
   const diff    = comparable ? statementDiff(ourBalance, vendor as number) : null
   const matched = comparable && statementVerdict(ourBalance, vendor) === 'matched'
   const supplier = suppliers.find(s => s.id === stmt.supplier_id)
+
+  // Notes written here file under this statement's supplier, tagged כרטסות.
+  // An orphan statement has no supplier yet, so the panel stays hidden until one
+  // is assigned — a note has to belong to someone.
+  useNotesTarget(stmt.supplier_id, supplier?.name ?? stmt.supplier_name ?? '')
   const method = MATCH_METHOD_TEXT[stmt.match_method ?? 'unknown']
   const warn = method.tone === 'warn'
 

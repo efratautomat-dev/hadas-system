@@ -9,6 +9,7 @@ import { tableWrap, tableHeadRow, tableHeadCell, tableRow } from '../components/
 import { Button } from '../components/ui/Button'
 import { loadBizboxTemplate } from '../lib/bizboxTemplate'
 import { writeRowsIntoTemplate } from '../lib/bizboxWrite'
+import { useNotesTarget } from '../lib/notesTargetContext'
 import { DateField } from '../components/ui/form'
 
 // ─── types ───────────────────────────────────────────────────────────────────
@@ -18,6 +19,9 @@ type PaymentStatus = 'paid' | 'pending' | 'cancelled'
 
 interface Payment {
   id: string
+  /** FK to the supplier card. usePayments already maps it; this local type simply
+   *  never declared it. Notes attach by id, never by the display name. */
+  supplier_id: string
   supplier: string
   amount: number
   type: PaymentType
@@ -429,6 +433,12 @@ export default function Payments({ initialSupplier }: PaymentsProps = {}) {
   }
 
   const [editId, setEditId] = useState<string | null>(null)
+
+  // This screen has no "selected supplier" — only a free-text name filter — so a
+  // note written here belongs to the supplier of the OPEN payment row. With no
+  // row open the panel hides itself rather than guess.
+  const openPayment = editId ? payments.find(p => p.id === editId) : undefined
+  useNotesTarget(openPayment?.supplier_id, openPayment?.supplier)
   const [editForm, setEditForm] = useState<EditForm | null>(null)
 
   const [confirmId, setConfirmId] = useState<string | null>(null)

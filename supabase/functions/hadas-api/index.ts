@@ -1344,6 +1344,76 @@ async function deleteStatement(supabase: SupabaseClient, id: string): Promise<Re
   return json({ success: true, storage });
 }
 
+// ─── Supplier notes (per-supplier CRM log) ────────────────────────────────────
+//
+// A LIST of dated, authored notes — unlike suppliers.notes, which is one
+// overwritable blob. Notes belong to the SUPPLIER and are written from wherever a
+// supplier is in focus; `tag` records which screen that was.
+//
+// `author_email` is stamped HERE from the verified JWT and is never read from the
+// request body. A client-supplied author is a client-chosen author.
+
+const NOTE_TAGS = ["suppliers", "payments", "statements"];
+
+async function listSupplierNotes(supabase: SupabaseClient, supplierId: string): Promise<Response> {
+  if (!supplierId) return json({ error: "supplierId is required" }, 400);
+  const { data, error } = await supabase
+    .from("supplier_notes")
+    .select("*")
+    .eq("supplier_id", supplierId)
+    .order("created_at", { ascending: false });   // newest first — the only order the panel wants
+  if (error) return json({ error: error.message }, 500);
+  return json(data ?? []);
+}
+
+async function createSupplierNote(
+  req: Request, supabase: SupabaseClient, authorEmail?: string,
+): Promise<Response> {
+  const body = await req.json();
+  const supplierId = String(body.supplierId ?? body.supplier_id ?? "").trim();
+  const text       = String(body.body ?? "").trim();
+  if (!supplierId) return json({ error: "supplierId is required" }, 400);
+  if (!text)       return json({ error: "an empty note is not saved" }, 400);
+
+  // An unknown tag is coerced rather than rejected: the tag is derived from the
+  // screen, so a bad one is our bug, and losing the note would be the wrong
+  // punishment for it.
+  const rawTag = String(body.tag ?? "suppliers");
+  const tag = NOTE_TAGS.includes(rawTag) ? rawTag : "suppliers";
+
+  const { data, error } = await supabase
+    .from("supplier_notes")
+    .insert({ supplier_id: supplierId, body: text, tag, author_email: authorEmail ?? null })
+    .select()
+    .single();
+  if (error) return json({ error: error.message }, 500);
+  return json(data, 201);
+}
+
+// Editing changes the TEXT only. The tag records where the note was born and the
+// author who wrote it — rewriting either on edit would falsify the record.
+async function updateSupplierNote(req: Request, supabase: SupabaseClient, id: string): Promise<Response> {
+  const body = await req.json();
+  const text = String(body.body ?? "").trim();
+  if (!text) return json({ error: "an empty note is not saved" }, 400);
+
+  const { data, error } = await supabase
+    .from("supplier_notes")
+    .update({ body: text, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) return json({ error: error.message }, 500);
+  if (!data)  return json({ error: "note not found" }, 404);
+  return json(data);
+}
+
+async function deleteSupplierNote(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { error } = await supabase.from("supplier_notes").delete().eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
+}
+
 // ─── Employees ────────────────────────────────────────────────────────────────
 
 async function listEmployees(supabase: SupabaseClient): Promise<Response> {
@@ -1392,6 +1462,10 @@ interface AuthResult {
   ok: boolean;
   role?: "manager" | "employee";
   viaKey?: boolean;
+  /** The JWT's VERIFIED email. The only trustworthy identity on a request — used
+   *  to stamp authorship server-side so a client cannot claim to be someone else.
+   *  Absent on x-hadas-key calls, which have no human behind them. */
+  email?: string;
 }
 
 // Two valid auth paths:
@@ -1420,7 +1494,7 @@ async function authenticate(req: Request, supabase: SupabaseClient): Promise<Aut
     // Mirrors src/hooks/useAuth.ts: 'employee' is the only restricted role;
     // anything else (incl. 'manager' / null) is treated as manager.
     const role = (data.role as string) === "employee" ? "employee" : "manager";
-    return { ok: true, role };
+    return { ok: true, role, email: user.email ?? undefined };
   }
 
   return { ok: false };
@@ -1655,6 +1729,19 @@ Deno.serve(async (req: Request) => {
     const stmtIdMatch = path.match(/^\/statements\/([^/]+)$/);
     if (stmtIdMatch && req.method === "DELETE")
       return await deleteStatement(supabase, stmtIdMatch[1]);
+
+    // ── Supplier notes ────────────────────────────────────────────────────────
+    if (path === "/supplier-notes") {
+      if (req.method === "GET")
+        return await listSupplierNotes(supabase, url.searchParams.get("supplierId") ?? "");
+      if (req.method === "POST")
+        return await createSupplierNote(req, supabase, auth.email);
+    }
+    const noteIdMatch = path.match(/^\/supplier-notes\/([^/]+)$/);
+    if (noteIdMatch) {
+      if (req.method === "PUT")    return await updateSupplierNote(req, supabase, noteIdMatch[1]);
+      if (req.method === "DELETE") return await deleteSupplierNote(supabase, noteIdMatch[1]);
+    }
 
     // ── Employees ─────────────────────────────────────────────────────────────
     if (path === "/employees") {

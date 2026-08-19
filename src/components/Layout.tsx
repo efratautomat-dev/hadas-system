@@ -1,4 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
+import { NotesTargetProvider } from '../lib/notesTarget'
+import { useNotesTargetValue } from '../lib/notesTargetContext'
+import { SupplierNotesPanel } from './SupplierNotesPanel'
+import type { NoteTag } from '../hooks/useSupplierNotes'
 import { Bell, Search, Menu, ArrowRight } from 'lucide-react'
 import Sidebar from './Sidebar'
 import Dashboard from './Dashboard'
@@ -99,6 +103,27 @@ interface AlertPrefillState {
   alertId:      string
   supplierName: string
   payload:      Record<string, unknown>
+}
+
+// Which screen a note written right now belongs to. Derived from the active page,
+// so a new screen produces its tag by being added here once — nothing to keep in
+// sync elsewhere. Anything not listed files under the supplier itself, which is
+// true by construction: the note is on a supplier card either way.
+const PAGE_NOTE_TAG: Record<string, NoteTag> = {
+  payments:       'payments',
+  reconciliation: 'statements',
+}
+
+/** Mounted once, inside the provider, so it can read what the screen declared. */
+function NotesPanelSlot({ activePage }: { activePage: string }) {
+  const { supplierId, supplierName } = useNotesTargetValue()
+  return (
+    <SupplierNotesPanel
+      supplierId={supplierId}
+      supplierName={supplierName}
+      tag={PAGE_NOTE_TAG[activePage] ?? 'suppliers'}
+    />
+  )
 }
 
 export default function Layout({ userEmail, onLogout }: LayoutProps) {
@@ -323,7 +348,15 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
 
   return (
     <AppLogoProvider>
+    <NotesTargetProvider>
     <div className="min-h-screen" style={{ backgroundColor: '#F8F8FA', direction: 'rtl' }}>
+
+      {/* The supplier notes panel — ONE instance for the whole app. Mounted here
+          rather than per screen so the open/closed state survives navigation and
+          the tag comes straight from the active page. It floats over the content
+          on the LEFT (the nav sidebar owns the right edge under RTL), so no
+          screen has to reserve room for it. */}
+      <NotesPanelSlot activePage={activePage} />
 
       {/* Mobile overlay */}
       {isMobile && mobileMenuOpen && (
@@ -469,6 +502,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         </main>
       </div>
     </div>
+    </NotesTargetProvider>
     </AppLogoProvider>
   )
 }

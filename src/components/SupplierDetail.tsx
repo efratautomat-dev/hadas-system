@@ -7,6 +7,7 @@ import { useReturns } from '../hooks/useReturns'
 import { useStatements } from '../hooks/useStatements'
 import { sumNonCancelledPayments } from '../lib/supplierBalance'
 import { buildLedger, isExcludedFromBalance } from '../lib/supplierLedger'
+import { useNotesTarget } from '../lib/notesTargetContext'
 import { useAlerts } from '../hooks/useAlerts'
 import { invoiceStatusKey } from '../lib/invoiceStatus'
 import { StatusBadge } from './StatusBadge'
@@ -226,6 +227,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   const statements = allStatements.filter((s) => s.supplier_id === supplier.id)
   // Statements needing attention drive the warning badge on the card.
   const statementAlerts = statements.filter((s) => s.status === 'mismatch' || s.status === 'needs_review').length
+
+  // Tell the notes panel who this screen is about.
+  useNotesTarget(supplier.id, supplier.name)
 
   const openingBalance = Number(supplier.openingBalance ?? 0)
   // "בהסדר תשלום": display-only — this supplier is excluded from balance tracking.

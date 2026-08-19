@@ -250,5 +250,22 @@ export const demoTables: Record<string, Row[]> = {
   employees,
   allowed_users,
   app_settings: [],
+  // A couple of notes on the first demo supplier, so the panel demonstrates the
+  // thing that matters: notes written on DIFFERENT screens gathering on one
+  // supplier card, each carrying the tag of where it came from.
+  supplier_notes: [
+    { id: 'note_01', supplier_id: 'sup_01', tag: 'statements',
+      body: 'הכרטסת ליוני לא תואמת — חשבונית 7961 מסומנת אצלנו ככפילות. ממתין לתשובה מהספק.',
+      author_email: 'demo@hadas-system.co.il',
+      created_at: '2026-08-18T09:20:00', updated_at: '2026-08-18T09:20:00' },
+    { id: 'note_02', supplier_id: 'sup_01', tag: 'payments',
+      body: 'סוכם בטלפון: מעבר לשוטף+45 מהחודש הבא.',
+      author_email: 'demo@hadas-system.co.il',
+      created_at: '2026-08-12T14:05:00', updated_at: '2026-08-12T14:05:00' },
+    { id: 'note_03', supplier_id: 'sup_01', tag: 'suppliers',
+      body: 'איש קשר חדש — יוסי, אחראי הזמנות.',
+      author_email: 'demo@hadas-system.co.il',
+      created_at: '2026-07-30T11:40:00', updated_at: '2026-07-30T11:40:00' },
+  ],
   system_logs: [],
 }
