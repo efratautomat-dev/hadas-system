@@ -22,7 +22,10 @@ const CAPTURE_LABEL_SOURCE      = "צילום ידני";       // stamped on row
 const PROCESSED_LABEL_NAME      = "טופל_ממתין במערכת";
 const FAILED_LABEL_NAME         = "פענוח נכשל";        // parks emails that keep failing extraction
 const MAX_INGEST_ATTEMPTS       = 2;                   // cap before we stop retrying & alert
-const NEEDS_REVIEW_LABEL_NAME   = "דורש בדיקה ידנית";
+// "דורש בדיקה ידנית" was removed 2026-08-19: ingest no longer labels the mailbox
+// for review. An alert already carries the item, and a second queue in Gmail
+// that nothing clears is worse than none. Existing labels stay in the mailbox
+// and can be deleted by hand — nothing reads them.
 const PARTIAL_REFUND_LABEL_NAME = "החזר חלקי";         // owner applies manually — never created by code
 
 // Log category for the statement path. Tags every line the כרטסת flow writes —
@@ -1521,6 +1524,43 @@ interface IngestResult {
 
 // Context shared by every invoice file in one email (the email-level facts plus
 // the loaded suppliers/categories the helper mutates in place).
+/** `20000` → `₪20,000`. Alert text only — every stored figure stays numeric. */
+function fmtIls(n: number): string {
+  return "\u20AA" + Math.round(Math.abs(n)).toLocaleString("he-IL") + (n < 0 ? "-" : "");
+}
+
+/**
+ * The pre-VAT amount above which an invoice waits for the owner's decision.
+ *
+ * Read from app_settings so the owner can move it in Settings without a deploy.
+ * `null` = NO GATE. An unset, blank or unparseable value must never fall back to
+ * a number nobody chose: guessing a threshold would silently hold up invoices
+ * the owner never asked to stop, and a gate that appears on its own is worse
+ * than no gate.
+ *
+ * Loaded ONCE per run and carried on the ctx — a per-invoice read would hit the
+ * DB once per file for a value that cannot change mid-run.
+ */
+async function loadApprovalThreshold(supabase: SupabaseClient, log: Logger): Promise<number | null> {
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("value")
+    .eq("key", "invoice_approval_threshold")
+    .maybeSingle();
+  if (error) {
+    await log("warn", `approval threshold unreadable — gate OFF: ${error.message}`, {});
+    return null;
+  }
+  const raw = (data?.value ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    await log("warn", "approval threshold is not a positive number — gate OFF", { raw });
+    return null;
+  }
+  return n;
+}
+
 interface InvoiceFileCtx {
   token:                string;
   msgId:                string;
@@ -1531,6 +1571,8 @@ interface InvoiceFileCtx {
   labelIds:             string[];
   partialRefundLabelId: string | null;
   managerEmail:         string;
+  /** Pre-VAT approval threshold, or null when the gate is off. See loadApprovalThreshold. */
+  approvalThreshold:    number | null;
   suppliers:            SupplierRow[];
   categoryNames:        string[];
   // True when this file is a credit note (חשבונית מס זיכוי) routed through the
@@ -1793,6 +1835,20 @@ async function handleInvoiceFile(
     result.errors.push(`Drive upload failed for ${msgId}`);
   }
 
+
+  // ── approval gate ───────────────────────────────────────────────────────────
+  // Math.abs is deliberate. completeAmounts works on MAGNITUDES and credit notes
+  // are negated afterwards (see the isCreditNote block above), so without abs a
+  // −₪30,000 credit note slips under a ₪20,000 threshold and never stops.
+  //
+  // PRE-VAT, the owner's rule: the threshold is about the size of the purchase,
+  // not about what the tax adds on top of it.
+  //
+  // The invoice is still inserted normally. The gate marks it and asks; it does
+  // not hold the document hostage — a filed invoice that the owner cannot see is
+  // worse than one she has yet to rule on.
+  const preVat = Math.abs(Number(extracted.amount_before_vat ?? 0)) || 0;
+  const overThreshold = ctx.approvalThreshold !== null && preVat > ctx.approvalThreshold;
   const insertRow: Record<string, unknown> = {
     supplier_id:        supplierId,
     // Use the matched supplier's official name (from supplier details), not the
@@ -1810,6 +1866,7 @@ async function handleInvoiceFile(
     status:             extracted.confidence === "low" ? "needs_review" : "ממתין",
     is_duplicate:       isDuplicate,
     has_error:          false,
+    awaiting_approval:  overThreshold,
     partial_return:     partialReturn,
     drive_file_link:    driveFileLink,
     storage_url:        storagePath || null,
@@ -1824,7 +1881,12 @@ async function handleInvoiceFile(
     email_sender:       from,
   };
 
-  const { error: insErr } = await supabase.from("invoices").insert(insertRow);
+  // `.select("id")` so the approval alert can name the row it is about. The
+  // alert is useless without it: approving or rejecting means acting on THIS
+  // invoice, and every other alert that resolves to an invoice has to go looking
+  // for it by gmail_message_id afterwards.
+  const { data: insertedRows, error: insErr } = await supabase
+    .from("invoices").insert(insertRow).select("id");
   if (insErr) {
     if (insErr.code === "23505") {
       await log("info", "concurrent insert race — skipping", { code: insErr.code }, msgId);
@@ -1833,6 +1895,49 @@ async function handleInvoiceFile(
     await log("error", `invoice insert failed: ${insErr.message}`, { code: insErr.code }, msgId);
     result.errors.push(`Invoice insert failed for ${msgId}: ${insErr.message}`);
     return "error";
+  }
+  const insertedId: string | null = insertedRows?.[0]?.id ?? null;
+
+  // ── the approval alert ──────────────────────────────────────────────────────
+  // Everything needed to decide travels IN THE PAYLOAD — supplier, number, date,
+  // both amounts, the threshold that stopped it, and the links to the document
+  // and the source email. Same shape as invoice_low_confidence, and for the same
+  // reason: an alert that forces the owner to go and look things up before she
+  // can answer it is an alert she will leave sitting.
+  //
+  // dedupKeys ["invoiceId"] — one email can carry several invoices, and each big
+  // one deserves its own decision. Without it the second invoice in an email
+  // would be silently suppressed as "an alert of this type already exists".
+  if (overThreshold) {
+    await log("warn", "invoice over approval threshold — awaiting owner decision", {
+      invoiceId: insertedId, preVat, threshold: ctx.approvalThreshold,
+    }, msgId);
+    await insertAlertOnce(supabase, log, msgId, {
+      type:    "invoice_approval_required",
+      title:   "חשבונית גדולה — נדרש אישור",
+      message: `חשבונית ${extracted.invoice_number || ""} מ-${supplierDisplayName || extracted.vendor_name || "ספק לא ידוע"} על ${fmtIls(preVat)} לפני מע"מ עברה את סף האישור (${fmtIls(ctx.approvalThreshold ?? 0)}). נא לאשר או לדחות.`,
+      payload: {
+        gmailMessageId:  msgId,
+        invoiceId:       insertedId,
+        supplierId,
+        supplierName:    supplierDisplayName || extracted.vendor_name || "",
+        invoiceNumber:   extracted.invoice_number ?? "",
+        invoiceDate:     extracted.invoice_date ?? "",
+        amountBeforeVat: extracted.amount_before_vat,
+        vatAmount:       extracted.vat_amount,
+        totalAmount:     extracted.total_amount,
+        threshold:       ctx.approvalThreshold,
+        isCreditNote:    ctx.isCreditNote,
+        category:        finalCategory,
+        lineItems:       extracted.line_items.join("\n"),
+        driveFileLink,
+        storageUrl:      storagePath || null,
+        subject,
+        from,
+        messageLink,
+      },
+    }, ["invoiceId"]);
+    result.alerts++;
   }
 
   // Update supplier_categories + categories usage (tracks the FINAL category)
@@ -1919,7 +2024,6 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
     return result;
   }
   const destProcessed   = await gmailEnsureLabel(token, PROCESSED_LABEL_NAME);
-  const destNeedsReview = await gmailEnsureLabel(token, NEEDS_REVIEW_LABEL_NAME);
   const destFailed      = await gmailEnsureLabel(token, FAILED_LABEL_NAME);
   // Partial-refund label is applied manually by the business owner — look up only, never created.
   const partialRefundLabelId = findLabelId(PARTIAL_REFUND_LABEL_NAME);
@@ -1963,6 +2067,10 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   const categoryNames: string[] = (catRows ?? []).map((r: { name: string }) => r.name);
 
   const managerEmail = Deno.env.get("GMAIL_USER_EMAIL") ?? "";
+  const approvalThreshold = await loadApprovalThreshold(supabase, log);
+  await log("info", "invoice approval gate", {
+    threshold: approvalThreshold, active: approvalThreshold !== null,
+  });
 
   for (const msgId of messageIds) {
     // Hoisted so the per-message catch below can reference them when a failure
@@ -2124,7 +2232,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
             docType, reason, linkFailures, droppedFiles: dropped,
           },
         });
-        await gmailModifyLabels(token, msgId, [destNeedsReview, destProcessed], [sourceLabelId, "UNREAD"]);
+        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
         result.alerts++;
         continue;
       }
@@ -2184,6 +2292,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         labelIds: message.labelIds ?? [],
         partialRefundLabelId,
         managerEmail,
+        approvalThreshold,
         suppliers,
         categoryNames,
         isCreditNote,
@@ -2230,9 +2339,12 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         continue;
       }
 
-      // Apply the email's label once: needs-review if anything was flagged.
-      const addLabels = alerted > 0 ? [destNeedsReview, destProcessed] : [destProcessed];
-      await gmailModifyLabels(token, msgId, addLabels, [sourceLabelId, "UNREAD"]);
+      // Every processed email gets exactly ONE label: טופל. A flagged document used
+      // to ALSO get "דורש בדיקה ידנית", which made the mailbox a second, partial
+      // queue competing with the alerts screen — the same item in two places, one
+      // of which nothing ever cleared. The SYSTEM is where review happens; the
+      // mailbox only records that ingest ran.
+      await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
       await log("info", "email invoice processing complete",
         { created, alerted, skipped, ads, errored }, msgId);
 
@@ -3345,6 +3457,7 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
   const from        = body.capturedBy || "צילום מהאפליקציה";
   const subject     = `צילום ידני — ${CAPTURE_TYPE_LABEL[docType]}`;
   const managerEmail = Deno.env.get("GMAIL_USER_EMAIL") ?? "";
+  const approvalThreshold = await loadApprovalThreshold(supabase, log);
 
   await log("info", "capture received", { docType, filename, bytes: bytes.length, from }, captureId);
 
@@ -3366,7 +3479,7 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
       const ctx: InvoiceFileCtx = {
         token, msgId: captureId, subject, from, emailTs: nowIso,
         messageLink: "", labelIds: [], partialRefundLabelId: null,
-        managerEmail, suppliers, categoryNames, isCreditNote: false,
+        managerEmail, approvalThreshold, suppliers, categoryNames, isCreditNote: false,
         labelSource: CAPTURE_LABEL_SOURCE,
       };
       const outcome = await handleInvoiceFile(supabase, log, file, ctx, result);

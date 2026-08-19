@@ -30,6 +30,24 @@ const DOC_URL = demoDoc('sample-invoice.html')
 const nameToId: Record<string, string> = {}
 for (const s of seed.suppliers) nameToId[s.name] = s.id
 
+// ── free-text notes scattered across the demo dataset ────────────────────────
+// The supplier notes panel collects every note the system already holds about a
+// supplier — from the supplier card, a payment, a return, a statement — and
+// shows them in one column (see src/lib/noteSources.ts). The seed carries a
+// statement note but nothing on the other three, so the demo showed an empty
+// feature. These fill that in on ONE supplier (sup_01), which already has a
+// payment, a return and a resolved statement, so the walkthrough can show all
+// four sources side by side. Fictitious, like the rest of the seed.
+const DEMO_SUPPLIER_NOTES: Record<string, string> = {
+  sup_01: 'משלוחים ימי ב׳ ו‑ה׳ בבוקר בלבד. איש קשר: יעל, שלוחה 3. חשבוניות נשלחות מכתובת ההנהלה ולא מהמחסן.',
+}
+const DEMO_PAYMENT_NOTES: Record<string, string> = {
+  pay_01: 'שולם בהעברה אחרי שהצ׳ק הראשון בוטל בטעות. אסמכתא חדשה נשלחה ליעל באותו יום.',
+}
+const DEMO_RETURN_DETAILS: Record<string, string> = {
+  ret_01: 'שני גלילים עם פגם ארוג לרוחב כל היריעה. הנהג לקח בחזרה, זיכוי הובטח לחודש הבא.',
+}
+
 // ── suppliers ────────────────────────────────────────────────────────────────
 // useSuppliers reads: id, name, hp, contact, opening_balance, email, phone, category
 const suppliers: Row[] = seed.suppliers.map((s) => ({
@@ -41,6 +59,7 @@ const suppliers: Row[] = seed.suppliers.map((s) => ({
   phone: s.phone,
   category: s.category,
   opening_balance: 0,
+  notes: DEMO_SUPPLIER_NOTES[s.id] ?? '',
 }))
 
 // ── invoices ─────────────────────────────────────────────────────────────────
@@ -50,6 +69,14 @@ const suppliers: Row[] = seed.suppliers.map((s) => ({
 // flagging both — making the dataset internally consistent so the duplicate
 // comparison modal is demonstrable. No invoices are added or removed.
 const DUP_PAIR = new Set(['inv_025', 'inv_026'])
+
+// ── the approval gate, in the demo ───────────────────────────────────────────
+// One invoice held for the owner's decision, so the gate is visible without an
+// ingest run. inv_018 (טקסטיל הגליל, ₪27,030 → ₪22,907 pre-VAT) is a real seed
+// row and clears the seeded ₪20,000 threshold on its own arithmetic — no figure
+// was invented to make the demo work. It also sits on the supplier that carries
+// the notes demo, so one screen shows both features.
+const DEMO_AWAITING_APPROVAL = new Set(['inv_018'])
 
 const invoices: Row[] = seed.invoices.map((inv) => {
   const isDup = DUP_PAIR.has(inv.id)
@@ -69,6 +96,7 @@ const invoices: Row[] = seed.invoices.map((inv) => {
     status: inv.status,
     is_duplicate: isDup,
     has_error: false,
+    awaiting_approval: DEMO_AWAITING_APPROVAL.has(inv.id),
     // Paid invoices are treated as already forwarded to the accountant so the
     // derived-status badges show a realistic mix (green "הועבר לרו״ח").
     transferred_at: inv.status === 'שולם' ? `${inv.date}T12:00:00` : null,
@@ -91,7 +119,7 @@ const payments: Row[] = seed.payments.map((p) => ({
   payment_date: p.date,
   value_date: p.date,
   reference: p.invoice_id,
-  notes: '',
+  notes: DEMO_PAYMENT_NOTES[p.id] ?? '',
   status: 'paid',
   bizbox_exported_at: null,
   created_at: `${p.date}T08:00:00`,
@@ -110,7 +138,7 @@ const returns: Row[] = seed.returns.map((r) => ({
   date: r.date,
   amount: r.amount,
   reason: r.reason,
-  detail: '',
+  detail: DEMO_RETURN_DETAILS[r.id] ?? '',
   invoice_id: null,
   status: RETURN_STATUS[r.status] ?? 'בטיפול',
   employee_id: null,
@@ -194,15 +222,50 @@ function alertPayload(a: (typeof seed.alerts)[number]): Row {
       return {}
   }
 }
-const alerts: Row[] = seed.alerts.map((a) => ({
-  id: a.id,
-  type: a.type,
-  created_at: ALERT_DATE[a.id] ?? '2026-06-08',
-  message: a.detail,
-  status: ALERT_STATUS[a.id] ?? 'unread',
-  resolved: false,
-  payload: alertPayload(a),
-}))
+const alerts: Row[] = [
+  ...seed.alerts.map((a) => ({
+    id: a.id,
+    type: a.type,
+    created_at: ALERT_DATE[a.id] ?? '2026-06-08',
+    message: a.detail,
+    status: ALERT_STATUS[a.id] ?? 'unread',
+    resolved: false,
+    payload: alertPayload(a),
+  })),
+  // The approval gate's alert, for the invoice held above. Its payload carries
+  // everything the decision popup shows, exactly as ingest writes it — the point
+  // of that payload is that the owner never has to go looking for a figure, and
+  // a demo with half of it would hide the part worth demonstrating.
+  {
+    id: 'alert_approval_01',
+    type: 'invoice_approval_required',
+    created_at: '2026-04-17',
+    title: 'חשבונית גדולה — נדרש אישור',
+    message: 'חשבונית 2491 מ-טקסטיל הגליל בע״מ על ₪22,907 לפני מע״מ עברה את סף האישור (₪20,000). נא לאשר או לדחות.',
+    status: 'unread',
+    resolved: false,
+    payload: {
+      gmailMessageId:  'demo-msg-inv-018',
+      invoiceId:       'inv_018',
+      supplierId:      'sup_01',
+      supplierName:    'טקסטיל הגליל בע"מ',
+      invoiceNumber:   '2491',
+      invoiceDate:     '2026-04-17',
+      amountBeforeVat: 22907,
+      vatAmount:       4123,
+      totalAmount:     27030,
+      threshold:       20000,
+      isCreditNote:    false,
+      category:        'בדים',
+      lineItems:       'בד כותנה סרוק — 400 מטר\nבד ג׳ינס כבד — 120 מטר',
+      driveFileLink:   DOC_URL,
+      storageUrl:      DOC_URL,
+      subject:         'חשבונית 2491 — טקסטיל הגליל בע"מ',
+      from:            'office1@textil.co.il',
+      messageLink:     '',
+    },
+  },
+]
 
 // ── delivery_notes ───────────────────────────────────────────────────────────
 // The seed has no delivery notes, but the dashboard shows a "תעודות משלוח" card
@@ -249,6 +312,26 @@ export const demoTables: Record<string, Row[]> = {
   delivery_notes,
   employees,
   allowed_users,
-  app_settings: [],
+  // The approval threshold the demo's held invoice is measured against. The demo
+  // client serves reads from here; writes are stubbed, so changing it in Settings
+  // shows the success state without mutating the walkthrough.
+  app_settings: [{ key: 'invoice_approval_threshold', value: '20000' }],
+  // A couple of notes on the first demo supplier, so the panel demonstrates the
+  // thing that matters: notes written on DIFFERENT screens gathering on one
+  // supplier card, each carrying the tag of where it came from.
+  supplier_notes: [
+    { id: 'note_01', supplier_id: 'sup_01', tag: 'statements',
+      body: 'הכרטסת ליוני לא תואמת — חשבונית 7961 מסומנת אצלנו ככפילות. ממתין לתשובה מהספק.',
+      author_email: 'demo@hadas-system.co.il',
+      created_at: '2026-08-18T09:20:00', updated_at: '2026-08-18T09:20:00' },
+    { id: 'note_02', supplier_id: 'sup_01', tag: 'payments',
+      body: 'סוכם בטלפון: מעבר לשוטף+45 מהחודש הבא.',
+      author_email: 'demo@hadas-system.co.il',
+      created_at: '2026-08-12T14:05:00', updated_at: '2026-08-12T14:05:00' },
+    { id: 'note_03', supplier_id: 'sup_01', tag: 'suppliers',
+      body: 'איש קשר חדש — יוסי, אחראי הזמנות.',
+      author_email: 'demo@hadas-system.co.il',
+      created_at: '2026-07-30T11:40:00', updated_at: '2026-07-30T11:40:00' },
+  ],
   system_logs: [],
 }

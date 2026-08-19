@@ -113,6 +113,9 @@ create table if not exists public.invoices (
   gmail_label_source  text,                          -- 'צילום ידני' for camera capture
   month_folder_link   text,
   storage_url         text,                          -- in-bucket path, not a URL
+  -- Pre-VAT amount passed the approval threshold at ingest and the owner has not
+  -- decided yet. The row still COUNTS in the balance; the ledger flags it.
+  awaiting_approval   boolean     not null default false,
   constraint invoices_pkey primary key (id)
 );
 
@@ -259,6 +262,25 @@ create table if not exists public.supplier_categories (
   constraint supplier_categories_supplier_id_category_key unique (supplier_id, category)
 );
 
+-- supplier_notes (per-supplier CRM log) --------------------------------------
+-- A LIST of dated, authored notes, unlike suppliers.notes which is one
+-- overwritable blob. `tag` records which screen the note was written on and is
+-- derived there, never chosen by hand. Manager-only at the data layer — see
+-- migration 20260819000000.
+create table if not exists public.supplier_notes (
+  id            uuid        not null default gen_random_uuid(),
+  supplier_id   text        not null references public.suppliers(id) on delete cascade,
+  body          text        not null,
+  tag           text        not null default 'suppliers',
+  author_email  text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  constraint supplier_notes_pkey primary key (id),
+  constraint supplier_notes_tag_check check (tag in ('suppliers', 'payments', 'statements'))
+);
+create index if not exists supplier_notes_supplier_created_idx
+  on public.supplier_notes (supplier_id, created_at desc);
+
 -- system_logs (developer diagnostics) ----------------------------------------
 create table if not exists public.system_logs (
   id          bigint      not null default nextval('system_logs_id_seq'),
@@ -348,7 +370,7 @@ $$;
 -- Reads go through the anon client (role `authenticated`); writes go through
 -- hadas-api with the service-role key (RLS bypassed). Policies enforce the
 -- manager/employee split at the data layer.
--- (Tables without documented policies — app_settings, categories,
+-- (Tables without documented policies — categories,
 --  supplier_categories, system_logs — are left as-is, matching the doc.)
 
 alter table public.payments          enable row level security;

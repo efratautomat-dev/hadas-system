@@ -1,4 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNotesTargetValue } from '../lib/notesTargetContext'
+import { SupplierNotesPanel, NOTES_PANEL_WIDTH } from './SupplierNotesPanel'
+import type { NoteTag } from '../hooks/useSupplierNotes'
+import type { NoteOpenIntent } from '../lib/noteSources'
 import { Bell, Search, Menu, ArrowRight } from 'lucide-react'
 import Sidebar from './Sidebar'
 import Dashboard from './Dashboard'
@@ -93,12 +97,24 @@ interface NavEntry {
   paymentsSupplierFilter?: string
   returnsEditId?: string
   statementViewId?: string
+  /** Open this exact payment's row on arrival. Set when a collected note in the
+   *  notes panel links back to the payment it was written on. */
+  paymentOpenId?: string
 }
 
 interface AlertPrefillState {
   alertId:      string
   supplierName: string
   payload:      Record<string, unknown>
+}
+
+// Which screen a note written right now belongs to. Derived from the active page,
+// so a new screen produces its tag by being added here once — nothing to keep in
+// sync elsewhere. Anything not listed files under the supplier itself, which is
+// true by construction: the note is on a supplier card either way.
+const PAGE_NOTE_TAG: Record<string, NoteTag> = {
+  payments:       'payments',
+  reconciliation: 'statements',
 }
 
 export default function Layout({ userEmail, onLogout }: LayoutProps) {
@@ -111,6 +127,17 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     try { localStorage.setItem('hadas.sidebarCollapsed', isCollapsed ? '1' : '0') } catch { /* private mode */ }
   }, [isCollapsed])
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  // ── Notes panel ───────────────────────────────────────────────────────────
+  // Which supplier the open screen is about, declared by that screen. Read HERE
+  // and not only inside the panel, because it decides whether the page content
+  // is shifted over to make room.
+  const notesTarget = useNotesTargetValue()
+  const [notesOpen, setNotesOpen] = useState(() => {
+    try { return localStorage.getItem('hadas.notesOpen') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('hadas.notesOpen', notesOpen ? '1' : '0') } catch { /* private mode */ }
+  }, [notesOpen])
   const { data: alerts, markRead, markResolved, remove: removeAlert } = useAlerts()
   const [alertForSupplier, setAlertForSupplier] = useState<AlertPrefillState | null>(null)
   // Single source of truth for navigation — index 0 is always the origin (dashboard)
@@ -209,6 +236,20 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     } else {
       handlePageChange('invoices')
     }
+  }
+
+  // The notes panel SQUEEZES the page instead of covering it: the content column
+  // gives up exactly the panel's width and reflows inside what is left, so the
+  // row you were reading is never hidden behind the thing you just opened.
+  // On mobile there is no width to give up, so there it stays an overlay.
+  const notesPush = !isMobile && notesTarget.supplierId && notesOpen ? NOTES_PANEL_WIDTH : 0
+
+  // A collected note names the record it came from; this is how it gets there.
+  // The intent is already NavEntry-shaped, so a NEW note source needs no change
+  // here — only its own entry in lib/noteSources.ts.
+  const handleOpenNoteRecord = (intent: NoteOpenIntent) => {
+    const { page, ...fields } = intent
+    pushNav({ page, ...fields } as NavEntry)
   }
 
   const sidebarWidth = isMobile ? 0 : isCollapsed ? 72 : isTablet ? 200 : 256
@@ -311,7 +352,12 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onDuplicateDismissed={goBack}
       />
     )
-    if (activePage === 'payments')       return <Payments initialSupplier={currentNav.paymentsSupplierFilter} />
+    if (activePage === 'payments')       return (
+      <Payments
+        initialSupplier={currentNav.paymentsSupplierFilter}
+        initialPaymentId={currentNav.paymentOpenId}
+      />
+    )
     if (activePage === 'deliveries')     return <DeliveryNotes />
     if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
@@ -324,6 +370,20 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   return (
     <AppLogoProvider>
     <div className="min-h-screen" style={{ backgroundColor: '#F8F8FA', direction: 'rtl' }}>
+
+      {/* The supplier notes panel — ONE instance for the whole app. Mounted here
+          rather than per screen so the open/closed state survives navigation and
+          the tag comes straight from the active page. It floats over the content
+          on the LEFT (the nav sidebar owns the right edge under RTL), so no
+          screen has to reserve room for it. */}
+      <SupplierNotesPanel
+        supplierId={notesTarget.supplierId}
+        supplierName={notesTarget.supplierName}
+        tag={PAGE_NOTE_TAG[activePage] ?? 'suppliers'}
+        open={notesOpen}
+        onToggle={() => setNotesOpen(o => !o)}
+        onOpenRecord={handleOpenNoteRecord}
+      />
 
       {/* Mobile overlay */}
       {isMobile && mobileMenuOpen && (
@@ -352,7 +412,8 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         className="flex flex-col min-h-screen"
         style={{
           marginRight: `${sidebarWidth}px`,
-          transition: isMobile ? 'none' : 'margin-right 0.3s',
+          marginLeft:  `${notesPush}px`,
+          transition: isMobile ? 'none' : 'margin-right 0.3s, margin-left 0.25s ease',
         }}
       >
         {/* Top bar */}

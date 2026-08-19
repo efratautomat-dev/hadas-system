@@ -35,6 +35,13 @@ export interface Invoice {
   status: string
   isDuplicate: boolean
   hasError: boolean
+  /**
+   * Over the approval threshold and not yet approved or rejected by the owner
+   * (DB: awaiting_approval). The invoice is REAL — it is filed and it counts in
+   * the balance; this only says the decision is outstanding. Optional: mock rows
+   * omit it.
+   */
+  awaitingApproval?: boolean
   n8nErrorLink: string
   decodeQuality: string
   sentToAccountant: boolean

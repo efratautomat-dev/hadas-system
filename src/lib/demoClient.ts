@@ -15,11 +15,27 @@ type Row = Record<string, unknown>
 // chains like .select().eq().order() work, and awaiting it resolves to the
 // Supabase-shaped { data, error }. single()/maybeSingle() resolve to one row.
 function query(rows: Row[]) {
-  const settled = Promise.resolve({ data: rows, error: null })
+  // `.eq()` FILTERS, it does not just return the builder.
+  //
+  // Every other stub here is a no-op because the hooks that use them filter in
+  // the client after the read. supplier_notes is the first query that relies on
+  // the DATABASE to narrow rows — and with eq() ignored it showed one supplier's
+  // notes under every supplier. A filter that silently matches everything is
+  // worse than one that throws.
+  let filtered = rows
+  const eqFilter = (col: string, val: unknown) => {
+    filtered = filtered.filter(r => {
+      const v = (r as Record<string, unknown>)[col]
+      // Loose compare: demo ids are strings, some callers pass numbers.
+      return v === val || String(v ?? '') === String(val ?? '')
+    })
+    return builder
+  }
+  const thenable = () => Promise.resolve({ data: filtered, error: null })
   const builder: Record<string, unknown> = {
     select: () => builder,
     order: () => builder,
-    eq: () => builder,
+    eq: (col: string, val: unknown) => eqFilter(col, val),
     neq: () => builder,
     is: () => builder,
     in: () => builder,
@@ -34,16 +50,16 @@ function query(rows: Row[]) {
     contains: () => builder,
     range: () => builder,
     limit: () => builder,
-    single: () => Promise.resolve({ data: rows[0] ?? null, error: null }),
-    maybeSingle: () => Promise.resolve({ data: rows[0] ?? null, error: null }),
-    insert: () => Promise.resolve({ data: rows[0] ?? null, error: null }),
+    single: () => Promise.resolve({ data: filtered[0] ?? null, error: null }),
+    maybeSingle: () => Promise.resolve({ data: filtered[0] ?? null, error: null }),
+    insert: () => Promise.resolve({ data: filtered[0] ?? null, error: null }),
     update: () => builder,
     upsert: () => Promise.resolve({ data: null, error: null }),
     delete: () => builder,
     then: (onF: unknown, onR: unknown) =>
-      settled.then(onF as never, onR as never),
-    catch: (onR: unknown) => settled.catch(onR as never),
-    finally: (onF: unknown) => settled.finally(onF as never),
+      thenable().then(onF as never, onR as never),
+    catch: (onR: unknown) => thenable().catch(onR as never),
+    finally: (onF: unknown) => thenable().finally(onF as never),
   }
   return builder
 }

@@ -617,6 +617,58 @@ export default function Settings() {
     }
   }
 
+  // ── Invoice approval threshold ───────────────────────────────────────────────
+  // The pre-VAT amount above which an incoming invoice waits for the owner's
+  // decision instead of being filed silently. Stored in app_settings (same
+  // key/value table as the logo) so it can be changed without a deploy — ingest
+  // reads it at the start of every run.
+  //
+  // EMPTY = NO GATE, and the UI says so in as many words. That has to be a
+  // deliberate, visible choice: a blank field that quietly meant "₪20,000" would
+  // stop invoices nobody asked to stop.
+  const [threshold, setThreshold]           = useState('')
+  const [thresholdSaved, setThresholdSaved] = useState('')
+  const [thresholdBusy, setThresholdBusy]   = useState(false)
+  const [thresholdMsg, setThresholdMsg]     = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const { data } = await supabase
+        .from('app_settings').select('value').eq('key', 'invoice_approval_threshold').maybeSingle()
+      if (!alive) return
+      const v = (data?.value ?? '').trim()
+      setThreshold(v)
+      setThresholdSaved(v)
+    })()
+    return () => { alive = false }
+  }, [])
+
+  async function handleSaveThreshold() {
+    const raw = threshold.trim()
+    // Only a positive number or a deliberate blank. "20,000" and "20000 ש\"ח"
+    // are rejected rather than coerced: a threshold that silently became 20 is
+    // the kind of mistake nobody notices until every invoice is held.
+    if (raw && (!/^\d+(\.\d+)?$/.test(raw) || Number(raw) <= 0)) {
+      setThresholdMsg({ type: 'error', text: 'יש להזין מספר חיובי בלבד, בלי פסיקים ובלי ₪' })
+      return
+    }
+    setThresholdBusy(true)
+    try {
+      const { error } = await supabase.from('app_settings').upsert(
+        { key: 'invoice_approval_threshold', value: raw, updated_at: new Date().toISOString() },
+        { onConflict: 'key' },
+      )
+      if (error) throw error
+      setThresholdSaved(raw)
+      setThresholdMsg({ type: 'success', text: raw ? 'הסף נשמר ✓' : 'השער כובה — כל החשבוניות ייכנסו כרגיל ✓' })
+    } catch (err) {
+      setThresholdMsg({ type: 'error', text: errMessage(err, 'השמירה נכשלה — נסי שוב') })
+    } finally {
+      setThresholdBusy(false)
+    }
+  }
+
   // ── Tab content ──────────────────────────────────────────────────────────────
 
   const tabContent: Record<Tab, React.ReactNode> = {
@@ -686,6 +738,38 @@ export default function Settings() {
 
     preferences: (
       <div className="space-y-5">
+        <SectionCard title="סף אישור לחשבונית גדולה">
+          <p className="text-sm text-gray-500 mb-3">
+            חשבונית שסכומה <b>לפני מע״מ</b> עובר את הסף לא תאושר אוטומטית: היא נכנסת
+            למערכת ונספרת ביתרת הספק, מסומנת ככזו שממתינה, ונפתחת התראה עם כל הפרטים —
+            לאישור או לדחייה.
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div style={{ minWidth: '190px' }}>
+              <FieldLabel>סף בשקלים, לפני מע״מ</FieldLabel>
+              <TextInput
+                value={threshold}
+                onChange={v => { setThreshold(v); setThresholdMsg(null) }}
+                placeholder="20000"
+                dir="ltr"
+              />
+            </div>
+            <Button onClick={handleSaveThreshold} disabled={thresholdBusy || threshold.trim() === thresholdSaved}>
+              {thresholdBusy ? 'שומר…' : 'שמירה'}
+            </Button>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            {thresholdSaved
+              ? `כרגע פעיל: כל חשבונית מעל ₪${Number(thresholdSaved).toLocaleString('he-IL')} לפני מע״מ תמתין לאישור.`
+              : 'כרגע כבוי — שדה ריק פירושו שאין שער, וכל החשבוניות נכנסות כרגיל.'}
+          </p>
+          {thresholdMsg && (
+            <p className="text-xs mt-2 font-semibold" style={{ color: thresholdMsg.type === 'error' ? '#DC2626' : '#16A34A' }}>
+              {thresholdMsg.text}
+            </p>
+          )}
+        </SectionCard>
+
         <SectionCard title="לוגו המערכת">
           <div className="flex items-start gap-5" style={{ flexDirection: 'row-reverse' }}>
             <div

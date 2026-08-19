@@ -3,6 +3,7 @@ import Login from './components/Login'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import EmployeeDashboard from './components/employee/EmployeeDashboard'
+import { NotesTargetProvider } from './lib/notesTarget'
 
 function LoadingScreen() {
   return (
@@ -50,7 +51,12 @@ export default function App() {
       userEmail={user.email ?? ''}
       onSignOut={signOut}
     >
-      <Layout userEmail={user.email ?? ''} onLogout={signOut} />
+      {/* The notes target lives ABOVE Layout: Layout itself has to read which
+          supplier is in focus, because that decides whether the page is shifted
+          to make room for the notes panel. */}
+      <NotesTargetProvider>
+        <Layout userEmail={user.email ?? ''} onLogout={signOut} />
+      </NotesTargetProvider>
     </ProtectedRoute>
   )
 }

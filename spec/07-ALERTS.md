@@ -54,6 +54,42 @@ Unknown types fall back to a **neutral gray badge showing the raw type string** 
 
 ---
 
+## Invoice approval gate (added 2026-08-19)
+
+| Type key | Hebrew label | Color | Click action |
+|---|---|---|---|
+| `invoice_approval_required` | חשבונית גדולה — נדרש אישור | orange / `action` | open the **decision popup on the alerts screen** — approve, or reject behind a second confirmation |
+
+Raised by ingest when an invoice's **pre-VAT** amount passes
+`app_settings.invoice_approval_threshold` (`Math.abs`, so a large **credit note**
+is caught too). `action`, not `urgent`: nothing broke and nothing was lost — the
+invoice is filed and counted, and what is outstanding is a decision.
+
+Unlike every other invoice alert, this one does **not** navigate to the invoice
+detail. Approving or rejecting needs the figures and the document side by side,
+and rejection **deletes** the invoice, its Drive copy and its Storage copy — that
+must not sit one stray click away in a list. The Dashboard card routes to the
+alerts queue for the same reason.
+
+The payload carries the whole decision — supplier, number, date, all three
+amounts, the threshold that stopped it, category, line items, Drive link, email
+link — so the owner never has to go and look something up before answering.
+`dedupKeys: ["invoiceId"]`, because one email can carry several big invoices and
+each needs its own decision.
+
+**A waiting invoice counts in the supplier's balance and is marked** — the
+alternative (an "approved only" second balance) was rejected as a figure that
+shows less than is owed. The mark appears on the ledger row and in a line above
+the ledger saying how much of the balance is still undecided.
+
+Resolution: **approve** → `PUT /invoices/:id/approve` clears `awaiting_approval`;
+**reject** → `DELETE /invoices/:id` (the existing `deleteInvoice`, which also
+trashes the Drive file and closes sibling alerts from the same email). A failed
+call leaves the alert OPEN on purpose — that is how the owner finds out the
+decision did not take.
+
+---
+
 ## Statement extraction failure (added 2026-08-18)
 
 | Type key | Hebrew label | Color | Click action |
