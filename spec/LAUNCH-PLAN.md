@@ -1,7 +1,8 @@
 # Hadas v2 — Launch Plan & Resume Doc
 
-> Single source of truth for **where we are** and **what's left** to take `hadas-v2` to production.
-> Read this first when resuming. Companion docs: `docs/00-INDEX.md` (reverse-engineered current
+> **⚠️ For "where we are" today, read [`spec/CURRENT-STATE.md`](./CURRENT-STATE.md) — not this.**
+> This file is the v2 launch plan: the original scope, the cutover route, and the deployment log
+> of that effort. It is history plus release procedure, no longer the live status. Companion docs: `docs/00-INDEX.md` (reverse-engineered current
 > system), `docs/04-BUSINESS-LOGIC.md` (non-obvious rules), `spec/10-SECURITY.md`,
 > `supabase/PROD-MIGRATION-CHECKLIST.sql` (the executable cutover checklist).
 

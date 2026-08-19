@@ -183,4 +183,53 @@ than over-stating it.
   does a waiting invoice export?
 - Backfill: what happens to everything already in the ledger at switch-on.
 
+### NARROWER VARIANT the owner raised 2026-08-09 — an AMOUNT THRESHOLD
+
+Same feature, much smaller blast radius: **only invoices above ~₪20,000 wait.**
+Everything below keeps entering automatically, exactly as today.
+
+**Shape as described:**
+- Invoice arrives over the threshold → does NOT enter automatically.
+- An alert is raised carrying **all the extracted details** and asking: approve?
+- **Approve** → the invoice enters the ledger normally.
+- **Reject** → the document is removed from the system *and from Drive*.
+
+**Why this variant is the stronger starting point:** it sidesteps the open question
+above. If every invoice waits, the balance stops reflecting what is owed, and the
+doc already notes that under-stating debt is harder to notice than over-stating it.
+With a threshold, only large invoices wait — the distortion is bounded, countable,
+and each waiting item is big enough to be obvious. It is also shippable without
+first solving goods-matching, which the full version depends on.
+
+**DECIDED 2026-08-09 — reject DELETES, behind a second confirmation.**
+The concern was raised that deleting the Drive copy destroys the evidence of what
+the supplier sent, against the "shown but not counted" principle the rest of the
+system follows. The owner's answer, and it is a good one: **these invoices are
+usually mistakes** — that is the whole reason for the gate — and nothing is
+deleted by the system on its own. Every deletion passes through a human decision
+on an alert that shows the full extracted detail.
+
+So: **reject → delete from the system and from Drive**, gated by a second
+"are you sure?" confirmation before it happens. Two deliberate human actions, on
+a document a human has just read in full.
+
+**DECIDED — an unreadable amount needs no special handling.**
+`invoice_low_confidence` already covers it: ingest fires that alert whenever the
+extractor is unsure, emails the manager, and files the invoice as `נדרש בירור`
+(`invoices-ingest/index.ts:1516-1528`). An invoice whose total could not be read
+therefore reaches a human through that queue rather than this one. Verified in
+code, not assumed.
+
+**DECIDED — this ships independently.** No dependency on the goods→payment
+pipeline or on the status re-spec. It can be built whenever the owner wants it.
+
+**Also to decide for this variant:**
+- The exact threshold, and whether it is configurable in Settings rather than a
+  constant in code.
+- Which amount it tests — the total, or the pre-VAT figure. (A ₪20K net invoice is
+  ₪23.6K gross; the two cross the line at different points.)
+- Whether a waiting invoice counts toward the supplier balance meanwhile
+  (see the two-figure `מאושר` / `כולל ממתינות` resolution above).
+- Whether an approved-then-regretted invoice can be un-approved.
+
 **Owner: to be specified together before any implementation.**

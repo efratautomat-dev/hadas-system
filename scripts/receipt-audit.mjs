@@ -44,97 +44,30 @@
 // ⚠️ Refuses a service-role key on purpose: it bypasses RLS and can write, which
 // is exactly what a read-only audit must not be able to do.
 
-import { createClient } from '@supabase/supabase-js'
-import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
+import { receiptMatches } from './lib/receiptRule.mjs'
+import { connect } from './lib/connect.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const asJson = process.argv.includes('--json')
 
-if (existsSync(resolve(ROOT, '.env'))) {
-  try { process.loadEnvFile(resolve(ROOT, '.env')) } catch { /* shell env only */ }
-}
+// Credentials, project-match verification and sign-in all live in lib/connect.mjs
+// — shared with the other reports, because a copy of this had a precedence bug
+// that silently used the TEST key against the PRODUCTION url.
+const { read, projectRef, signedIn, email } = await connect(ROOT, 'receipt-audit')
 
-const die = msg => { console.error(`receipt-audit: ${msg}`); process.exit(1) }
+// The rule lives in scripts/lib/receiptRule.mjs — shared with data-health so the
+// two reports can never disagree about what a receipt is.
 
-const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
-const key = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
-if (!url) die('no project URL. Set SUPABASE_URL (or VITE_SUPABASE_URL). See .env.example.')
-if (!key) die('no anon key. Set VITE_SUPABASE_ANON_KEY (or SUPABASE_ANON_KEY). See .env.example.')
-
-function isPrivilegedKey(k) {
-  if (/^sb_secret_/.test(k)) return true
-  const parts = k.split('.')
-  if (parts.length !== 3) return false
-  try {
-    const p = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
-    return p?.role === 'service_role' || p?.role === 'supabase_admin'
-  } catch { return false }
-}
-if (isPrivilegedKey(key)) {
-  die(
-    'that is a SERVICE-ROLE key, and this audit refuses to run with one.\n' +
-    '  It bypasses RLS and carries write authority. This script only SELECTs.\n' +
-    '  Use the anon key, plus HADAS_REPORT_EMAIL / HADAS_REPORT_PASSWORD if RLS is on.',
-  )
-}
-
-const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
-
-const email = process.env.HADAS_REPORT_EMAIL || ''
-const password = process.env.HADAS_REPORT_PASSWORD || ''
-if (email && password) {
-  const { error } = await supabase.auth.signInWithPassword({ email, password })
-  if (error) die(`sign-in failed for ${email}: ${error.message}`)
-}
-
-// ── The rule ──────────────────────────────────────────────────────────────────
-// A hit needs the word קבלה somewhere. A COMBINED spelling anywhere in the same
-// field cancels that field's hit — "חשבונית מס קבלה" is an invoice, full stop.
-const RECEIPT = /קבלה/
-const COMBINED = [
-  /חשבונית\s*מס\s*[\/\-–]?\s*קבלה/,   // חשבונית מס קבלה · חשבונית מס/קבלה · חשבונית מס-קבלה
-  /חשבונית\s*[\/\-–]\s*קבלה/,          // חשבונית/קבלה
-  /קבלה\s*[\/\-–]\s*חשבונית/,          // קבלה/חשבונית (reversed)
-  /חשבונית\s*מס\s*קבלה/,
-]
-const FIELDS = [
-  ['email_subject', 'נושא המייל'],
-  ['invoice_type', 'סוג המסמך'],
-  ['invoice_number', 'מספר המסמך'],
-  ['line_items', 'פירוט'],
-]
-
-const looksLikeReceipt = text => {
-  const t = String(text ?? '')
-  if (!RECEIPT.test(t)) return false
-  return !COMBINED.some(rx => rx.test(t))
-}
-
-const { data: rows, error } = await supabase
-  .from('invoices')
-  .select('id, supplier_id, supplier_name, invoice_number, invoice_date, total_amount, ' +
-          'email_subject, invoice_type, line_items, is_duplicate, has_error, ' +
-          'drive_file_link, storage_url, message_link, created_at')
-  .order('invoice_date', { ascending: false, nullsFirst: false })
-if (error) {
-  // A permission error with no login is the predictable case, not a mystery —
-  // say what to do instead of printing the raw message and stopping.
-  const denied = /permission denied|row-level security|RLS/i.test(error.message)
-  die(
-    `read of invoices failed: ${error.message}` +
-    (denied && !(email && password)
-      ? '\n  This is RLS, not a bug: the anon key alone cannot read `invoices`.\n' +
-        '  Set HADAS_REPORT_EMAIL / HADAS_REPORT_PASSWORD to a MANAGER login and re-run.'
-      : ''),
-  )
-}
-
+const rows = await read('invoices_v',
+  'id, supplier_id, supplier_name, invoice_number, invoice_date, total_amount, ' +
+  'email_subject, invoice_type, line_items, is_duplicate, has_error, ' +
+  'drive_file_link, storage_url, message_link, created_at')
 const all = rows ?? []
 if (all.length === 0) {
   console.log('No invoices were returned.')
-  if (!(email && password)) {
+  if (!signedIn) {
     console.log(
       '\n⚠️  No manager login was supplied. If RLS restricts `invoices`, an anonymous read\n' +
       '   returns zero rows whether or not any exist. Set HADAS_REPORT_EMAIL /\n' +
@@ -147,9 +80,7 @@ if (all.length === 0) {
 
 const hits = []
 for (const r of all) {
-  const matched = FIELDS
-    .filter(([col]) => looksLikeReceipt(r[col]))
-    .map(([, label]) => label)
+  const matched = receiptMatches(r)
   if (matched.length) hits.push({ row: r, matched })
 }
 
@@ -171,7 +102,7 @@ const money = n => '₪' + Number(n ?? 0).toLocaleString('he-IL')
 const pad = (s, n) => String(s ?? '').padEnd(n)
 
 console.log('')
-console.log(`  receipt-audit — scanned ${all.length} invoice row(s).`)
+console.log(`  receipt-audit — ${projectRef} — scanned ${all.length} invoice row(s).`)
 console.log('')
 
 if (hits.length === 0) {

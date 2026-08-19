@@ -16,6 +16,7 @@ import { buildLedger, type LedgerResult } from '../lib/supplierLedger'
 import { statementDiff, statementVerdict } from '../lib/ledgerEngine'
 import { printStatementPDF } from '../utils/pdf'
 import { openStoredFile } from '../lib/storage'
+import { isoToDisplay } from '../lib/dates'
 import { supabase } from '../lib/supabase'
 import SectionHeader from './SectionHeader'
 import { SearchableSelect } from './SearchableSelect'
@@ -674,10 +675,15 @@ export default function StatementReconciliation({ initialStatementId }: { initia
   // minmax(0,…) on flexible tracks so long ids / multiple action buttons can't
   // stretch a column and knock the rows out of alignment with the header. Fixed
   // px tracks for short columns; the actions column gets a wide, wrapping track.
+  // 4 tracks on mobile / 9 on desktop — one per rendered cell, in order. The
+  // arrival-date column is DESKTOP-ONLY: mobile already drops מזהה / חודש / both
+  // balances to fit 360px, and the date is triage context rather than something
+  // the row is acted on by. Adding a track here without adding its cell (or the
+  // reverse) silently shifts every column off its header.
   const gridCOL = isMobile
     ? 'minmax(0,1.4fr) 80px 90px minmax(0,1.4fr)'
-    : '76px minmax(0,1.5fr) 84px minmax(0,1.05fr) minmax(0,1.05fr) 82px 96px minmax(0,1.9fr)'
-  const gridMin = isMobile ? '360px' : '920px'
+    : '76px minmax(0,1.5fr) 84px 92px minmax(0,1.05fr) minmax(0,1.05fr) 82px 96px minmax(0,1.9fr)'
+  const gridMin = isMobile ? '360px' : '1012px'
 
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
@@ -1001,6 +1007,9 @@ export default function StatementReconciliation({ initialStatementId }: { initia
             {!isMobile && <span style={tableHeadCell}>מזהה</span>}
             <span style={tableHeadCell}>ספק</span>
             {!isMobile && <span style={tableHeadCell}>חודש</span>}
+            {/* When the statement ENTERED the system (`uploaded_at`, DEFAULT now()) —
+                not the period it covers; that is the חודש column beside it. */}
+            {!isMobile && <span style={tableHeadCell} title="התאריך שבו הכרטסת נקלטה במערכת">תאריך קליטה</span>}
             {!isMobile && <span style={tableHeadCell}>יתרה שלנו</span>}
             {!isMobile && <span style={tableHeadCell}>יתרת ספק</span>}
             <span style={tableHeadCell}>הפרש</span>
@@ -1033,6 +1042,11 @@ export default function StatementReconciliation({ initialStatementId }: { initia
                   {stmt.supplier_name || <span className="text-gray-400">ספק לא מזוהה</span>}
                 </span>
                 {!isMobile && <span className="text-sm text-gray-600">{stmt.month}</span>}
+                {!isMobile && (
+                  <span className="text-sm text-gray-600 whitespace-nowrap">
+                    {isoToDisplay(stmt.uploaded_at) || <span className="text-gray-400">—</span>}
+                  </span>
+                )}
                 {/* No supplier assigned → we have no ledger to compare against, so
                     the column says so instead of showing a confident ₪0. */}
                 {!isMobile && (
@@ -1129,7 +1143,9 @@ export default function StatementReconciliation({ initialStatementId }: { initia
                         our_balance: stmt.our_balance,
                         vendor_balance: stmt.vendor_balance,
                         diff: stmt.diff,
-                        uploaded_at: stmt.uploaded_at,
+                        // The PDF prints this string as-is, so it is formatted here
+                        // (day-first) instead of leaking the raw ISO timestamp.
+                        uploaded_at: isoToDisplay(stmt.uploaded_at),
                         supplierName: stmt.supplier_name,
                         supplierHp: (sup as Record<string, string> | undefined)?.hp,
                         supplierContact: sup?.contact,

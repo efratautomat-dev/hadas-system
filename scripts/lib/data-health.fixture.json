@@ -1,0 +1,34 @@
+{
+  "suppliers": [
+    { "id": "SUP-001", "name": "טקסטיל הגליל בע\"מ", "hp": "514882301", "opening_balance": 0, "payment_arrangement": false },
+    { "id": "SUP-002", "name": "טקסטיל הגליל בעמ",   "hp": "",          "opening_balance": 0, "payment_arrangement": false },
+    { "id": "SUP-003", "name": "חוטי זוהר",          "hp": "  514-882-301 ", "opening_balance": 0, "payment_arrangement": false },
+    { "id": "SUP-004", "name": "ציוד משרדי דקל",     "hp": "999888777", "opening_balance": 0, "payment_arrangement": false }
+  ],
+  "invoices": [
+    { "id": "INV-1", "supplier_id": "SUP-004", "supplier_name": "ציוד משרדי דקל", "invoice_number": "4471", "invoice_date": "2026-06-11", "total_amount": 7190, "amount_before_vat": 6093, "vat_amount": 1097, "is_duplicate": false, "has_error": false },
+    { "id": "INV-2", "supplier_id": "SUP-004", "supplier_name": "ציוד משרדי דקל", "invoice_number": "04471", "invoice_date": "2026-06-14", "total_amount": 7190, "amount_before_vat": 6093, "vat_amount": 1097, "is_duplicate": false, "has_error": false },
+
+    { "id": "INV-3", "supplier_id": "SUP-001", "supplier_name": "טקסטיל הגליל", "invoice_number": "", "invoice_date": "2026-05-02", "total_amount": 3400, "amount_before_vat": 0, "vat_amount": 0, "is_duplicate": false, "has_error": false },
+    { "id": "INV-4", "supplier_id": "SUP-001", "supplier_name": "טקסטיל הגליל", "invoice_number": "", "invoice_date": "2026-05-02", "total_amount": 3400, "amount_before_vat": 0, "vat_amount": 0, "is_duplicate": false, "has_error": false },
+
+    { "id": "INV-5", "supplier_id": "SUP-001", "supplier_name": "טקסטיל הגליל", "invoice_number": "9001", "invoice_date": "2026-05-10", "total_amount": 1200, "email_subject": "קבלה על תשלום", "is_duplicate": false, "has_error": false },
+    { "id": "INV-6", "supplier_id": "SUP-004", "supplier_name": "ציוד משרדי דקל", "invoice_number": "9002", "invoice_date": "2026-05-11", "total_amount": 2500, "email_subject": "חשבונית מס קבלה 9002", "is_duplicate": false, "has_error": false },
+
+    { "id": "INV-7", "supplier_id": "", "supplier_name": "", "invoice_number": "7777", "invoice_date": "2026-05-12", "total_amount": 500, "is_duplicate": false, "has_error": false },
+    { "id": "INV-8", "supplier_id": "SUP-004", "supplier_name": "ציוד משרדי דקל", "invoice_number": "8888", "invoice_date": "2026-05-13", "total_amount": 0, "is_duplicate": false, "has_error": true }
+  ],
+  "payments": [
+    { "id": "PAY-1", "supplier_id": "SUP-004", "amount": 7190, "payment_date": "2026-06-20", "payment_type": "העברה", "status": "pending" }
+  ],
+  "vendor_statements": [
+    { "id": "STMT-1", "supplier_id": "", "month": "2026-06", "our_balance": 0, "vendor_balance": 4900, "diff": 0, "status": "needs_review" },
+    { "id": "STMT-2", "supplier_id": "SUP-004", "month": "2026-06", "our_balance": 7190, "vendor_balance": 7190, "diff": 0, "status": "matched" }
+  ],
+  "alerts": [
+    { "id": "AL-1", "type": "invoice_duplicate", "status": "unread", "created_at": "2026-01-02T00:00:00Z" },
+    { "id": "AL-2", "type": "invoice_duplicate", "status": "unread", "created_at": "2026-08-01T00:00:00Z" },
+    { "id": "AL-3", "type": "supplier_incomplete", "status": "read", "created_at": "2026-08-02T00:00:00Z" },
+    { "id": "AL-4", "type": "statement_mismatch", "status": "resolved", "created_at": "2026-08-02T00:00:00Z" }
+  ]
+}

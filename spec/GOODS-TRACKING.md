@@ -5,6 +5,9 @@ goods-tracking feature. It records the current `delivery_notes` model, every end
 matching/linking works right now — plus the gaps a real goods-tracking feature would have to close.
 No behavior is proposed as built; the "Toward goods tracking" section is forward-looking only.
 
+**המשך:** [`spec/12-GOODS-TO-PAYMENT-PIPELINE.md`](./12-GOODS-TO-PAYMENT-PIPELINE.md) —
+the pipeline screen being specified on top of this analysis (owner, from 2026-08-06).
+
 Related: [`spec/DATA-DICTIONARY.md`](./DATA-DICTIONARY.md) (`delivery_notes` columns),
 `docs/04-BUSINESS-LOGIC.md` (ingest rules), `spec/06-RULES.md` (unified status taxonomy).
 
