@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   Search as SearchIcon, X, ArrowLeftRight, ArrowRight,
   Eye, Download, FileText, ExternalLink, Maximize2, UserCog,
+  AlertTriangle,
 } from 'lucide-react'
 import { useStatements } from '../hooks/useStatements'
 import type {
@@ -658,7 +659,10 @@ function useIsMobile() {
 }
 
 export default function StatementReconciliation({ initialStatementId }: { initialStatementId?: string | null }) {
-  const { data: serverStatements, loading, error, resolve: resolveStatement } = useStatements()
+  const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement } = useStatements()
+  // Deleting is irreversible and the row carries a document, so it goes through a
+  // confirmation naming the supplier and month — not a bare icon.
+  const [confirmDelete, setConfirmDelete] = useState<VendorStatement | null>(null)
   const { data: suppliersData } = useSuppliers()
   const [statements, setStatements] = useState<VendorStatement[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -1089,6 +1093,17 @@ export default function StatementReconciliation({ initialStatementId }: { initia
                     <Eye className="w-3.5 h-3.5" />
                     פירוט
                   </button>
+                  <button
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                    style={{ background: '#FEE2E2', color: '#DC2626' }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FECACA')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = '#FEE2E2')}
+                    onClick={(e) => { e.stopPropagation(); setConfirmDelete(stmt) }}
+                    title="מחיקת הכרטסת"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    מחק
+                  </button>
                   {(stmt.drive_file_link || stmt.storage_url) && (
                     <button
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
@@ -1164,6 +1179,55 @@ export default function StatementReconciliation({ initialStatementId }: { initia
 
       {/* Arrived statement document — in-page popup viewer */}
       {viewDoc && <PdfPreviewModal url={viewDoc} onClose={() => setViewDoc(null)} />}
+
+      {/* Delete confirmation. Names the supplier and month, and says what else goes
+          with the row — a statement the owner cannot identify is one she cannot
+          safely agree to delete. */}
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.45)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setConfirmDelete(null) }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full" style={{ maxWidth: '430px', direction: 'rtl' }}>
+            <div className="flex items-center gap-2 border-b" style={{ padding: '15px 20px', borderColor: '#EEEEF2' }}>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#FEE2E2' }}>
+                <AlertTriangle className="w-5 h-5" style={{ color: '#DC2626' }} />
+              </div>
+              <h3 className="font-bold text-gray-800" style={{ fontSize: '16px' }}>מחיקת כרטסת</h3>
+            </div>
+            <div style={{ padding: '18px 20px' }}>
+              <p className="text-gray-700 text-right" style={{ fontSize: '14px' }}>
+                למחוק את הכרטסת של <strong>{confirmDelete.supplier_name || 'ספק לא מזוהה'}</strong>
+                {confirmDelete.month ? <> לחודש <strong>{confirmDelete.month}</strong></> : null}?
+              </p>
+              <p className="text-gray-500 text-right mt-2" style={{ fontSize: '13px' }}>
+                הקובץ המצורף יימחק יחד איתה. <strong>הפעולה אינה הפיכה.</strong>
+              </p>
+              <p className="text-gray-400 text-right mt-2" style={{ fontSize: '12.5px' }}>
+                חשבוניות ותשלומים אינם מושפעים — יתרת הספק מחושבת מהם, לא מהכרטסת.
+              </p>
+            </div>
+            <div className="flex gap-2 border-t" style={{ padding: '14px 20px', borderColor: '#EEEEF2' }}>
+              <button
+                className="flex-1 rounded-xl font-bold"
+                style={{ background: '#DC2626', color: 'white', border: 'none', padding: '9px 14px', fontSize: '13.5px', cursor: 'pointer' }}
+                onClick={async () => {
+                  const target = confirmDelete
+                  setConfirmDelete(null)
+                  if (selectedId === target.id) setSelectedId(null)
+                  try { await removeStatement(target.id) } catch { /* hook surfaces the error */ }
+                }}
+              >מחק</button>
+              <button
+                className="flex-1 rounded-xl font-bold"
+                style={{ background: 'white', color: '#6B7280', border: '1px solid #E2E4E9', padding: '9px 14px', fontSize: '13.5px', cursor: 'pointer' }}
+                onClick={() => setConfirmDelete(null)}
+              >ביטול</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
