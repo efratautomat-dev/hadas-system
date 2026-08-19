@@ -25,6 +25,11 @@ const MAX_INGEST_ATTEMPTS       = 2;                   // cap before we stop ret
 const NEEDS_REVIEW_LABEL_NAME   = "דורש בדיקה ידנית";
 const PARTIAL_REFUND_LABEL_NAME = "החזר חלקי";         // owner applies manually — never created by code
 
+// Log category for the statement path. Tags every line the כרטסת flow writes —
+// both as a `[…]` prefix on the message and as context.docType — so the owner can
+// tell which ingest run a line belongs to on the לוגי מערכת screen.
+const STATEMENT_LOG_TAG         = "כרטסת";
+
 // Drive filing config (root id, subfolder names) + the folder-resolution rules
 // now live in ../_shared/drive-filing.ts — the single source shared with hadas-api.
 
@@ -115,16 +120,22 @@ async function isAuthorized(req: Request, supabase: SupabaseClient): Promise<boo
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 
-function makeLogger(supabase: SupabaseClient) {
+// `docType` is an OPTIONAL category tag (e.g. STATEMENT_LOG_TAG). When present it
+// lands in BOTH places the owner looks: prefixed onto the message (`[כרטסת] …`)
+// and as `context.docType` in the jsonb column, which is filterable. Omitting it
+// leaves every existing call site byte-for-byte unchanged.
+function makeLogger(supabase: SupabaseClient, docType?: string) {
   return async function log(
     level: LogLevel,
     message: string,
     context?: Record<string, unknown>,
     messageId?: string,
   ) {
-    const line = `[${level}] ${messageId ? `(${messageId}) ` : ""}${message}`;
+    const tagged  = docType ? `[${docType}] ${message}` : message;
+    const ctx     = docType ? { ...(context ?? {}), docType } : context;
+    const line = `[${level}] ${messageId ? `(${messageId}) ` : ""}${tagged}`;
     let contextStr: string;
-    try { contextStr = context ? JSON.stringify(context) : ""; }
+    try { contextStr = ctx ? JSON.stringify(ctx) : ""; }
     catch { contextStr = "[unserializable context]"; }
     console.log(line, contextStr);
     try {
@@ -133,8 +144,8 @@ function makeLogger(supabase: SupabaseClient) {
       const { error } = await supabase.from("system_logs").insert({
         source:     "invoices-ingest",
         level,
-        message,
-        context:    context ?? null,
+        message:    tagged,
+        context:    ctx ?? null,
         message_id: messageId ?? null,
       });
       if (error) {
@@ -919,10 +930,23 @@ type AnthropicContentBlock = AnthropicTextBlock | AnthropicImageBlock | Anthropi
 
 interface AnthropicMessage { role: "user"; content: AnthropicContentBlock[] }
 
+// Optional observability hook. `console.warn` alone is invisible to the owner —
+// she reads `system_logs` (the לוגי מערכת screen), not the Deno function logs — so
+// a caller that has a logger passes it here and a truncated response becomes a
+// `warn` row she can actually see. Callers with no logger in scope omit it and
+// keep today's console-only behaviour.
+interface AnthropicCallOptions {
+  log?:      Logger;
+  msgId?:    string;
+  /** Extra context merged into the truncation log row (e.g. { stage: "retry" }). */
+  logContext?: Record<string, unknown>;
+}
+
 async function anthropicMessage(
   model: string,
   messages: AnthropicMessage[],
   maxTokens = EXTRACTION_MAX_TOKENS,
+  opts: AnthropicCallOptions = {},
 ): Promise<string> {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
@@ -949,10 +973,24 @@ async function anthropicMessage(
   // mid-string and every downstream JSON.parse fails. Surface it in the function
   // logs so it reads as truncation, not a generic parse error.
   if (data.stop_reason === "max_tokens") {
-    console.warn(
-      `[anthropicMessage] response TRUNCATED at max_tokens=${maxTokens} ` +
-      `(model=${model}, output_tokens=${data.usage?.output_tokens ?? "?"})`,
-    );
+    const detail = `(model=${model}, output_tokens=${data.usage?.output_tokens ?? "?"})`;
+    console.warn(`[anthropicMessage] response TRUNCATED at max_tokens=${maxTokens} ${detail}`);
+    // Never let an observability write break an extraction that might still parse.
+    if (opts.log) {
+      try {
+        await opts.log("warn",
+          `תשובת ה-AI נקטעה — הגיעה לתקרת max_tokens=${maxTokens} ${detail}`,
+          {
+            ...(opts.logContext ?? {}),
+            stopReason:   "max_tokens",
+            maxTokens,
+            model,
+            outputTokens: data.usage?.output_tokens ?? null,
+          },
+          opts.msgId,
+        );
+      } catch { /* logging must never mask the API result */ }
+    }
   }
   return data.content?.filter((c) => c.type === "text").map((c) => c.text ?? "").join("") ?? "";
 }
@@ -2299,7 +2337,24 @@ interface ExtractedStatement {
 }
 
 const STATEMENT_JSON_SHAPE = '{"vendor_name":"","hp":"","closing_balance":null,"period":""}';
-const STATEMENT_MAX_TOKENS = 512;   // was 256 — the shape is wider now
+// 512 was not enough and made this feature fail 100% of the time: the statement
+// prompt is the only all-Hebrew, rule-heavy prompt in the file, and Hebrew runs
+// roughly one token per 1–2 characters, so the answer was cut off mid-JSON,
+// parseJsonRobust found no closing `}` and extractStatement threw on EVERY run.
+// max_tokens is a CEILING, not a reservation — billing is on tokens actually
+// produced, and this reply is a handful of fields — so raising it costs nothing.
+const STATEMENT_MAX_TOKENS       = 2048;
+// The retry gets a BIGGER budget than the first attempt. Re-asking an identical
+// question of an identical document under an identical ceiling is not a retry —
+// it fails the same way, which is exactly what used to happen here.
+const STATEMENT_RETRY_MAX_TOKENS = 3072;
+// Sonnet 4.6 REJECTS an assistant prefill (HTTP 400), so the "prefill a `{`"
+// trick is unavailable on this model — see the note above extractStatement.
+// The supported substitute is an explicit no-preamble instruction, which is what
+// STATEMENT_JSON_ONLY carries.
+const STATEMENT_JSON_ONLY =
+  "החזר JSON תקין בלבד. אל תוסיף טקסט, הסבר, כותרת או סימוני markdown לפני ה-JSON או אחריו. " +
+  "התו הראשון בתשובה חייב להיות { והתו האחרון }.";
 
 // Statements (כרטסת / supplier ledgers) are deliberately extracted NARROW: the
 // vendor identity (name + ח.פ), the statement's own period, and ONE amount — the
@@ -2309,12 +2364,26 @@ const STATEMENT_MAX_TOKENS = 512;   // was 256 — the shape is wider now
 //
 // `closing_balance` is null-or-nothing on purpose: a guessed balance would produce
 // a confident, wrong verdict, which is worse than no verdict at all.
+//
+// ⚠️ EXACTLY ONE ATTEMPT PLUS ONE RETRY, then throw. No loop, no third call. The
+// caller swallows the throw and still saves the row (see handleNonInvoice), so an
+// extra attempt here would only multiply cost on documents that are unreadable
+// anyway. Raising the token budgets did NOT add an attempt.
+//
+// ⚠️ No assistant prefill. Forcing JSON by prefilling an assistant turn with `{`
+// is the classic trick, but ANTHROPIC_MODEL_EXTRACTOR is claude-sonnet-4-6, and a
+// last-assistant-turn prefill is rejected with HTTP 400 on that model family —
+// adding one would turn "fails sometimes" into "400s every time". The supported
+// replacement is a no-preamble instruction (STATEMENT_JSON_ONLY).
 async function extractStatement(
   doc: { mimeType: string; bytes: Uint8Array },
+  log?: Logger,
+  msgId?: string,
 ): Promise<ExtractedStatement> {
   const prompt =
     "אתה מנתח כרטסות ספק (דפי חשבון / כרטסת הנהלת חשבונות). חלץ את הפרטים וחזור ב-JSON בלבד, ללא הסברים.\n" +
     STATEMENT_JSON_SHAPE + "\n" +
+    STATEMENT_JSON_ONLY + "\n" +
     "כללים:\n" +
     "vendor_name = שם הספק/החברה שאליו שייכת הכרטסת (לרוב בכותרת המסמך).\n" +
     "hp = מספר ח.פ / ע.מ של הספק, ספרות בלבד. אם אינו מופיע במסמך — מחרוזת ריקה.\n" +
@@ -2322,24 +2391,33 @@ async function extractStatement(
     "מספר בלבד ללא סימני מטבע ובלי מפרידי אלפים. יתרת זכות = מספר שלילי. " +
     "אם אין במסמך יתרת סגירה חד-משמעית — החזר null. אין לנחש, אין לסכם ואין לחשב יתרה בעצמך.\n" +
     "period = החודש/התקופה של הכרטסת עצמה בפורמט YYYY-MM. אם התקופה אינה מצוינת — מחרוזת ריקה.";
+  // ATTEMPT 1 of 2.
   const raw = await anthropicMessage(
     ANTHROPIC_MODEL_EXTRACTOR,
     [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
     STATEMENT_MAX_TOKENS,
+    { log, msgId, logContext: { stage: "statement-extract" } },
   );
   let parsed = parseJsonRobust(raw);
   if (parsed === null) {
+    // ATTEMPT 2 of 2 — a leaner prompt AND a larger ceiling, so the second call
+    // differs from the first in the two ways that can actually change the outcome.
     const retryRaw = await anthropicMessage(
       ANTHROPIC_MODEL_EXTRACTOR,
       [{ role: "user", content: [
         buildDocumentBlock(doc.mimeType, doc.bytes),
-        { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" + STATEMENT_JSON_SHAPE },
+        { type: "text", text: STATEMENT_JSON_ONLY + "\n" + STATEMENT_JSON_SHAPE },
       ] }],
-      STATEMENT_MAX_TOKENS,
+      STATEMENT_RETRY_MAX_TOKENS,
+      { log, msgId, logContext: { stage: "statement-extract-retry" } },
     );
     parsed = parseJsonRobust(retryRaw);
     if (parsed === null) {
-      throw new Error(`extractStatement failed after retry. Raw: ${raw.slice(0, 500)}`);
+      // No third attempt — by design. The caller records the failure loudly.
+      const looksTruncated = !retryRaw.trimEnd().endsWith("}");
+      throw new Error(
+        `extractStatement failed after retry${looksTruncated ? " — response appears TRUNCATED" : ""}. ` +
+        `Raw: ${raw.slice(0, 500)}`);
     }
   }
   const p = parsed as Record<string, unknown>;
@@ -2390,25 +2468,43 @@ function normalizeStatementPeriod(v: unknown): string {
 
 // ─── Statement supplier identification ─────────────────────────────────────
 //
-// Mirrors the `match_method` vocabulary pinned by migration 20260802000000
-// (`hp | name | email | invoice_email | manual | none`). `manual` is the UI's
-// value only — ingest never writes it.
-type StatementMatchMethod = "hp" | "name" | "email" | "invoice_email" | "none";
+// Mirrors the `match_method` vocabulary pinned by migration 20260802000000 and
+// widened by 20260818000000 to add `subject`
+// (`hp | name | subject | email | invoice_email | manual | none`). `manual` is the
+// UI's value only — ingest never writes it.
+type StatementMatchMethod = "hp" | "name" | "subject" | "email" | "invoice_email" | "none";
+
+// One-shot guard so a missing GMAIL_USER_EMAIL is reported once per function
+// instance instead of once per statement.
+let ingestMailboxWarned = false;
 
 /**
  * Ordered identification chain for an incoming כרטסת, recording WHICH rule fired.
  *
- *   1. ח.פ off the document       → suppliers.hp exact           → "hp"
- *   2. vendor name                → findBestSupplier (0.85 fuzzy) → "name"
- *   3. sending address            → suppliers.email exact         → "email"
- *   4. sending address            → the most recent invoice that arrived from the
+ *   1. ח.פ off the document       → suppliers.hp exact            → "hp"
+ *   2. vendor name off the document → findBestSupplier (0.85 fuzzy) → "name"
+ *   3. the EMAIL SUBJECT          → findBestSupplier (0.85 fuzzy) → "subject"
+ *   4. sending address            → suppliers.email exact         → "email"
+ *   5. sending address            → the most recent invoice that arrived from the
  *                                   SAME address → that invoice's supplier_id → "invoice_email"
- *   5. nothing                    → null + "none" (an orphan the manager assigns)
+ *   6. nothing                    → null + "none" (an orphan the manager assigns)
  *
- * Steps 3–4 are the point of the chain: a statement is a printout of the
- * supplier's OWN bookkeeping and very often carries neither ח.פ nor a company
- * name we can match (the heading is frequently OUR card in THEIR books), so the
- * address it was sent from is the only signal left.
+ * ⚠️ The DOCUMENT outranks the SENDER, and that ordering is load-bearing. The two
+ * address steps were briefly promoted above the name on the reasoning that "exact
+ * evidence beats a guess" — but an exact match on the sender proves who SENT the
+ * file, not whose statement it is. The owner routinely scans כרטסות herself and
+ * mails them to her own address, so the sender is systematically wrong.
+ *
+ * Steps 4–5 still matter as a fallback: a statement is a printout of the
+ * supplier's OWN bookkeeping and often carries neither ח.פ nor a company name we
+ * can match (the heading is frequently OUR card in THEIR books).
+ *
+ * ⚠️ Both address steps are SKIPPED ENTIRELY when the sender is the ingest mailbox
+ * itself (`GMAIL_USER_EMAIL`). Mail the owner sends to herself carries no evidence
+ * about the supplier, and `invoices.email_sender` additionally holds her address on
+ * every camera-captured invoice (the capture path stores `capturedBy` there) — so
+ * without the skip, a self-mailed statement matches whichever supplier she
+ * photographed most recently.
  *
  * ⚠️ This function NEVER creates a supplier — unlike `resolveSupplier` (invoices /
  * delivery notes / credit notes), which auto-creates + raises `supplier_incomplete`.
@@ -2424,7 +2520,7 @@ async function resolveStatementSupplier(
   log:       Logger,
   msgId:     string,
   suppliers: SupplierRow[],
-  args: { hp: string; vendorName: string; senderAddress: string },
+  args: { hp: string; vendorName: string; subject: string; senderAddress: string },
 ): Promise<{ supplierId: string | null; method: StatementMatchMethod }> {
   // 1. ח.פ — authoritative across every name-spelling difference.
   const normHp = normalizeHp(args.hp);
@@ -2436,24 +2532,8 @@ async function resolveStatementSupplier(
     }
   }
 
-  // 2. The address on the supplier card — an EXACT match, compared
-  //    case-insensitively and tolerating a `Display Name <addr>` value on either
-  //    side. It is tried BEFORE the fuzzy name because exact evidence must beat a
-  //    guess, and the name on a כרטסת is exactly where the guess goes wrong: the
-  //    heading is frequently OUR card in THEIR books.
-  const addr = args.senderAddress;
-  if (addr) {
-    const byEmail = suppliers.find((s) => {
-      const raw = (s.email ?? "").trim().toLowerCase();
-      return !!raw && (raw === addr || extractEmailAddress(s.email) === addr);
-    }) ?? null;
-    if (byEmail) {
-      await log("info", `statement supplier matched by supplier email → ${byEmail.id}`, { addr }, msgId);
-      return { supplierId: byEmail.id, method: "email" };
-    }
-  }
-
-  // 3. Vendor name — the existing 0.85 fuzzy path (also scores alt_names).
+  // 2. Vendor name off the DOCUMENT — the existing 0.85 fuzzy path (also scores
+  //    alt_names). The document is about the supplier; the envelope is not.
   if (args.vendorName) {
     const byName = findBestSupplier(args.vendorName, suppliers);
     if (byName) {
@@ -2463,27 +2543,87 @@ async function resolveStatementSupplier(
     }
   }
 
-  if (addr) {
-    // 4. The address we have already seen send INVOICES. `invoices.email_sender`
+  // 3. The EMAIL SUBJECT, through the SAME 0.85 fuzzy matcher (never a second
+  //    implementation of matching). No format is imposed: it is enough that the
+  //    supplier's name appears somewhere in the subject — "כרטסת יוני - שטראוס",
+  //    "שטראוס כרטסת", "FW: כרטסת שטראוס" all match. This is the step that saves
+  //    the statements the owner scans and mails to herself, where the document
+  //    heading is unreadable and the sender is her own address.
+  if (args.subject) {
+    const bySubject = findBestSupplier(args.subject, suppliers);
+    if (bySubject) {
+      await log("info", `statement supplier matched by the email subject → ${bySubject.id}`,
+        { subject: args.subject, matchedName: bySubject.name }, msgId);
+      return { supplierId: bySubject.id, method: "subject" };
+    }
+  }
+
+  // ── Address-based steps (4–5) ───────────────────────────────────────────────
+  // Config-driven, never a hardcoded address: this codebase is being prepared for
+  // other clients, each with their own ingest mailbox.
+  const ingestMailbox = extractEmailAddress(Deno.env.get("GMAIL_USER_EMAIL") ?? "");
+  if (!ingestMailbox && !ingestMailboxWarned) {
+    ingestMailboxWarned = true;
+    await log("warn",
+      "GMAIL_USER_EMAIL is not set (or is not a valid address) — cannot exclude the ingest " +
+      "mailbox from statement supplier matching; self-mailed statements may match the wrong supplier",
+      undefined, msgId);
+  }
+  const addr           = args.senderAddress;
+  const senderIsUs     = !!ingestMailbox && addr === ingestMailbox;
+  const addrIsEvidence = !!addr && !senderIsUs;
+  if (senderIsUs) {
+    await log("info",
+      "statement arrived from the ingest mailbox itself — skipping both sender-address steps",
+      { addr }, msgId);
+  }
+
+  if (addrIsEvidence) {
+    // 4. The address on the supplier card — an EXACT match, compared
+    //    case-insensitively and tolerating a `Display Name <addr>` value on either
+    //    side.
+    const byEmail = suppliers.find((s) => {
+      const raw = (s.email ?? "").trim().toLowerCase();
+      return !!raw && (raw === addr || extractEmailAddress(s.email) === addr);
+    }) ?? null;
+    if (byEmail) {
+      await log("info", `statement supplier matched by supplier email → ${byEmail.id}`, { addr }, msgId);
+      return { supplierId: byEmail.id, method: "email" };
+    }
+
+    // 5. The address we have already seen send INVOICES. `invoices.email_sender`
     //    stores the whole `From` header, which is either the bare address or
     //    `Display Name <addr@host>` — so match those two shapes and nothing else.
     //    A bare `%addr%` would also hit `xa@b.com`, and because `.limit()` applies
     //    BEFORE the exact re-check below, 25 such near-misses would have hidden a
     //    real match entirely. Anchoring on the angle bracket makes that impossible.
-    const esc = escapeLike(addr);
+    //
+    //    ⚠️ The corpus is POISONED and must be filtered: the camera-capture path
+    //    writes `from = body.capturedBy`, so every photographed invoice carries an
+    //    EMPLOYEE's or the OWNER's address in `email_sender` rather than a
+    //    supplier's. Those rows are excluded by `gmail_label_source`
+    //    (CAPTURE_LABEL_SOURCE), NULL-safely — older/imported rows have no label
+    //    source and must survive the filter — and the ingest mailbox is excluded
+    //    again in JS as a belt-and-braces re-check.
+    const esc     = escapeLike(addr);
+    const escCap  = escapeLike(CAPTURE_LABEL_SOURCE);
     const { data: rows, error } = await supabase
       .from("invoices")
-      .select("supplier_id, email_sender, received_at")
+      .select("supplier_id, email_sender, received_at, gmail_label_source")
       .not("supplier_id", "is", null)
       .or(`email_sender.ilike.%<${esc}>%,email_sender.ilike.${esc}`)
+      .or(`gmail_label_source.is.null,gmail_label_source.neq.${escCap}`)
       .order("received_at", { ascending: false, nullsFirst: false })
       .limit(25);
     if (error) {
       await log("warn", `statement sender→invoice lookup failed: ${error.message}`, { addr }, msgId);
     } else {
-      const hit = (rows ?? []).find(
-        (r: { email_sender: string | null }) => extractEmailAddress(r.email_sender) === addr,
-      );
+      const hit = (rows ?? []).find((r: { email_sender: string | null; gmail_label_source: string | null }) => {
+        if (r.gmail_label_source === CAPTURE_LABEL_SOURCE) return false;   // camera capture — not a supplier's address
+        const from = extractEmailAddress(r.email_sender);
+        if (ingestMailbox && from === ingestMailbox) return false;         // our own mailbox — proves nothing
+        return from === addr;
+      });
       if (hit?.supplier_id) {
         await log("info", `statement supplier matched by a previous invoice from ${addr} → ${hit.supplier_id}`,
           { addr }, msgId);
@@ -2493,7 +2633,11 @@ async function resolveStatementSupplier(
   }
 
   await log("info", "statement supplier NOT identified — filing as an orphan",
-    { hp: normHp || null, vendorName: args.vendorName || null, senderAddress: addr || null }, msgId);
+    {
+      hp: normHp || null, vendorName: args.vendorName || null,
+      subject: args.subject || null, senderAddress: addr || null,
+      senderIsIngestMailbox: senderIsUs,
+    }, msgId);
   return { supplierId: null, method: "none" };
 }
 
@@ -2853,29 +2997,40 @@ async function handleNonInvoice(
     // statement — uploaded to Storage only; no Drive upload (Storage-only is by
     // design for non-invoice docs; the file is viewable via a signed URL in the UI).
     //
+    // Every line this branch writes is tagged `[כרטסת]` + context.docType, so the
+    // owner can tell on the לוגי מערכת screen which run a line belongs to.
+    const slog = makeLogger(supabase, STATEMENT_LOG_TAG);
+
     // Extraction failure must NEVER block the save — the statement file is valuable
     // on its own and the user can set the supplier during review — so the error is
-    // swallowed and identification carries on WITHOUT the document's own fields.
-    // That is not a degraded path: steps 3–4 of the chain below (the sending
-    // address) work perfectly well with no extraction at all.
+    // swallowed and identification carries on WITHOUT the document's own fields
+    // (the subject and the sender may still identify the supplier).
+    //
+    // It must, however, be LOUD: a failure here means `vendor_balance` is unknown,
+    // and an unknown balance that is silently filed as 0 shows the owner a fake gap
+    // the size of the whole ledger. So the row is saved with vendor_balance = NULL,
+    // status `needs_review`, and a `statement_extract_failed` alert.
     const senderAddress = extractEmailAddress(ctx.from);
     let extracted: ExtractedStatement | null = null;
+    let extractError: string | null = null;
     try {
-      extracted = await extractStatement(ctx.doc);
-      await log("info", "statement extracted", {
+      extracted = await extractStatement(ctx.doc, slog, msgId);
+      await slog("info", "statement extracted", {
         vendor: extracted.vendor_name, hp: extracted.hp || null,
         closingBalance: extracted.closing_balance, period: extracted.period || null,
       }, msgId);
     } catch (e) {
-      await log("warn",
-        `statement extraction failed (identifying by sender only): ${e instanceof Error ? e.message : e}`,
-        { filename: ctx.doc.filename }, msgId);
+      extractError = e instanceof Error ? e.message : String(e);
+      await slog("error",
+        `פענוח הכרטסת נכשל — היתרה לפי הספק אינה ידועה: ${extractError}`,
+        { filename: ctx.doc.filename, subject: ctx.subject }, msgId);
     }
 
     const { supplierId, method: matchMethod } = await resolveStatementSupplier(
-      supabase, log, msgId, suppliers, {
+      supabase, slog, msgId, suppliers, {
         hp:            extracted?.hp ?? "",
         vendorName:    extracted?.vendor_name ?? "",
+        subject:       ctx.subject ?? "",
         senderAddress,
       },
     );
@@ -2890,25 +3045,26 @@ async function handleNonInvoice(
         supabase, "statements", new Date(ctx.emailTs),
         storageKey, ctx.doc.mimeType, ctx.doc.bytes,
       );
-      await log("info", "statement uploaded to Storage", { storagePath }, msgId);
+      await slog("info", "statement uploaded to Storage", { storagePath }, msgId);
     } catch (e) {
-      await log("error", `Storage upload failed: ${e instanceof Error ? e.message : e}`,
+      await slog("error", `Storage upload failed: ${e instanceof Error ? e.message : e}`,
         { filename: ctx.doc.filename }, msgId);
     }
 
     // vendor_statements schema has no email_subject / message_link /
     // gmail_message_id / received_at columns — only supplier_id, status,
-    // storage_url, drive_file_link, email_sender, match_method, and two NOT-NULL
-    // columns without defaults: `month` and `vendor_balance`.
+    // storage_url, drive_file_link, email_sender, match_method, and `month`
+    // (NOT NULL, no default).
     //
     // `month` is a text column rendered as-is in the UI. It now takes the
     // statement's OWN period when the document states one, and only falls back to
     // the email-received month when it doesn't — a כרטסת for June routinely arrives
     // in July, and the old fallback filed every one of them under the wrong month.
     const statementMonth = extracted?.period || ctx.emailTs.slice(0, 7);
-    // `vendor_balance` is NOT NULL, so an unreadable closing balance keeps today's 0
-    // placeholder — paired with status 'needs_review', which is what tells the owner
-    // (and the code below) that the 0 is a placeholder and not a real figure.
+    // `vendor_balance` is NULLABLE as of migration 20260818000000, and an unknown
+    // closing balance is written as NULL — never coerced to 0. The screen renders
+    // `—` for null (comparableRow in StatementReconciliation.tsx) instead of
+    // inventing a ₪0 vendor balance and a gap the size of the whole ledger.
     const vendorBalance = extracted?.closing_balance ?? null;
 
     // ── Reconcile on arrival (01-PRD §7) ──────────────────────────────────────
@@ -2920,7 +3076,7 @@ async function handleNonInvoice(
     let status = "needs_review";
     let paymentArrangement = false;
     if (supplierId && vendorBalance !== null) {
-      const ledger = await computeStatementLedger(supabase, log, msgId, supplierId);
+      const ledger = await computeStatementLedger(supabase, slog, msgId, supplierId);
       if (ledger) {
         ourBalance         = ledger.ourBalance;
         diff               = statementDiff(ourBalance, vendorBalance);
@@ -2931,7 +3087,7 @@ async function handleNonInvoice(
         // as the arrival record and draw no verdict and no alert. Settled, not
         // pending: spec/01-PRD.md §7. The reconciliation screen does the same.
         if (paymentArrangement) {
-          await log("info",
+          await slog("info",
             "statement supplier is on a payment arrangement — recording balances, no automatic verdict",
             { supplierId, ourBalance, vendorBalance, diff }, msgId);
         } else {
@@ -2947,7 +3103,8 @@ async function handleNonInvoice(
       storage_url:     storagePath || null,
       drive_file_link: null,
       month:           statementMonth,
-      vendor_balance:  vendorBalance ?? 0,
+      // NULL, never 0, when the balance is unknown — see the comment on vendorBalance.
+      vendor_balance:  vendorBalance,
       // A RECORD OF THE FILING DATE ONLY. spec/06-RULES.md §9: this column is never
       // read back for display — every screen recomputes the balance live from the
       // same engine — so writing it here can never put a stale figure on screen.
@@ -2959,8 +3116,8 @@ async function handleNonInvoice(
     if (error || !inserted) {
       // Only log/alert FAILURE on a real error — never log "recorded" for a row
       // that didn't persist.
-      await log("error", `vendor_statements insert failed: ${error?.message}`, { code: error?.code }, msgId);
-      await insertAlertOnce(supabase, log, msgId, {
+      await slog("error", `vendor_statements insert failed: ${error?.message}`, { code: error?.code }, msgId);
+      await insertAlertOnce(supabase, slog, msgId, {
         type:    "statement_save_failed",
         title:   "שמירת כרטסת נכשלה",
         message: `לא ניתן היה לשמור כרטסת מהמייל "${ctx.subject}". יש לבדוק ידנית.`,
@@ -2970,12 +3127,39 @@ async function handleNonInvoice(
     }
 
     const statementId = String(inserted.id);
+
+    // The row saved, but WITHOUT the one number the whole reconciliation turns on.
+    // Raised only after a successful insert (a failed insert has its own alert and
+    // requeues the email). The payload points at the SOURCE EMAIL, not at a row:
+    // opening a statement whose fields are all empty tells the owner nothing — the
+    // document itself is what has to be looked at. Mutually exclusive with
+    // `statement_mismatch` below, which requires a known vendorBalance.
+    if (extractError) {
+      await insertAlertOnce(supabase, slog, msgId, {
+        type:    "statement_extract_failed",
+        title:   "פענוח כרטסת נכשל — היתרה לא נקראה",
+        message: `לא הצלחנו לקרוא את יתרת הסגירה מהכרטסת שהגיעה במייל "${ctx.subject}". ` +
+                 `הכרטסת נשמרה ללא יתרה לפי הספק ואינה מושווית — יש לפתוח את המסמך ולהזין את היתרה ידנית.`,
+        payload: {
+          gmailMessageId: msgId,
+          subject:        ctx.subject,
+          senderEmail:    ctx.from || null,
+          messageLink:    ctx.messageLink,      // routing key — opens the source email
+          filename:       ctx.doc.filename,
+          storagePath:    storagePath || null,
+          month:          statementMonth,
+          matchMethod,
+          error:          extractError.slice(0, 300),
+        },
+      });
+    }
+
     if (status === "mismatch") {
       const supplierName =
         suppliers.find((s) => s.id === supplierId)?.name || extracted?.vendor_name || "ספק לא מזוהה";
       // dedupKeys=["statementId"] so two statements riding ONE email each raise
       // their own alert instead of the second being suppressed.
-      await insertAlertOnce(supabase, log, msgId, {
+      await insertAlertOnce(supabase, slog, msgId, {
         type:    "statement_mismatch",
         title:   "אי-התאמה בכרטסת",
         message: `אי-התאמה בכרטסת ${statementMonth} מול ${supplierName}: ` +
@@ -2996,9 +3180,10 @@ async function handleNonInvoice(
       }, ["statementId"]);
     }
 
-    await log("info", "statement recorded", {
+    await slog("info", "statement recorded", {
       statementId, storagePath, month: statementMonth, supplierId, matchMethod,
       vendorBalance, ourBalance, diff, status, paymentArrangement,
+      extractFailed: !!extractError,
     }, msgId);
     return true;
   }

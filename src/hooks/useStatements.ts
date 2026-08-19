@@ -38,7 +38,12 @@ export function useStatements() {
         { data: rows,     error: err },
         { data: suppRows },
       ] = await Promise.all([
-        supabase.from('vendor_statements').select('*'),
+        // Newest arrival first. `uploaded_at` is DEFAULT now() and never written
+        // by ingest, so it is the moment the row was created. Without an explicit
+        // order Postgres hands back heap order, which looked arbitrary to the owner.
+        supabase.from('vendor_statements')
+          .select('*')
+          .order('uploaded_at', { ascending: false }),
         supabase.from('suppliers_v').select('id, name'),
       ])
 
@@ -49,7 +54,7 @@ export function useStatements() {
         const suppMap: Record<string, string> = {}
         for (const s of suppRows ?? []) suppMap[s.id] = s.name
 
-        setData(rows.map(r => ({
+        const mapped = rows.map(r => ({
           ...r,
           id:             String(r.id),
           supplier_id:    r.supplier_id    ?? '',
@@ -65,7 +70,14 @@ export function useStatements() {
           email_sender:    r.email_sender    ?? null,
           match_method:    (r.match_method as StatementMatchMethod) ?? null,
           resolution_notes: r.resolution_notes ?? null,
-        })) as VendorStatement[])
+        })) as VendorStatement[]
+
+        // The `.order()` above is what the real backend honours; this repeats it on
+        // the mapped rows so the screen shows the same order on every transport —
+        // the demo client's `.order()` is a no-op stub. A row with no `uploaded_at`
+        // (predates the column / never set) sorts LAST rather than to the top.
+        mapped.sort((a, b) => (b.uploaded_at || '').localeCompare(a.uploaded_at || ''))
+        setData(mapped)
         setError(null)
       } else {
         setData([])

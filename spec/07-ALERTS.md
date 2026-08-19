@@ -54,6 +54,29 @@ Unknown types fall back to a **neutral gray badge showing the raw type string** 
 
 ---
 
+## Statement extraction failure (added 2026-08-18)
+
+| Type key | Hebrew label | Color | Click action |
+|---|---|---|---|
+| `statement_extract_failed` | פענוח כרטסת נכשל — טיפול ידני | red | open the SPECIFIC statement (`payload.statementId`) — the document is shown beside the supplier picker and the vendor-balance field |
+
+Raised when Sonnet could not read the כרטסת at all: the row reaches `vendor_statements` but
+with **no supplier and no balance**, so nothing reconciles and the statement is inert until a
+human reads the document. It is the כרטסת twin of `invoice_ingest_failed` — broken ingest,
+hence **red/urgent**, and it must read as "this one needs a human", not as a routine state.
+
+Routing note: it does **not** use the `*_no_file` route (open the source email). Those types
+have nothing saved anywhere; here the row and the file both exist and only the *reading* of the
+file failed, so the statement detail — the one screen carrying the document, the supplier
+assignment and the vendor-balance input together — is the useful destination. Fallbacks, in
+order: `payload.storagePath` (open the stored file), then the reconciliation screen. The alert
+card's own "פתח מייל מקורי" button still appears whenever `payload.messageLink` is set.
+
+> Extraction had been failing on **every** statement in production since launch, silently.
+> Once ingest is fixed these should be rare.
+
+---
+
 ## The 3 no-file types for non-invoice documents (added 2026-08-02)
 
 | Type key | Hebrew label | Color | Click action |

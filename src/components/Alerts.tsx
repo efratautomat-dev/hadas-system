@@ -61,6 +61,11 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // Raised for real by the statement reconciliation on ingest — no longer a
   // mock-only type, so it gets a bucket and appears in the type filter.
   statement_mismatch:          b('אי-התאמת כרטסת',          Scale,         'urgent'),
+  // The כרטסת twin of invoice_ingest_failed: extraction returned nothing usable,
+  // so the row was saved with no supplier and no balance and is inert until a
+  // human reads the document and fills both in. Broken ingest → urgent, not a
+  // routine state.
+  statement_extract_failed:    b('פענוח כרטסת נכשל — טיפול ידני', FileWarning, 'urgent'),
 
   // ── Action (orange): a human action is required ──
   supplier_incomplete:         b('ספק – חסר פרטים',         UserPlus,      'action'),
@@ -395,10 +400,23 @@ export function resolveAlertDestination(
     return
   }
 
-  // Statement save failed / mismatch → open the SPECIFIC statement's detail (by
-  // statementId) rather than the reconciliation list. Falls back to the stored
-  // file, then the reconciliation screen, if no id is available.
-  if (t === 'statement_save_failed' || t === 'statement_mismatch') {
+  // Statement save failed / mismatch / failed extraction → open the SPECIFIC
+  // statement's detail (by statementId) rather than the reconciliation list.
+  // Falls back to the stored file, then the reconciliation screen, if no id is
+  // available.
+  //
+  // statement_extract_failed deliberately does NOT follow the `*_no_file` route
+  // (open the source email). Those types have nothing saved anywhere, so the
+  // email is the only place to act; here the row and the FILE both exist — only
+  // the reading of it failed. The statement detail is the one screen that shows
+  // the arrived document next to the two controls that repair it (assign
+  // supplier, enter the vendor balance), so it is where the human finishes the
+  // job. The card's own "פתח מייל מקורי" button still covers the email whenever
+  // payload.messageLink is present.
+  if (
+    t === 'statement_save_failed' || t === 'statement_mismatch' ||
+    t === 'statement_extract_failed'
+  ) {
     if (statementId && handlers.onOpenStatement) { handlers.onOpenStatement(statementId); return }
     if (storagePath) { openStoredFile(storagePath); return }
     handlers.onPageChange?.('reconciliation')
