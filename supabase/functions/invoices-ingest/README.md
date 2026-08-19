@@ -62,7 +62,11 @@ The function will **auto-create** these destination labels on first run if they'
 - `תעודות משלוח` — delivery notes
 - `כרטסות` — vendor statements
 - `חזרות` — return docs
-- `דורש בדיקה ידנית` — anything the classifier or extractor couldn't handle confidently
+- ~~`דורש בדיקה ידנית`~~ — **no longer applied (2026-08-19).** Ingest raised an
+  alert AND labelled the mailbox, so a flagged item sat in two queues and only
+  one of them ever got cleared. The alerts screen is the single review queue;
+  the mailbox now records only that ingest ran. Old labels are harmless and can
+  be deleted by hand.
 
 The **source** label (`ספקים` in test mode, `חשבונית` in production) must already exist — the function will not create it. The source label is **removed** from each message after processing.
 

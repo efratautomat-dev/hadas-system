@@ -22,7 +22,10 @@ const CAPTURE_LABEL_SOURCE      = "צילום ידני";       // stamped on row
 const PROCESSED_LABEL_NAME      = "טופל_ממתין במערכת";
 const FAILED_LABEL_NAME         = "פענוח נכשל";        // parks emails that keep failing extraction
 const MAX_INGEST_ATTEMPTS       = 2;                   // cap before we stop retrying & alert
-const NEEDS_REVIEW_LABEL_NAME   = "דורש בדיקה ידנית";
+// "דורש בדיקה ידנית" was removed 2026-08-19: ingest no longer labels the mailbox
+// for review. An alert already carries the item, and a second queue in Gmail
+// that nothing clears is worse than none. Existing labels stay in the mailbox
+// and can be deleted by hand — nothing reads them.
 const PARTIAL_REFUND_LABEL_NAME = "החזר חלקי";         // owner applies manually — never created by code
 
 // Log category for the statement path. Tags every line the כרטסת flow writes —
@@ -1919,7 +1922,6 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
     return result;
   }
   const destProcessed   = await gmailEnsureLabel(token, PROCESSED_LABEL_NAME);
-  const destNeedsReview = await gmailEnsureLabel(token, NEEDS_REVIEW_LABEL_NAME);
   const destFailed      = await gmailEnsureLabel(token, FAILED_LABEL_NAME);
   // Partial-refund label is applied manually by the business owner — look up only, never created.
   const partialRefundLabelId = findLabelId(PARTIAL_REFUND_LABEL_NAME);
@@ -2124,7 +2126,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
             docType, reason, linkFailures, droppedFiles: dropped,
           },
         });
-        await gmailModifyLabels(token, msgId, [destNeedsReview, destProcessed], [sourceLabelId, "UNREAD"]);
+        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
         result.alerts++;
         continue;
       }
@@ -2230,9 +2232,12 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         continue;
       }
 
-      // Apply the email's label once: needs-review if anything was flagged.
-      const addLabels = alerted > 0 ? [destNeedsReview, destProcessed] : [destProcessed];
-      await gmailModifyLabels(token, msgId, addLabels, [sourceLabelId, "UNREAD"]);
+      // Every processed email gets exactly ONE label: טופל. A flagged document used
+      // to ALSO get "דורש בדיקה ידנית", which made the mailbox a second, partial
+      // queue competing with the alerts screen — the same item in two places, one
+      // of which nothing ever cleared. The SYSTEM is where review happens; the
+      // mailbox only records that ingest ran.
+      await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
       await log("info", "email invoice processing complete",
         { created, alerted, skipped, ads, errored }, msgId);
 
