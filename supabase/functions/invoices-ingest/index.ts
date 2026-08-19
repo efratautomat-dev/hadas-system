@@ -179,6 +179,43 @@ async function getGoogleAccessToken(): Promise<string> {
   return data.access_token;
 }
 
+/**
+ * Which mailbox are we actually reading? Asked of Gmail with the same credentials
+ * the ingest already authenticates with, so it cannot be wrong or forgotten.
+ *
+ * This used to come from GMAIL_USER_EMAIL alone. That is config someone has to set
+ * correctly on every environment, and when it is unset the guard below silently
+ * does nothing — which is precisely what happened in production: a statement the
+ * owner scanned and mailed to herself matched HER OWN supplier card by sender
+ * address, moving a balance that belongs to nobody. The account we are logged into
+ * is a fact the API already knows; asking it removes the failure mode instead of
+ * documenting it. GMAIL_USER_EMAIL stays as the fallback for a failed lookup.
+ *
+ * Cached per invocation — one call per ingest run, not per document.
+ */
+let cachedIngestMailbox: string | null | undefined;
+async function getIngestMailbox(token: string, log: Logger, msgId: string): Promise<string | null> {
+  if (cachedIngestMailbox !== undefined) return cachedIngestMailbox;
+  try {
+    const resp = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (resp.ok) {
+      const data = await resp.json() as { emailAddress?: string };
+      const addr = extractEmailAddress(data.emailAddress ?? "");
+      if (addr) {
+        cachedIngestMailbox = addr;
+        return addr;
+      }
+    }
+    await log("warn", `Gmail profile lookup did not return an address (${resp.status}) — falling back to GMAIL_USER_EMAIL`, undefined, msgId);
+  } catch (e) {
+    await log("warn", `Gmail profile lookup failed (${e instanceof Error ? e.message : e}) — falling back to GMAIL_USER_EMAIL`, undefined, msgId);
+  }
+  cachedIngestMailbox = extractEmailAddress(Deno.env.get("GMAIL_USER_EMAIL") ?? "") || null;
+  return cachedIngestMailbox;
+}
+
 interface GmailPart {
   mimeType: string;
   filename?: string;
@@ -2118,6 +2155,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
             docType,
             subject,
             from,
+            token,
             emailTs,
             messageLink,
             doc: { mimeType: f.mimeType, filename: f.filename, bytes: f.bytes },
@@ -2520,7 +2558,11 @@ async function resolveStatementSupplier(
   log:       Logger,
   msgId:     string,
   suppliers: SupplierRow[],
-  args: { hp: string; vendorName: string; subject: string; senderAddress: string },
+  args: {
+    hp: string; vendorName: string; subject: string; senderAddress: string
+    /** The mailbox we are reading, resolved from Gmail itself. See getIngestMailbox. */
+    ingestMailbox: string | null
+  },
 ): Promise<{ supplierId: string | null; method: StatementMatchMethod }> {
   // 1. ח.פ — authoritative across every name-spelling difference.
   const normHp = normalizeHp(args.hp);
@@ -2561,12 +2603,12 @@ async function resolveStatementSupplier(
   // ── Address-based steps (4–5) ───────────────────────────────────────────────
   // Config-driven, never a hardcoded address: this codebase is being prepared for
   // other clients, each with their own ingest mailbox.
-  const ingestMailbox = extractEmailAddress(Deno.env.get("GMAIL_USER_EMAIL") ?? "");
+  const ingestMailbox = args.ingestMailbox;
   if (!ingestMailbox && !ingestMailboxWarned) {
     ingestMailboxWarned = true;
     await log("warn",
-      "GMAIL_USER_EMAIL is not set (or is not a valid address) — cannot exclude the ingest " +
-      "mailbox from statement supplier matching; self-mailed statements may match the wrong supplier",
+      "the ingest mailbox could not be determined (Gmail profile lookup failed AND " +
+      "GMAIL_USER_EMAIL is unset) — self-mailed statements may match the wrong supplier",
       undefined, msgId);
   }
   const addr           = args.senderAddress;
@@ -2741,6 +2783,9 @@ async function handleNonInvoice(
     emailTs:     string;
     messageLink: string;
     doc:         { mimeType: string; filename: string; bytes: Uint8Array };
+    /** Gmail access token — absent on the camera-capture path, which has no
+     *  mailbox to ask about (the sender there is the person holding the phone). */
+    token?:      string;
   },
 ): Promise<boolean> {
   // Returns true when the document was fully handled (DB row written, or
@@ -3030,8 +3075,9 @@ async function handleNonInvoice(
       supabase, slog, msgId, suppliers, {
         hp:            extracted?.hp ?? "",
         vendorName:    extracted?.vendor_name ?? "",
-        subject:       ctx.subject ?? "",
+          subject:       ctx.subject ?? "",
         senderAddress,
+        ingestMailbox: ctx.token ? await getIngestMailbox(ctx.token, slog, msgId) : null,
       },
     );
 
