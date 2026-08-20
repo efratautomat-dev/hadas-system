@@ -163,6 +163,12 @@ raising `statement_mismatch` on a gap. A statement never creates a supplier card
   itself, never on its list. A note taken out of its context is half the
   information. If a new source can't express itself in that shape, widen the
   shape — do not special-case it inside the panel or the hook.
+  ⚠️ **A source on `invoices`, `suppliers` or `delivery_notes` must name the `_v`
+  VIEW, not the base table.** `20260708000000_employee_financial_column_mask.sql`
+  REVOKEs base-table SELECT from `anon`/`authenticated`. Getting this wrong fails
+  *silently* — `loadDerived` skips a failing source — and the demo cannot catch it,
+  because `demoClient` has no permissions and aliases `_v` back to the base table.
+  The supplier-card note shipped this way and never appeared in production.
 - **Return vocabulary mismatch:** UI uses `אושר`/`בטיפול`/`נדחה`; ingest closes returns with
   `הסתיים`. Both are live — don't unify them without checking `docs/07-OPEN-ISSUES.md`.
 

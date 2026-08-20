@@ -42,6 +42,12 @@ export interface Invoice {
    * omit it.
    */
   awaitingApproval?: boolean
+  /**
+   * A remark about THIS invoice (DB: notes). Same shape as a statement's
+   * resolution_notes: one field, edited where the row is edited. Collected
+   * read-only into the supplier notes panel. Optional: mock rows omit it.
+   */
+  notes?: string
   n8nErrorLink: string
   decodeQuality: string
   sentToAccountant: boolean

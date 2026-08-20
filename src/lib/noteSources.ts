@@ -89,7 +89,13 @@ export const NOTE_SOURCES: NoteSource[] = [
     key:   'card',
     label: 'כרטיס ספק',
     style: { bg: '#F3F4F6', fg: '#4B5563' },
-    table: 'suppliers',
+    // suppliers_v, NOT suppliers. `20260708000000_employee_financial_column_mask`
+    // REVOKEs select on the base tables from anon/authenticated and grants only
+    // the role-aware views; a client reading `suppliers` gets a permission error.
+    // It failed silently — loadDerived skips a failing source — so the card note
+    // simply never appeared in production, while the demo (whose stub client has
+    // no permissions and aliases _v to the base table) showed it fine.
+    table: 'suppliers_v',
     // The supplier's OWN id — this source is the supplier row itself.
     supplierColumn: 'id',
     columns: 'id, notes',
@@ -130,6 +136,23 @@ export const NOTE_SOURCES: NoteSource[] = [
       action: 'פתיחת החזרה',
     }),
     open: r => ({ page: 'returns', returnsEditId: str(r.id) }),
+  },
+  {
+    key:   'invoices',
+    label: 'חשבוניות',
+    style: { bg: '#E0E7FF', fg: '#3730A3' },
+    // invoices_v for the same reason as suppliers_v above.
+    table: 'invoices_v',
+    supplierColumn: 'supplier_id',
+    columns: 'id, supplier_id, notes, total_amount, invoice_date, invoice_number',
+    body: r => str(r.notes),
+    date: r => str(r.invoice_date) || null,
+    ref:  r => ({
+      label:  `חשבונית ${str(r.invoice_number) || str(r.id)}`,
+      figure: shekels(r.total_amount),
+      action: 'פתיחת החשבונית',
+    }),
+    open: r => ({ page: 'invoices', invoiceSelectedId: str(r.id) }),
   },
   {
     key:   'statements',

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, Search, ChevronRight, ExternalLink, Eye, Save, AlertTriangle, X, Trash2, Wallet, CheckCircle, Clock, RotateCcw } from 'lucide-react'
+import { FileText, Search, ChevronRight, ChevronDown, ExternalLink, Eye, Save, AlertTriangle, X, Trash2, Wallet, CheckCircle, Clock, RotateCcw, FolderOpen, StickyNote } from 'lucide-react'
 import { type Invoice, type Alert } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useSuppliers } from '../hooks/useSuppliers'
@@ -78,8 +78,10 @@ function formatILS(n: number | null | undefined) {
 const BASE: React.CSSProperties = {
   border: '1.5px solid #DEDFE5',
   borderRadius: '10px',
-  padding: '9px 13px',
-  fontSize: '15px',
+  // Tightened from 9/13 + 15px. The detail screen stacks ~20 of these in one
+  // column; every pixel of field padding is paid twenty times over in scrolling.
+  padding: '7px 11px',
+  fontSize: '14px',
   textAlign: 'right',
   direction: 'rtl',
   background: 'white',
@@ -128,7 +130,7 @@ function useIsTablet() {
 
 function Lbl({ t }: { t: string }) {
   return (
-    <span style={{ fontSize: '13px', fontWeight: 600, color: '#6B7280', display: 'block', marginBottom: '5px', textAlign: 'right' }}>
+    <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#6B7280', display: 'block', marginBottom: '3px', textAlign: 'right' }}>
       {t}
     </span>
   )
@@ -194,10 +196,10 @@ function TSelect({
 function TCheckbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <div
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px', cursor: 'pointer', padding: '8px 0', userSelect: 'none' }}
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '9px', cursor: 'pointer', padding: '5px 0', userSelect: 'none' }}
       onClick={() => onChange(!checked)}
     >
-      <span style={{ fontSize: '15px', color: '#374151' }}>{label}</span>
+      <span style={{ fontSize: '14px', color: '#374151' }}>{label}</span>
       <div style={{
         width: '22px', height: '22px', borderRadius: '6px', flexShrink: 0,
         border: checked ? '2px solid var(--brand-primary)' : '2px solid #D1C4C4',
@@ -225,8 +227,8 @@ function TTextarea({ label, value, onChange }: { label: string; value: string; o
         onChange={e => onChange(e.target.value)}
         onFocus={f.onFocus}
         onBlur={f.onBlur}
-        rows={4}
-        style={{ ...BASE, borderColor: f.on ? 'var(--brand-primary)' : '#DEDFE5', resize: 'vertical', lineHeight: 1.6 }}
+        rows={3}
+        style={{ ...BASE, borderColor: f.on ? 'var(--brand-primary)' : '#DEDFE5', resize: 'vertical', lineHeight: 1.55 }}
       />
     </div>
   )
@@ -269,22 +271,61 @@ function TLink({ label, value, onChange, showPreview = false }: { label: string;
 
 // ── Group ───────────────────────────────────────────────────────────────────
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+/**
+ * A collapsible section of the invoice form.
+ *
+ * Collapsible because the screen holds three groups and the third — where the
+ * document came from and how it was classified — is read far less often than it
+ * is scrolled past. `defaultOpen` decides the first visit; after that the choice
+ * is REMEMBERED per group, so someone who does live in the metadata never has to
+ * reopen it. Same localStorage pattern as the nav rail in Layout.tsx.
+ *
+ * Nothing is hidden that was not already there: collapsing is a display state,
+ * and every field inside is still saved by the one `שמור` button above.
+ */
+function Group({ id, title, defaultOpen = true, children }: {
+  id: string; title: string; defaultOpen?: boolean; children: React.ReactNode
+}) {
+  const key = `hadas.invoiceGroup.${id}`
+  const [open, setOpen] = useState(() => {
+    try {
+      const v = localStorage.getItem(key)
+      return v === null ? defaultOpen : v === '1'
+    } catch { return defaultOpen }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(key, open ? '1' : '0') } catch { /* private mode */ }
+  }, [key, open])
+
   return (
-    <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #EEEEF2', overflow: 'hidden' }}>
-      <div style={{ padding: '12px 18px', borderBottom: '1px solid #EEEEF2', background: '#FAFAFC' }}>
-        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: 'var(--brand-primary)', textAlign: 'right' }}>{title}</h3>
-      </div>
-      <div style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {children}
-      </div>
+    <div style={{ background: 'white', borderRadius: '14px', border: '1px solid #EEEEF2', overflow: 'hidden' }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', padding: '9px 14px', borderBottom: open ? '1px solid #EEEEF2' : 'none',
+          background: '#FAFAFC', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+          display: 'flex', alignItems: 'center', gap: '7px', textAlign: 'right',
+        }}
+      >
+        <ChevronDown
+          size={15}
+          style={{ color: 'var(--brand-primary)', flexShrink: 0, transition: 'transform 0.18s', transform: open ? 'none' : 'rotate(90deg)' }}
+        />
+        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--brand-primary)' }}>{title}</h3>
+      </button>
+      {open && (
+        <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {children}
+        </div>
+      )}
     </div>
   )
 }
 
 function Row2({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
       {children}
     </div>
   )
@@ -314,10 +355,13 @@ function withAmounts(inv: Invoice, edited: EditedAmount | null = null): Invoice 
 }
 
 export function InvoiceDetail({
-  invoice, derivedStatus, onBack, onSave, onOpenSupplier, onDelete,
+  invoice, derivedStatus, onBack, onSave, onSaveNotes, onOpenSupplier, onDelete,
   needsReviewConfirm = false, onMarkReviewed,
 }: {
   invoice: Invoice; derivedStatus: string; onBack: () => void; onSave: (inv: Invoice) => void
+  /** Save ONLY the note, without leaving the screen. `onSave` navigates away —
+   *  correct for "שמור", wrong for jotting a line and carrying on reading. */
+  onSaveNotes?: (id: string, notes: string) => Promise<void>
   onOpenSupplier?: (supplierId: string) => void
   // Manager-only: EmployeeSupplierView omits this prop, hiding the button.
   onDelete?: (id: string) => void
@@ -335,6 +379,21 @@ export function InvoiceDetail({
   const [form, setForm] = useState<Invoice>(() => withAmounts(invoice))
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [reviewing, setReviewing] = useState(false)
+  const [noteState, setNoteState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  // The note saves on its own, staying put. Failure is REPORTED rather than
+  // swallowed: the text is still in the box, and a silent failure would let the
+  // owner walk away believing it was written down.
+  const saveNote = async () => {
+    if (!onSaveNotes) return
+    setNoteState('saving')
+    try {
+      await onSaveNotes(invoice.id, form.notes ?? '')
+      setNoteState('saved')
+    } catch {
+      setNoteState('error')
+    }
+  }
   // Credit-note conversion: confirmation gate, because flipping the sign moves
   // the supplier's balance by twice the invoice total.
   const [confirmCredit, setConfirmCredit] = useState(false)
@@ -365,19 +424,6 @@ export function InvoiceDetail({
   // to the Drive link for legacy rows that have no storage_url. `direct` marks a
   // ready-to-embed URL so the modal skips the Drive-preview transform.
   const [docPreview, setDocPreview] = useState<{ url: string; direct: boolean } | null>(null)
-
-  async function openDocument() {
-    const path = (form.storage_url ?? '').trim()
-    if (path) {
-      if (/^https?:\/\//i.test(path)) { setDocPreview({ url: path, direct: true }); return }
-      const { data, error } = await supabase.storage.from('documents').createSignedUrl(path, 120)
-      if (!error && data?.signedUrl) { setDocPreview({ url: data.signedUrl, direct: true }); return }
-      console.error('[invoices] createSignedUrl failed:', error)
-    }
-    const drive = (form.driveFileLink ?? '').trim()
-    if (drive) { setDocPreview({ url: drive, direct: false }); return }
-    alert('לא ניתן לפתוח את הקובץ כעת')
-  }
 
   // ── Side-by-side document pane ──────────────────────────────────────────────
   // The pane shows the document immediately, so resolve a viewable URL on mount
@@ -485,6 +531,25 @@ export function InvoiceDetail({
               <Eye size={13} />
               הגדל
             </button>
+            {/* The month folder used to be an editable URL field down in the
+                form. It is a place to GO, not a value to type, so it lives here
+                beside the other two ways out of this pane. */}
+            {form.monthFolderLink && (
+              <a
+                href={form.monthFolderLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="תיקיית החודש בדרייב"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '5px 10px',
+                  borderRadius: '8px', border: '1px solid #DEDFE5', background: 'white',
+                  color: 'var(--brand-primary)', fontSize: '12px', textDecoration: 'none',
+                }}
+              >
+                <FolderOpen size={13} />
+                תיקיית החודש
+              </a>
+            )}
             <a
               href={docSrc.url}
               target="_blank"
@@ -632,50 +697,64 @@ export function InvoiceDetail({
       }}>
 
         {/* 1 – פרטי חשבונית */}
-        <Group title="פרטי חשבונית">
+        <Group id="details" title="פרטי חשבונית">
           <Row2>
             {/* The supplier's OWN invoice number — the one printed on the document.
-                Distinct from `id`, which is the system-generated key (INV-YYYY-NNN). */}
+                The system id (INV-YYYY-NNN) is NOT a field: it is already in the
+                header beside this number, and it was read-only here anyway. */}
             <TInput label="מספר חשבונית של הספק" value={form.invoiceNumber ?? ''} onChange={set('invoiceNumber')} />
             <TInput label="תאריך חשבונית" value={form.invoiceDate} onChange={set('invoiceDate')} type="date" />
           </Row2>
+
+          {/* Supplier assignment — the one control that moves an invoice from one
+              supplier to another, which is how a misread vendor gets corrected.
+              Full width, and named for what it DOES: "קישור לספק" read like a
+              navigation link. handleSupplier writes supplierId AND the name
+              together, so the two can never drift; the name beside it is
+              therefore display-only. Editing that name by hand used to be
+              possible and was the one way to produce an invoice that shows one
+              supplier in the list and belongs to another in the ledger. */}
+          <div>
+            <Lbl t="שיוך לספק" />
+            <SearchableSelect
+              value={form.supplierId}
+              onChange={handleSupplier}
+              placeholder="-- בחר --"
+              options={suppliersData.map(s => ({
+                value: s.id,
+                label: s.name,
+                keywords: (s as { hp?: string }).hp,
+              }))}
+            />
+            <p style={{ margin: '3px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
+              חיפוש לפי שם או ח.פ. · שינוי כאן מעביר את החשבונית לכרטסת של הספק הנבחר
+            </p>
+          </div>
+
           <Row2>
-            {/* READ-ONLY: `id` is the row's primary key and the target of the save
-                request (PUT /invoices/:id). Editing it would send the update to a
-                row that doesn't exist. Correct the SUPPLIER's number above instead. */}
-            <TInput label="מספר במערכת" value={form.id} readOnly />
-            <div />
-          </Row2>
-          <Row2>
-            <div>
-              <Lbl t="קישור לספק" />
-              <SearchableSelect
-                value={form.supplierId}
-                onChange={handleSupplier}
-                placeholder="-- בחר --"
-                options={suppliersData.map(s => ({
-                  value: s.id,
-                  label: s.name,
-                  keywords: (s as { hp?: string }).hp,
-                }))}
-              />
+            <TSelect label="קטגוריה" value={form.category} onChange={set('category')} options={catOptions} />
+            {/* The checkbox has no label line above it, so on its own it floats to
+                the top of the row while the select sits under its label. Pin it to
+                the bottom so the two read as one line. */}
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <div style={{ width: '100%' }}>
+                <TCheckbox label="האם החזר חלקי" checked={form.isPartialReturn} onChange={set('isPartialReturn')} />
+              </div>
             </div>
-            <TInput label="שם ספק" value={form.supplier} onChange={set('supplier')} />
           </Row2>
-          <TSelect label="קטגוריה" value={form.category} onChange={set('category')} options={catOptions} />
-          <TCheckbox label="האם החזר חלקי" checked={form.isPartialReturn} onChange={set('isPartialReturn')} />
           <TTextarea label="פירוט שורות" value={form.lineDetails} onChange={set('lineDetails')} />
         </Group>
 
         {/* 2 – סכומים */}
-        <Group title="סכומים">
+        <Group id="amounts" title="סכומים">
           <Row2>
             <TInput label='סכום לפני מע"מ (₪)' value={String(form.amountBeforeVat || '')} onChange={set('amountBeforeVat')} type="number" step="0.01" />
             <TInput label='מע"מ (₪)' value={String(form.vat || '')} onChange={set('vat')} type="number" step="0.01" />
           </Row2>
           {/* The total is EDITABLE and works in both directions: type the gross that
               appears on the document and net + VAT are derived from it; type either
-              of those and the gross recomputes. */}
+              of those and the gross recomputes. Deliberately NOT tightened with the
+              rest of the form — it is the figure the whole screen is about. */}
           <div style={{
             background: '#FAFAFC', border: '1.5px solid #F0D4DA', borderRadius: '12px',
             padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px',
@@ -708,70 +787,98 @@ export function InvoiceDetail({
           )}
         </Group>
 
-        {/* 3 – פרטי שולח */}
-        <Group title="פרטי שולח">
+        {/* 3 – מקור וסטטוס.
+            Four small groups folded into one: who sent it, which email it came
+            from, and how the ingest classified it are all the same question —
+            where did this row come from — and none of it is read on a normal
+            visit. Closed by default for that reason; the choice is remembered.
+
+            Gone from here, and why:
+            • "צפייה במסמך" — the document pane's "הגדל" opens the same modal.
+            • "קישור לקובץ בדרייב" — the pane already opens it in a new tab, and
+              nobody hand-edits a Drive URL that ingest wrote.
+            • "קישור לתיקיית החודש" — now a button in the pane header.
+            • "מזהה מייל" / "תאריך העלאה" — no DB column at all; useInvoices
+              fills them with a constant '', so they were empty boxes on every
+              invoice, always. */}
+        <Group id="source" title="מקור וסטטוס" defaultOpen={false}>
           <Row2>
             <TInput label="שם השולח" value={form.senderName} onChange={set('senderName')} />
             <TInput label="כתובת מייל שולח" value={form.senderEmail} onChange={set('senderEmail')} type="email" />
           </Row2>
-        </Group>
-
-        {/* 4 – קישורי גישה */}
-        <Group title="קישורי גישה">
-          {(form.storage_url || form.driveFileLink) && (
-            <div>
-              <Lbl t="מסמך מצורף" />
-              <button
-                type="button"
-                onClick={openDocument}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '8px',
-                  padding: '9px 16px', borderRadius: '10px', border: '1.5px solid #DEDFE5',
-                  background: 'white', color: 'var(--brand-primary)', cursor: 'pointer', fontSize: '14px', fontWeight: 600,
-                }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-active-bg)')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'white')}
-              >
-                <Eye size={16} />
-                צפייה במסמך
-              </button>
-            </div>
-          )}
-          <TLink label="קישור לקובץ בדרייב" value={form.driveFileLink} onChange={set('driveFileLink')} />
-          <TLink label="קישור לתיקיית החודש" value={form.monthFolderLink} onChange={set('monthFolderLink')} />
-          <TLink label="קישור למייל המקורי" value={form.originalEmailLink} onChange={set('originalEmailLink')} />
-        </Group>
-
-        {/* 5 – מטא נתונים */}
-        <Group title="מטא נתונים">
           <TInput label="נושא המייל" value={form.emailSubject ?? ''} readOnly />
           <Row2>
             <TInput label="תאריך ושעת קבלת מייל" value={form.emailReceivedAt} onChange={set('emailReceivedAt')} type="datetime-local" />
-            <TInput label="מזהה מייל" value={form.emailId} readOnly />
-          </Row2>
-          <TInput label="תאריך העלאה" value={form.uploadDate} readOnly />
-        </Group>
-
-        {/* 6 – סטטוס ובקרה */}
-        <Group title="סטטוס ובקרה">
-          <Row2>
-            {/* Status is derived (transferred → under review → waiting), not
-                manually editable — shown read-only as a badge. */}
             <div>
+              {/* Status is derived (transferred → under review → waiting), not
+                  manually editable — shown read-only as a badge. */}
               <Lbl t="סטטוס טיפול" />
-              <StatusBadge status={internalStatus} style={{ fontSize: '14px', fontWeight: 700, padding: '9px 16px', borderRadius: '10px' }} />
+              <StatusBadge status={internalStatus} style={{ fontSize: '13px', fontWeight: 700, padding: '7px 14px', borderRadius: '10px' }} />
             </div>
+          </Row2>
+          <Row2>
             <TSelect label="איכות פענוח" value={form.decodeQuality} onChange={set('decodeQuality')} options={QUALITIES} />
+            <div />
           </Row2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
             <TCheckbox label="כפילות" checked={form.isDuplicate} onChange={set('isDuplicate')} />
             <TCheckbox label="שגיאה" checked={form.hasError} onChange={set('hasError')} />
             <TCheckbox label='הועבר לרו״ח' checked={form.sentToAccountant} onChange={set('sentToAccountant')} />
           </div>
+          <TLink label="קישור למייל המקורי" value={form.originalEmailLink} onChange={set('originalEmailLink')} />
           {form.hasError && (
             <TLink label="קישור לשגיאה ב-N8N" value={form.n8nErrorLink} onChange={set('n8nErrorLink')} />
           )}
         </Group>
+
+        {/* 4 – הערות.
+            At the BOTTOM, not the top, and that is the send buttons' doing: the
+            owner asked for "exactly what statement reconciliation has", and a
+            send-by-mail button does not belong beside the invoice number. Same
+            block as StatementReconciliation's — textarea, save, two send buttons
+            that are not wired yet, and a status line that says so. */}
+        <div style={{ background: 'white', borderRadius: '14px', border: '1px solid #EEEEF2', padding: '14px' }}>
+          <div className="flex items-center gap-2" style={{ marginBottom: '7px' }}>
+            <StickyNote size={15} style={{ color: 'var(--brand-primary)' }} />
+            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--brand-primary)' }}>הערות לחשבונית</h3>
+            <span style={{ marginInlineStart: 'auto', fontSize: '11.5px', color: '#9CA3AF' }}>
+              מופיעה גם בהערות הספק
+            </span>
+          </div>
+          <textarea
+            value={form.notes ?? ''}
+            onChange={e => { setForm(f => ({ ...f, notes: e.target.value })); setNoteState('idle') }}
+            placeholder="מה שצריך לזכור על החשבונית הזו…"
+            style={{ ...BASE, minHeight: '58px', resize: 'vertical', lineHeight: 1.55, fontFamily: 'inherit' }}
+          />
+          <div className="flex flex-wrap items-center gap-2" style={{ marginTop: '8px' }}>
+            <button
+              type="button"
+              onClick={saveNote}
+              disabled={noteState === 'saving'}
+              className="rounded-xl font-bold"
+              style={{ background: 'var(--brand-primary)', color: 'white', border: 'none', padding: '7px 14px', fontSize: '13px', cursor: 'pointer', opacity: noteState === 'saving' ? 0.6 : 1, fontFamily: 'inherit' }}
+            >שמירת הערה</button>
+            <button
+              type="button"
+              disabled
+              className="rounded-xl font-bold"
+              style={{ background: 'white', color: '#9CA3AF', border: '1px solid #E2E4E9', padding: '7px 14px', fontSize: '13px', cursor: 'not-allowed', fontFamily: 'inherit' }}
+            >שליחה במייל</button>
+            <button
+              type="button"
+              disabled
+              className="rounded-xl font-bold"
+              style={{ background: 'white', color: '#9CA3AF', border: '1px solid #E2E4E9', padding: '7px 14px', fontSize: '13px', cursor: 'not-allowed', fontFamily: 'inherit' }}
+            >שליחה בוואטסאפ</button>
+            <span style={{ marginInlineStart: 'auto', fontSize: '11.5px', color: noteState === 'error' ? '#DC2626' : '#9CA3AF' }}>
+              {noteState === 'saving' ? 'שומר…'
+                : noteState === 'saved' ? 'ההערה נשמרה'
+                : noteState === 'error' ? 'ההערה לא נשמרה — נסי שוב'
+                : 'השליחה תופעל בהמשך'}
+            </span>
+          </div>
+        </div>
 
       </div>
       </div>
@@ -1107,6 +1214,9 @@ export default function Invoices({
             // hook sets error state
           }
         }}
+        // Notes save in place — no closeInvoice(), and the error is rethrown so
+        // the note box can show that it did not save.
+        onSaveNotes={async (id, notes) => { await updateInvoice(id, { notes }) }}
       />
     )
   }
