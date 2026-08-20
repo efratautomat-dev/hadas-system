@@ -242,7 +242,7 @@ function invoiceToRow(body: Record<string, unknown>): Record<string, unknown> {
     "message_link", "received_at", "execution_log_url", "ai_confidence",
     "is_duplicate", "has_error", "status", "category",
     "invoice_type", "external_link", "error_reason", "html_content",
-    "ai_missing_fields", "transferred_at",
+    "ai_missing_fields", "transferred_at", "notes",
   ];
   for (const col of SNAKE) {
     if (body[col] !== undefined) row[col] = body[col];
@@ -259,6 +259,7 @@ function invoiceToRow(body: Record<string, unknown>): Record<string, unknown> {
     vat:               "vat_amount",
     amount:            "total_amount",
     lineDetails:       "line_items",
+    notes:             "notes",
     senderName:        "sender_name",
     senderEmail:       "email_sender",
     driveFileLink:     "drive_file_link",

@@ -78,6 +78,13 @@ const DUP_PAIR = new Set(['inv_025', 'inv_026'])
 // the notes demo, so one screen shows both features.
 const DEMO_AWAITING_APPROVAL = new Set(['inv_018'])
 
+// A remark on ONE invoice. Same supplier as the notes/gate demos, so a single
+// supplier screen shows every feature at once — and so the collected feed has an
+// invoice row in it alongside the payment, return, statement and card notes.
+const DEMO_INVOICE_NOTES: Record<string, string> = {
+  inv_018: 'הספק חייב 400 מטר וסיפק 380. סוכם זיכוי על ההפרש — לא לאשר לתשלום עד שהזיכוי מגיע.',
+}
+
 const invoices: Row[] = seed.invoices.map((inv) => {
   const isDup = DUP_PAIR.has(inv.id)
   // Split at the rate in force on the invoice's own date (17% → 18% on 1.1.2025).
@@ -97,11 +104,15 @@ const invoices: Row[] = seed.invoices.map((inv) => {
     is_duplicate: isDup,
     has_error: false,
     awaiting_approval: DEMO_AWAITING_APPROVAL.has(inv.id),
+    notes: DEMO_INVOICE_NOTES[inv.id] ?? '',
     // Paid invoices are treated as already forwarded to the accountant so the
     // derived-status badges show a realistic mix (green "הועבר לרו״ח").
     transferred_at: inv.status === 'שולם' ? `${inv.date}T12:00:00` : null,
     storage_url: DOC_URL,
     drive_file_link: DOC_URL,
+    // Real invoices carry a month-folder link (ingest files them by year/month);
+    // without it the "תיקיית החודש" button in the document pane never showed.
+    drive_folder_link: DOC_URL,
     sender_name: inv.supplier_name,
     email_sender: nameToId[inv.supplier_name] ? `${inv.supplier_id}@demo.co.il` : '',
     email_subject: `חשבונית ${isDup ? '4471' : inv.number} — ${inv.supplier_name}`,

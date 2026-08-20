@@ -46,6 +46,7 @@ export function useInvoices() {
           isDuplicate:       r.is_duplicate       ?? false,
           hasError:          r.has_error          ?? false,
           awaitingApproval:  r.awaiting_approval  ?? false,
+          notes:             r.notes              ?? '',
           status:            r.status             ?? '',
           category:          r.category           ?? '',
           // duplicateFlag derived from is_duplicate (no DB column)

@@ -116,6 +116,8 @@ create table if not exists public.invoices (
   -- Pre-VAT amount passed the approval threshold at ingest and the owner has not
   -- decided yet. The row still COUNTS in the balance; the ledger flags it.
   awaiting_approval   boolean     not null default false,
+  -- Free-text remark about THIS invoice (collected into the supplier notes panel).
+  notes               text,
   constraint invoices_pkey primary key (id)
 );
 
