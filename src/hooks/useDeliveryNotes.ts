@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
-import { mockDeliveryNotes, type DeliveryNote } from '../data/mockData'
+import { mockDeliveryNotes, type DeliveryNote, type InvoiceCandidate, type PipelineStage } from '../data/mockData'
 import { isoToDisplay } from '../lib/dates'
 
 
@@ -33,6 +33,11 @@ export function useDeliveryNotes() {
           lineItems:       r.line_items ?? '',
           noteNumber:      r.note_number ?? '',
           employeeId:      r.employee_id ?? '',
+          // The pipeline state. Falls back to `awaiting_invoice` — the same default the
+          // DB column carries — so a row written before the migration still reads as a
+          // delivery waiting for its invoice rather than as an undefined state.
+          stage:           (r.stage as PipelineStage) ?? 'awaiting_invoice',
+          intakeSource:    r.intake_source ?? (r.gmail_message_id ? 'email' : 'manual'),
           // notes field doesn't exist in DB; omit it
         })) as DeliveryNote[])
         setError(null)
@@ -121,6 +126,21 @@ export function useDeliveryNotes() {
     }
   }
 
+  // Suggested invoices for a note — supplier + date proximity + amount, ranked by the
+  // API. ADVISORY: this returns a list to show, and attaching is still a separate,
+  // explicit `link` call made by a person (§6.f). Nothing here writes.
+  const candidates = async (id: string): Promise<InvoiceCandidate[]> => {
+    try {
+      const res = await api.get(`/delivery-notes/${id}/candidates`)
+      return (res as { candidates?: InvoiceCandidate[] }).candidates ?? []
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[useDeliveryNotes] candidates error:', msg)
+      setError(`שגיאה בטעינת התאמות אפשריות: ${msg}`)
+      return []
+    }
+  }
+
   const unlink = async (id: string) => {
     console.log('[useDeliveryNotes] unlink id:', id)
     try {
@@ -149,5 +169,5 @@ export function useDeliveryNotes() {
     }
   }
 
-  return { data, loading, error, create, setMatch, update, link, unlink, remove }
+  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates }
 }

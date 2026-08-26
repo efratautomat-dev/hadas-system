@@ -66,6 +66,17 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // human reads the document and fills both in. Broken ingest → urgent, not a
   // routine state.
   statement_extract_failed:    b('פענוח כרטסת נכשל — טיפול ידני', FileWarning, 'urgent'),
+  // Parked after MAX_INGEST_ATTEMPTS — the per-document-type siblings of
+  // invoice_ingest_failed. Until now that ONE type served every document, so a
+  // תעודת משלוח whose extraction kept failing was announced to the owner as a failed
+  // INVOICE — the same defect spec/09-IDEAS.md §10 records for כרטסת. The email is
+  // parked behind the "פענוח נכשל" Gmail label and re-queues when the label is removed.
+  //
+  // NOT the same as statement_extract_failed above: there the row WAS saved and sits
+  // inert awaiting a human; here nothing was saved and the email is out of the queue.
+  delivery_note_ingest_failed: b('פענוח תעודת משלוח נכשל — טיפול ידני', Truck,    'urgent'),
+  statement_ingest_failed:     b('פענוח כרטסת נכשל — טיפול ידני',       Scale,    'urgent'),
+  return_ingest_failed:        b('פענוח זיכוי/חזרה נכשל — טיפול ידני',  Receipt,  'urgent'),
 
   // ── Action (orange): a human action is required ──
   supplier_incomplete:         b('ספק – חסר פרטים',         UserPlus,      'action'),
@@ -378,10 +389,15 @@ export function resolveAlertDestination(
   // The three non-invoice variants are the same situation for a כרטסת / delivery
   // note / credit note: nothing was saved anywhere, so the email IS the only
   // place to act. There is no row to open.
+  // The parked-extraction variants land here for the same reason: extraction failed
+  // MAX_INGEST_ATTEMPTS times, nothing was written to any table, and the email is out
+  // of the ingest queue behind the "פענוח נכשל" label. There is no row to open — the
+  // email is where the document is and where the label is removed to re-queue it.
   if (
     t === 'invoice_no_attachment'  || t === 'invoice_no_valid_attachment' ||
     t === 'statement_no_file'      || t === 'delivery_note_no_file'       ||
-    t === 'return_no_file'
+    t === 'return_no_file'         || t === 'delivery_note_ingest_failed' ||
+    t === 'statement_ingest_failed'|| t === 'return_ingest_failed'
   ) {
     if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
     handlers.onPageChange?.('alerts')

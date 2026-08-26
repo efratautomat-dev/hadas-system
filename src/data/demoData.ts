@@ -78,6 +78,19 @@ const DUP_PAIR = new Set(['inv_025', 'inv_026'])
 // the notes demo, so one screen shows both features.
 const DEMO_AWAITING_APPROVAL = new Set(['inv_018'])
 
+// ── the goods pipeline's own gate, in the demo ───────────────────────────────
+// A DIFFERENT question from the threshold above and resolved on a different screen,
+// so the demo has to show that a supplier can carry both marks at once without the
+// reader having to guess which "approval" is meant. Everything else is stamped
+// approved — matching the migration, which backfills every invoice that predates the
+// pipeline. Without that, the whole history would wear the mark and it would say
+// nothing.
+//
+// inv_001 is the OTHER invoice on טקסטיל הגליל, the supplier that already carries the
+// threshold row (inv_018) — so one ledger shows the orange mark, the violet mark and
+// both banners at once, which is the case worth being able to look at.
+const DEMO_AWAITING_LEDGER = new Set(['inv_001'])
+
 // A remark on ONE invoice. Same supplier as the notes/gate demos, so a single
 // supplier screen shows every feature at once — and so the collected feed has an
 // invoice row in it alongside the payment, return, statement and card notes.
@@ -104,6 +117,8 @@ const invoices: Row[] = seed.invoices.map((inv) => {
     is_duplicate: isDup,
     has_error: false,
     awaiting_approval: DEMO_AWAITING_APPROVAL.has(inv.id),
+    // A TIMESTAMP, not a flag — absence is the pending state (see isAwaitingLedgerApproval).
+    ledger_approved_at: DEMO_AWAITING_LEDGER.has(inv.id) ? null : `${inv.date}T10:00:00`,
     notes: DEMO_INVOICE_NOTES[inv.id] ?? '',
     // Paid invoices are treated as already forwarded to the accountant so the
     // derived-status badges show a realistic mix (green "הועבר לרו״ח").
@@ -283,12 +298,59 @@ const alerts: Row[] = [
 // and useDeliveryNotes falls back to unrelated legacy mock data on an empty
 // result — which would put off-brand names on screen. So we derive a few notes
 // straight from seed suppliers/invoices to keep everything consistent.
+//
+// The screen's PRIMARY split is derived: a row with a `gmail_message_id` is
+// "מסמכים שהגיעו" (email), one without is a manual goods receipt — and the screen
+// OPENS on the email view. Every row here used to be manual, so the demo's delivery
+// notes screen opened on an empty tab, and the demo could not exercise the value
+// email ingest actually writes (`status: 'pending_match'`) — which is how that value
+// stayed mis-bucketed and invisible in production without the demo ever noticing.
+// dn_05/dn_06 mirror a real ingested note: gmail id, storage doc, no Drive link.
 const delivery_notes: Row[] = [
-  { id: 'dn_01', supplier_id: 'sup_02', supplier_name: 'אריזות שקד',       date: '2026-06-03', amount: 7700,  status: 'pending',  invoice_id: null,    drive_file_link: DOC_URL },
-  { id: 'dn_02', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',        date: '2026-06-06', amount: 21400, status: 'pending',  invoice_id: null,    drive_file_link: DOC_URL },
-  { id: 'dn_03', supplier_id: 'sup_04', supplier_name: 'סיטונאות אופיר',   date: '2026-06-02', amount: 5850,  status: 'archived', invoice_id: 'inv_033', drive_file_link: DOC_URL },
-  { id: 'dn_04', supplier_id: 'sup_03', supplier_name: 'הדפסות רימון',     date: '2026-06-11', amount: 7190,  status: 'archived', invoice_id: 'inv_025', drive_file_link: DOC_URL },
+  { id: 'dn_01', supplier_id: 'sup_02', supplier_name: 'אריזות שקד',       date: '2026-06-03', amount: 7700,  status: 'pending',       invoice_id: null,      drive_file_link: DOC_URL },
+  { id: 'dn_02', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',        date: '2026-06-06', amount: 21400, status: 'pending',       invoice_id: null,      drive_file_link: DOC_URL },
+  { id: 'dn_03', supplier_id: 'sup_04', supplier_name: 'סיטונאות אופיר',   date: '2026-06-02', amount: 5850,  status: 'archived',      invoice_id: 'inv_033', drive_file_link: DOC_URL, stage: 'in_ledger' },
+  { id: 'dn_04', supplier_id: 'sup_03', supplier_name: 'הדפסות רימון',     date: '2026-06-11', amount: 7190,  status: 'archived',      invoice_id: 'inv_025', drive_file_link: DOC_URL, stage: 'awaiting_approval' },
+  { id: 'dn_05', supplier_id: 'sup_02', supplier_name: 'אריזות שקד',       date: '2026-06-09', amount: 4310,  status: 'pending_match', invoice_id: null,      drive_file_link: null, storage_url: DOC_URL, note_number: '84120', gmail_message_id: 'demo-msg-dn-05', source_email: 'orders@shaked-demo.co.il' },
+  { id: 'dn_06', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',        date: '2026-06-12', amount: 9640,  status: 'pending_match', invoice_id: null,      drive_file_link: null, storage_url: DOC_URL, note_number: '2260114', gmail_message_id: 'demo-msg-dn-06', source_email: 'mail@zohar-demo.co.il' },
+  // The inverse case (§6.4) — an invoice arrived and the goods never did. Without
+  // one of these the red step and its alert dot are unreachable in the demo.
+  { id: 'dn_07', supplier_id: 'sup_08', supplier_name: 'תוויות פלוס',      date: '2026-06-14', amount: 3120,  status: 'pending',       invoice_id: null,      drive_file_link: null, storage_url: DOC_URL, note_number: '', stage: 'awaiting_goods', intake_source: 'manual' },
 ]
+
+// ── orders ───────────────────────────────────────────────────────────────────
+// The board that replaces the WhatsApp group (spec ch. 7). Free text, because
+// that is what the owner actually writes there — not a structured item list.
+//
+// The mix is deliberate: two still waiting so "הזמנות קרובות" has something to
+// scroll, one arrived-and-different so the documentation-only flag is visible,
+// and a split pair (ord_05 opened out of ord_04) so the most confusing moment in
+// the flow — a partial arrival producing a second row for the same supplier —
+// can be seen rather than described.
+const orders: Row[] = [
+  { id: 'ord_01', supplier_id: 'sup_05', supplier_name: 'כפתורים ופרטים בע"מ',
+    description: 'כפתורי צדף לבנים, 3 גדלים + סרט גומי שחור', date: '2026-06-08',
+    status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: null },
+  { id: 'ord_02', supplier_id: 'sup_06', supplier_name: 'משלוחים מהיר אקספרס',
+    description: 'שתי חבילות מהמחסן בחיפה', date: '2026-06-11',
+    status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: null },
+  { id: 'ord_03', supplier_id: 'sup_02', supplier_name: 'אריזות שקד',
+    description: 'קרטונים מידה 3, נייר משי לבן', date: '2026-06-09',
+    status: 'order_arrived', arrived_at: '2026-06-09T08:20:00', arrived_differs: true,
+    delivery_note_id: 'dn_05' },
+  { id: 'ord_04', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',
+    description: 'חוט כותנה — 6 גוונים', date: '2026-06-10',
+    status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: null },
+  { id: 'ord_05', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',
+    description: 'הגיע: חוט כותנה, 4 גוונים', date: '2026-06-12',
+    status: 'order_partial', arrived_at: '2026-06-12T09:05:00', arrived_differs: false,
+    delivery_note_id: 'dn_06' },
+]
+
+// ── delivery_note_invoices ───────────────────────────────────────────────────
+// The many-to-many link. Empty on purpose: every demo delivery is still waiting
+// for its invoice, which is what makes the pipeline strip worth looking at.
+const delivery_note_invoices: Row[] = []
 
 // ── employees ────────────────────────────────────────────────────────────────
 const employees: Row[] = [
@@ -310,6 +372,10 @@ export const demoUser = {
 
 // allowed_users gates the manager role in useAuth.fetchRole — return the demo
 // manager so the full app (not the employee dashboard) is shown.
+// NOTE: demoClient serves this table live from demoGate.getDemoRole() instead of
+// from here, so the standalone demo's role switcher can flip the answer. This row
+// stays as the seed's own statement of who the demo user is, and as the fallback
+// shape anything else reading demoTables expects.
 const allowed_users: Row[] = [{ email: demoMeta.email, role: demoMeta.role }]
 
 // ── table registry consumed by the demo Supabase client ──────────────────────
@@ -321,11 +387,16 @@ export const demoTables: Record<string, Row[]> = {
   vendor_statements,
   alerts,
   delivery_notes,
+  delivery_note_invoices,
+  orders,
   employees,
   allowed_users,
-  // The approval threshold the demo's held invoice is measured against. The demo
-  // client serves reads from here; writes are stubbed, so changing it in Settings
-  // shows the success state without mutating the walkthrough.
+  // The approval threshold the demo's held invoice is measured against.
+  // Unlike every other table here, app_settings writes are REAL in demo mode and
+  // survive a refresh (src/lib/demoSettings.ts) — this is where the logo upload
+  // lands, and announcing a saved logo that was thrown away is not a demo, it is
+  // a lie. The seeded story is unaffected: `awaiting_approval` is set per invoice
+  // above, not derived from this number.
   app_settings: [{ key: 'invoice_approval_threshold', value: '20000' }],
   // A couple of notes on the first demo supplier, so the panel demonstrates the
   // thing that matters: notes written on DIFFERENT screens gathering on one
@@ -333,15 +404,15 @@ export const demoTables: Record<string, Row[]> = {
   supplier_notes: [
     { id: 'note_01', supplier_id: 'sup_01', tag: 'statements',
       body: 'הכרטסת ליוני לא תואמת — חשבונית 7961 מסומנת אצלנו ככפילות. ממתין לתשובה מהספק.',
-      author_email: 'demo@hadas-system.co.il',
+      author_email: demoMeta.email,
       created_at: '2026-08-18T09:20:00', updated_at: '2026-08-18T09:20:00' },
     { id: 'note_02', supplier_id: 'sup_01', tag: 'payments',
       body: 'סוכם בטלפון: מעבר לשוטף+45 מהחודש הבא.',
-      author_email: 'demo@hadas-system.co.il',
+      author_email: demoMeta.email,
       created_at: '2026-08-12T14:05:00', updated_at: '2026-08-12T14:05:00' },
     { id: 'note_03', supplier_id: 'sup_01', tag: 'suppliers',
       body: 'איש קשר חדש — יוסי, אחראי הזמנות.',
-      author_email: 'demo@hadas-system.co.il',
+      author_email: demoMeta.email,
       created_at: '2026-07-30T11:40:00', updated_at: '2026-07-30T11:40:00' },
   ],
   system_logs: [],

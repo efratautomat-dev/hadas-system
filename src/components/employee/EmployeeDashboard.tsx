@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react'
 import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import CaptureDocument from '../CaptureDocument'
+import OrdersRail from '../pipeline/OrdersRail'
+import { useOrders } from '../../hooks/useOrders'
 import { useSuppliers } from '../../hooks/useSuppliers'
+import { tierAllows } from '../../lib/tiers'
 import EmployeeSupplierView, { type EmployeeSection } from './EmployeeSupplierView'
 
 // Time-based greeting WITHOUT a name (managers' header says "בוקר טוב הדס";
@@ -32,9 +35,22 @@ const SECTION_CARDS: { key: EmployeeSection; label: string; Icon: typeof FileTex
 
 export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const { data: suppliers } = useSuppliers()
+  const { data: orders, markArrived } = useOrders()
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
   const [activeSection, setActiveSection] = useState<EmployeeSection>('invoices')
   const [showCapture, setShowCapture] = useState(false)
+  // The board only gets its own column when there is width to give it.
+  const [isWide, setIsWide] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= 1024,
+  )
+  useEffect(() => {
+    const h = () => setIsWide(window.innerWidth >= 1024)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+
+  // Arrived orders leave the board — it shows what is still on its way.
+  const openOrders = orders.filter(o => o.status !== 'order_arrived')
 
   // Browser back/forward across employee sections (flat set, no stack).
   const go = (section: EmployeeSection) => { setActiveSection(section); history.pushState({ section }, '') }
@@ -78,8 +94,31 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
         </button>
       </header>
 
-      {/* ── Content ── */}
-      <main style={{ padding: '20px 16px', maxWidth: '1000px', margin: '0 auto' }}>
+      {/* ── Content ──
+          Two columns from 1024px up: the screen keeps its 1000px column on the
+          RIGHT (first child in RTL) and the orders board takes the space that was
+          empty to its LEFT. Below that width the board drops underneath rather
+          than disappearing — on a phone there is no width to give it, and the
+          same rule the supplier notes panel follows. */}
+      <main
+        style={{
+          padding: '20px 16px', margin: '0 auto', maxWidth: '1420px',
+          display: 'grid', gap: '20px', alignItems: 'start',
+          // RTL: the FIRST track is the right-hand one. The screen keeps its own
+          // column there; the board takes the narrow track on the left.
+          gridTemplateColumns: isWide ? 'minmax(0, 1000px) minmax(0, 320px)' : '1fr',
+        }}
+      >
+        {/* LEFT in RTL — declared last so the reading order stays screen-first. */}
+        <div style={{ order: isWide ? 2 : 1 }}>
+          <OrdersRail
+            orders={openOrders}
+            onArrived={id => markArrived(id, false)}
+            onArrivedPartial={id => markArrived(id, true)}
+          />
+        </div>
+
+        <div style={{ order: isWide ? 1 : 2, minWidth: 0 }}>
         {/* Prominent standalone capture button (below header, visual left in RTL) */}
         <div className="flex mb-5" style={{ justifyContent: 'flex-end' }}>
           <button
@@ -120,7 +159,9 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
 
         {/* Section cards */}
         <div className="grid grid-cols-3 gap-3 mb-5">
-          {SECTION_CARDS.map(({ key, label, Icon }) => {
+          {/* Same tier rule as the manager nav — an employee on a basic-tier
+              account has no deliveries or returns to open either. */}
+          {SECTION_CARDS.filter(({ key }) => tierAllows(key)).map(({ key, label, Icon }) => {
             const active = !!selectedSupplier && activeSection === key
             const enabled = !!selectedSupplier
             return (
@@ -174,6 +215,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             <p className="text-gray-400 mt-1" style={{ fontSize: '14px' }}>כל המידע שיוצג שייך לספק שתבחרי בלבד</p>
           </div>
         )}
+        </div>
       </main>
 
       {/* ── Capture overlay (reuses the existing CaptureDocument flow) ── */}

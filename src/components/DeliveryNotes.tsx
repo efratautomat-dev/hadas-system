@@ -23,11 +23,19 @@ const statusLabel = { pending: 'ממתינה', archived: 'בארכיון' } as c
 
 function normalizeStatus(status: string): 'pending' | 'archived' {
   // 'pending' = still awaiting linking to an invoice → counted in "ממתינות לשיוך".
-  if (status === 'pending' || status === 'unlinked' || status === 'ממתינה לשיוך') return 'pending'
-  // A note that is already 'linked' to an invoice, or 'pending_match' (an arrived
-  // email note awaiting auto-match), is NOT awaiting manual linking — bucket it out
-  // of pending so it doesn't inflate the "ממתינות לשיוך" count.
-  if (status === 'archived' || status === 'משויכת' || status === 'linked' || status === 'pending_match') return 'archived'
+  //
+  // `pending_match` is the value EMAIL INGEST writes (invoices-ingest, the
+  // delivery-note branch) and it means "arrived, not yet matched to an invoice or a
+  // manual receipt" — which is exactly awaiting linking. It used to be bucketed as
+  // `archived` alongside `linked`, and since the list hides the archived bucket
+  // unless "הצג הכל" is on, EVERY delivery note that arrived by email was invisible
+  // on the screen built to show them, and absent from the "ממתינות לשיוך" count.
+  if (
+    status === 'pending' || status === 'unlinked' ||
+    status === 'pending_match' || status === 'ממתינה לשיוך'
+  ) return 'pending'
+  // A note already 'linked' to an invoice is genuinely not awaiting linking.
+  if (status === 'archived' || status === 'משויכת' || status === 'linked') return 'archived'
   return 'pending'
 }
 

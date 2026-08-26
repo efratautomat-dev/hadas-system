@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { brand } from '../brand.config'
+import { tierAllows } from '../lib/tiers'
 import {
   LayoutDashboard,
   Users,
@@ -16,6 +17,7 @@ import {
   Bell,
   ScrollText,
   Camera,
+  Plug,
 } from 'lucide-react'
 
 function useIsTablet() {
@@ -49,9 +51,10 @@ const navItems = [
   { id: 'ledger',    label: 'כרטסת ספק', Icon: Receipt },
   { id: 'invoices',  label: 'חשבוניות', Icon: FileText },
   { id: 'payments', label: 'תשלומים', Icon: CreditCard },
-  { id: 'deliveries', label: 'תעודות משלוח', Icon: Truck },
+  { id: 'deliveries', label: 'מעקב הזמנות וסחורה', Icon: Truck },
   { id: 'returns', label: 'חזרות', Icon: RotateCcw },
   { id: 'reconciliation', label: 'התאמת כרטסות', Icon: BookOpen },
+  { id: 'integrations',   label: 'אינטגרציות',    Icon: Plug },
   { id: 'system-logs',    label: 'לוגי מערכת',    Icon: ScrollText },
   { id: 'settings',       label: 'הגדרות',        Icon: Settings },
 ]
@@ -160,7 +163,9 @@ export default function Sidebar({
 
       {/* Navigation */}
       <nav className="flex-1 py-3 px-2 overflow-y-auto overflow-x-hidden">
-        {navItems.map(({ id, label, Icon }) => {
+        {/* Only the screens the viewer's product tier includes. One list, one
+            filter — the tier catalogue in src/lib/tiers.ts decides. */}
+        {navItems.filter(({ id }) => tierAllows(id)).map(({ id, label, Icon }) => {
           const isActive = activePage === id
           return (
             <button

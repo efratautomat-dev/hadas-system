@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Alert, AlertType, AlertStatus } from '../data/mockData'
 import { mockAlerts } from '../data/mockData'
+import { tierAllowsAlert } from '../lib/tiers'
 
 function fmtDate(iso: string): string {
   try {
@@ -26,11 +27,18 @@ export function useAlerts() {
 
       if (!error && rows && rows.length > 0) {
         setData(
-          rows.map((r) => {
+          // Tier filter lives HERE, at the single source every consumer reads —
+          // the dashboard feed, the alerts screen, its status counters and the
+          // sidebar badge. Filtering at each call site would let one of them
+          // drift and quietly surface a feature the viewer's tier excludes.
+          rows.filter((r) => tierAllowsAlert(r.type as string)).map((r) => {
             const payload = (r.payload ?? r.details) as Record<string, unknown> | null
             return {
               id:          String(r.id),
-              type:        (r.type as AlertType) ?? 'duplicate_invoice',
+              // No default of 'duplicate_invoice': a typeless row is not a duplicate,
+              // and saying so would put a red כפילות badge on something nobody
+              // classified. An empty type falls through to the gray raw-label badge.
+              type:        (r.type as AlertType) ?? '',
               date:        r.created_at ? fmtDate(r.created_at as string) : '',
               description: String(r.message ?? ''),
               status:      ((r.status === 'unread' ? 'new' : r.status) ?? (r.resolved ? 'resolved' : 'new')) as AlertStatus,
@@ -45,7 +53,7 @@ export function useAlerts() {
           '[useAlerts] falling back to mockAlerts — supabase returned no rows or an error:',
           error ?? '(no rows)',
         )
-        setData(mockAlerts)
+        setData(mockAlerts.filter((a) => tierAllowsAlert(a.type)))
       }
     } catch (e) {
       console.warn('[useAlerts] falling back to mockAlerts — exception thrown:', e)
