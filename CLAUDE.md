@@ -80,6 +80,17 @@ excludes `supabase/` so backend code never ships to Vercel.
 `App.tsx` routes employees to a restricted `EmployeeDashboard`; managers get the full `Layout`.
 RLS enforces the same boundary at the DB (defense in depth). `hadas-api` accepts either
 `x-hadas-key` (machines/cron) **or** a Bearer JWT whose email is in `allowed_users`.
+(**The header is on its way out** — the owner decided 2026-08-25 that all authentication
+becomes JWT-only; open questions and rollout in `spec/10-SECURITY.md`.)
+
+⚠️ **`hadas-api` runs on the service-role key, so it bypasses RLS AND the `_v` masking
+views.** A handler that reads a base table gets the unmasked row — `invoices_v` /
+`suppliers_v` / `delivery_notes_v` are simply not in the path. **Every route an employee
+may call (see `employeeMayAccess`) must re-apply the mask by hand.** This is not
+hypothetical: the pipeline's match-suggestion endpoint shipped reading
+`invoices.total_amount` from the base table and returned employees the figures the view
+exists to hide. Nothing enforces this — read the handler as if the views did not exist,
+because for that handler they do not.
 
 ### Ingest pipeline (`invoices-ingest`)
 The heart of the system. Gmail (labeled) → **subject type classification** → format/logo gate → magic-byte type sniff →
@@ -174,10 +185,64 @@ raising `statement_mismatch` on a gap. A statement never creates a supplier card
 
 ## Demo mode
 
-`src/lib/demo.ts` gates `DEMO_MODE`, enabled by `VITE_DEMO_MODE=true` or `?demo=1`. It runs the
-app on 100% fictitious data from `demo-seed.json`, bypasses auth, and stubs every DB read/write
-(`src/lib/demoClient.ts`) — **it never touches the real Supabase project**. Hard-disabled in any
-production build (`import.meta.env.PROD` guard), so it only works against the local dev server.
+`src/lib/demo.ts` gates `DEMO_MODE`. It runs the app on 100% fictitious data from
+`demo-seed.json`, bypasses auth, and stubs every DB read/write (`src/lib/demoClient.ts`) —
+**it never touches the real Supabase project**. There are two ways in:
+
+- **Local** — `VITE_DEMO_MODE=true` or `?demo=1`. Dev server only; no password. Used by the
+  marketing walkthrough and the Playwright E2E.
+- **Standalone** — `VITE_DEMO_STANDALONE=true`, set at build time by `.env.demo` via
+  `npm run build:demo`. This is the public demo at `incontrol.ctrlplusf.com`: a production
+  build, so it additionally shows a password gate and a manager/employee role switcher
+  (`DEMO_STANDALONE`).
+
+Two demo behaviours are worth knowing before you touch either: `app_settings` is the **one
+table whose writes are real** in demo mode (`src/lib/demoSettings.ts`, sessionStorage-backed) —
+because the logo upload lands there and a demo that announces a save it discarded is worse
+than one without the button; and the standalone build **renames itself** via the four
+`VITE_BRAND_*` overrides in `src/brand.config.ts`. That is also why `brand` now separates
+`appName` (the product) from `greetingName` (the person the dashboard greets) — they were the
+same string only because Hadas the system is named after Hadas the owner.
+
+The `import.meta.env.PROD` guard still holds for the local path — neither the env flag nor the
+URL param can switch a production build into demo mode. `VITE_DEMO_STANDALONE` is the single
+key that opens one, and it lives only in `.env.demo`. **Never add it to the Vercel project** —
+that would point the real system at fictitious rows. The role switcher works by having
+`demoClient` serve `allowed_users` live from `demoGate.getDemoRole()`, so `useAuth`,
+`ProtectedRoute` and every screen stay untouched. Full picture: `docs/08-DEMO-DEPLOYMENT.md`.
+
+## Product tiers
+
+`src/lib/tiers.ts` is the single definition of the three levels the system is sold at
+(`basic` / `advanced` / `custom`) — which screens, dashboard tiles and alerts each one
+includes. Tiers are cumulative by construction, so moving a feature between levels is one
+edit there. **`currentTier()` returns `custom` outside the standalone demo**, so production
+and the local `?demo=1` walkthrough keep seeing everything; only the public demo is tiered,
+where the password at the door decides which level the visitor browses.
+
+⚠️ **Hiding a nav item is never enough.** Anything that *points at* a gated screen advertises
+a feature the viewer cannot open — dashboard tiles and banners, whole dashboard panels, the
+Bizibox tab in Settings, the employee dashboard's cards, and history-restored navigation
+(guarded in `Layout.renderPage`). Alerts are filtered inside `useAlerts` rather than at each
+call site, so the feed, the alerts screen, its counters and the sidebar badge cannot drift
+apart; an alert type missing from the map stays **visible**, because hiding a warning nobody
+classified is worse than showing one. Adding a screen means adding it to a tier AND checking
+who points at it.
+
+## Two deployment targets — every change ships to both
+
+The frontend is deployed **twice**, and both must move together:
+
+| Target | What it is | How it deploys |
+|---|---|---|
+| **Vercel** | the real system the business runs on (real Supabase, behind login) | push to `main` |
+| **`incontrol.ctrlplusf.com`** | the public demo — static, fictitious data, no DB | build + sync on the Contabo server |
+
+`npm run deploy` does both in one command and reports on each. Deploying only one produces a
+demo that shows a system nobody uses, or a business running code nobody can demonstrate.
+`npm run deploy:demo` / `:vercel` exist for the deliberate one-sided case, and say so loudly.
+The demo half only works **on the server that hosts it** (`/home/runner/hadas-demo`), since
+publishing is a local file sync. Runbook and troubleshooting: `docs/08-DEMO-DEPLOYMENT.md`.
 
 ## Environment
 
