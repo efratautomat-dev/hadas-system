@@ -258,7 +258,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
 
   const ledger = [
     ...(openingBalance !== 0
-      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false }]
+      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false, awaitingLedgerApproval: false }]
       : []),
     ...ledgerResult.rows.map(r => ({
       id: r.id,
@@ -269,6 +269,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
       balance: r.balance,
       undated: r.undated,
       pendingApproval: r.pendingApproval,
+      awaitingLedgerApproval: r.awaitingLedgerApproval,
     })),
   ]
   const txEntries = ledgerResult.rows
@@ -497,6 +498,17 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               הן נספרות ביתרה למעלה. ההכרעה נמצאת במסך ההתראות.
             </div>
           )}
+          {/* The goods pipeline's own gate (§6.e) — a DIFFERENT question from the
+              threshold line above, resolved on a different screen, so it gets its own
+              line and its own words rather than a second "ממתינה לאישור" the reader
+              would have to disambiguate. Same counting rule: the movements are in the
+              balance and this is the mark, never a second figure. */}
+          {ledgerResult.awaitingLedgerCount > 0 && (
+            <div className="text-right" style={{ padding: '10px 20px', background: '#EDE9FE', color: '#5B21B6', fontSize: '13px', fontWeight: 600 }}>
+              קיימות תנועות שטרם אושרו לכרטסת — {ledgerResult.awaitingLedgerCount} חשבוניות בסך {formatILS(ledgerResult.awaitingLedgerTotal)}.
+              הן נספרות ביתרה למעלה. האישור נעשה במסך מעקב הזמנות וסחורה.
+            </div>
+          )}
           {/* Table header */}
           <div style={{ overflowX: 'auto' }}>
           <div
@@ -525,6 +537,12 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                     className="rounded-md font-bold"
                     style={{ fontSize: '10.5px', padding: '2px 6px', background: '#FFEDD5', color: '#9A3412', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
                   >ממתינה לאישור</span>
+                )}
+                {entry.awaitingLedgerApproval && (
+                  <span
+                    className="rounded-md font-bold"
+                    style={{ fontSize: '10.5px', padding: '2px 6px', background: '#EDE9FE', color: '#5B21B6', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
+                  >טרם אושרה לכרטסת</span>
                 )}
               </span>
               <span className="text-center font-medium" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>

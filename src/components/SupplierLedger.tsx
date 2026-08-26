@@ -20,6 +20,10 @@ interface TableRow {
   debit: number
   credit: number
   runningBalance: number
+  /** Over the approval threshold (the ₪20K gate) and still undecided. */
+  pendingApproval: boolean
+  /** Paired with goods but not yet let into the ledger by the pipeline (§6.e). */
+  awaitingLedgerApproval: boolean
 }
 
 function formatILS(n: number | null | undefined) {
@@ -94,6 +98,8 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       debit: 0,
       credit: 0,
       runningBalance: ledger.periodOpening,
+      pendingApproval: false,
+      awaitingLedgerApproval: false,
     },
     ...ledger.rows.map(r => ({
       id: r.id,
@@ -104,6 +110,8 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       debit: r.debit,
       credit: r.credit,
       runningBalance: r.balance,
+      pendingApproval: r.pendingApproval,
+      awaitingLedgerApproval: r.awaitingLedgerApproval,
     })),
   ]
 
@@ -304,6 +312,24 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           </div>
         )}
 
+        {/* Both approval marks. This screen is the one place a balance is read line by
+            line, and it carried NEITHER — the threshold banner shipped only on the
+            supplier card. A figure that announces itself as provisional on one screen
+            and as settled on another is the disagreement the shared engine exists to
+            prevent, so both live here too. Counting-and-marking, never a second total. */}
+        {ledger.pendingApprovalCount > 0 && (
+          <div className="text-right border-b" style={{ padding: '10px 20px', background: '#FFEDD5', color: '#9A3412', borderColor: '#FED7AA', fontSize: '13px', fontWeight: 600 }}>
+            קיימות תנועות שממתינות לאישור — {ledger.pendingApprovalCount} חשבוניות בסך {formatILS(ledger.pendingApprovalTotal)}.
+            הן נספרות ביתרה. ההכרעה נמצאת במסך ההתראות.
+          </div>
+        )}
+        {ledger.awaitingLedgerCount > 0 && (
+          <div className="text-right border-b" style={{ padding: '10px 20px', background: '#EDE9FE', color: '#5B21B6', borderColor: '#DDD6FE', fontSize: '13px', fontWeight: 600 }}>
+            קיימות תנועות שטרם אושרו לכרטסת — {ledger.awaitingLedgerCount} חשבוניות בסך {formatILS(ledger.awaitingLedgerTotal)}.
+            הן נספרות ביתרה. האישור נעשה במסך מעקב הזמנות וסחורה.
+          </div>
+        )}
+
         {/* Scrollable table */}
         <div style={{ overflowX: 'auto' }}>
 
@@ -342,6 +368,18 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                 </span>
                 <span className="text-right text-gray-700" style={{ fontSize: '14px' }}>
                   {row.description}
+                  {row.pendingApproval && (
+                    <span
+                      className="rounded-md font-bold"
+                      style={{ fontSize: '10.5px', padding: '2px 6px', background: '#FFEDD5', color: '#9A3412', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
+                    >ממתינה לאישור</span>
+                  )}
+                  {row.awaitingLedgerApproval && (
+                    <span
+                      className="rounded-md font-bold"
+                      style={{ fontSize: '10.5px', padding: '2px 6px', background: '#EDE9FE', color: '#5B21B6', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
+                    >טרם אושרה לכרטסת</span>
+                  )}
                 </span>
                 {!isMobile && (
                   <span className="flex justify-center">
