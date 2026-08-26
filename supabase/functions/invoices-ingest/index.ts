@@ -22,6 +22,12 @@ const CAPTURE_LABEL_SOURCE      = "צילום ידני";       // stamped on row
 const PROCESSED_LABEL_NAME      = "טופל_ממתין במערכת";
 const FAILED_LABEL_NAME         = "פענוח נכשל";        // parks emails that keep failing extraction
 const MAX_INGEST_ATTEMPTS       = 2;                   // cap before we stop retrying & alert
+// Recovery mode (POST {source:"requeue"}). The normal tick deliberately looks back
+// only 14 days, so an email parked behind the FAILED label is unreachable forever
+// once it ages out — removing the label by hand does nothing. These bound the
+// deliberate catch-up sweep instead of widening the routine query.
+const REQUEUE_LOOKBACK_DAYS     = 120;                 // owner's figure, not 365
+const REQUEUE_MAX_MESSAGES      = 50;                  // one batch; call again for the next
 // "דורש בדיקה ידנית" was removed 2026-08-19: ingest no longer labels the mailbox
 // for review. An alert already carries the item, and a second queue in Gmail
 // that nothing clears is worse than none. Existing labels stay in the mailbox
@@ -955,6 +961,22 @@ const NO_FILE_ALERT: Partial<Record<DocType, { type: string; title: string; docL
   return_doc:    { type: "return_no_file",        title: "זיכוי/חזרה ללא קובץ",     docLabel: "תעודת זיכוי/חזרה" },
 };
 
+// ── "we know what the document is, but extraction kept failing" ──────────────
+// Same shape and the same reasoning as NO_FILE_ALERT above: one type per document
+// type, the reason rides in the payload. This exists because the parked-failure
+// alert used to be hard-coded to the INVOICE wording, so a תעודת משלוח that failed
+// extraction was reported to the owner as a failed invoice — the same defect
+// spec/09-IDEAS.md §10 records for כרטסת, where a statement whose file could not be
+// fetched surfaced as a failed invoice and never reached vendor_statements.
+//
+// invoice / unknown are deliberately absent: they keep `invoice_ingest_failed`,
+// which existing alert rows and the frontend already know.
+const FAILED_ALERT: Partial<Record<DocType, { type: string; title: string }>> = {
+  statement:     { type: "statement_ingest_failed",     title: "פענוח כרטסת נכשל — דורש טיפול ידני" },
+  delivery_note: { type: "delivery_note_ingest_failed", title: "פענוח תעודת משלוח נכשל — דורש טיפול ידני" },
+  return_doc:    { type: "return_ingest_failed",        title: "פענוח תעודת זיכוי/חזרה נכשל — דורש טיפול ידני" },
+};
+
 // ─── Anthropic helpers ─────────────────────────────────────────────────────
 
 interface AnthropicTextBlock { type: "text"; text: string }
@@ -1460,8 +1482,13 @@ async function insertAlertOnce(
 // false → caller leaves the email unlabeled so the next tick retries (transient
 // API/network errors recover on their own). At the cap it PARKS the email — adds
 // the FAILED label (which the cron query excludes) + raises a visible alert — and
-// returns true. Nothing is silently dropped: removing the FAILED label in Gmail
-// re-queues the email for another MAX_INGEST_ATTEMPTS.
+// returns true.
+//
+// Nothing is silently dropped, but removing the FAILED label by hand is NOT a full
+// re-queue: this counter is never reset, so the email comes back at attempts=MAX and
+// the next failure parks it again on the FIRST try. It also only works inside the
+// routine 14-day window. The supported recovery is POST {source:"requeue"}, which
+// clears the counter and sweeps REQUEUE_LOOKBACK_DAYS back.
 async function recordFailureAndMaybePark(
   supabase: SupabaseClient,
   log:      Logger,
@@ -1470,6 +1497,11 @@ async function recordFailureAndMaybePark(
   failedLabelId: string,
   meta:     { subject: string; from: string; messageLink: string },
   errorMsg: string,
+  // What the classifier decided this email was. It selects the alert the owner
+  // sees: a delivery note that failed extraction must not be reported as a failed
+  // invoice (see FAILED_ALERT). `unknown` keeps the invoice wording, which is the
+  // honest default when nothing identified the document.
+  docType:  DocType = "unknown",
 ): Promise<boolean> {
   const { data: row } = await supabase
     .from("ingest_failures")
@@ -1496,14 +1528,17 @@ async function recordFailureAndMaybePark(
 
   // Cap reached → park out of the query and surface it.
   await gmailModifyLabels(token, msgId, [failedLabelId], ["UNREAD"]);
+  const failedAlert = FAILED_ALERT[docType] ??
+    { type: "invoice_ingest_failed", title: "פענוח חשבונית נכשל — דורש טיפול ידני" };
   await insertAlertOnce(supabase, log, msgId, {
-    type:    "invoice_ingest_failed",
-    title:   "פענוח חשבונית נכשל — דורש טיפול ידני",
+    type:    failedAlert.type,
+    title:   failedAlert.title,
     message: `המייל "${meta.subject}" נכשל בפענוח ${attempts} פעמים ולא יעובד שוב אוטומטית. ` +
              `להסרת החסימה ולניסיון חוזר — הסר/י את התווית "${FAILED_LABEL_NAME}" מהמייל.`,
     payload: {
       gmailMessageId: msgId, subject: meta.subject, from: meta.from,
       messageLink: meta.messageLink, attempts, lastError: errorMsg.slice(0, 300),
+      docType,
     },
   });
   await log("error",
@@ -1520,6 +1555,20 @@ interface IngestResult {
   skipped:    number;
   errors:     string[];
   ts:         string;
+  /** Recovery mode only: how many parked emails this run put back in the queue. */
+  requeued?:  number;
+}
+
+interface IngestOptions {
+  /**
+   * Recovery run: process the emails PARKED behind the failed label instead of the
+   * normal queue, ignoring the 14-day window. Their `ingest_failures` counters are
+   * cleared and the label removed first, so each one gets a full retry budget again
+   * rather than the single attempt a leftover counter would allow.
+   */
+  requeueFailed?:       boolean;
+  /** How far back the recovery sweep looks. Defaults to REQUEUE_LOOKBACK_DAYS. */
+  requeueLookbackDays?: number;
 }
 
 // Context shared by every invoice file in one email (the email-level facts plus
@@ -1973,7 +2022,10 @@ async function handleInvoiceFile(
   return "created";
 }
 
-async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
+async function ingestInvoices(
+  supabase: SupabaseClient,
+  opts: IngestOptions = {},
+): Promise<IngestResult> {
   const result: IngestResult = {
     processed: 0,
     alerts:    0,
@@ -2046,17 +2098,55 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   //     failed-skipped, so it no longer depends on the supplier label being
   //     co-applied. Exclusions stay name-based (those labels are code-created,
   //     always top-level, so name search is reliable for them).
-  const srcIds  = await gmailListMessages(
-    token,
-    `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d`,
-    [sourceLabelId],
-  );
-  const partIds = partialRefundLabelId
-    ? await gmailListMessages(token, `-label:"${PROCESSED_LABEL_NAME}" newer_than:90d`, [partialRefundLabelId])
-    : [];
-  const messageIds = [...new Set([...srcIds, ...partIds])];
-  await log("info", `found ${messageIds.length} candidate messages`,
-    { source: srcIds.length, partialReturn: partIds.length });
+  let messageIds: string[];
+
+  if (opts.requeueFailed) {
+    // ── Recovery sweep ──────────────────────────────────────────────────────
+    // Emails carrying BOTH the source label and the FAILED label (Gmail ANDs the
+    // labelIds), over a deliberately wider window. This exists because the routine
+    // 14-day lookback makes a parked email permanently unreachable once it ages
+    // out — the code used to tell the owner that removing the label re-queues it,
+    // which is only true inside those 14 days.
+    const days = opts.requeueLookbackDays ?? REQUEUE_LOOKBACK_DAYS;
+    messageIds = await gmailListMessages(
+      token,
+      `-label:"${PROCESSED_LABEL_NAME}" newer_than:${days}d`,
+      [sourceLabelId, destFailed],
+      REQUEUE_MAX_MESSAGES,
+    );
+    await log("info", `requeue: found ${messageIds.length} parked message(s)`,
+      { lookbackDays: days, cap: REQUEUE_MAX_MESSAGES });
+
+    if (messageIds.length > 0) {
+      // Clear the counters BEFORE processing. `ingest_failures` is never reset
+      // anywhere else, so a parked email sits at attempts=MAX and the very next
+      // failure parks it again immediately — one attempt, not a retry budget.
+      const { error: clearErr } = await supabase
+        .from("ingest_failures").delete().in("gmail_message_id", messageIds);
+      if (clearErr) {
+        await log("warn", `requeue: could not clear failure counters — retries will be limited`,
+          { error: clearErr.message });
+      }
+      // Drop the FAILED label so a run that succeeds ends with ONE label (טופל),
+      // and so the routine tick can see the email again if this run is interrupted.
+      for (const id of messageIds) {
+        await gmailModifyLabels(token, id, [], [destFailed]);
+      }
+    }
+    result.requeued = messageIds.length;
+  } else {
+    const srcIds  = await gmailListMessages(
+      token,
+      `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d`,
+      [sourceLabelId],
+    );
+    const partIds = partialRefundLabelId
+      ? await gmailListMessages(token, `-label:"${PROCESSED_LABEL_NAME}" newer_than:90d`, [partialRefundLabelId])
+      : [];
+    messageIds = [...new Set([...srcIds, ...partIds])];
+    await log("info", `found ${messageIds.length} candidate messages`,
+      { source: srcIds.length, partialReturn: partIds.length });
+  }
 
   if (messageIds.length === 0) return result;
 
@@ -2074,10 +2164,13 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
 
   for (const msgId of messageIds) {
     // Hoisted so the per-message catch below can reference them when a failure
-    // (e.g. extractInvoice throwing) unwinds out of the try.
+    // (e.g. extractInvoice throwing) unwinds out of the try. `docType` is hoisted
+    // for the same reason and one more: the parked-failure alert is chosen by it,
+    // and an extraction that throws unwinds past the point where it was decided.
     let subject     = "(no subject)";
     let from        = "";
     let messageLink = `https://mail.google.com/mail/u/0/#all/${msgId}`;
+    let docType: DocType = "unknown";
     try {
       // Idempotency fast-path: if this email already produced any invoice row,
       // skip it. limit(1) (not maybeSingle) because one email can now legitimately
@@ -2114,7 +2207,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       // was reported as a failed INVOICE and never reached vendor_statements at
       // all. classifyBySubject depends on nothing but the subject string, so it
       // belongs up here; the AI CONTENT fallback stays below, where a file exists.
-      let docType = classifyBySubject(subject);
+      docType = classifyBySubject(subject);
 
       // ── RECEIPTS DO NOT ENTER THE SYSTEM (owner's rule, 2026-08-05) ──
       // A קבלה is proof that a payment was made; it carries no tax obligation and
@@ -2277,7 +2370,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
           await log("warn", "a document write failed — leaving email unlabeled for retry", { docType }, msgId);
           await recordFailureAndMaybePark(
             supabase, log, token, msgId, destFailed,
-            { subject, from, messageLink }, "a document write failed");
+            { subject, from, messageLink }, "a document write failed", docType);
           continue;
         }
         await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
@@ -2335,7 +2428,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
           { created, alerted, skipped, ads, errored }, msgId);
         await recordFailureAndMaybePark(
           supabase, log, token, msgId, destFailed,
-          { subject, from, messageLink }, `${errored} invoice file(s) errored`);
+          { subject, from, messageLink }, `${errored} invoice file(s) errored`, docType);
         continue;
       }
 
@@ -2354,7 +2447,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       result.errors.push(`Error processing ${msgId}: ${msg}`);
       await recordFailureAndMaybePark(
         supabase, log, token, msgId, destFailed,
-        { subject, from, messageLink }, msg);
+        { subject, from, messageLink }, msg, docType);
     }
   }
 
@@ -2371,6 +2464,8 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
 
 interface ExtractedDeliveryNote {
   vendor_name:       string;
+  /** Supplier's business number (ח.פ) — the PRIMARY supplier join key (§2b). */
+  hp:                string;
   note_number:       string;
   date:              string; // YYYY-MM-DD
   amount:            number;
@@ -2384,12 +2479,19 @@ async function extractDeliveryNote(
 ): Promise<ExtractedDeliveryNote> {
   const prompt =
     "אתה מנתח תעודות משלוח. חלץ את הפרטים מהמסמך וחזור ב-JSON בלבד, ללא הסברים.\n" +
-    '{"vendor_name":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}\n' +
-    "כללים: תאריך YYYY-MM-DD, סכומים ללא סימני מטבע.";
+    '{"vendor_name":"","hp":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}\n' +
+    "כללים: תאריך YYYY-MM-DD, סכומים ללא סימני מטבע, hp = מספר ח.פ/עוסק של הספק (ספרות בלבד, ריק אם אינו מופיע).";
+  // EXTRACTION_MAX_TOKENS, not a tight cap: `line_items` is an UNBOUNDED array and a
+  // delivery note is precisely the document that lists every item. At 1024 the reply
+  // was cut mid-array, the JSON never closed, parseJsonRobust returned null, the retry
+  // ran under the SAME cap and was cut at the same place, and the note was parked as a
+  // failed *invoice* after MAX_INGEST_ATTEMPTS. extractInvoice has always used the full
+  // budget for the same reason; extractReturn/extractStatement stay small because their
+  // schemas are fixed-size.
   const raw = await anthropicMessage(
     ANTHROPIC_MODEL_EXTRACTOR,
     [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
-    1024,
+    EXTRACTION_MAX_TOKENS,
   );
   let parsed = parseJsonRobust(raw);
   if (parsed === null) {
@@ -2398,13 +2500,18 @@ async function extractDeliveryNote(
       [{ role: "user", content: [
         buildDocumentBlock(doc.mimeType, doc.bytes),
         { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" +
-          '{"vendor_name":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}' },
+          '{"vendor_name":"","hp":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}' },
       ] }],
-      1024,
+      EXTRACTION_MAX_TOKENS,
     );
     parsed = parseJsonRobust(retryRaw);
     if (parsed === null) {
-      throw new Error(`extractDeliveryNote failed after retry. Raw: ${raw.slice(0, 500)}`);
+      // Same truncation hint extractInvoice carries — an unclosed reply is the one
+      // failure whose cause is legible from the raw text.
+      const looksTruncated = !retryRaw.trimEnd().endsWith("}");
+      throw new Error(
+        `extractDeliveryNote failed after retry${looksTruncated ? " — response appears TRUNCATED (raise max_tokens)" : ""}. ` +
+        `Raw: ${raw.slice(0, 500)}`);
     }
   }
   const p = parsed as Record<string, unknown>;
@@ -2419,6 +2526,7 @@ async function extractDeliveryNote(
 
   return {
     vendor_name:       String(p.vendor_name ?? ""),
+    hp:                String(p.hp ?? ""),
     note_number:       String(p.note_number ?? ""),
     date,
     amount:            filled.gross,
@@ -2981,9 +3089,12 @@ async function handleNonInvoice(
     // alerting + labeling and losing the document. (No clean "not a delivery
     // note" verdict exists here; the doc was already routed by subject/content.)
     const extracted = await extractDeliveryNote(ctx.doc);
-    // NAME-FALLBACK: extractDeliveryNote does not capture ח.פ yet, so this links by
-    // name only. Add `hp` to the delivery-note prompt + pass it here to make it hp-primary.
-    const supplierId = await resolveSupplier(extracted.vendor_name);
+    // ח.פ FIRST, name as the fallback — `resolveSupplier` has always supported that
+    // order (spec/06-RULES.md §2b); what was missing was the number itself, because
+    // the delivery-note prompt never asked for it, so every note linked by NAME alone.
+    // Name matching is fragile across spelling and whitespace, and a wrong link here
+    // attaches goods to the wrong supplier's balance.
+    const supplierId = await resolveSupplier(extracted.vendor_name, extracted.hp);
 
     // Dedup: primary = gmail_message_id + note_number + supplier_id
     //        fallback = gmail_message_id + supplier_id (no note_number)
@@ -3540,8 +3651,21 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // Recovery path: a POST with { source: "requeue" }. Re-runs the emails parked
+  // behind the "פענוח נכשל" label over a wider window than the routine tick uses.
+  // Bounded to REQUEUE_MAX_MESSAGES per call and idempotent — anything that
+  // succeeds gets the processed label and drops out, so calling again continues
+  // with the next batch.
+  const requeue = body && typeof body === "object" &&
+    (body as { source?: string }).source === "requeue";
+
   try {
-    const result = await ingestInvoices(supabase);
+    const result = requeue
+      ? await ingestInvoices(supabase, {
+          requeueFailed:       true,
+          requeueLookbackDays: Number((body as { days?: number }).days) || undefined,
+        })
+      : await ingestInvoices(supabase);
     return json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
