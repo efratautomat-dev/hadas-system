@@ -1,4 +1,4 @@
-import { demoTables } from '../data/demoData'
+import { demoTables, demoUser } from '../data/demoData'
 
 /**
  * The few writes demo mode actually APPLIES, against its in-memory tables.
@@ -17,7 +17,10 @@ import { demoTables } from '../data/demoData'
  */
 type Row = Record<string, unknown>
 
-const DEMO_AUTHOR = 'demo@hadas-system.co.il'
+// Taken from the seed's demo user rather than repeated as a literal: a note written
+// during the walkthrough must carry the same author as the seeded ones, and two
+// copies of one address drift the moment the demo is rebranded.
+const DEMO_AUTHOR = demoUser.email
 
 export function applyDemoWrite(method: string, path: string, body?: unknown): Row | null {
   const notes = demoTables.supplier_notes

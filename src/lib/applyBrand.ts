@@ -29,4 +29,13 @@ export function applyBrand(): void {
 
   document.title = brand.tabTitle
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', c.primary)
+
+  // index.html carries one hard-coded <link rel="icon"> and is shared by every
+  // build, so a build that renames itself would still fly the default client's
+  // tab icon. Point it at the brand's own file instead; the type has to move with
+  // it, since the markup declares image/png and the override may be an SVG.
+  for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="apple-touch-icon"]')) {
+    link.href = brand.faviconPath
+    if (brand.faviconPath.endsWith('.svg')) link.type = 'image/svg+xml'
+  }
 }
