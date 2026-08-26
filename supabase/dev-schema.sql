@@ -63,6 +63,14 @@ create table if not exists public.suppliers (
   hp                    text,                       -- tax id (ח.פ)
   contact               text,
   opening_balance_date  date,
+  -- Present on PROD but missing from this file until 2026-08-23. Two migrations that
+  -- put them into suppliers_v (20260708000000, 20260720000000) therefore FAILED when
+  -- the chain was replayed on a database built from here — the concrete form of
+  -- `docs/07-OPEN-ISSUES.md` item 18 (base-table DDL absent from migrations).
+  -- Verified by replaying every migration in order against a clean Postgres 16.
+  active                boolean     not null default true,
+  needs_details         boolean     not null default false,
+  payment_arrangement   boolean     not null default false,
   constraint suppliers_pkey primary key (id)
 );
 
