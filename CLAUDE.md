@@ -2,10 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Starting a session? Read `spec/CURRENT-STATE.md` first** — the live picture of what is
-> in production, what is waiting on the owner, and what is next. `spec/00-INDEX.md` maps
+> **Starting a session? Read `spec/STATUS.md` first** — one page: what is deployed on each
+> of the three tracks, what is built and waiting, what is left, and the traps that recur.
+> `spec/CURRENT-STATE.md` is the long form behind it, per feature; `spec/00-INDEX.md` maps
 > the rest of `spec/`. This file describes how the system works; those describe where it
 > currently stands and what is planned.
+>
+> **`spec/STATUS.md` is updated at the end of every task** — that is what keeps a new
+> session from having to re-derive the picture from thirty files.
 
 ## What this is
 
