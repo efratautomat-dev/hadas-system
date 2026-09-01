@@ -82,6 +82,10 @@
 ## מלכודות שחוזרות
 
 - **הפריסה לפרודקשן רצה מהמחשב של בעלת העסק בלבד**, שם חיות ההרשאות.
+  **הנתיב:** `C:\Users\<user>\Desktop\hadas-deploy` — עותק ייעודי של הריפו,
+  נפרד מסביבת העבודה. **Windows, ב-PowerShell** (לא cmd, לא bash): אין
+  `2>/dev/null`, אין `\` להמשך שורה, ו-`curl` הוא כינוי ל-`Invoke-WebRequest`
+  ולא curl אמיתי — קריאות HTTP נכתבות עם `Invoke-RestMethod`.
   לשרת הזה **אין ולא צריך להיות** גישה ל-PROD — `spec/LAUNCH-PLAN.md:141`.
   ⚠️ יש כאן `supabase/.temp/linked-project.json` שמצביע על PROD ונראה כאילו
   השרת מקושר. הוא **אינו בגיט, אין CLI מותקן ואין טוקן** — קובץ ריק מתוכן.
