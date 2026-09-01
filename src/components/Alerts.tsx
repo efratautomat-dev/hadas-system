@@ -2,7 +2,7 @@ import { useState, useLayoutEffect } from 'react'
 import {
   Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus,
   HelpCircle, FileX, Paperclip, Unlink, AlertTriangle, Clock,
-  FileWarning, Receipt, AlertCircle, Tag, Mail, X, ShieldCheck, AlertOctagon,
+  FileWarning, Receipt, AlertCircle, Tag, Mail, X, ShieldCheck, AlertOctagon, Coins,
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
@@ -86,6 +86,13 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // The approval gate. ACTION, not urgent: nothing is broken and nothing was
   // lost — the invoice is filed and counted. What is outstanding is a decision.
   invoice_approval_required:   b('חשבונית גדולה — נדרש אישור', ShieldCheck, 'action'),
+  // A figure the extractor read off the document could not be a price, so it was
+  // dropped and the document filed without it. ACTION rather than urgent for the
+  // same reason as the gate: nothing was lost, a number is missing. The invoice
+  // one comes FIRST in the pair because an invoice without its amount moves no
+  // balance — the supplier is owed money the ledger does not show.
+  invoice_amount_unreadable:      b('סכום לא נקרא בחשבונית', Coins, 'action'),
+  delivery_note_amount_unreadable: b('סכום לא נקרא בתעודה',  Coins, 'action'),
 
   // ── Check (yellow): worth a look / verify ──
   invoice_low_confidence:      b('וודאות נמוכה',            AlertTriangle, 'check'),

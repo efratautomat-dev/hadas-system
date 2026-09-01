@@ -134,6 +134,21 @@ const ALERT_PAGE: Record<string, string> = {
   unmatched_credit_note:   'returns',
   statement_mismatch:      'reconciliation',
   statement_save_failed:   'reconciliation',
+
+  // The ingest-failure family and the unreadable-amount pair. Registered per the
+  // rule at the top of this file: an unregistered type stays VISIBLE, which is
+  // right for a warning nobody classified but wrong once we know where it leads.
+  // A basic-tier viewer has no deliveries screen, so an alert pointing at one is
+  // an advertisement for a feature she cannot open.
+  delivery_note_ingest_failed:     'deliveries',
+  delivery_note_no_file:           'deliveries',
+  delivery_note_amount_unreadable: 'deliveries',
+  statement_ingest_failed:         'reconciliation',
+  statement_no_file:               'reconciliation',
+  return_ingest_failed:            'returns',
+  return_no_file:                  'returns',
+  // Deliberately NOT listed: invoice_amount_unreadable. Invoices exist in every
+  // tier, so it would resolve to the same answer the default already gives.
 }
 
 export function tierAllowsAlert(type: string | null | undefined, tier: Tier = currentTier()): boolean {

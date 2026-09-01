@@ -1447,6 +1447,48 @@ async function appendAltName(
 // when no same-type alert already exists for this Gmail message. Returns true if
 // a NEW alert row was written (callers gate counters / manager emails on that).
 // `status:"unread"` is always set here so call sites don't repeat it.
+// ─── A number that cannot be stored is not a price ──────────────────────────
+//
+// The amount columns are numeric(10,2) on production — up to 99,999,999.99. The
+// largest delivery note this business has ever filed is ₪34,354, so a figure that
+// does not fit was never a price: it is a barcode, an item code, an hp or a phone
+// number the extractor picked off a table. Report-style PDFs are full of them.
+//
+// Postgres answers such an insert with 22003 and rejects the WHOLE row, and the
+// caller then leaves the email unlabeled — so ONE bad cell kept an entire document
+// out of the system. That is the wrong trade, and it is the same trade the ₪20K
+// gate already refuses to make: file the document, mark what is wrong, never hide
+// it (docs/04-BUSINESS-LOGIC.md, spec/06-RULES.md).
+//
+// The bound is the column's own limit, on purpose. No business threshold is
+// invented here that nobody chose — cf. the approval gate, where an empty setting
+// means OFF rather than a default figure.
+const NUMERIC_10_2_MAX = 99_999_999.99;
+
+function storableAmount(n: unknown): number | null {
+  const v = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(v)) return null;
+  return Math.abs(v) > NUMERIC_10_2_MAX ? null : v;
+}
+
+/**
+ * Replaces every unstorable figure with null and names the fields it dropped.
+ * An empty `dropped` means the row is unchanged and nothing needs saying.
+ */
+function storableAmounts<K extends string>(
+  fields: Record<K, unknown>,
+): { values: Record<K, number | null>; dropped: K[] } {
+  const values = {} as Record<K, number | null>;
+  const dropped: K[] = [];
+  for (const key of Object.keys(fields) as K[]) {
+    const raw = fields[key];
+    const safe = storableAmount(raw);
+    values[key] = safe;
+    if (safe === null && raw !== null && raw !== undefined) dropped.push(key);
+  }
+  return { values, dropped };
+}
+
 async function insertAlertOnce(
   supabase: SupabaseClient,
   log:      Logger,
@@ -1896,7 +1938,19 @@ async function handleInvoiceFile(
   // The invoice is still inserted normally. The gate marks it and asks; it does
   // not hold the document hostage — a filed invoice that the owner cannot see is
   // worse than one she has yet to rule on.
-  const preVat = Math.abs(Number(extracted.amount_before_vat ?? 0)) || 0;
+  // Same 22003 guard as the delivery-note path, and it matters more here: losing
+  // an invoice loses money owed. A figure that cannot be stored is dropped, the
+  // invoice is filed as needs_review with the reason on the row, and an alert
+  // carries it to the owner. The gate below then measures the SANITISED figure —
+  // reading a threshold off a number Postgres refused would be meaningless.
+  const money = storableAmounts({
+    total_amount:      extracted.total_amount,
+    amount_before_vat: extracted.amount_before_vat,
+    vat_amount:        extracted.vat_amount,
+  });
+  const amountUnreadable = money.dropped.length > 0;
+
+  const preVat = Math.abs(Number(money.values.amount_before_vat ?? 0)) || 0;
   const overThreshold = ctx.approvalThreshold !== null && preVat > ctx.approvalThreshold;
   const insertRow: Record<string, unknown> = {
     supplier_id:        supplierId,
@@ -1906,15 +1960,16 @@ async function handleInvoiceFile(
     supplier_name:      supplierDisplayName,
     invoice_number:     extracted.invoice_number,
     invoice_date:       extracted.invoice_date || null,
-    total_amount:       extracted.total_amount,
-    amount_before_vat:  extracted.amount_before_vat,
-    vat_amount:         extracted.vat_amount,
+    ...money.values,
     category:           finalCategory,
     line_items:         extracted.line_items.join("\n"),
     ai_confidence:      extracted.confidence,
-    status:             extracted.confidence === "low" ? "needs_review" : "ממתין",
+    status:             (extracted.confidence === "low" || amountUnreadable)
+                          ? "needs_review" : "ממתין",
     is_duplicate:       isDuplicate,
-    has_error:          false,
+    has_error:          amountUnreadable,
+    error_reason:       amountUnreadable
+                          ? `סכום לא קריא: ${money.dropped.join(", ")}` : null,
     awaiting_approval:  overThreshold,
     partial_return:     partialReturn,
     drive_file_link:    driveFileLink,
@@ -1957,6 +2012,33 @@ async function handleInvoiceFile(
   // dedupKeys ["invoiceId"] — one email can carry several invoices, and each big
   // one deserves its own decision. Without it the second invoice in an email
   // would be silently suppressed as "an alert of this type already exists".
+  // An invoice filed without its figure moves no balance, so it cannot be left to
+  // be noticed on a list. dedupKeys ["invoiceId"] for the same reason as below:
+  // one email can carry several invoices.
+  if (amountUnreadable) {
+    await log("warn", "invoice amount was not storable — filed for review without it",
+      { invoiceId: insertedId, dropped: money.dropped }, msgId);
+    await insertAlertOnce(supabase, log, msgId, {
+      type:    "invoice_amount_unreadable",
+      title:   "סכום לא נקרא בחשבונית — דורש השלמה",
+      message: `חשבונית ${extracted.invoice_number || ""} מ-${supplierDisplayName || extracted.vendor_name || "ספק לא ידוע"} נקלטה, אך הסכום שנקרא ממנה אינו סכום אפשרי והושאר ריק. עד להשלמה היא אינה משפיעה על יתרת הספק.`,
+      payload: {
+        gmailMessageId: msgId,
+        invoiceId:      insertedId,
+        supplierId,
+        supplierName:   supplierDisplayName || extracted.vendor_name || "",
+        invoiceNumber:  extracted.invoice_number ?? "",
+        fields:         money.dropped,
+        driveFileLink,
+        storageUrl:     storagePath || null,
+        subject,
+        from,
+        messageLink,
+      },
+    }, ["invoiceId"]);
+    result.alerts++;
+  }
+
   if (overThreshold) {
     await log("warn", "invoice over approval threshold — awaiting owner decision", {
       invoiceId: insertedId, preVat, threshold: ctx.approvalThreshold,
@@ -3137,14 +3219,21 @@ async function handleNonInvoice(
         { filename: ctx.doc.filename }, msgId);
     }
 
+    // A report-style delivery note put a barcode where the total belongs and
+    // Postgres rejected the row (22003), which kept the whole email out. The
+    // figure is dropped, the note is filed, and the alert below says which.
+    const money = storableAmounts({
+      amount:            extracted.amount,
+      amount_before_vat: extracted.amount_before_vat,
+      vat_amount:        extracted.vat_amount,
+    });
+
     const { error } = await supabase.from("delivery_notes").insert({
       supplier_id:       supplierId,
       supplier_name:     extracted.vendor_name,
       note_number:       extracted.note_number,
       date:              extracted.date || null,
-      amount:            extracted.amount,
-      amount_before_vat: extracted.amount_before_vat,
-      vat_amount:        extracted.vat_amount,
+      ...money.values,
       line_items:        extracted.line_items.join("\n"),
       status:            "pending_match",
       invoice_id:        null,
@@ -3160,6 +3249,23 @@ async function handleNonInvoice(
       await log("error", `delivery_note insert failed: ${error.message}`,
         { code: error.code, filename: ctx.doc.filename }, msgId);
       return false; // DB write failed — leave email for retry
+    }
+    if (money.dropped.length > 0) {
+      await log("warn", "delivery_note amount was not storable — filed without it",
+        { dropped: money.dropped, filename: ctx.doc.filename }, msgId);
+      await insertAlertOnce(supabase, log, msgId, {
+        type:    "delivery_note_amount_unreadable",
+        title:   "סכום לא נקרא בתעודת משלוח — דורש בדיקה",
+        message: `התעודה נקלטה, אך הסכום שנקרא ממנה אינו סכום אפשרי והושאר ריק. ` +
+                 `ספק: ${extracted.vendor_name || "—"}. קובץ: ${ctx.doc.filename}.`,
+        payload: {
+          gmailMessageId: msgId,
+          supplierId,
+          noteNumber: extracted.note_number,
+          fields:     money.dropped,
+          filename:   ctx.doc.filename,
+        },
+      }, ["noteNumber"]);
     }
     await log("info", "delivery_note ingested",
       { supplierId, noteNumber: extracted.note_number, filename: ctx.doc.filename }, msgId);
