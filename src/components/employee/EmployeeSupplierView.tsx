@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight, List, X } from 'lucide-react'
+import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight, List, X, Package } from 'lucide-react'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { useReturns } from '../../hooks/useReturns'
 import { useEmployees } from '../../hooks/useEmployees'
 import { useSuppliers } from '../../hooks/useSuppliers'
+import { useOrders } from '../../hooks/useOrders'
 import SectionHeader from '../SectionHeader'
 import { SearchableSelect } from '../SearchableSelect'
 import { PdfPreviewModal } from '../PdfPreviewModal'
@@ -309,6 +310,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
   const { data: allReturns, create: createReturn } = useReturns()
   const { data: employees }        = useEmployees()
   const { data: suppliers }        = useSuppliers()
+  const { openForSupplier }        = useOrders()
 
   const [invoiceQuery, setInvoiceQuery] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
@@ -338,6 +340,11 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
   const deliveries = allDeliveries.filter(
     (dn) => dn.supplierId === supplier.id || dn.supplierName === supplier.name,
   )
+  // Orders match by id ONLY — unlike the datasets above there is no name
+  // fallback, because every order is created through the supplier picker and so
+  // always carries an id. Matching on name too would attach an order to a
+  // second supplier that merely shares a name.
+  const supplierOrders = openForSupplier(supplier.id)
   const returns = allReturns.filter(
     (r) => (r as { supplierId?: string }).supplierId === supplier.id,
   )
@@ -520,6 +527,40 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
               )
             })
           )}
+        </SectionShell>
+      )}
+
+      {/* ── Open orders ──────────────────────────────────────────────────────
+          ABOVE the delivery notes, and that order is the point (§7.7). The
+          question an employee is asked on the phone is "מתי מגיע?", which is
+          about something that has NOT arrived; "מה הגיע?" comes second. Sorting
+          and filtering live in useOrders.openForSupplier so this screen and the
+          board cannot disagree about what "open" means. */}
+      {activeSection === 'deliveries' && supplierOrders.length > 0 && (
+        <SectionShell title="הזמנות פתוחות" Icon={Package} count={supplierOrders.length}>
+          {supplierOrders.map(o => (
+            <div
+              key={o.id}
+              className="flex items-center justify-between gap-3 border-b flex-wrap"
+              style={{ borderColor: '#EEEEF2', minHeight: '56px', padding: '12px 16px' }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <p className="text-right text-gray-700" style={{ fontSize: '13.5px', margin: 0, fontWeight: 600 }}>
+                  {o.description || '—'}
+                  {o.customerName && (
+                    <span style={{ color: '#9CA3AF', fontWeight: 400 }}>{` — עבור ${o.customerName}`}</span>
+                  )}
+                </p>
+                <p className="text-right" style={{ fontSize: '12px', color: '#9CA3AF', margin: '2px 0 0' }}>
+                  הוזמן {o.date}
+                  {/* Shown only when known. A missing expected date is the common
+                      case and must not read as a date that went missing. */}
+                  {o.expectedDate && ` · צפי ${o.expectedDate}`}
+                </p>
+              </div>
+              <StatusBadge status={o.status} />
+            </div>
+          ))}
         </SectionShell>
       )}
 

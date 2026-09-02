@@ -30,6 +30,8 @@ export interface Order {
   deliveryNoteId: string | null
   customerName: string | null
   customerPhone: string | null
+  /** DD/MM/YYYY, or '' when unknown — the common case. */
+  expectedDate: string
 }
 
 export function useOrders() {
@@ -61,6 +63,7 @@ export function useOrders() {
           deliveryNoteId: r.delivery_note_id ?? null,
           customerName:   r.customer_name  ?? null,
           customerPhone:  r.customer_phone ?? null,
+          expectedDate:   isoToDisplay(r.expected_date ?? ''),
         })))
         setError(null)
       }
@@ -79,11 +82,22 @@ export function useOrders() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [load])
 
-  const create = async (body: { supplierId: string; supplierName: string; description: string }) => {
+  const create = async (body: {
+    supplierId: string; supplierName: string; description: string
+    /** YYYY-MM-DD. Optional — the owner usually does not know (§7.7). */
+    expectedDate?: string
+    customerName?: string
+    customerPhone?: string
+  }) => {
     try {
       const res = await api.post('/orders', {
         supplier_id: body.supplierId, supplier_name: body.supplierName,
         description: body.description,
+        // Empty strings are sent as null, not as ''. A blank customer name stored
+        // as '' is a customer the screens then try to display.
+        expected_date:  body.expectedDate  || null,
+        customer_name:  body.customerName  || null,
+        customer_phone: body.customerPhone || null,
       })
       await load()
       return (res as { id?: string }).id

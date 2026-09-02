@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Camera } from 'lucide-react'
+import { Camera, Plus } from 'lucide-react'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useOrders, type Order } from '../../hooks/useOrders'
+import { useSuppliers } from '../../hooks/useSuppliers'
+import OrderForm from './OrderForm'
+import SupplierPicker from './SupplierPicker'
 import DeliveryDetail from './DeliveryDetail'
 import { StatusBadge, StatusFlag } from '../StatusBadge'
 import { PipelineStrip } from './PipelineStrip'
@@ -42,9 +45,12 @@ function fmtILS(n: number | null | undefined) {
 }
 
 export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () => void }) {
-  const { data: notes, loading: notesLoading, link, unlink, candidates } = useDeliveryNotes()
+  const { data: notes, loading: notesLoading, link, unlink, candidates, update } = useDeliveryNotes()
   const { data: invoices, ledgerApprove } = useInvoices()
-  const { data: orders, loading: ordersLoading } = useOrders()
+  const { data: orders, loading: ordersLoading, create: createOrder } = useOrders()
+  const { data: suppliers } = useSuppliers()
+  const [newOrder, setNewOrder] = useState(false)
+  const [reassign, setReassign] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('goods')
   const [filter, setFilter] = useState<GoodsFilter>('all')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -230,7 +236,30 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
           </div>
         </>
       ) : (
-        <OrdersList orders={openOrders} allOrders={orders} loading={ordersLoading} />
+        <>
+          {/* The create button lives INSIDE the orders tab, not in the page header:
+              the header belongs to the whole area, and "הזמנה חדשה" is not an action
+              on the goods list. */}
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <p style={{ fontSize: '12.5px', color: '#9CA3AF', margin: 0 }}>
+              הזמנה שתסומן "הגיע" הופכת לסחורה שממתינה לחשבונית.
+            </p>
+            <button
+              onClick={() => setNewOrder(true)}
+              className="font-semibold inline-flex items-center gap-1.5 text-white"
+              style={{ background: 'var(--brand-primary)', border: 'none', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}
+            ><Plus className="w-4 h-4" />הזמנה חדשה</button>
+          </div>
+          <OrdersList orders={openOrders} allOrders={orders} loading={ordersLoading} />
+        </>
+      )}
+
+      {newOrder && (
+        <OrderForm
+          suppliers={suppliers.map(s => ({ id: s.id, name: s.name, hp: (s as { hp?: string }).hp }))}
+          onClose={() => setNewOrder(false)}
+          onCreate={async d => { await createOrder(d) }}
+        />
       )}
 
       {openNote && (
@@ -245,6 +274,21 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
           onLink={async (id, invoiceId) => { await link(id, invoiceId) }}
           onUnlink={async id => { await unlink(id) }}
           onApprove={ledgerApprove}
+          onChangeSupplier={() => setReassign(openNote.id)}
+        />
+      )}
+
+      {reassign && (
+        <SupplierPicker
+          current={notes.find(n => n.id === reassign)?.supplierId ?? ''}
+          suppliers={suppliers.map(s => ({ id: s.id, name: s.name, hp: (s as { hp?: string }).hp }))}
+          onClose={() => setReassign(null)}
+          onPick={async supplierId => {
+            // The name is NOT sent. hadas-api resolves it from the id so the two
+            // cannot drift — the same rule the invoice screen follows.
+            await update(reassign, { supplierId } as Parameters<typeof update>[1])
+            setReassign(null)
+          }}
         />
       )}
     </div>

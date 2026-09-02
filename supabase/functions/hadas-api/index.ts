@@ -658,6 +658,17 @@ async function updateDeliveryNote(req: Request, supabase: SupabaseClient, id: st
   if (body.amount          !== undefined) updates.amount        = body.amount;
   if (body.date            !== undefined) updates.date          = body.date;
   if (body.supplierName    !== undefined) updates.supplier_name = body.supplierName;
+  // "שינוי ספק" — reassigning a delivery whose supplier was read wrong. The id and
+  // the NAME move together, resolved server-side from the id, exactly as the
+  // invoice screen does: a row showing one supplier and belonging to another is
+  // the specific defect that free-text supplier fields kept producing. Sending a
+  // name alongside is therefore ignored; the id decides.
+  if (body.supplierId      !== undefined) {
+    updates.supplier_id = body.supplierId || null;
+    const { data: sup } = await supabase
+      .from("suppliers").select("name").eq("id", body.supplierId).maybeSingle();
+    if (sup?.name) updates.supplier_name = sup.name;
+  }
   // PIECE 2 — manual↔arrived match correction: the matched arrived note's document +
   // number are copied onto the manual row (mirrors Returns storing the credit-note doc
   // in drive_file_link). Setting them = confirm/override; clearing = unmatch.
@@ -974,6 +985,10 @@ async function createOrder(req: Request, supabase: SupabaseClient, actor?: strin
     // §7.b — the date is automatic. Accepted from the body only so a back-dated
     // entry is possible; the UI never sends one.
     date:           body.date ?? new Date().toISOString().slice(0, 10),
+    // §7.7 — when the supplier said it would arrive. Nullable and never required:
+    // the owner usually does not know, and a required field she cannot fill gets
+    // an invented answer.
+    expected_date:  body.expected_date ?? body.expectedDate ?? null,
     status:         "order_waiting",
     customer_name:  body.customer_name  ?? body.customerName  ?? null,
     customer_phone: body.customer_phone ?? body.customerPhone ?? null,

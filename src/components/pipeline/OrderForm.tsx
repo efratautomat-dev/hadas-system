@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { X, Check, Package } from 'lucide-react'
-import SearchableSelect from '../SearchableSelect'
-import { FieldLabel, TextInput, Textarea, useDateField } from '../ui/form'
+import { SearchableSelect } from '../SearchableSelect'
+import { FieldLabel, TextInput, Textarea } from '../ui/form'
 
 // ── Opening an order (spec ch. 7) ────────────────────────────────────────────
 //
@@ -47,7 +47,6 @@ export default function OrderForm({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  const dateField = useDateField(expectedDate)
   const supplier = suppliers.find(s => s.id === supplierId)
   // Both are required: a supplier with no description is a row nobody can act on,
   // and a description with no supplier cannot reach the supplier's own page.
@@ -118,7 +117,7 @@ export default function OrderForm({
             <Textarea
               rows={3}
               value={description}
-              onChange={e => setDescription(e.target.value)}
+              onChange={setDescription}
               placeholder="2 ארגזי חלב 3%, 1 ארגז קוטג׳"
             />
             <p style={{ margin: '3px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
@@ -143,11 +142,10 @@ export default function OrderForm({
             </div>
             <div>
               <FieldLabel>צפי הגעה</FieldLabel>
-              <TextInput
-                {...dateField}
-                value={expectedDate}
-                onChange={e => setExpectedDate(e.target.value)}
-              />
+              {/* TextInput owns the empty-date placeholder problem: an empty
+                  native date input paints a browser-localised hint (a Hebrew
+                  Chrome renders the month as מ"מ) that no CSS overrides. */}
+              <TextInput type="date" value={expectedDate} onChange={setExpectedDate} />
               <p style={{ margin: '3px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
                 לא חובה.
               </p>
@@ -177,11 +175,11 @@ export default function OrderForm({
               >
                 <div>
                   <FieldLabel>שם הלקוחה</FieldLabel>
-                  <TextInput value={customerName} onChange={e => setCustomerName(e.target.value)} />
+                  <TextInput value={customerName} onChange={setCustomerName} />
                 </div>
                 <div>
                   <FieldLabel>טלפון</FieldLabel>
-                  <TextInput value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} />
+                  <TextInput value={customerPhone} onChange={setCustomerPhone} dir="ltr" />
                 </div>
                 <p style={{ gridColumn: '1 / -1', margin: 0, fontSize: '11.5px', color: '#9CA3AF' }}>
                   כשההזמנה תסומן "הגיעה", הלקוחה תופיע בכרטיס כדי שאפשר יהיה להודיע לה.
