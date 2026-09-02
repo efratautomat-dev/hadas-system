@@ -6,6 +6,8 @@ import { useOrders, type Order } from '../../hooks/useOrders'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import OrderForm from './OrderForm'
 import SupplierPicker from './SupplierPicker'
+import ArrivalChoice from './ArrivalChoice'
+import type { ArrivalCandidate } from '../../hooks/useOrders'
 import DeliveryDetail from './DeliveryDetail'
 import { StatusBadge, StatusFlag } from '../StatusBadge'
 import { PipelineStrip } from './PipelineStrip'
@@ -51,6 +53,17 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
   const { data: suppliers } = useSuppliers()
   const [newOrder, setNewOrder] = useState(false)
   const [reassign, setReassign] = useState<string | null>(null)
+  // "הגיע" can come back asking which delivery this is, when the supplier's note
+  // already arrived by email. The pending gesture is kept so answering resumes it.
+  const [arrival, setArrival] = useState<
+    { orderId: string; partial: boolean; candidates: ArrivalCandidate[] } | null
+  >(null)
+
+  const arrive = async (id: string, partial: boolean, choice?: { adopt?: string; forceNew?: boolean }) => {
+    const res = await markArrived(id, partial, choice)
+    if (res.needsChoice) setArrival({ orderId: id, partial, candidates: res.candidates ?? [] })
+    else setArrival(null)
+  }
   const [tab, setTab] = useState<Tab>('goods')
   const [filter, setFilter] = useState<GoodsFilter>('all')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -251,7 +264,7 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
             ><Plus className="w-4 h-4" />הזמנה חדשה</button>
           </div>
           <OrdersList orders={openOrders} allOrders={orders} loading={ordersLoading}
-            onArrived={(id, partial) => markArrived(id, partial)} />
+            onArrived={arrive} />
         </>
       )}
 
@@ -276,6 +289,16 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
           onUnlink={async id => { await unlink(id) }}
           onApprove={ledgerApprove}
           onChangeSupplier={() => setReassign(openNote.id)}
+        />
+      )}
+
+      {arrival && (
+        <ArrivalChoice
+          supplierName={orders.find(o => o.id === arrival.orderId)?.supplierName ?? ''}
+          candidates={arrival.candidates}
+          onClose={() => setArrival(null)}
+          onPick={async id => { await arrive(arrival.orderId, arrival.partial, { adopt: id }) }}
+          onNew={async () => { await arrive(arrival.orderId, arrival.partial, { forceNew: true }) }}
         />
       )}
 

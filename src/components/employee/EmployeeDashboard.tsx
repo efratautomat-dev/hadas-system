@@ -3,7 +3,8 @@ import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight } f
 import { SearchableSelect } from '../SearchableSelect'
 import CaptureDocument from '../CaptureDocument'
 import OrdersRail from '../pipeline/OrdersRail'
-import { useOrders } from '../../hooks/useOrders'
+import { useOrders, type ArrivalCandidate } from '../../hooks/useOrders'
+import ArrivalChoice from '../pipeline/ArrivalChoice'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import { tierAllows } from '../../lib/tiers'
 import EmployeeSupplierView, { type EmployeeSection } from './EmployeeSupplierView'
@@ -36,6 +37,17 @@ const SECTION_CARDS: { key: EmployeeSection; label: string; Icon: typeof FileTex
 export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const { data: suppliers } = useSuppliers()
   const { data: orders, markArrived } = useOrders()
+  // The employee hits this more often than the manager does: the note is almost
+  // always already in the inbox by the time the goods reach the counter.
+  const [arrival, setArrival] = useState<
+    { orderId: string; partial: boolean; candidates: ArrivalCandidate[] } | null
+  >(null)
+
+  const arrive = async (id: string, partial: boolean, choice?: { adopt?: string; forceNew?: boolean }) => {
+    const res = await markArrived(id, partial, choice)
+    if (res.needsChoice) setArrival({ orderId: id, partial, candidates: res.candidates ?? [] })
+    else setArrival(null)
+  }
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
   const [activeSection, setActiveSection] = useState<EmployeeSection>('invoices')
   const [showCapture, setShowCapture] = useState(false)
@@ -113,8 +125,8 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
         <div style={{ order: isWide ? 2 : 1 }}>
           <OrdersRail
             orders={openOrders}
-            onArrived={id => markArrived(id, false)}
-            onArrivedPartial={id => markArrived(id, true)}
+            onArrived={id => arrive(id, false)}
+            onArrivedPartial={id => arrive(id, true)}
           />
         </div>
 
@@ -242,6 +254,16 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {arrival && (
+        <ArrivalChoice
+          supplierName={orders.find(o => o.id === arrival.orderId)?.supplierName ?? ''}
+          candidates={arrival.candidates}
+          onClose={() => setArrival(null)}
+          onPick={async id => { await arrive(arrival.orderId, arrival.partial, { adopt: id }) }}
+          onNew={async () => { await arrive(arrival.orderId, arrival.partial, { forceNew: true }) }}
+        />
       )}
     </div>
   )

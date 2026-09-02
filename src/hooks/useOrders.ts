@@ -13,6 +13,14 @@ import { isoToDisplay } from '../lib/dates'
 
 export type OrderStatus = 'order_waiting' | 'order_arrived' | 'order_partial'
 
+/** A delivery already waiting for an invoice, offered instead of opening a new row. */
+export interface ArrivalCandidate {
+  id: string
+  note_number: string | null
+  date: string | null
+  supplier_name: string | null
+}
+
 export interface Order {
   id: string
   supplierId: string
@@ -108,11 +116,30 @@ export function useOrders() {
     }
   }
 
-  /** One click: mark arrived and feed the pipeline (§7.e). */
-  const markArrived = async (id: string, partial = false) => {
+  /** A delivery already waiting for an invoice, offered instead of opening a new one. */
+  /**
+   * One click: mark arrived and feed the pipeline (§7.e).
+   *
+   * Returns `needsChoice` when the supplier already has deliveries waiting for an
+   * invoice — the usual case, because the note arrives by email before the goods.
+   * The caller must then ASK; answering with `adopt` attaches that row, `forceNew`
+   * opens a fresh one. Deciding here would silently merge two deliveries that
+   * happen to share a supplier and a week.
+   */
+  const markArrived = async (
+    id: string,
+    partial = false,
+    choice?: { adopt?: string; forceNew?: boolean },
+  ): Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[] }> => {
     try {
-      await api.put(`/orders/${id}/arrived`, { partial })
+      const res = await api.put(`/orders/${id}/arrived`, {
+        partial,
+        delivery_note_id: choice?.adopt,
+        force_new:        choice?.forceNew,
+      }) as { needsChoice?: boolean; candidates?: ArrivalCandidate[] }
+      if (res?.needsChoice) return res
       await load()
+      return {}
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(`שגיאה בסימון ההגעה: ${msg}`)

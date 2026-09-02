@@ -160,6 +160,47 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     if (!order) return null
     const partial = b.partial === true
 
+    // Mirrors the server: the supplier's note usually arrives by email BEFORE the
+    // goods, so look for one already waiting instead of opening a second row for
+    // one physical delivery. Offered, never adopted automatically — two deliveries
+    // from one supplier in a week are ordinary, and a silent merge loses a
+    // shipment, which is worse than a duplicate because nobody can see it.
+    const adoptId  = typeof b.delivery_note_id === 'string' ? b.delivery_note_id : null
+    const forceNew = b.force_new === true
+    if (!adoptId && !forceNew) {
+      const claimed = new Set(orders.map(o => String(o.delivery_note_id ?? '')))
+      const waiting = notes.filter(n =>
+        n.supplier_id === order.supplier_id &&
+        n.stage === 'awaiting_invoice' &&
+        !claimed.has(String(n.id)))
+      if (waiting.length > 0) {
+        return {
+          success: false, needsChoice: true,
+          candidates: waiting.map(n => ({
+            id: String(n.id), note_number: n.note_number ?? null,
+            date: n.date ?? null, supplier_name: n.supplier_name ?? null,
+          })),
+        } as unknown as Row
+      }
+    }
+    if (adoptId) {
+      const adopted = find('delivery_notes', adoptId)
+      if (adopted) {
+        if (partial) {
+          orders.unshift({
+            ...order, id: `ord_${Date.now()}`,
+            description: `הגיע: ${order.description}`,
+            status: 'order_partial', arrived_at: nowIso(), delivery_note_id: adopted.id,
+          })
+        } else {
+          order.status = 'order_arrived'
+          order.arrived_at = nowIso()
+          order.delivery_note_id = adopted.id
+        }
+        return { success: true, delivery_note_id: adopted.id }
+      }
+    }
+
     // The delivery the order becomes. An order is the pipeline's ENTRY POINT
     // (D23), so "arrived" does not just recolour a card — it produces the row
     // that then waits for an invoice.

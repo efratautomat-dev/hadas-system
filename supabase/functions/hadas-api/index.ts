@@ -1015,10 +1015,16 @@ async function markOrderArrived(
 ): Promise<Response> {
   let partial = false;
   let description: string | undefined;
+  let adoptId: string | null = null;
+  let forceNew = false;
   try {
     const body = await req.json();
     partial = !!body?.partial;
     description = typeof body?.description === "string" ? body.description : undefined;
+    // Set by the screen AFTER it asked: adopt this specific waiting delivery, or
+    // go ahead and open a new one because none of them is this shipment.
+    adoptId  = typeof body?.delivery_note_id === "string" ? body.delivery_note_id : null;
+    forceNew = !!body?.force_new;
   } catch { /* no body = a full arrival */ }
 
   const { data: order, error: fetchErr } = await supabase.from("orders")
@@ -1034,20 +1040,72 @@ async function markOrderArrived(
   const today = new Date().toISOString().slice(0, 10);
   const nowIso = new Date().toISOString();
 
-  // The delivery row. Goods are in hand and no invoice is attached — the pipeline's
-  // starting state. No amount: an order carries no figure worth trusting (D22), and
-  // inventing one here would put a number nobody measured in front of a person.
-  const { data: note, error: noteErr } = await supabase.from("delivery_notes").insert({
-    supplier_id:   order.supplier_id,
-    supplier_name: order.supplier_name,
-    note_number:   "",
-    date:          today,
-    amount:        0,
-    status:        "pending",
-    stage:         "awaiting_invoice" satisfies PipelineStage,
-    intake_source: "manual",
-  }).select("id").single();
-  if (noteErr || !note) return json({ error: "Failed to open delivery", details: noteErr?.message }, 500);
+  // ── Is the delivery ALREADY here? ─────────────────────────────────────────
+  //
+  // The ordinary case is that the supplier's note arrives by EMAIL before the
+  // goods do. This used to insert a fresh row regardless, so pressing "הגיע"
+  // produced a SECOND row for one physical delivery and left the employee to
+  // guess which was real — the exact confusion the pipeline exists to remove.
+  //
+  // So look first. A candidate is a delivery from this supplier that is still
+  // waiting for an invoice and is not already attached to another order.
+  //
+  // Nothing is attached automatically. The system SUGGESTS and a person confirms
+  // (§6.f): only the caller passing `delivery_note_id` adopts a specific row, and
+  // an unresolved match comes back as `candidates` for the screen to ask about.
+  // Guessing here would silently merge two different deliveries that happened to
+  // share a supplier and a week.
+  const ARRIVAL_WINDOW_DAYS = 30;
+  const since = new Date(Date.now() - ARRIVAL_WINDOW_DAYS * 86_400_000)
+    .toISOString().slice(0, 10);
+
+  let noteId: string | null = null;
+
+  const { data: waiting } = await supabase.from("delivery_notes")
+    .select("id, note_number, date, supplier_name")
+    .eq("supplier_id", order.supplier_id)
+    .eq("stage", "awaiting_invoice")
+    .gte("date", since)
+    .order("date", { ascending: false })
+    .limit(10);
+
+  const claimed = new Set<string>();
+  if (waiting && waiting.length > 0) {
+    const { data: others } = await supabase.from("orders")
+      .select("delivery_note_id").not("delivery_note_id", "is", null);
+    for (const o of others ?? []) claimed.add(String(o.delivery_note_id));
+  }
+  const candidates = (waiting ?? []).filter(n => !claimed.has(String(n.id)));
+
+  if (adoptId) {
+    // The screen asked the person and she picked one.
+    if (!candidates.some(c => String(c.id) === adoptId))
+      return json({ error: "That delivery is not available to attach" }, 409);
+    noteId = adoptId;
+  } else if (candidates.length > 0 && !forceNew) {
+    // Hand the choice back rather than deciding it. The order is left untouched,
+    // so nothing has happened yet and the call is safe to repeat.
+    return json({ success: false, needsChoice: true, candidates }, 200);
+  }
+
+  if (!noteId) {
+    // The delivery row. Goods are in hand and no invoice is attached — the pipeline's
+    // starting state. No amount: an order carries no figure worth trusting (D22), and
+    // inventing one here would put a number nobody measured in front of a person.
+    const { data: note, error: noteErr } = await supabase.from("delivery_notes").insert({
+      supplier_id:   order.supplier_id,
+      supplier_name: order.supplier_name,
+      note_number:   "",
+      date:          today,
+      amount:        0,
+      status:        "pending",
+      stage:         "awaiting_invoice" satisfies PipelineStage,
+      intake_source: "manual",
+    }).select("id").single();
+    if (noteErr || !note) return json({ error: "Failed to open delivery", details: noteErr?.message }, 500);
+    noteId = String(note.id);
+  }
+  const note = { id: noteId };
 
   if (partial) {
     const { data: split, error: splitErr } = await supabase.from("orders").insert({
