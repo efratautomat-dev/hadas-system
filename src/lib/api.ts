@@ -8,12 +8,17 @@ async function call(method: string, path: string, body?: unknown): Promise<unkno
   // Demo mode: never hit the network. Accept the write and echo a synthetic id
   // so optimistic UI flows (e.g. supplier create) keep working on fake data.
   if (DEMO_MODE) {
-    // Supplier notes are the one write the demo APPLIES, to its in-memory table.
-    // Everything else stays a no-op: an invoice or a payment is a financial record
-    // whose demo dataset is curated, and mutating it would make the walkthrough
-    // drift. A note is a free-text scratch line — the whole point of the panel is
-    // writing one, and a demo where the central gesture silently does nothing
-    // teaches the wrong thing about the feature.
+    // Supplier notes and the PIPELINE gestures are what the demo APPLIES, to its
+    // in-memory tables. Everything else stays a no-op: an invoice or a payment is
+    // a financial record whose demo dataset is curated, and mutating it would make
+    // the walkthrough drift.
+    //
+    // The exceptions share one test — is the gesture the feature? Writing a note
+    // is the whole point of the notes panel; marking an order arrived, attaching
+    // an invoice and approving into the ledger ARE the pipeline. A demo whose
+    // central button silently does nothing teaches the opposite of the feature.
+    // None of them touches money: the amounts stay exactly as seeded, and only
+    // the stage a row sits at moves.
     const applied = applyDemoWrite(method, path, body)
     if (applied) return applied
     console.warn(`[DEMO MODE] stubbed ${method} ${path} — no network call`)

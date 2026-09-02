@@ -23,9 +23,19 @@ type Row = Record<string, unknown>
 const DEMO_AUTHOR = demoUser.email
 
 export function applyDemoWrite(method: string, path: string, body?: unknown): Row | null {
+  const b = (body ?? {}) as Row
+
+  // ── The pipeline gestures ──────────────────────────────────────────────────
+  // Opening an order, marking it arrived, attaching an invoice, approving into
+  // the ledger. These are APPLIED for the same reason supplier notes are: the
+  // gesture IS the feature, and a demo whose central button does nothing
+  // demonstrates the opposite of what it should. In memory only — a refresh puts
+  // the story back, which is right for a demo.
+  const pipeline = applyPipelineWrite(method, path, b)
+  if (pipeline) return pipeline
+
   const notes = demoTables.supplier_notes
   if (!notes) return null
-  const b = (body ?? {}) as Row
 
   if (method === 'POST' && path === '/supplier-notes') {
     const now = new Date().toISOString()
@@ -57,6 +67,163 @@ export function applyDemoWrite(method: string, path: string, body?: unknown): Ro
   if (method === 'DELETE') {
     const i = notes.findIndex(n => String(n.id) === id)
     if (i >= 0) notes.splice(i, 1)
+    return { success: true }
+  }
+
+  return null
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The goods pipeline, in demo.
+//
+// The stage rules here are a deliberate MIRROR of hadas-api's, not a second
+// invention: link → in_ledger if the invoice is already approved, else
+// awaiting_approval; unlink → back to awaiting_invoice; approve → every note
+// attached to that invoice moves at once, which is what makes a consolidated
+// invoice one decision instead of five. If those rules ever diverge, the demo
+// teaches a pipeline the system does not have.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const nowIso = () => new Date().toISOString()
+
+function find(table: string, id: string): Row | undefined {
+  return demoTables[table]?.find(r => String(r.id) === id)
+}
+
+function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
+  const orders   = demoTables.orders
+  const notes    = demoTables.delivery_notes
+  const links    = demoTables.delivery_note_invoices
+  const invoices = demoTables.invoices
+  if (!orders || !notes || !links || !invoices) return null
+
+  // ── POST /orders ─────────────────────────────────────────────────────────
+  if (method === 'POST' && path === '/orders') {
+    const row: Row = {
+      id: `ord_${Date.now()}`,
+      supplier_id:    String(b.supplier_id ?? ''),
+      supplier_name:  String(b.supplier_name ?? ''),
+      description:    String(b.description ?? ''),
+      date:           nowIso().slice(0, 10),
+      expected_date:  b.expected_date ?? null,
+      status:         'order_waiting',
+      arrived_at:     null,
+      arrived_differs: false,
+      delivery_note_id: null,
+      customer_name:  b.customer_name  ?? null,
+      customer_phone: b.customer_phone ?? null,
+    }
+    orders.unshift(row)
+    return row
+  }
+
+  // ── PUT /orders/:id/arrived ──────────────────────────────────────────────
+  const arrived = path.match(/^\/orders\/([^/]+)\/arrived$/)
+  if (method === 'PUT' && arrived) {
+    const order = find('orders', arrived[1])
+    if (!order) return null
+    const partial = b.partial === true
+
+    // The delivery the order becomes. An order is the pipeline's ENTRY POINT
+    // (D23), so "arrived" does not just recolour a card — it produces the row
+    // that then waits for an invoice.
+    const note: Row = {
+      id: `dn_${Date.now()}`,
+      supplier_id:   order.supplier_id,
+      supplier_name: order.supplier_name,
+      date:          nowIso().slice(0, 10),
+      amount: null, amount_before_vat: null, vat_amount: null,
+      status: 'pending_match',
+      stage:  'awaiting_invoice',
+      invoice_id: null,
+      line_items: order.description,
+      intake_source: 'manual',
+      drive_file_link: null, storage_url: null,
+      note_number: null,
+    }
+    notes.unshift(note)
+
+    if (partial) {
+      // §7 — the arrived part becomes its OWN order and the original keeps
+      // waiting for the rest. Two rows, not one that changed its mind.
+      orders.unshift({
+        ...order,
+        id: `ord_${Date.now()}`,
+        description: `הגיע: ${order.description}`,
+        status: 'order_partial',
+        arrived_at: nowIso(),
+        delivery_note_id: note.id,
+      })
+    } else {
+      order.status = 'order_arrived'
+      order.arrived_at = nowIso()
+      order.delivery_note_id = note.id
+    }
+    return { success: true, delivery_note_id: note.id }
+  }
+
+  // ── PUT /delivery-notes/:id/link ─────────────────────────────────────────
+  const link = path.match(/^\/delivery-notes\/([^/]+)\/link$/)
+  if (method === 'PUT' && link) {
+    const note = find('delivery_notes', link[1])
+    const invoiceId = String(b.invoice_id ?? '')
+    const invoice = find('invoices', invoiceId)
+    if (!note || !invoice) return null
+    if (!links.some(l => l.delivery_note_id === note.id && l.invoice_id === invoiceId)) {
+      links.push({ delivery_note_id: note.id, invoice_id: invoiceId, created_at: nowIso() })
+    }
+    note.invoice_id = invoiceId
+    note.status = 'linked'
+    note.stage = invoice.ledger_approved_at ? 'in_ledger' : 'awaiting_approval'
+    return { success: true, stage: note.stage }
+  }
+
+  // ── PUT /delivery-notes/:id/unlink ───────────────────────────────────────
+  const unlink = path.match(/^\/delivery-notes\/([^/]+)\/unlink$/)
+  if (method === 'PUT' && unlink) {
+    const note = find('delivery_notes', unlink[1])
+    if (!note) return null
+    for (let i = links.length - 1; i >= 0; i--) {
+      if (links[i].delivery_note_id === note.id) links.splice(i, 1)
+    }
+    note.invoice_id = null
+    note.status = 'pending_match'
+    note.stage = 'awaiting_invoice'
+    return { success: true }
+  }
+
+  // ── PUT /invoices/:id/ledger-approve ─────────────────────────────────────
+  const approve = path.match(/^\/invoices\/([^/]+)\/ledger-(approve|unapprove)$/)
+  if (method === 'PUT' && approve) {
+    const invoice = find('invoices', approve[1])
+    if (!invoice) return null
+    const on = approve[2] === 'approve'
+    invoice.ledger_approved_at = on ? nowIso() : null
+    invoice.ledger_approved_by = on ? demoUser.email : null
+    // ONE approval moves every delivery hanging off this invoice — the
+    // consolidated-invoice case, and the reason the count is worth returning.
+    let moved = 0
+    for (const l of links) {
+      if (l.invoice_id !== invoice.id) continue
+      const n = find('delivery_notes', String(l.delivery_note_id))
+      if (!n) continue
+      n.stage = on ? 'in_ledger' : 'awaiting_approval'
+      moved++
+    }
+    return { success: true, moved }
+  }
+
+  // ── PUT /delivery-notes/:id — שינוי ספק ──────────────────────────────────
+  const upd = path.match(/^\/delivery-notes\/([^/]+)$/)
+  if (method === 'PUT' && upd && b.supplierId !== undefined) {
+    const note = find('delivery_notes', upd[1])
+    const sup  = find('suppliers', String(b.supplierId))
+    if (!note) return null
+    note.supplier_id = String(b.supplierId)
+    // Name follows the id, exactly as the server does it. Two sources of truth
+    // for one supplier is the defect this whole control exists to prevent.
+    if (sup?.name) note.supplier_name = sup.name
     return { success: true }
   }
 
