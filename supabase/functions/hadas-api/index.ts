@@ -996,6 +996,48 @@ async function createOrder(req: Request, supabase: SupabaseClient, actor?: strin
   }).select("id").single();
 
   if (error || !data) return json({ error: "Failed to create order", details: error?.message }, 500);
+
+  // ── A customer order landing on a supplier that already has one open ──────
+  //
+  // The owner's rule, and the reason it exists: the shipment is already on its
+  // way, so the customer's item can ride along instead of triggering a second
+  // delivery — but only if somebody notices in time. An employee taking the order
+  // over the phone has no way to know, so the system tells the manager.
+  //
+  // Only for CUSTOMER orders. A restock order joining another restock order is
+  // ordinary and needs no interruption; the alert exists because a customer is
+  // waiting and a missed window costs her the wait, not the store a delivery fee.
+  const customerName = body.customer_name ?? body.customerName ?? null;
+  if (customerName) {
+    const { data: openSiblings } = await supabase.from("orders")
+      .select("id, description, expected_date, date")
+      .eq("supplier_id", supplierId)
+      .eq("status", "order_waiting")
+      .neq("id", data.id)
+      .order("expected_date", { ascending: true, nullsFirst: false })
+      .limit(1);
+    const sibling = openSiblings?.[0];
+    if (sibling) {
+      const when = sibling.expected_date
+        ? `צפי הגעה ${String(sibling.expected_date).split("-").reverse().join("/")}`
+        : "ללא צפי הגעה";
+      await supabase.from("alerts").insert({
+        type:    "customer_order_joins_shipment",
+        title:   "הזמנת לקוחה אצל ספק עם משלוח בדרך",
+        message: `${customerName} הזמינה מ${supplierName ?? "הספק"}. יש כבר הזמנה פתוחה אצל אותו ספק (${when}) — אפשר לצרף.`,
+        status:  "unread",
+        payload: {
+          supplierId,
+          supplierName:   supplierName ?? "",
+          orderId:        data.id,
+          existingOrderId: sibling.id,
+          customerName,
+          expectedDate:   sibling.expected_date ?? null,
+        },
+      });
+    }
+  }
+
   return json({ id: data.id }, 201);
 }
 

@@ -2,7 +2,7 @@ import { useState, useLayoutEffect } from 'react'
 import {
   Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus,
   HelpCircle, FileX, Paperclip, Unlink, AlertTriangle, Clock,
-  FileWarning, Receipt, AlertCircle, Tag, Mail, X, ShieldCheck, AlertOctagon, Coins,
+  FileWarning, Receipt, AlertCircle, Tag, Mail, X, ShieldCheck, AlertOctagon, Coins, Package,
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
@@ -93,6 +93,10 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // balance — the supplier is owed money the ledger does not show.
   invoice_amount_unreadable:      b('סכום לא נקרא בחשבונית', Coins, 'action'),
   delivery_note_amount_unreadable: b('סכום לא נקרא בתעודה',  Coins, 'action'),
+  // An employee took a customer's order for a supplier whose shipment is already
+  // on its way. ACTION and time-sensitive: the value is entirely in catching it
+  // before that shipment leaves, and a day late it is merely history.
+  customer_order_joins_shipment:  b('הזמנת לקוחה — אפשר לצרף למשלוח', Package, 'action'),
 
   // ── Check (yellow): worth a look / verify ──
   invoice_low_confidence:      b('וודאות נמוכה',            AlertTriangle, 'check'),

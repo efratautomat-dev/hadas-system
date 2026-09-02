@@ -32,25 +32,39 @@ export interface OrderDraft {
 }
 
 export default function OrderForm({
-  suppliers, onClose, onCreate,
+  suppliers, onClose, onCreate, lockedSupplier, customerOnly = false,
 }: {
   suppliers: { id: string; name: string; hp?: string }[]
   onClose: () => void
   onCreate: (draft: OrderDraft) => Promise<void>
+  /**
+   * Opened from inside a supplier's card: the supplier is known and is shown
+   * rather than chosen. Removes the one field that could put the order on the
+   * wrong supplier.
+   */
+  lockedSupplier?: { id: string; name: string }
+  /**
+   * The employee's version. She opens orders for CUSTOMERS only (owner's rule),
+   * so the customer block is always open and required rather than optional —
+   * an order with no customer is a restock, and restocks are the manager's.
+   */
+  customerOnly?: boolean
 }) {
-  const [supplierId, setSupplierId] = useState('')
+  const [supplierId, setSupplierId] = useState(lockedSupplier?.id ?? '')
   const [description, setDescription] = useState('')
   const [expectedDate, setExpectedDate] = useState('')
-  const [forCustomer, setForCustomer] = useState(false)
+  const [forCustomer, setForCustomer] = useState(customerOnly)
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  const supplier = suppliers.find(s => s.id === supplierId)
+  const supplier = lockedSupplier ?? suppliers.find(s => s.id === supplierId)
   // Both are required: a supplier with no description is a row nobody can act on,
   // and a description with no supplier cannot reach the supplier's own page.
-  const ready = !!supplierId && description.trim().length > 0
+  const ready = !!supplierId && description.trim().length > 0 &&
+    // A customer order with no customer cannot be handed back to anyone.
+    (!customerOnly || customerName.trim().length > 0)
 
   const submit = async () => {
     if (!ready || busy) return
@@ -85,7 +99,7 @@ export default function OrderForm({
         <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: '#EEEEF2' }}>
           <span className="font-bold text-gray-800 inline-flex items-center gap-2" style={{ fontSize: '15px' }}>
             <Package className="w-4 h-4" style={{ color: 'var(--brand-primary)' }} />
-            הזמנה חדשה
+            {customerOnly ? 'הזמנה ללקוחה' : 'הזמנה חדשה'}
           </span>
           <button
             onClick={onClose}
@@ -96,21 +110,36 @@ export default function OrderForm({
 
         <div className="px-5 py-4 grid gap-4">
           <p style={{ fontSize: '12.5px', color: '#9CA3AF', margin: 0 }}>
-            מה הוזמן, ממי. הסכום יגיע מהחשבונית.
+            {customerOnly
+              ? 'ההזמנה תיפתח אצל הספק הזה. אם כבר יש לו משלוח בדרך — המנהלת תקבל התראה כדי לצרף.'
+              : 'מה הוזמן, ממי. הסכום יגיע מהחשבונית.'}
           </p>
 
-          <div>
-            <FieldLabel required>ספק</FieldLabel>
-            <SearchableSelect
-              value={supplierId}
-              onChange={setSupplierId}
-              placeholder="-- בחר --"
-              options={suppliers.map(s => ({ value: s.id, label: s.name, keywords: s.hp }))}
-            />
-            <p style={{ margin: '3px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
-              חיפוש לפי שם או ח.פ.
-            </p>
-          </div>
+          {lockedSupplier ? (
+            <div>
+              <FieldLabel>ספק</FieldLabel>
+              <div
+                className="flex items-center justify-between"
+                style={{ background: '#F3F4F6', border: '1px solid #E2E4E9', padding: '10px 14px', fontSize: '13.5px', color: '#4B5563' }}
+              >
+                <span style={{ fontWeight: 700 }}>{lockedSupplier.name}</span>
+                <small style={{ fontSize: '10.5px', color: '#9CA3AF', fontWeight: 700 }}>מכרטיס הספק</small>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <FieldLabel required>ספק</FieldLabel>
+              <SearchableSelect
+                value={supplierId}
+                onChange={setSupplierId}
+                placeholder="-- בחר --"
+                options={suppliers.map(s => ({ value: s.id, label: s.name, keywords: s.hp }))}
+              />
+              <p style={{ margin: '3px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
+                חיפוש לפי שם או ח.פ.
+              </p>
+            </div>
+          )}
 
           <div>
             <FieldLabel required>מה הוזמן</FieldLabel>
@@ -153,6 +182,7 @@ export default function OrderForm({
           </div>
 
           <div style={{ borderTop: '1px solid #ECECEF', paddingTop: '14px' }}>
+            {!customerOnly && (
             <label className="flex items-start gap-2.5" style={{ cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -167,6 +197,7 @@ export default function OrderForm({
                 </span>
               </span>
             </label>
+            )}
 
             {forCustomer && (
               <div
@@ -174,7 +205,7 @@ export default function OrderForm({
                 style={{ gridTemplateColumns: '1fr 1fr', marginTop: '12px', padding: '14px', background: 'var(--brand-active-bg)', border: '1px solid #F3D6DD' }}
               >
                 <div>
-                  <FieldLabel>שם הלקוחה</FieldLabel>
+                  <FieldLabel required={customerOnly}>שם הלקוחה</FieldLabel>
                   <TextInput value={customerName} onChange={setCustomerName} />
                 </div>
                 <div>

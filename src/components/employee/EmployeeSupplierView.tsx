@@ -21,6 +21,7 @@ import { isoToDisplay } from '../../lib/dates'
 import { invoiceStatusKey } from '../../lib/invoiceStatus'
 import { StatusBadge } from '../StatusBadge'
 import { PipelineStrip } from '../pipeline/PipelineStrip'
+import OrderForm from '../pipeline/OrderForm'
 import { DateField } from '../ui/form'
 
 export type EmployeeSection = 'invoices' | 'deliveries' | 'returns'
@@ -313,13 +314,14 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
   const { data: allReturns, create: createReturn } = useReturns()
   const { data: employees }        = useEmployees()
   const { data: suppliers }        = useSuppliers()
-  const { openForSupplier }        = useOrders()
+  const { openForSupplier, create: createOrder } = useOrders()
 
   const [invoiceQuery, setInvoiceQuery] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [showReturnForm, setShowReturnForm] = useState(false)
   const [returnForm, setReturnForm] = useState<FormState>(emptyForm())
   const [showReceiptForm, setShowReceiptForm] = useState(false)
+  const [newOrder, setNewOrder] = useState(false)
   const [receiptForm, setReceiptForm] = useState<ReceiptFormState>({ isoDate: '', items: '', noteNumber: '', employeeId: '' })
   // Document image/PDF popup (arrived records) and metadata popup (manual records).
   const [docView, setDocView] = useState<{ url: string; previewSrc?: string } | null>(null)
@@ -539,8 +541,25 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
           about something that has NOT arrived; "מה הגיע?" comes second. Sorting
           and filtering live in useOrders.openForSupplier so this screen and the
           board cannot disagree about what "open" means. */}
-      {activeSection === 'deliveries' && supplierOrders.length > 0 && (
-        <SectionShell title="הזמנות פתוחות" Icon={Package} count={supplierOrders.length}>
+      {activeSection === 'deliveries' && (
+        <SectionShell
+          title="הזמנות פתוחות"
+          Icon={Package}
+          count={supplierOrders.length}
+          action={
+            <button
+              onClick={() => setNewOrder(true)}
+              className="flex items-center gap-1.5 font-bold"
+              style={{ minHeight: '38px', padding: '0 14px', background: 'white', color: 'var(--brand-primary)', border: '1px solid var(--brand-primary)', fontSize: '13.5px' }}
+            >
+              <Plus className="w-4 h-4" />
+              הזמנה ללקוחה
+            </button>
+          }
+        >
+          {supplierOrders.length === 0 && (
+            <EmptyRow text="אין הזמנות פתוחות עבור ספק זה" />
+          )}
           {supplierOrders.map(o => (
             <div
               key={o.id}
@@ -570,7 +589,7 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
       {/* ── Delivery notes ── */}
       {activeSection === 'deliveries' && (
         <SectionShell
-          title="תעודות משלוח"
+          title="סחורה"
           Icon={Truck}
           count={deliveries.length}
           action={
@@ -739,6 +758,16 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
       {/* Manual record → operational details only, no monetary amounts. */}
       {metaModal && <MetaModal {...metaModal} onClose={() => setMetaModal(null)} />}
 
+
+      {newOrder && (
+        <OrderForm
+          suppliers={[]}
+          lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          customerOnly
+          onClose={() => setNewOrder(false)}
+          onCreate={async d => { await createOrder(d) }}
+        />
+      )}
     </div>
   )
 }

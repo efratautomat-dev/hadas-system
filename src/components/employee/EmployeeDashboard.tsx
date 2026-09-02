@@ -33,7 +33,7 @@ interface Props {
 // The three sections an employee can drill into. Order matches the cards below.
 const SECTION_CARDS: { key: EmployeeSection; label: string; Icon: typeof FileText }[] = [
   { key: 'invoices',   label: 'חשבוניות',     Icon: FileText },
-  { key: 'deliveries', label: 'תעודות משלוח', Icon: Truck },
+  { key: 'deliveries', label: 'הזמנות וסחורה', Icon: Truck },
   { key: 'returns',    label: 'חזרות',        Icon: RotateCcw },
 ]
 
