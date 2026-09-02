@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Camera, Plus } from 'lucide-react'
+import { PackageCheck, Plus, LayoutGrid, Table2 } from 'lucide-react'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useOrders, type Order } from '../../hooks/useOrders'
@@ -7,6 +7,8 @@ import { useSuppliers } from '../../hooks/useSuppliers'
 import OrderForm from './OrderForm'
 import SupplierPicker from './SupplierPicker'
 import ArrivalChoice from './ArrivalChoice'
+import GoodsIntake from './GoodsIntake'
+import OrderDetail from './OrderDetail'
 import type { ArrivalCandidate } from '../../hooks/useOrders'
 import DeliveryDetail from './DeliveryDetail'
 import { StatusBadge, StatusFlag } from '../StatusBadge'
@@ -46,13 +48,25 @@ function fmtILS(n: number | null | undefined) {
   return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
-export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () => void }) {
-  const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle } = useDeliveryNotes()
+export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
+  const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle, create: createNote, reload: reloadNotes } = useDeliveryNotes()
   const { data: invoices, ledgerApprove } = useInvoices()
   const { data: orders, loading: ordersLoading, create: createOrder, markArrived } = useOrders()
   const { data: suppliers } = useSuppliers()
   const [newOrder, setNewOrder] = useState(false)
   const [reassign, setReassign] = useState<string | null>(null)
+  const [intake, setIntake] = useState(false)
+  const [openOrderId, setOpenOrderId] = useState<string | null>(null)
+  // Cards ⇄ rows, in the exact shape the suppliers screen uses and remembered the
+  // same way. Two screens offering the same choice through two different controls
+  // is how a system stops feeling like one system.
+  const [view, setView] = useState<'cards' | 'table'>(
+    () => (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('goodsView') === 'cards') ? 'cards' : 'table',
+  )
+  const setViewPersist = (v: 'cards' | 'table') => {
+    setView(v)
+    try { sessionStorage.setItem('goodsView', v) } catch { /* private mode */ }
+  }
   // "הגיע" can come back asking which delivery this is, when the supplier's note
   // already arrived by email. The pending gesture is kept so answering resumes it.
   const [arrival, setArrival] = useState<
@@ -107,16 +121,11 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
       {/* No page title here: Layout already prints it in the top bar, the same as
           every other screen. Repeating it put the same words on screen twice. */}
       <div className="flex items-center justify-end gap-3 flex-wrap mb-4">
-        {onOpenCapture && (
-          <button
-            onClick={onOpenCapture}
-            className="inline-flex items-center gap-2 font-bold text-white"
-            style={{ background: 'var(--brand-primary)', border: 'none', padding: '9px 18px', fontSize: '14px', cursor: 'pointer' }}
-          >
-            <Camera className="w-4 h-4" />
-            צילום מסמך
-          </button>
-        )}
+        <button
+            onClick={() => setIntake(true)}
+            className="font-semibold inline-flex items-center gap-1.5 text-white"
+            style={{ background: 'var(--brand-primary)', border: 'none', padding: '9px 16px', fontSize: '13px', cursor: 'pointer' }}
+          ><PackageCheck className="w-4 h-4" />קליטת סחורה</button>
       </div>
 
       {/* ── Tabs ───────────────────────────────────────────────────────────── */}
@@ -155,7 +164,7 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
       {tab === 'goods' ? (
         <>
           {/* Stage filters. The counts are the point — they say where the work is. */}
-          <div className="flex gap-2 mb-4 flex-wrap">
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
             {GOODS_FILTERS.map(f => {
               const on = filter === f.key
               const n = f.key === 'all' ? notes.length : (counts[f.key] ?? 0)
@@ -184,8 +193,35 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
                 </button>
               )
             })}
+            <div className="flex items-center gap-1 bg-white border p-1 flex-shrink-0" style={{ borderColor: '#EEEEF2', marginInlineStart: 'auto' }}>
+              {([
+                { key: 'table', Icon: Table2,     label: 'תצוגת שורות' },
+                { key: 'cards', Icon: LayoutGrid, label: 'תצוגת כרטיסים' },
+              ] as const).map(({ key, Icon, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setViewPersist(key)}
+                  title={label}
+                  aria-label={label}
+                  className="flex items-center justify-center transition-all"
+                  style={{
+                    width: '38px', height: '34px', border: 'none', cursor: 'pointer',
+                    background: view === key ? 'var(--brand-primary)' : 'transparent',
+                    color: view === key ? 'white' : '#9CA3AF',
+                  }}
+                ><Icon className="w-4 h-4" /></button>
+              ))}
+            </div>
           </div>
 
+          {view === 'cards' ? (
+            <GoodsCards
+              notes={shown}
+              orderByNote={orderByNote}
+              stageOf={stageOf}
+              onOpen={setOpenId}
+            />
+          ) : (
           <div className="bg-white border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '760px' }}>
@@ -248,6 +284,7 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
               </table>
             </div>
           </div>
+          )}
         </>
       ) : (
         <>
@@ -265,7 +302,7 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
             ><Plus className="w-4 h-4" />הזמנה חדשה</button>
           </div>
           <OrdersList orders={openOrders} allOrders={orders} loading={ordersLoading}
-            onArrived={arrive} />
+            onArrived={arrive} onOpen={setOpenOrderId} />
         </>
       )}
 
@@ -273,6 +310,7 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
         <OrderForm
           suppliers={suppliers.map(s => ({ id: s.id, name: s.name, hp: (s as { hp?: string }).hp }))}
           onClose={() => setNewOrder(false)}
+          openOrders={openOrders.map(o => ({ id: o.id, supplierId: o.supplierId, description: o.description, date: o.date, expectedDate: o.expectedDate, customerName: o.customerName }))}
           onCreate={async d => { await createOrder(d) }}
         />
       )}
@@ -291,6 +329,24 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
           onApprove={ledgerApprove}
           onChangeSupplier={() => setReassign(openNote.id)}
           onDismantle={async () => { await dismantle(openNote.id) }}
+        />
+      )}
+
+      {intake && (
+        <GoodsIntake
+          suppliers={suppliers.map(s => ({ id: s.id, name: s.name, hp: (s as { hp?: string }).hp }))}
+          capturedBy={userEmail}
+          onClose={() => setIntake(false)}
+          onCreate={async d => { await createNote(d); await reloadNotes() }}
+        />
+      )}
+
+      {openOrderId && (
+        <OrderDetail
+          order={orders.find(o => o.id === openOrderId)!}
+          onClose={() => setOpenOrderId(null)}
+          onArrived={(partial) => arrive(openOrderId, partial)}
+          onOpenPipeline={id => setOpenId(id)}
         />
       )}
 
@@ -325,9 +381,10 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
 // Nearest first (§7.7). A split pair is drawn as a pair: the original keeps
 // waiting and says WHY there is a second row, because two rows for one supplier
 // on one day with no explanation reads as a duplicate and someone deletes one.
-function OrdersList({ orders, allOrders, loading, onArrived }: {
+function OrdersList({ orders, allOrders, loading, onArrived, onOpen }: {
   orders: Order[]; allOrders: Order[]; loading: boolean
   onArrived: (id: string, partial: boolean) => Promise<void>
+  onOpen: (id: string) => void
 }) {
   const splitParents = useMemo(() => {
     const s = new Set<string>()
@@ -345,9 +402,13 @@ function OrdersList({ orders, allOrders, loading, onArrived }: {
       {orders.map(o => (
         <div
           key={o.id}
+          role="button"
+          tabIndex={0}
+          onClick={() => onOpen(o.id)}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onOpen(o.id) }}
           className="bg-white border"
           style={{
-            borderColor: '#EEEEF2', padding: '14px',
+            borderColor: '#EEEEF2', padding: '14px', cursor: 'pointer',
             borderInlineStartWidth: o.status === 'order_partial' ? '3px' : undefined,
             borderInlineStartColor: o.status === 'order_partial' ? '#C2410C' : undefined,
           }}
@@ -365,7 +426,9 @@ function OrdersList({ orders, allOrders, loading, onArrived }: {
               // again invites a second split of something already received.
               <span style={{ fontSize: '11.5px', color: '#9CA3AF' }}>נכנסה לפייפליין</span>
             ) : (
-              <OrderArrivedButton id={o.id} onArrived={onArrived} />
+              <span onClick={e => e.stopPropagation()}>
+                <OrderArrivedButton id={o.id} onArrived={onArrived} />
+              </span>
             )}
           </div>
           {o.arrivedDiffers && (
@@ -432,6 +495,59 @@ function OrderArrivedButton({ id, onArrived }: {
         onClick={() => setAsking(false)}
         style={{ background: 'transparent', border: '1px solid #E2E4E9', color: '#6B6E73', padding: '5px 10px', fontSize: '12px', cursor: 'pointer' }}
       >ביטול</button>
+    </div>
+  )
+}
+
+
+// ── The same rows, as cards ──────────────────────────────────────────────────
+// Offered because the suppliers screen offers it, in the same control and the same
+// two shapes. What changes is density, not information: the strip, the badge and
+// the supplier are in both, so a person moving between views is not re-learning
+// the screen.
+function GoodsCards({ notes, orderByNote, stageOf, onOpen }: {
+  notes: DeliveryNote[]
+  orderByNote: Map<string, OrderLink>
+  stageOf: (n: DeliveryNote) => PipelineStage
+  onOpen: (id: string) => void
+}) {
+  if (notes.length === 0) {
+    return (
+      <div className="bg-white border text-center" style={{ borderColor: '#EEEEF2', padding: '34px 16px', fontSize: '13.5px', color: '#9CA3AF' }}>
+        אין סחורה במצב הזה
+      </div>
+    )
+  }
+  return (
+    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+      {notes.map(n => (
+        <div
+          key={n.id}
+          role="button"
+          tabIndex={0}
+          onClick={() => onOpen(n.id)}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onOpen(n.id) }}
+          className="bg-white border"
+          style={{ borderColor: '#EEEEF2', padding: '14px', cursor: 'pointer' }}
+        >
+          <h3 className="font-bold text-gray-800" style={{ fontSize: '13.5px', margin: '0 0 3px' }}>
+            {n.supplierName || '—'}
+          </h3>
+          <p style={{ fontSize: '12px', color: '#9CA3AF', margin: '0 0 11px' }}>
+            {n.noteNumber ? `תעודה ${n.noteNumber} · ` : ''}{n.date}
+          </p>
+          <PipelineStrip
+            stage={stageOf(n)}
+            order={orderByNote.get(n.id) ?? 'none'}
+            hasInvoice={!!n.linkedInvoiceId}
+            compact
+            showLabels={false}
+          />
+          <div style={{ marginTop: '11px' }}>
+            <StatusBadge status={stageOf(n)} />
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

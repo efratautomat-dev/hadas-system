@@ -32,7 +32,7 @@ export interface OrderDraft {
 }
 
 export default function OrderForm({
-  suppliers, onClose, onCreate, lockedSupplier, customerOnly = false,
+  suppliers, onClose, onCreate, lockedSupplier, customerOnly = false, openOrders = [],
 }: {
   suppliers: { id: string; name: string; hp?: string }[]
   onClose: () => void
@@ -49,6 +49,16 @@ export default function OrderForm({
    * an order with no customer is a restock, and restocks are the manager's.
    */
   customerOnly?: boolean
+  /**
+   * Orders already open at the chosen supplier. Shown the moment a supplier is
+   * picked, because the moment to know is BEFORE the order is written: a shipment
+   * already moving can carry this item, and an alert that fires afterwards only
+   * helps someone still able to act on it.
+   */
+  openOrders?: {
+    id: string; supplierId: string; description: string; date: string
+    expectedDate: string; customerName: string | null
+  }[]
 }) {
   const [supplierId, setSupplierId] = useState(lockedSupplier?.id ?? '')
   const [description, setDescription] = useState('')
@@ -60,6 +70,9 @@ export default function OrderForm({
   const [err, setErr] = useState<string | null>(null)
 
   const supplier = lockedSupplier ?? suppliers.find(s => s.id === supplierId)
+  // Filtered HERE rather than by each caller: the manager picks the supplier
+  // inside this form, so only this component knows which orders are relevant.
+  const siblings = openOrders.filter(o => o.supplierId === supplierId)
   // Both are required: a supplier with no description is a row nobody can act on,
   // and a description with no supplier cannot reach the supplier's own page.
   const ready = !!supplierId && description.trim().length > 0 &&
@@ -137,6 +150,26 @@ export default function OrderForm({
               />
               <p style={{ margin: '3px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
                 חיפוש לפי שם או ח.פ.
+              </p>
+            </div>
+          )}
+
+          {supplierId && siblings.length > 0 && (
+            <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', padding: '12px 14px' }}>
+              <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#92400E' }}>
+                {`יש כבר ${siblings.length === 1 ? 'הזמנה פתוחה' : `${siblings.length} הזמנות פתוחות`} אצל הספק הזה`}
+              </div>
+              <ul style={{ margin: '6px 0 0', paddingInlineStart: '16px', fontSize: '12.5px', color: '#6B6E73' }}>
+                {siblings.slice(0, 3).map(o => (
+                  <li key={o.id}>
+                    {o.description || '—'}
+                    {o.customerName ? ` — עבור ${o.customerName}` : ''}
+                    {o.expectedDate ? ` · צפי ${o.expectedDate}` : ''}
+                  </li>
+                ))}
+              </ul>
+              <p style={{ margin: '6px 0 0', fontSize: '11.5px', color: '#9CA3AF' }}>
+                אפשר לצרף את מה שדרוש להזמנה קיימת במקום לפתוח חדשה.
               </p>
             </div>
           )}

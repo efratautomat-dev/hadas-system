@@ -10,7 +10,6 @@ import Suppliers from './Suppliers'
 import Invoices, { type DuplicateResolution } from './Invoices'
 import Payments from '../pages/Payments'
 import SupplierLedger from './SupplierLedger'
-import DeliveryNotes from './DeliveryNotes'
 import GoodsTracking from './pipeline/GoodsTracking'
 import StatementReconciliation from './StatementReconciliation'
 import Returns from './Returns'
@@ -379,17 +378,13 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         initialPaymentId={currentNav.paymentOpenId}
       />
     )
-    // D24 — the area is now the whole chain: orders, goods, and the delivery notes
-    // themselves. `DeliveryNotes` is still mounted for the note-level work it
-    // already does well (link/unlink/match, the detail modals); the new screen is
-    // the picture above it. Both under one nav item, because splitting one chain
-    // across two is exactly what this replaces.
-    if (activePage === 'deliveries') return (
-      <div className="space-y-6">
-        <GoodsTracking onOpenCapture={() => pushNav({ page: 'capture' })} />
-        <DeliveryNotes />
-      </div>
-    )
+    // D24 — one area, one chain. `DeliveryNotes` used to be stacked UNDER the new
+    // screen so its link/match work stayed reachable, and the result was the whole
+    // old screen — its own filters, its own "מסמכים שהגיעו / קליטה ידנית" split, its
+    // own vocabulary — sitting below a screen describing the same records. Two
+    // pictures of one thing is worse than a missing feature, and everything it did
+    // is now here: attach and detach in the delivery panel, intake behind one door.
+    if (activePage === 'deliveries') return <GoodsTracking userEmail={userEmail} />
     if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
     if (activePage === 'capture')        return <CaptureDocument capturedBy={userEmail} />

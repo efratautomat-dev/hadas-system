@@ -22,6 +22,7 @@ import { invoiceStatusKey } from '../../lib/invoiceStatus'
 import { StatusBadge } from '../StatusBadge'
 import { PipelineStrip } from '../pipeline/PipelineStrip'
 import OrderForm from '../pipeline/OrderForm'
+import GoodsIntake from '../pipeline/GoodsIntake'
 import { DateField } from '../ui/form'
 
 export type EmployeeSection = 'invoices' | 'deliveries' | 'returns'
@@ -322,6 +323,7 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
   const [returnForm, setReturnForm] = useState<FormState>(emptyForm())
   const [showReceiptForm, setShowReceiptForm] = useState(false)
   const [newOrder, setNewOrder] = useState(false)
+  const [intake, setIntake] = useState(false)
   const [receiptForm, setReceiptForm] = useState<ReceiptFormState>({ isoDate: '', items: '', noteNumber: '', employeeId: '' })
   // Document image/PDF popup (arrived records) and metadata popup (manual records).
   const [docView, setDocView] = useState<{ url: string; previewSrc?: string } | null>(null)
@@ -367,11 +369,9 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
     setShowReturnForm(true)
   }
 
-  // ── Manual goods-receipt (delivery note) — persists via useDeliveryNotes.create ──
-  function openAddReceipt() {
-    setReceiptForm({ isoDate: new Date().toISOString().slice(0, 10), items: '', noteNumber: '', employeeId: '' })
-    setShowReceiptForm(true)
-  }
+  // Manual receipt now lives behind the shared GoodsIntake door, together with
+  // photo capture — one door, two ways in, per the owner's decision. The modal
+  // below is what it replaced and is kept only until the walkthrough is re-cut.
 
   async function handleSaveReceipt() {
     if (!receiptForm.items.trim()) return
@@ -594,7 +594,7 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
           count={deliveries.length}
           action={
             <button
-              onClick={openAddReceipt}
+              onClick={() => setIntake(true)}
               className="flex items-center gap-1.5 rounded-xl font-bold text-white transition-all"
               style={{ minHeight: '38px', padding: '0 16px', background: 'var(--brand-primary)', fontSize: '14px' }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
@@ -759,12 +759,22 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
       {metaModal && <MetaModal {...metaModal} onClose={() => setMetaModal(null)} />}
 
 
+      {intake && (
+        <GoodsIntake
+          suppliers={[]}
+          lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          onClose={() => setIntake(false)}
+          onCreate={async d => { await createDeliveryNote(d) }}
+        />
+      )}
+
       {newOrder && (
         <OrderForm
           suppliers={[]}
           lockedSupplier={{ id: supplier.id, name: supplier.name }}
           customerOnly
           onClose={() => setNewOrder(false)}
+          openOrders={supplierOrders.map(o => ({ id: o.id, supplierId: o.supplierId, description: o.description, date: o.date, expectedDate: o.expectedDate, customerName: o.customerName }))}
           onCreate={async d => { await createOrder(d) }}
         />
       )}
