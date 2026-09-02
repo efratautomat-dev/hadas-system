@@ -47,7 +47,7 @@ function fmtILS(n: number | null | undefined) {
 export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () => void }) {
   const { data: notes, loading: notesLoading, link, unlink, candidates, update } = useDeliveryNotes()
   const { data: invoices, ledgerApprove } = useInvoices()
-  const { data: orders, loading: ordersLoading, create: createOrder } = useOrders()
+  const { data: orders, loading: ordersLoading, create: createOrder, markArrived } = useOrders()
   const { data: suppliers } = useSuppliers()
   const [newOrder, setNewOrder] = useState(false)
   const [reassign, setReassign] = useState<string | null>(null)
@@ -250,7 +250,8 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
               style={{ background: 'var(--brand-primary)', border: 'none', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}
             ><Plus className="w-4 h-4" />הזמנה חדשה</button>
           </div>
-          <OrdersList orders={openOrders} allOrders={orders} loading={ordersLoading} />
+          <OrdersList orders={openOrders} allOrders={orders} loading={ordersLoading}
+            onArrived={(id, partial) => markArrived(id, partial)} />
         </>
       )}
 
@@ -299,7 +300,10 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
 // Nearest first (§7.7). A split pair is drawn as a pair: the original keeps
 // waiting and says WHY there is a second row, because two rows for one supplier
 // on one day with no explanation reads as a duplicate and someone deletes one.
-function OrdersList({ orders, allOrders, loading }: { orders: Order[]; allOrders: Order[]; loading: boolean }) {
+function OrdersList({ orders, allOrders, loading, onArrived }: {
+  orders: Order[]; allOrders: Order[]; loading: boolean
+  onArrived: (id: string, partial: boolean) => Promise<void>
+}) {
   const splitParents = useMemo(() => {
     const s = new Set<string>()
     for (const o of allOrders) {
@@ -336,10 +340,7 @@ function OrdersList({ orders, allOrders, loading }: { orders: Order[]; allOrders
               // again invites a second split of something already received.
               <span style={{ fontSize: '11.5px', color: '#9CA3AF' }}>נכנסה לפייפליין</span>
             ) : (
-              <button
-                className="font-semibold text-white"
-                style={{ background: 'var(--brand-primary)', border: 'none', padding: '6px 14px', fontSize: '12.5px', cursor: 'pointer' }}
-              >הגיע</button>
+              <OrderArrivedButton id={o.id} onArrived={onArrived} />
             )}
           </div>
           {o.arrivedDiffers && (
@@ -355,6 +356,57 @@ function OrdersList({ orders, allOrders, loading }: { orders: Order[]; allOrders
           אין הזמנות פתוחות
         </div>
       )}
+    </div>
+  )
+}
+
+
+// ── "הגיע", on the manager's board ──────────────────────────────────────────
+// It shipped with no onClick at all: a primary-coloured button that did nothing,
+// on the one gesture the whole chapter is built around. The employee's rail had
+// the handler; this copy did not, which is exactly the drift that having two
+// boards invites.
+//
+// Full vs partial is asked, not assumed — a split creates a row, and a split made
+// by accident is confusing to undo.
+function OrderArrivedButton({ id, onArrived }: {
+  id: string
+  onArrived: (id: string, partial: boolean) => Promise<void>
+}) {
+  const [asking, setAsking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const run = async (partial: boolean) => {
+    setBusy(true)
+    try { await onArrived(id, partial) } finally { setBusy(false); setAsking(false) }
+  }
+
+  if (!asking) {
+    return (
+      <button
+        onClick={() => setAsking(true)}
+        className="font-semibold text-white"
+        style={{ background: 'var(--brand-primary)', border: 'none', padding: '6px 14px', fontSize: '12.5px', cursor: 'pointer' }}
+      >הגיע</button>
+    )
+  }
+  return (
+    <div className="flex gap-1.5 flex-wrap items-center">
+      <span style={{ fontSize: '11.5px', color: '#6B6E73' }}>מה הגיע?</span>
+      <button
+        disabled={busy}
+        onClick={() => run(false)}
+        className="font-semibold text-white"
+        style={{ background: 'var(--brand-primary)', border: 'none', padding: '5px 11px', fontSize: '12px', cursor: busy ? 'wait' : 'pointer' }}
+      >הכל</button>
+      <button
+        disabled={busy}
+        onClick={() => run(true)}
+        style={{ background: 'white', color: 'var(--brand-primary)', border: '1px solid var(--brand-primary)', padding: '5px 11px', fontSize: '12px', fontWeight: 600, cursor: busy ? 'wait' : 'pointer' }}
+      >חלק</button>
+      <button
+        onClick={() => setAsking(false)}
+        style={{ background: 'transparent', border: '1px solid #E2E4E9', color: '#6B6E73', padding: '5px 10px', fontSize: '12px', cursor: 'pointer' }}
+      >ביטול</button>
     </div>
   )
 }

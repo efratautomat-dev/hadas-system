@@ -98,6 +98,41 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
   const invoices = demoTables.invoices
   if (!orders || !notes || !links || !invoices) return null
 
+  // ── GET /delivery-notes/:id/candidates ───────────────────────────────────
+  // The suggestion list. It was the ONE read the pipeline makes through the API
+  // rather than through the client, so in demo it fell through to the generic
+  // stub and every delivery reported "no matching invoice" — which made the whole
+  // attach-and-approve chain untestable.
+  //
+  // Same rule as the server: same supplier, within MATCH_WINDOW_DAYS, not already
+  // linked, nearest date first. Amount equality is a HINT shown to the person; it
+  // never attaches anything on its own (§6.f).
+  const cand = path.match(/^\/delivery-notes\/([^/]+)\/candidates$/)
+  if (method === 'GET' && cand) {
+    const note = find('delivery_notes', cand[1])
+    if (!note) return { candidates: [] } as unknown as Row
+    const noteDate = String(note.date ?? '')
+    const taken = new Set(links.map(l => String(l.invoice_id)))
+    const MATCH_WINDOW_DAYS = 45
+    const dayGap = (a: string, b: string) =>
+      (!a || !b) ? null
+        : Math.round(Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 86_400_000)
+
+    const list = invoices
+      .filter(i => i.supplier_id === note.supplier_id && !taken.has(String(i.id)))
+      .map(i => ({
+        invoice_id:     String(i.id),
+        invoice_number: (i.invoice_number as string) ?? '',
+        invoice_date:   (i.invoice_date as string) ?? '',
+        day_gap:        dayGap(noteDate, String(i.invoice_date ?? '')),
+        amount_match:   note.amount != null && Number(i.total_amount) === Number(note.amount),
+      }))
+      .filter(c => c.day_gap === null || c.day_gap <= MATCH_WINDOW_DAYS)
+      .sort((a, b) => (a.day_gap ?? 999) - (b.day_gap ?? 999))
+
+    return { candidates: list } as unknown as Row
+  }
+
   // ── POST /orders ─────────────────────────────────────────────────────────
   if (method === 'POST' && path === '/orders') {
     const row: Row = {
@@ -211,7 +246,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       n.stage = on ? 'in_ledger' : 'awaiting_approval'
       moved++
     }
-    return { success: true, moved }
+    return { success: true, notesMoved: moved }
   }
 
   // ── PUT /delivery-notes/:id — שינוי ספק ──────────────────────────────────
