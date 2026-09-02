@@ -7,6 +7,7 @@ import { useOrders, type ArrivalCandidate } from '../../hooks/useOrders'
 import ArrivalChoice from '../pipeline/ArrivalChoice'
 import DeliveryDetail from '../pipeline/DeliveryDetail'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
+import { supplierAttention, ATTENTION_COLOR } from '../../lib/supplierAttention'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import { tierAllows } from '../../lib/tiers'
@@ -172,11 +173,19 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             onChange={(v) => { setSelectedSupplierId(v); go('invoices') }}
             placeholder="— חיפוש לפי שם ספק או ח.פ —"
             allowClear
-            options={suppliers.map(s => ({
-              value: s.id,
-              label: s.name,
-              keywords: (s as { hp?: string }).hp,
-            }))}
+            options={suppliers.map(s => {
+              // Derived from STAGES only — how many and at which step, never how
+              // much. Safe on a screen where every amount is masked.
+              const a = supplierAttention(
+                allNotes.filter(n => n.supplierId === s.id).map(n => n.stage),
+              )
+              return {
+                value: s.id,
+                label: s.name,
+                keywords: (s as { hp?: string }).hp,
+                dot: { color: ATTENTION_COLOR[a.level], title: a.label },
+              }
+            })}
           />
         </div>
 
