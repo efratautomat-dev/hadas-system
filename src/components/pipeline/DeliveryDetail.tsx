@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { UserCog, Check, Link2, Unlink, X, FileText, Truck, Scissors } from 'lucide-react'
+import { UserCog, Check, Link2, Unlink, X, FileText, Truck, Scissors, ExternalLink } from 'lucide-react'
+import { PdfPreviewButton, PdfPreviewModal } from '../PdfPreviewModal'
+import { supabase } from '../../lib/supabase'
 import { PipelineStrip } from './PipelineStrip'
 import { StatusBadge } from '../StatusBadge'
 import type { OrderLink } from '../../lib/pipelineSteps'
@@ -26,7 +28,7 @@ function fmtILS(n: number | null | undefined) {
 
 export default function DeliveryDetail({
   note, stage, order, invoice, invoices,
-  onClose, onLoadCandidates, onLink, onUnlink, onApprove, onChangeSupplier, onDismantle,
+  onClose, onLoadCandidates, onLink, onUnlink, onApprove, onChangeSupplier, onDismantle, onOpenInvoice,
 }: {
   note: DeliveryNote
   stage: PipelineStage
@@ -46,11 +48,20 @@ export default function DeliveryDetail({
    * is how the employee's copy of this panel differs: same screen, fewer actions.
    */
   onDismantle?: () => Promise<void>
+  /** Jump to the attached invoice's own screen. Absent = no link is offered. */
+  onOpenInvoice?: (invoiceId: string) => void
 }) {
   const [candidates, setCandidates] = useState<InvoiceCandidate[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmApprove, setConfirmApprove] = useState(false)
   const [confirmDismantle, setConfirmDismantle] = useState(false)
+  // A Storage path is not a URL. Ingested notes carry only a path, so it is signed
+  // on demand — the same two-step the employee supplier screen already uses.
+  const [docView, setDocView] = useState<{ url: string; previewSrc?: string } | null>(null)
+  const openStored = async (path: string) => {
+    const { data } = await supabase.storage.from('documents').createSignedUrl(path, 3600)
+    if (data?.signedUrl) setDocView({ url: path, previewSrc: data.signedUrl })
+  }
 
   const needsInvoice = stage === 'awaiting_invoice' || stage === 'awaiting_goods'
 
@@ -142,6 +153,20 @@ export default function DeliveryDetail({
             <Row k="תעודה" v={note.noteNumber || '—'} />
             <Row k="תאריך" v={note.date || '—'} />
             <Row k="סכום" v={fmtILS(note.amount || null)} />
+            {/* The document itself. The panel talked ABOUT documents without ever
+                showing one, which is what made it feel disconnected from the
+                records it describes. Same viewer the invoice screen uses. */}
+            {note.driveFileLink ? (
+              <div style={{ marginTop: '10px' }}>
+                <PdfPreviewButton url={note.driveFileLink} title="צפייה בתעודה" />
+              </div>
+            ) : note.storageUrl ? (
+              <button
+                onClick={() => openStored(note.storageUrl!)}
+                className="inline-flex items-center gap-1.5 font-semibold"
+                style={{ marginTop: '10px', background: 'transparent', border: 'none', color: 'var(--brand-primary)', fontSize: '12.5px', cursor: 'pointer', padding: 0 }}
+              ><FileText className="w-3.5 h-3.5" />צפייה בתעודה</button>
+            ) : null}
             {note.lineItems && (
               <p style={{ fontSize: '12.5px', color: '#6B6E73', marginTop: '10px', whiteSpace: 'pre-wrap' }}>
                 {note.lineItems}
@@ -158,6 +183,18 @@ export default function DeliveryDetail({
                 {/* NULL for an employee — the masking view decides that, not this
                     screen. A dash is honest; ₪0 would not be. */}
                 <Row k="סכום" v={fmtILS(invoice.amount ?? null)} />
+                <div className="flex items-center gap-2" style={{ marginTop: '10px' }}>
+                  {invoice.driveFileLink && (
+                    <PdfPreviewButton url={invoice.driveFileLink} title="צפייה בחשבונית" />
+                  )}
+                  {onOpenInvoice && (
+                    <button
+                      onClick={() => onOpenInvoice(invoice.id)}
+                      className="inline-flex items-center gap-1.5 font-semibold"
+                      style={{ background: 'transparent', border: 'none', color: 'var(--brand-primary)', fontSize: '12.5px', cursor: 'pointer', padding: 0 }}
+                    ><ExternalLink className="w-3.5 h-3.5" />פתיחת החשבונית</button>
+                  )}
+                </div>
               </>
             ) : (
               <p style={{ fontSize: '13px', color: '#9CA3AF', margin: 0 }}>
@@ -291,6 +328,14 @@ export default function DeliveryDetail({
           </div>
         )}
       </div>
+
+      {docView && (
+        <PdfPreviewModal
+          url={docView.url}
+          previewSrc={docView.previewSrc}
+          onClose={() => setDocView(null)}
+        />
+      )}
     </div>
   )
 }

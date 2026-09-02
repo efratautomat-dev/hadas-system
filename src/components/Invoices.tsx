@@ -1042,7 +1042,10 @@ export default function Invoices({
 }: InvoicesProps) {
   const { data: serverInvoices, loading, error, update: updateInvoice, updateStatus, remove: removeInvoice, openPipeline } = useInvoices()
   // Read-only: which pipeline (if any) this invoice already belongs to.
-  const { data: pipelineNotes } = useDeliveryNotes()
+  // `reload` matters: opening a pipeline writes a delivery row, and without
+  // re-reading here the button appeared to do nothing — this screen holds its own
+  // copy of the list, separate from the goods screen's.
+  const { data: pipelineNotes, reload: reloadNotes } = useDeliveryNotes()
   // Suppliers flagged "בהסדר תשלום" → their invoices get an informational tag (display-only).
   const { data: suppliersData } = useSuppliers()
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -1218,7 +1221,7 @@ export default function Invoices({
         onBack={closeInvoice}
         onOpenSupplier={onOpenSupplier}
         pipelineStage={pipelineNotes.find(n => n.linkedInvoiceId === selected.id)?.stage ?? null}
-        onOpenPipeline={async () => { await openPipeline(selected.id) }}
+        onOpenPipeline={async () => { await openPipeline(selected.id); await reloadNotes() }}
         onDelete={async (id) => {
           closeInvoice()
           try {

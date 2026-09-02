@@ -24,6 +24,7 @@ export function useDeliveryNotes() {
           date:            isoToDisplay(r.date ?? ''),
           // DB `invoice_id` column → linkedInvoiceId frontend field
           linkedInvoiceId: r.invoice_id   ?? undefined,
+          storageUrl:      r.storage_url  ?? undefined,
           amount:          Number(r.amount ?? 0),
           status:          r.status       ?? 'pending',
           driveFileLink:   r.drive_file_link ?? '',
@@ -184,5 +185,5 @@ export function useDeliveryNotes() {
     }
   }
 
-  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle }
+  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reload: load }
 }

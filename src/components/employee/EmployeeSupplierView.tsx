@@ -11,7 +11,7 @@ import { SearchableSelect } from '../SearchableSelect'
 import { PdfPreviewModal } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
 import { STATUS } from '../../theme/status'
-import type { Invoice } from '../../data/mockData'
+import type { Invoice, PipelineStage } from '../../data/mockData'
 import {
   FormModal as ReturnFormModal,
   emptyForm,
@@ -20,6 +20,7 @@ import {
 import { isoToDisplay } from '../../lib/dates'
 import { invoiceStatusKey } from '../../lib/invoiceStatus'
 import { StatusBadge } from '../StatusBadge'
+import { PipelineStrip } from '../pipeline/PipelineStrip'
 import { DateField } from '../ui/form'
 
 export type EmployeeSection = 'invoices' | 'deliveries' | 'returns'
@@ -41,6 +42,8 @@ interface SupplierLike {
 interface Props {
   supplier: SupplierLike
   activeSection: EmployeeSection
+  /** Open the full pipeline panel for one delivery. Same panel the manager gets. */
+  onOpenPipeline?: (deliveryNoteId: string) => void
 }
 
 // Status colors from the FIXED functional tokens (src/theme/status.ts) — same
@@ -304,7 +307,7 @@ function ReceiptFormModal({ form, setForm, supplierName, employees, onSave, onCl
   )
 }
 
-export default function EmployeeSupplierView({ supplier, activeSection }: Props) {
+export default function EmployeeSupplierView({ supplier, activeSection, onOpenPipeline }: Props) {
   const { data: allInvoices } = useInvoices()
   const { data: allDeliveries, create: createDeliveryNote } = useDeliveryNotes()
   const { data: allReturns, create: createReturn } = useReturns()
@@ -587,18 +590,28 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
             <EmptyRow text="אין תעודות משלוח עבור ספק זה" />
           ) : (
             deliveries.map((dn) => {
-              const d = dn as unknown as { id: string; date: string; status: string; driveFileLink?: string; storage_url?: string; noteNumber?: string; lineItems?: string }
+              const d = dn as unknown as { id: string; date: string; status: string; stage?: PipelineStage; driveFileLink?: string; storage_url?: string; noteNumber?: string; lineItems?: string }
               const hasDoc = !!(d.driveFileLink || d.storage_url)
+              // The pipeline stage, in the SAME words the manager sees. This row used
+              // to say ממתין / בארכיון — a fourth status vocabulary, unrelated to the
+              // chain the record is actually in, which is why the employee could not
+              // see the pipeline at all.
+              const stage: PipelineStage = d.stage ?? 'awaiting_invoice'
               return (
                 <div
                   key={d.id}
                   className="grid items-center border-b"
-                  style={{ gridTemplateColumns: '1fr 90px 44px', borderColor: '#EEEEF2', minHeight: '56px', padding: '12px 16px' }}
+                  style={{ gridTemplateColumns: 'auto 1fr auto 44px', gap: '12px', borderColor: '#EEEEF2', minHeight: '58px', padding: '12px 16px' }}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOpenPipeline?.(d.id)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onOpenPipeline?.(d.id) }}
                 >
+                  {/* Compact and label-less: in a row the badge beside it carries the
+                      words, and the strip is here to be read as a shape. */}
+                  <PipelineStrip stage={stage} compact showLabels={false} />
                   <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{(d.noteNumber || d.id)} · {d.date}</p>
-                  <span className="text-center text-gray-400" style={{ fontSize: '12px' }}>
-                    {d.status === 'archived' ? 'בארכיון' : 'ממתין'}
-                  </span>
+                  <StatusBadge status={stage} />
                   <div className="flex justify-center">
                     {hasDoc ? (
                       <IconBtn title="צפייה במסמך המקורי" onClick={() => openDoc(d.driveFileLink, d.storage_url)}>

@@ -299,6 +299,17 @@ export interface DeliveryNote {
   linkedInvoiceId?: string
   notes?: string
   driveFileLink?: string
+  /**
+   * Storage PATH (not a URL) of the source document.
+   *
+   * Ingested delivery notes are deliberately NOT filed to Drive, so they carry
+   * `drive_file_link: null` and only this. It was never mapped to the frontend,
+   * which is why every screen that keyed on driveFileLink showed no document for
+   * exactly the notes that came in by email — the majority of them.
+   *
+   * Needs a signed URL before it can be displayed.
+   */
+  storageUrl?: string
   // 'email' = arrived by email (has gmail_message_id); 'manual' = goods receipt
   // entered by hand. Derived in useDeliveryNotes; splits the two views.
   source?: 'email' | 'manual'

@@ -5,6 +5,9 @@ import CaptureDocument from '../CaptureDocument'
 import OrdersRail from '../pipeline/OrdersRail'
 import { useOrders, type ArrivalCandidate } from '../../hooks/useOrders'
 import ArrivalChoice from '../pipeline/ArrivalChoice'
+import DeliveryDetail from '../pipeline/DeliveryDetail'
+import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
+import { useInvoices } from '../../hooks/useInvoices'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import { tierAllows } from '../../lib/tiers'
 import EmployeeSupplierView, { type EmployeeSection } from './EmployeeSupplierView'
@@ -42,6 +45,14 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const [arrival, setArrival] = useState<
     { orderId: string; partial: boolean; candidates: ArrivalCandidate[] } | null
   >(null)
+
+  // The SAME panel the manager opens. The role difference is which props are
+  // passed, not which component renders: no onDismantle here, and the amounts are
+  // already NULL because the masking view decided that long before this screen.
+  const { data: allNotes, link, unlink, candidates, reload: reloadNotes } = useDeliveryNotes()
+  const { data: allInv, ledgerApprove } = useInvoices()
+  const [openNoteId, setOpenNoteId] = useState<string | null>(null)
+  const openNote = allNotes.find(n => n.id === openNoteId)
 
   const arrive = async (id: string, partial: boolean, choice?: { adopt?: string; forceNew?: boolean }) => {
     const res = await markArrived(id, partial, choice)
@@ -213,6 +224,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             <EmployeeSupplierView
               supplier={selectedSupplier}
               activeSection={activeSection}
+            onOpenPipeline={setOpenNoteId}
             />
           </div>
         ) : (
@@ -254,6 +266,21 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {openNote && (
+        <DeliveryDetail
+          note={openNote}
+          stage={openNote.stage ?? 'awaiting_invoice'}
+          order="none"
+          invoice={allInv.find(i => i.id === openNote.linkedInvoiceId)}
+          invoices={allInv}
+          onClose={() => setOpenNoteId(null)}
+          onLoadCandidates={candidates}
+          onLink={async (id, invoiceId) => { await link(id, invoiceId); await reloadNotes() }}
+          onUnlink={async id => { await unlink(id); await reloadNotes() }}
+          onApprove={async invoiceId => { const n = await ledgerApprove(invoiceId); await reloadNotes(); return n }}
+        />
       )}
 
       {arrival && (
