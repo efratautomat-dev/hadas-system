@@ -1010,6 +1010,105 @@ async function createOrder(req: Request, supabase: SupabaseClient, actor?: strin
  * pipeline. Splitting rather than editing is what keeps the outstanding remainder
  * visible instead of quietly shrinking an order nobody re-reads.
  */
+/**
+ * An invoice that arrived before its goods opens a pipeline of its own.
+ *
+ * The model the owner settled on: order, delivery and invoice are three parts of
+ * one chain, and EACH can start it — every part first looks for a pipeline it
+ * belongs to, and opens one only when there is none. Two of the three legs
+ * existed; this is the third. `awaiting_goods` was drawn, labelled and filterable
+ * from the start, but nothing ever wrote it, so an invoice that came first was
+ * invisible to the pipeline and there was nothing to attach it to.
+ *
+ * That case is not an edge: in the first months most invoices will arrive with no
+ * order behind them at all.
+ *
+ * The pipeline row lives in `delivery_notes` because that table IS the spine —
+ * `note_number` stays empty and `intake_source` says where it came from, so a row
+ * with no goods behind it is never mistaken for a delivery that happened.
+ */
+async function openPipelineForInvoice(
+  supabase: SupabaseClient, invoiceId: string, actor?: string,
+): Promise<Response> {
+  const { data: inv, error: invErr } = await supabase.from("invoices")
+    .select("id, supplier_id, supplier_name, invoice_date").eq("id", invoiceId).maybeSingle();
+  if (invErr) return json({ error: invErr.message }, 500);
+  if (!inv)   return json({ error: "Invoice not found" }, 404);
+
+  // Already in a pipeline? Then there is nothing to open — say so rather than
+  // opening a second one, which is the duplication this whole rule prevents.
+  const { data: existing } = await supabase.from("delivery_note_invoices")
+    .select("delivery_note_id").eq("invoice_id", invoiceId).limit(1);
+  if (existing && existing.length > 0)
+    return json({ success: true, alreadyLinked: true, deliveryNoteId: existing[0].delivery_note_id });
+
+  const { data: note, error } = await supabase.from("delivery_notes").insert({
+    supplier_id:   inv.supplier_id,
+    supplier_name: inv.supplier_name,
+    note_number:   "",
+    date:          inv.invoice_date ?? new Date().toISOString().slice(0, 10),
+    amount:        0,
+    status:        "pending",
+    // The invoice is in and the goods are not — the mirror image of the usual start.
+    stage:         "awaiting_goods" satisfies PipelineStage,
+    intake_source: "invoice",
+  }).select("id").single();
+  if (error || !note) return json({ error: "Failed to open pipeline", details: error?.message }, 500);
+
+  const { error: linkErr } = await supabase.from("delivery_note_invoices")
+    .insert({ delivery_note_id: note.id, invoice_id: invoiceId, created_by: actor ?? null });
+  if (linkErr) return json({ error: linkErr.message }, 500);
+
+  return json({ success: true, deliveryNoteId: note.id }, 201);
+}
+
+/**
+ * Take a pipeline apart without deleting anything it holds.
+ *
+ * "Dismantle only" is the owner's decision, and it is the right one: deleting a
+ * document is a separate action that already exists behind its own confirmation,
+ * and folding the two together during a learning period is how an invoice gets
+ * deleted by someone who only meant to undo a match. So the links go, the stages
+ * reset, and every document stays exactly where it was.
+ *
+ * The empty shell — a pipeline row that never carried goods — is removed too,
+ * because leaving it produces a delivery that never happened.
+ */
+async function dismantlePipeline(
+  supabase: SupabaseClient, noteId: string,
+): Promise<Response> {
+  const { data: note, error: noteErr } = await supabase.from("delivery_notes")
+    .select("id, stage, note_number, intake_source").eq("id", noteId).maybeSingle();
+  if (noteErr) return json({ error: noteErr.message }, 500);
+  if (!note)   return json({ error: "Pipeline not found" }, 404);
+
+  const { data: links } = await supabase.from("delivery_note_invoices")
+    .select("invoice_id").eq("delivery_note_id", noteId);
+  const invoiceIds = (links ?? []).map(l => String(l.invoice_id));
+
+  await supabase.from("delivery_note_invoices").delete().eq("delivery_note_id", noteId);
+  await supabase.from("orders")
+    .update({ delivery_note_id: null, status: "order_waiting", arrived_at: null })
+    .eq("delivery_note_id", noteId);
+
+  // A row opened BY an invoice holds no goods of its own, so once the invoice is
+  // detached nothing is left to keep. One that recorded a real delivery stays and
+  // simply goes back to waiting.
+  const wasShell = note.intake_source === "invoice" && !note.note_number;
+  if (wasShell) {
+    await supabase.from("delivery_notes").delete().eq("id", noteId);
+  } else {
+    await supabase.from("delivery_notes")
+      .update({ invoice_id: null, status: "pending_match", stage: "awaiting_invoice" })
+      .eq("id", noteId);
+  }
+
+  return json({
+    success: true, removedShell: wasShell, releasedInvoices: invoiceIds,
+    note: "המסמכים לא נמחקו — רק הקשר ביניהם פורק.",
+  });
+}
+
 async function markOrderArrived(
   req: Request, supabase: SupabaseClient, id: string, actor?: string,
 ): Promise<Response> {
@@ -1995,6 +2094,10 @@ const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
   // whole chapter is built around, and it moves no money — it opens a delivery row
   // with no amount on it.
   /^\/orders\/[^/]+\/arrived$/,
+  // Opening a pipeline for an invoice is the same class of act as attaching one:
+  // it says goods are expected, and carries no figure. Dismantling is NOT here —
+  // taking a chain apart is the owner's call even during the learning period.
+  /^\/invoices\/[^/]+\/open-pipeline$/,
   /^\/orders\/[^/]+\/differs$/,
   /^\/delivery-notes\/[^/]+\/link$/,
   /^\/delivery-notes\/[^/]+\/unlink$/,
@@ -2220,6 +2323,16 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Orders ────────────────────────────────────────────────────────────────
+    // Each of the three parts can start the chain (the owner's model): the invoice
+    // leg was the one that could not.
+    const openPipe = path.match(/^\/invoices\/([^/]+)\/open-pipeline$/);
+    if (openPipe && req.method === "PUT")
+      return await openPipelineForInvoice(supabase, openPipe[1], auth.email);
+
+    const dismantle = path.match(/^\/delivery-notes\/([^/]+)\/dismantle$/);
+    if (dismantle && req.method === "DELETE")
+      return await dismantlePipeline(supabase, dismantle[1]);
+
     if (path === "/orders" && req.method === "POST")
       return await createOrder(req, supabase, auth.email);
     const orderArrived = path.match(/^\/orders\/([^/]+)\/arrived$/);

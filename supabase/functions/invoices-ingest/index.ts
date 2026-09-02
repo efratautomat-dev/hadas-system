@@ -2658,6 +2658,8 @@ async function extractDeliveryNote(
 
 interface ExtractedReturn {
   vendor_name:        string;
+  /** Issuer's company number. Empty when the document does not carry one. */
+  hp:                 string;
   credit_note_number: string;
   date:               string; // YYYY-MM-DD
   amount:             number;
@@ -2670,8 +2672,9 @@ async function extractReturn(
 ): Promise<ExtractedReturn> {
   const prompt =
     "אתה מנתח תעודות זיכוי וחזרות. חלץ את הפרטים מהמסמך וחזור ב-JSON בלבד.\n" +
-    '{"vendor_name":"","credit_note_number":"","date":"","amount":0,"reason":"","detail":""}\n' +
-    "כללים: תאריך YYYY-MM-DD, amount = סכום מוחזר (מספר חיובי), credit_note_number = מספר תעודת הזיכוי שהונפק על ידי הספק.";
+    '{"vendor_name":"","hp":"","credit_note_number":"","date":"","amount":0,"reason":"","detail":""}\n' +
+    "כללים: תאריך YYYY-MM-DD, amount = סכום מוחזר (מספר חיובי), credit_note_number = מספר תעודת הזיכוי שהונפק על ידי הספק, " +
+    "hp = ח.פ / ע.מ של הספק המנפיק (ולא של העסק המקבל) — ספרות בלבד, ריק אם אינו מופיע.";
   const raw = await anthropicMessage(
     ANTHROPIC_MODEL_EXTRACTOR,
     [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
@@ -2684,7 +2687,7 @@ async function extractReturn(
       [{ role: "user", content: [
         buildDocumentBlock(doc.mimeType, doc.bytes),
         { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" +
-          '{"vendor_name":"","credit_note_number":"","date":"","amount":0,"reason":"","detail":""}' },
+          '{"vendor_name":"","hp":"","credit_note_number":"","date":"","amount":0,"reason":"","detail":""}' },
       ] }],
       512,
     );
@@ -2696,6 +2699,7 @@ async function extractReturn(
   const p = parsed as Record<string, unknown>;
   return {
     vendor_name:        String(p.vendor_name ?? ""),
+    hp:                 String(p.hp ?? ""),
     credit_note_number: String(p.credit_note_number ?? ""),
     date:               String(p.date ?? ""),
     amount:             Number(p.amount ?? 0),
@@ -3315,9 +3319,13 @@ async function handleNonInvoice(
     // As with delivery notes — a thrown extraction error propagates so the email
     // stays unlabeled and the next run retries, rather than escalating + labeling.
     const extracted = await extractReturn(ctx.doc);
-    // NAME-FALLBACK: extractReturn (credit note) does not capture ח.פ yet, so this
-    // links by name only. Add `hp` to the credit-note prompt + pass it here for hp-primary.
-    const supplierId = await resolveSupplier(extracted.vendor_name);
+    // ח.פ FIRST, name as the fallback — the same chain invoices and delivery notes
+    // use. Credit notes matched by NAME alone for as long as they existed, which
+    // put them behind every other document type: a supplier whose name is spelled
+    // differently on its credit notes than on its invoices produced a second card,
+    // and a credit note filed against the wrong supplier moves money on the wrong
+    // ledger. The issuer's number is what the prompt asks for, never the recipient's.
+    const supplierId = await resolveSupplier(extracted.vendor_name, extracted.hp);
 
     // Upload the credit-note file to Storage up front so it's available whether
     // we match a return (storage_url goes on the row) or alert (goes in payload).
