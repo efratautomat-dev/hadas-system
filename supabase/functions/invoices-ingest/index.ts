@@ -1611,6 +1611,19 @@ interface IngestOptions {
   requeueFailed?:       boolean;
   /** How far back the recovery sweep looks. Defaults to REQUEUE_LOOKBACK_DAYS. */
   requeueLookbackDays?: number;
+  /**
+   * Widen the ROUTINE queue's lookback for one run. Defaults to 14 days.
+   *
+   * There is a gap between the two recovery paths, and production fell into it:
+   * an email that fails is left UNLABELED for the next tick to retry, but the
+   * requeue sweep finds emails by the FAILED label — which that email does not
+   * carry yet. Once it ages past 14 days it is invisible to the routine tick and
+   * invisible to the sweep, while its `ingest_failures` row still says it failed.
+   *
+   * Safe to widen: the query already excludes anything carrying the processed
+   * label, so a wide sweep sees only what genuinely never got in.
+   */
+  lookbackDays?:        number;
 }
 
 // Context shared by every invoice file in one email (the email-level facts plus
@@ -2217,9 +2230,10 @@ async function ingestInvoices(
     }
     result.requeued = messageIds.length;
   } else {
+    const lookback = opts.lookbackDays ?? 14;
     const srcIds  = await gmailListMessages(
       token,
-      `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d`,
+      `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:${lookback}d`,
       [sourceLabelId],
     );
     const partIds = partialRefundLabelId
@@ -2227,7 +2241,7 @@ async function ingestInvoices(
       : [];
     messageIds = [...new Set([...srcIds, ...partIds])];
     await log("info", `found ${messageIds.length} candidate messages`,
-      { source: srcIds.length, partialReturn: partIds.length });
+      { source: srcIds.length, partialReturn: partIds.length, lookbackDays: lookback });
   }
 
   if (messageIds.length === 0) return result;
@@ -3762,15 +3776,21 @@ Deno.serve(async (req: Request) => {
   // Bounded to REQUEUE_MAX_MESSAGES per call and idempotent — anything that
   // succeeds gets the processed label and drops out, so calling again continues
   // with the next batch.
-  const requeue = body && typeof body === "object" &&
-    (body as { source?: string }).source === "requeue";
+  const source = body && typeof body === "object"
+    ? (body as { source?: string }).source : undefined;
+  const days   = Number((body as { days?: number } | null)?.days) || undefined;
 
   try {
-    const result = requeue
+    const result = source === "requeue"
       ? await ingestInvoices(supabase, {
           requeueFailed:       true,
-          requeueLookbackDays: Number((body as { days?: number }).days) || undefined,
+          requeueLookbackDays: days,
         })
+      // POST { source: "sweep", days: N } — the ROUTINE queue over a wider
+      // window. For emails that failed, lost nothing but their place in the
+      // 14-day window, and never earned the FAILED label the requeue looks for.
+      : source === "sweep"
+      ? await ingestInvoices(supabase, { lookbackDays: days ?? 120 })
       : await ingestInvoices(supabase);
     return json(result);
   } catch (err) {
