@@ -98,6 +98,21 @@ export function useDeliveryNotes() {
     }
   }
 
+  /**
+   * Take the chain apart WITHOUT deleting anything in it (owner's decision).
+   * The documents stay; only the links between them go.
+   */
+  const dismantle = async (id: string) => {
+    try {
+      await api.delete(`/delivery-notes/${id}/dismantle`)
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בפירוק הפייפליין: ${msg}`)
+      throw err
+    }
+  }
+
   const update = async (id: string, body: Partial<DeliveryNote> & { invoiceId?: string }) => {
     console.log('[useDeliveryNotes] update payload:', { id, ...body })
     try {
@@ -169,5 +184,5 @@ export function useDeliveryNotes() {
     }
   }
 
-  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates }
+  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle }
 }

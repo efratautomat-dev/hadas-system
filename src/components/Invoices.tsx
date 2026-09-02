@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { FileText, Search, ChevronRight, ChevronDown, ExternalLink, Eye, Save, AlertTriangle, X, Trash2, Wallet, CheckCircle, Clock, RotateCcw, FolderOpen, StickyNote } from 'lucide-react'
-import { type Invoice, type Alert } from '../data/mockData'
+import { type Invoice, type Alert, type PipelineStage } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
+import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
 import { PdfPreviewButton, PdfPreviewModal, DocumentBody } from './PdfPreviewModal'
@@ -357,6 +358,7 @@ function withAmounts(inv: Invoice, edited: EditedAmount | null = null): Invoice 
 export function InvoiceDetail({
   invoice, derivedStatus, onBack, onSave, onSaveNotes, onOpenSupplier, onDelete,
   needsReviewConfirm = false, onMarkReviewed,
+  pipelineStage, onOpenPipeline, onOpenPipelineView,
 }: {
   invoice: Invoice; derivedStatus: string; onBack: () => void; onSave: (inv: Invoice) => void
   /** Save ONLY the note, without leaving the screen. `onSave` navigates away —
@@ -370,6 +372,16 @@ export function InvoiceDetail({
   // red border leaves the list.
   needsReviewConfirm?: boolean
   onMarkReviewed?: () => void | Promise<void>
+  /**
+   * The pipeline this invoice belongs to, if any, and how to open one.
+   *
+   * The invoice was the only one of the three parts that could not start a chain,
+   * so an invoice arriving before its goods simply sat here with nothing to do.
+   * In the first months that is most of them.
+   */
+  pipelineStage?: PipelineStage | null
+  onOpenPipeline?: () => Promise<void>
+  onOpenPipelineView?: () => void
 }) {
   const { data: suppliersData } = useSuppliers()
   // Opened rows are completed to all three amounts. The extractor returns 0 for
@@ -715,6 +727,11 @@ export function InvoiceDetail({
               possible and was the one way to produce an invoice that shows one
               supplier in the list and belongs to another in the ledger. */}
           <div>
+            <PipelineRow
+              stage={pipelineStage}
+              onOpen={onOpenPipeline}
+              onView={onOpenPipelineView}
+            />
             <Lbl t="שיוך לספק" />
             <SearchableSelect
               value={form.supplierId}
@@ -1023,7 +1040,9 @@ export default function Invoices({
   initialFilter = 'all', alerts = [], controlledSelectedId, initialDuplicateInvoiceId,
   onOpenInvoice, onCloseInvoice, onOpenSupplier, onDuplicateResolved, onDuplicateDismissed,
 }: InvoicesProps) {
-  const { data: serverInvoices, loading, error, update: updateInvoice, updateStatus, remove: removeInvoice } = useInvoices()
+  const { data: serverInvoices, loading, error, update: updateInvoice, updateStatus, remove: removeInvoice, openPipeline } = useInvoices()
+  // Read-only: which pipeline (if any) this invoice already belongs to.
+  const { data: pipelineNotes } = useDeliveryNotes()
   // Suppliers flagged "בהסדר תשלום" → their invoices get an informational tag (display-only).
   const { data: suppliersData } = useSuppliers()
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -1198,6 +1217,8 @@ export default function Invoices({
         }}
         onBack={closeInvoice}
         onOpenSupplier={onOpenSupplier}
+        pipelineStage={pipelineNotes.find(n => n.linkedInvoiceId === selected.id)?.stage ?? null}
+        onOpenPipeline={async () => { await openPipeline(selected.id) }}
         onDelete={async (id) => {
           closeInvoice()
           try {
@@ -1643,6 +1664,59 @@ export default function Invoices({
           previewSrc={dupDocPreview.previewSrc}
           onClose={() => setDupDocPreview(null)}
         />
+      )}
+    </div>
+  )
+}
+
+
+// ── Where this invoice stands in the goods chain ─────────────────────────────
+//
+// Three parts document one purchase: the order, the delivery that says it came,
+// and the invoice that says what to pay. Each can start the chain. The invoice was
+// the one that could not — so an invoice that arrived before its goods had no
+// pipeline and, from this screen, no action at all.
+//
+// The button says "ממתינה לסחורה" rather than "פתיחת פייפליין" because that is
+// what the person is asserting: the goods have not turned up yet. The mechanism is
+// ours to name; the state is hers.
+function PipelineRow({ stage, onOpen, onView }: {
+  stage?: PipelineStage | null
+  onOpen?: () => Promise<void>
+  onView?: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  if (!onOpen && !stage) return null
+
+  return (
+    <div style={{ gridColumn: '1 / -1', margin: '0 0 14px' }}>
+      <Lbl t="סחורה" />
+      {stage ? (
+        <div className="flex items-center gap-2 flex-wrap">
+          <StatusBadge status={stage} />
+          {onView && (
+            <button
+              onClick={onView}
+              style={{ background: 'transparent', border: 'none', color: 'var(--brand-primary)', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+            >פתיחת הפייפליין</button>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span style={{ fontSize: '13px', color: '#6B6E73' }}>
+            לא מקושרת לסחורה.
+          </span>
+          <button
+            disabled={busy}
+            onClick={async () => { setBusy(true); try { await onOpen?.() } finally { setBusy(false) } }}
+            className="font-semibold"
+            style={{
+              background: 'white', color: 'var(--brand-primary)',
+              border: '1px solid var(--brand-primary)', padding: '6px 12px',
+              fontSize: '12.5px', cursor: busy ? 'wait' : 'pointer',
+            }}
+          >{busy ? 'פותח…' : 'ממתינה לסחורה'}</button>
+        </div>
       )}
     </div>
   )

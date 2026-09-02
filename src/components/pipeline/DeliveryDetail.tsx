@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { UserCog, Check, Link2, Unlink, X, FileText, Truck } from 'lucide-react'
+import { UserCog, Check, Link2, Unlink, X, FileText, Truck, Scissors } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
 import { StatusBadge } from '../StatusBadge'
 import type { OrderLink } from '../../lib/pipelineSteps'
@@ -26,7 +26,7 @@ function fmtILS(n: number | null | undefined) {
 
 export default function DeliveryDetail({
   note, stage, order, invoice, invoices,
-  onClose, onLoadCandidates, onLink, onUnlink, onApprove, onChangeSupplier,
+  onClose, onLoadCandidates, onLink, onUnlink, onApprove, onChangeSupplier, onDismantle,
 }: {
   note: DeliveryNote
   stage: PipelineStage
@@ -41,10 +41,16 @@ export default function DeliveryDetail({
   onUnlink: (noteId: string) => Promise<void>
   onApprove: (invoiceId: string) => Promise<number>
   onChangeSupplier?: () => void
+  /**
+   * Take this chain apart. Manager only — passing nothing hides the control, which
+   * is how the employee's copy of this panel differs: same screen, fewer actions.
+   */
+  onDismantle?: () => Promise<void>
 }) {
   const [candidates, setCandidates] = useState<InvoiceCandidate[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmApprove, setConfirmApprove] = useState(false)
+  const [confirmDismantle, setConfirmDismantle] = useState(false)
 
   const needsInvoice = stage === 'awaiting_invoice' || stage === 'awaiting_goods'
 
@@ -249,6 +255,39 @@ export default function DeliveryDetail({
           <div className="px-5 pb-5 flex items-center gap-2" style={{ fontSize: '13px', color: '#166534' }}>
             <FileText className="w-4 h-4" />
             נכנס לכרטסת. הסכום נספר פעם אחת, מהחשבונית.
+          </div>
+        )}
+
+        {/* ── Dismantle ────────────────────────────────────────────────────
+            Last, quiet, and behind a question — it is a correction, not part of
+            the flow. The sentence says what it does NOT do, because "פירוק"
+            beside an invoice reads like deletion and nobody should have to
+            discover otherwise by trying it. */}
+        {onDismantle && (
+          <div className="px-5 pb-5" style={{ borderTop: '1px solid #ECECEF', paddingTop: '14px' }}>
+            {confirmDismantle ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span style={{ fontSize: '12.5px', color: '#4B5563' }}>
+                  הקשרים יפורקו. <b>החשבונית והתעודה יישארו במערכת</b> ואפשר יהיה לשייך מחדש.
+                </span>
+                <button
+                  disabled={busy}
+                  onClick={() => act(async () => { await onDismantle(); onClose() })}
+                  className="font-semibold text-white"
+                  style={{ background: '#B91C1C', border: 'none', padding: '7px 14px', fontSize: '12.5px', cursor: busy ? 'wait' : 'pointer' }}
+                >כן, פרקי</button>
+                <button
+                  onClick={() => setConfirmDismantle(false)}
+                  style={{ background: 'transparent', border: '1px solid #E2E4E9', color: '#6B6E73', padding: '7px 12px', fontSize: '12.5px', cursor: 'pointer' }}
+                >ביטול</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDismantle(true)}
+                className="inline-flex items-center gap-1.5"
+                style={{ background: 'transparent', border: 'none', color: '#9CA3AF', fontSize: '12.5px', cursor: 'pointer', padding: 0 }}
+              ><Scissors className="w-3.5 h-3.5" />פירוק הפייפליין</button>
+            )}
           </div>
         )}
       </div>

@@ -239,6 +239,52 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return { success: true, delivery_note_id: note.id }
   }
 
+  // ── PUT /invoices/:id/open-pipeline ──────────────────────────────────────
+  const openPipe = path.match(/^\/invoices\/([^/]+)\/open-pipeline$/)
+  if (method === 'PUT' && openPipe) {
+    const invoice = find('invoices', openPipe[1])
+    if (!invoice) return null
+    const already = links.find(l => String(l.invoice_id) === String(invoice.id))
+    if (already) return { success: true, alreadyLinked: true, deliveryNoteId: already.delivery_note_id }
+    const note: Row = {
+      id: `dn_${Date.now()}`,
+      supplier_id: invoice.supplier_id, supplier_name: invoice.supplier_name,
+      date: invoice.invoice_date ?? nowIso().slice(0, 10),
+      amount: null, amount_before_vat: null, vat_amount: null,
+      status: 'pending', stage: 'awaiting_goods', invoice_id: String(invoice.id),
+      line_items: null, intake_source: 'invoice',
+      drive_file_link: null, storage_url: null, note_number: null,
+    }
+    notes.unshift(note)
+    links.push({ delivery_note_id: note.id, invoice_id: String(invoice.id), created_at: nowIso() })
+    return { success: true, deliveryNoteId: note.id }
+  }
+
+  // ── DELETE /delivery-notes/:id/dismantle ─────────────────────────────────
+  // Links go, documents stay. The shell an invoice opened is the one row removed,
+  // because a pipeline that never held goods is not a delivery.
+  const dismantle = path.match(/^\/delivery-notes\/([^/]+)\/dismantle$/)
+  if (method === 'DELETE' && dismantle) {
+    const note = find('delivery_notes', dismantle[1])
+    if (!note) return null
+    for (let i = links.length - 1; i >= 0; i--) {
+      if (String(links[i].delivery_note_id) === String(note.id)) links.splice(i, 1)
+    }
+    for (const o of orders) {
+      if (String(o.delivery_note_id) === String(note.id)) {
+        o.delivery_note_id = null; o.status = 'order_waiting'; o.arrived_at = null
+      }
+    }
+    const shell = note.intake_source === 'invoice' && !note.note_number
+    if (shell) {
+      const i = notes.findIndex(n => String(n.id) === String(note.id))
+      if (i >= 0) notes.splice(i, 1)
+    } else {
+      note.invoice_id = null; note.status = 'pending_match'; note.stage = 'awaiting_invoice'
+    }
+    return { success: true, removedShell: shell }
+  }
+
   // ── PUT /delivery-notes/:id/link ─────────────────────────────────────────
   const link = path.match(/^\/delivery-notes\/([^/]+)\/link$/)
   if (method === 'PUT' && link) {

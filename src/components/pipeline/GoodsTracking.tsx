@@ -47,7 +47,7 @@ function fmtILS(n: number | null | undefined) {
 }
 
 export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () => void }) {
-  const { data: notes, loading: notesLoading, link, unlink, candidates, update } = useDeliveryNotes()
+  const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle } = useDeliveryNotes()
   const { data: invoices, ledgerApprove } = useInvoices()
   const { data: orders, loading: ordersLoading, create: createOrder, markArrived } = useOrders()
   const { data: suppliers } = useSuppliers()
@@ -289,6 +289,7 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
           onUnlink={async id => { await unlink(id) }}
           onApprove={ledgerApprove}
           onChangeSupplier={() => setReassign(openNote.id)}
+          onDismantle={async () => { await dismantle(openNote.id) }}
         />
       )}
 

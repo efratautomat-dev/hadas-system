@@ -130,6 +130,23 @@ export function useInvoices() {
   // and approving once moves every delivery note attached to the invoice, which is
   // what makes a consolidated invoice one decision instead of five (§6.7).
   // Returns how many notes moved so the caller can say so.
+  /**
+   * Open a pipeline for an invoice that arrived before its goods (§6.6).
+   * Idempotent: an invoice already in a chain reports that and opens nothing.
+   */
+  const openPipeline = async (id: string): Promise<string | null> => {
+    try {
+      const res = await api.put(`/invoices/${id}/open-pipeline`, {}) as
+        { deliveryNoteId?: string; alreadyLinked?: boolean }
+      await load()
+      return res.deliveryNoteId ?? null
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בפתיחת פייפליין: ${msg}`)
+      throw err
+    }
+  }
+
   const ledgerApprove = async (id: string): Promise<number> => {
     try {
       const res = await api.put(`/invoices/${id}/ledger-approve`, {})
@@ -172,5 +189,5 @@ export function useInvoices() {
     }
   }
 
-  return { data, loading, error, create, update, updateStatus, remove, ledgerApprove, ledgerUnapprove }
+  return { data, loading, error, create, update, updateStatus, remove, ledgerApprove, ledgerUnapprove, openPipeline }
 }
