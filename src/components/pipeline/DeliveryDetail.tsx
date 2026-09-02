@@ -111,7 +111,7 @@ export default function DeliveryDetail({
 
         {/* ── Where it stands ────────────────────────────────────────────── */}
         <div className="px-5 py-4 border-b" style={{ borderColor: '#EEEEF2' }}>
-          <PipelineStrip stage={stage} order={order} />
+          <PipelineStrip stage={stage} order={order} hasInvoice={!!invoice} />
         </div>
 
         {/* ── Provenance + the manual override ───────────────────────────────
@@ -239,15 +239,25 @@ export default function DeliveryDetail({
                           <span style={{ color: '#166534', fontWeight: 700 }}>{' · סכום זהה'}</span>
                         )}
                       </div>
-                      <button
-                        disabled={busy}
-                        onClick={() => act(() => onLink(note.id, c.invoice_id))}
-                        className="font-semibold inline-flex items-center gap-1.5 text-white"
-                        style={{
-                          background: 'var(--brand-primary)', border: 'none',
-                          padding: '7px 14px', fontSize: '12.5px', cursor: busy ? 'wait' : 'pointer',
-                        }}
-                      ><Link2 className="w-3.5 h-3.5" />הצמדה</button>
+                      <div className="flex items-center gap-2">
+                        {/* A candidate you cannot open is a candidate you cannot
+                            judge. The list offered several and showed none of
+                            them, so "בחירה" meant picking by number and date. */}
+                        {inv?.driveFileLink ? (
+                          <PdfPreviewButton url={inv.driveFileLink} title="צפייה בחשבונית" />
+                        ) : (
+                          <span style={{ fontSize: '11.5px', color: '#C9C7CC' }}>אין מסמך</span>
+                        )}
+                        <button
+                          disabled={busy}
+                          onClick={() => act(() => onLink(note.id, c.invoice_id))}
+                          className="font-semibold inline-flex items-center gap-1.5 text-white"
+                          style={{
+                            background: 'var(--brand-primary)', border: 'none',
+                            padding: '7px 14px', fontSize: '12.5px', cursor: busy ? 'wait' : 'pointer',
+                          }}
+                        ><Link2 className="w-3.5 h-3.5" />הצמדה</button>
+                      </div>
                     </div>
                   )
                 })}
@@ -284,7 +294,7 @@ export default function DeliveryDetail({
                   onClick={() => act(() => onUnlink(note.id))}
                   className="inline-flex items-center gap-1.5"
                   style={{ background: 'transparent', border: '1px solid #E2E4E9', color: '#6B6E73', padding: '9px 16px', fontSize: '13px', cursor: 'pointer' }}
-                ><Unlink className="w-3.5 h-3.5" />ביטול הצמדה</button>
+                ><Unlink className="w-3.5 h-3.5" />החלפת חשבונית</button>
               </>
             )}
           </div>

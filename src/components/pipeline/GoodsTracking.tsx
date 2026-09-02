@@ -225,6 +225,7 @@ export default function GoodsTracking({ onOpenCapture }: { onOpenCapture?: () =>
                         <PipelineStrip
                           stage={stageOf(n)}
                           order={orderByNote.get(n.id) ?? 'none'}
+                          hasInvoice={!!n.linkedInvoiceId}
                           compact
                         />
                       </td>

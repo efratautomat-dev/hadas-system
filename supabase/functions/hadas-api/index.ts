@@ -997,6 +997,35 @@ async function createOrder(req: Request, supabase: SupabaseClient, actor?: strin
 
   if (error || !data) return json({ error: "Failed to create order", details: error?.message }, 500);
 
+  // ── The order opens its pipeline immediately ──────────────────────────────
+  //
+  // Each of the three parts starts a chain — that is the model, and an order was
+  // the one still waiting for a second event before it counted. So an order lived
+  // only on its own board, and the goods list, which is where the owner actually
+  // looks, did not know it existed. Nothing showed a purchase between "asked for"
+  // and "arrived".
+  //
+  // `awaiting_goods` is the right stage and not a new one: it says the goods are
+  // what is missing, which is equally true of an invoice that came first and of an
+  // order not yet delivered. The strip tells them apart from the order step, which
+  // is why that step exists.
+  const { data: pipe } = await supabase.from("delivery_notes").insert({
+    supplier_id:   supplierId,
+    supplier_name: supplierName,
+    note_number:   "",
+    date:          body.date ?? new Date().toISOString().slice(0, 10),
+    amount:        0,
+    status:        "pending",
+    stage:         "awaiting_goods" satisfies PipelineStage,
+    // Names the door it came through, so a row that never carried goods is never
+    // read as a delivery that happened.
+    intake_source: "order",
+    line_items:    body.description ?? null,
+  }).select("id").single();
+  if (pipe) {
+    await supabase.from("orders").update({ delivery_note_id: pipe.id }).eq("id", data.id);
+  }
+
   // ── A customer order landing on a supplier that already has one open ──────
   //
   // The owner's rule, and the reason it exists: the shipment is already on its
@@ -1169,7 +1198,7 @@ async function markOrderArrived(
   } catch { /* no body = a full arrival */ }
 
   const { data: order, error: fetchErr } = await supabase.from("orders")
-    .select("id, supplier_id, supplier_name, description, status").eq("id", id).maybeSingle();
+    .select("id, supplier_id, supplier_name, description, status, delivery_note_id").eq("id", id).maybeSingle();
   if (fetchErr) return json({ error: fetchErr.message }, 500);
   if (!order)   return json({ error: "Order not found" }, 404);
   if (order.status !== "order_waiting") {
@@ -1216,13 +1245,34 @@ async function markOrderArrived(
       .select("delivery_note_id").not("delivery_note_id", "is", null);
     for (const o of others ?? []) claimed.add(String(o.delivery_note_id));
   }
-  const candidates = (waiting ?? []).filter(n => !claimed.has(String(n.id)));
+  // The order's own row is not a candidate to merge with itself.
+  const candidates = (waiting ?? [])
+    .filter(n => !claimed.has(String(n.id)) && String(n.id) !== String(order.delivery_note_id ?? ""));
+
+  // The order opened a row when it was created, so "arrived" normally MOVES that
+  // row rather than making another. The offer below is about merging: if the
+  // supplier also emailed a note for this same shipment, two rows describe one
+  // delivery and the emailed one — which carries the document — should win.
+  const ownRow = order.delivery_note_id ? String(order.delivery_note_id) : null;
 
   if (adoptId) {
     // The screen asked the person and she picked one.
     if (!candidates.some(c => String(c.id) === adoptId))
       return json({ error: "That delivery is not available to attach" }, 409);
     noteId = adoptId;
+    // The order's own placeholder held nothing; keeping it would leave a delivery
+    // that never happened beside the one that did.
+    if (ownRow && ownRow !== adoptId) {
+      await supabase.from("delivery_note_invoices").delete().eq("delivery_note_id", ownRow);
+      await supabase.from("delivery_notes").delete().eq("id", ownRow).eq("intake_source", "order");
+    }
+  } else if (ownRow && candidates.length === 0) {
+    // Nothing else to merge with: this row IS the delivery, and the goods just
+    // turned up in it.
+    await supabase.from("delivery_notes")
+      .update({ stage: "awaiting_invoice" satisfies PipelineStage, date: today })
+      .eq("id", ownRow);
+    noteId = ownRow;
   } else if (candidates.length > 0 && !forceNew) {
     // Hand the choice back rather than deciding it. The order is left untouched,
     // so nothing has happened yet and the call is safe to repeat.

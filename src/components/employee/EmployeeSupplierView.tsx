@@ -628,7 +628,7 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
                 >
                   {/* Compact and label-less: in a row the badge beside it carries the
                       words, and the strip is here to be read as a shape. */}
-                  <PipelineStrip stage={stage} compact showLabels={false} />
+                  <PipelineStrip stage={stage} compact showLabels={false} hasInvoice={!!(dn as { linkedInvoiceId?: string }).linkedInvoiceId} />
                   <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{(d.noteNumber || d.id)} · {d.date}</p>
                   <StatusBadge status={stage} />
                   <div className="flex justify-center">

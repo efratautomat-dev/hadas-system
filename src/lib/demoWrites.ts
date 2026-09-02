@@ -149,6 +149,18 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       customer_name:  b.customer_name  ?? null,
       customer_phone: b.customer_phone ?? null,
     }
+    // The order opens its pipeline at once — same as the server. Without this the
+    // goods list, which is where the owner looks, never learns the order exists.
+    const pipe: Row = {
+      id: `dn_${Date.now()}`,
+      supplier_id: row.supplier_id, supplier_name: row.supplier_name,
+      date: row.date, amount: null, amount_before_vat: null, vat_amount: null,
+      status: 'pending', stage: 'awaiting_goods', invoice_id: null,
+      line_items: row.description, intake_source: 'order',
+      drive_file_link: null, storage_url: null, note_number: null,
+    }
+    notes.unshift(pipe)
+    row.delivery_note_id = pipe.id
     orders.unshift(row)
 
     // Mirrors the server: a CUSTOMER order landing on a supplier that already has
@@ -201,6 +213,30 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
             date: n.date ?? null, supplier_name: n.supplier_name ?? null,
           })),
         } as unknown as Row
+      }
+    }
+    const ownRow = order.delivery_note_id ? String(order.delivery_note_id) : null
+    if (!adoptId && !forceNew && ownRow) {
+      const claimed2 = new Set(orders.map(o => String(o.delivery_note_id ?? '')))
+      const others = notes.filter(n =>
+        n.supplier_id === order.supplier_id && n.stage === 'awaiting_invoice' &&
+        String(n.id) !== ownRow && !claimed2.has(String(n.id)))
+      if (others.length === 0) {
+        // Nothing to merge with — the goods arrived into the row this order opened.
+        const own = find('delivery_notes', ownRow)
+        if (own) { own.stage = 'awaiting_invoice'; own.date = nowIso().slice(0, 10) }
+        if (partial) {
+          orders.unshift({
+            ...order, id: `ord_${Date.now()}`,
+            description: `הגיע: ${order.description}`,
+            status: 'order_partial', arrived_at: nowIso(), delivery_note_id: ownRow,
+          })
+          order.delivery_note_id = null
+        } else {
+          order.status = 'order_arrived'
+          order.arrived_at = nowIso()
+        }
+        return { success: true, delivery_note_id: ownRow }
       }
     }
     if (adoptId) {

@@ -29,6 +29,7 @@ export function PipelineStrip({
   order = 'none',
   compact = false,
   showLabels = true,
+  hasInvoice,
 }: {
   /** `null` when the order has not arrived — nothing is in the pipeline yet. */
   stage: PipelineStage | null
@@ -37,8 +38,10 @@ export function PipelineStrip({
   compact?: boolean
   /** Off in the tightest rows, where the strip is a shape and the badge carries the words. */
   showLabels?: boolean
+  /** See stepsForStage — `awaiting_goods` means two different things without it. */
+  hasInvoice?: boolean
 }) {
-  const steps = stepsForStage(stage, order)
+  const steps = stepsForStage(stage, order, hasInvoice)
   const size = compact ? 24 : 30
   const font = compact ? 11 : 12.5
 

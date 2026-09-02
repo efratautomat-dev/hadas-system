@@ -39,12 +39,23 @@ export function stepsForStage(
   // claim about stock nobody has seen. Only the order step is live.
   stage: PipelineStage | null,
   order: OrderLink = 'none',
+  /**
+   * Is an invoice actually attached?
+   *
+   * `awaiting_goods` carries TWO meanings now, and they differ exactly here: an
+   * invoice that arrived before its goods, and an order placed whose goods have
+   * not come. Both are honestly "waiting for goods", so the stage cannot tell them
+   * apart — only the link can. Undefined keeps the old reading, so callers that
+   * cannot know are unchanged.
+   */
+  hasInvoice?: boolean,
 ): Step[] {
   const goodsIn = stage !== null && stage !== 'awaiting_goods'
   // `awaiting_goods` IS the invoice-first case — the invoice is what arrived, and
   // it is the goods that are missing. Leaving it out here drew the invoice step as
   // "not yet", which is the exact opposite of what that stage means.
-  const invoiceIn = stage === 'awaiting_goods' || stage === 'awaiting_approval' || stage === 'in_ledger'
+  const invoiceIn = stage === 'awaiting_approval' || stage === 'in_ledger' ||
+    (stage === 'awaiting_goods' && (hasInvoice ?? true))
   const approved  = stage === 'in_ledger'
 
   return [
