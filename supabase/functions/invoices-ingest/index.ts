@@ -1531,6 +1531,30 @@ async function insertAlertOnce(
 // the next failure parks it again on the FIRST try. It also only works inside the
 // routine 14-day window. The supported recovery is POST {source:"requeue"}, which
 // clears the counter and sweeps REQUEUE_LOOKBACK_DAYS back.
+/**
+ * One email finished successfully: label it processed AND clear its failure row.
+ *
+ * `ingest_failures` used to record only failure, never resolution. A row was
+ * deleted by exactly one path — the requeue sweep — so an email that failed on
+ * Monday and succeeded on Tuesday kept its row forever, indistinguishable from a
+ * live problem. Production carried eleven such rows, of which every one was an
+ * incident already closed; they cost real time to rule out twice.
+ *
+ * Clearing it here makes success mean what it says. The delete is deliberately
+ * unchecked: the document is in, the label is set, and failing to tidy a counter
+ * must never turn a completed ingest into a reported failure.
+ */
+async function markProcessed(
+  supabase: SupabaseClient,
+  token: string,
+  msgId: string,
+  processedLabelId: string,
+  sourceLabelId: string,
+): Promise<void> {
+  await gmailModifyLabels(token, msgId, [processedLabelId], [sourceLabelId, "UNREAD"]);
+  await supabase.from("ingest_failures").delete().eq("gmail_message_id", msgId);
+}
+
 async function recordFailureAndMaybePark(
   supabase: SupabaseClient,
   log:      Logger,
@@ -2280,7 +2304,7 @@ async function ingestInvoices(
       const dup = dupRows?.[0] ?? null;
       if (dup) {
         await log("info", "already ingested, applying processed label", { invoiceId: dup.id }, msgId);
-        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+        await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
         result.skipped++;
         continue;
       }
@@ -2327,7 +2351,7 @@ async function ingestInvoices(
         if (docType !== "receipt") return false;
         await log("info", "receipt — deliberately NOT ingested (receipts are not invoices)",
           { subject, from }, msgId);
-        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+        await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
         result.skipped++;
         return true;
       };
@@ -2421,7 +2445,7 @@ async function ingestInvoices(
             docType, reason, linkFailures, droppedFiles: dropped,
           },
         });
-        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+        await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
         result.alerts++;
         continue;
       }
@@ -2469,7 +2493,7 @@ async function ingestInvoices(
             { subject, from, messageLink }, "a document write failed", docType);
           continue;
         }
-        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+        await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
         result.processed++;
         continue;
       }
@@ -2533,7 +2557,7 @@ async function ingestInvoices(
       // queue competing with the alerts screen — the same item in two places, one
       // of which nothing ever cleared. The SYSTEM is where review happens; the
       // mailbox only records that ingest ran.
-      await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+      await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
       await log("info", "email invoice processing complete",
         { created, alerted, skipped, ads, errored }, msgId);
 
