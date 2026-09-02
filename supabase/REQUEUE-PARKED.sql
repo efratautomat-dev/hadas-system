@@ -32,7 +32,12 @@ select net.http_post(
                'Authorization', h.auth,
                'x-hadas-key',   h.key
              ),
-  body    := '{"source":"requeue"}'::jsonb
+  body    := '{"source":"requeue"}'::jsonb,
+  -- pg_net defaults to 5s and gave up mid-call on the first run, recording
+  -- timed_out with a NULL status while the function ran to completion anyway.
+  -- The requeue talks to Gmail once per parked message, so it is legitimately
+  -- slow; 60s covers a full batch of 50.
+  timeout_milliseconds := 60000
 ) as request_id
 from h;
 
