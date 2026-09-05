@@ -75,8 +75,15 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
 
   const arrive = async (id: string, partial: boolean, choice?: { adopt?: string; forceNew?: boolean }) => {
     const res = await markArrived(id, partial, choice)
-    if (res.needsChoice) setArrival({ orderId: id, partial, candidates: res.candidates ?? [] })
-    else setArrival(null)
+    if (res.needsChoice) { setArrival({ orderId: id, partial, candidates: res.candidates ?? [] }); return }
+    setArrival(null)
+    // Land ON the goods, not back on a list the order just left. Marking arrival
+    // is the moment the order becomes work, and leaving her to find the row it
+    // turned into is a step the system can take for her.
+    if (res.deliveryNoteId) {
+      setTab('goods')
+      setOpenId(res.deliveryNoteId)
+    }
   }
   const [tab, setTab] = useState<Tab>('goods')
   const [filter, setFilter] = useState<GoodsFilter>('all')

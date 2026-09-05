@@ -130,16 +130,19 @@ export function useOrders() {
     id: string,
     partial = false,
     choice?: { adopt?: string; forceNew?: boolean },
-  ): Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[] }> => {
+  ): Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[]; deliveryNoteId?: string }> => {
     try {
       const res = await api.put(`/orders/${id}/arrived`, {
         partial,
         delivery_note_id: choice?.adopt,
         force_new:        choice?.forceNew,
-      }) as { needsChoice?: boolean; candidates?: ArrivalCandidate[] }
+      }) as { needsChoice?: boolean; candidates?: ArrivalCandidate[]; deliveryNoteId?: string; delivery_note_id?: string }
       if (res?.needsChoice) return res
       await load()
-      return {}
+      // The id is returned so the screen can OPEN the chain that was just created
+      // instead of letting the order vanish off a list. Arrival is the moment the
+      // goods become work, and the work is on the other screen.
+      return { deliveryNoteId: res?.deliveryNoteId ?? res?.delivery_note_id }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(`שגיאה בסימון ההגעה: ${msg}`)

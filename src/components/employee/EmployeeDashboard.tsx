@@ -57,8 +57,11 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
 
   const arrive = async (id: string, partial: boolean, choice?: { adopt?: string; forceNew?: boolean }) => {
     const res = await markArrived(id, partial, choice)
-    if (res.needsChoice) setArrival({ orderId: id, partial, candidates: res.candidates ?? [] })
-    else setArrival(null)
+    if (res.needsChoice) { setArrival({ orderId: id, partial, candidates: res.candidates ?? [] }); return }
+    setArrival(null)
+    // Same as the manager's board: arrival opens the chain rather than leaving the
+    // employee to go looking for what the order became.
+    if (res.deliveryNoteId) { await reloadNotes(); setOpenNoteId(res.deliveryNoteId) }
   }
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
   const [activeSection, setActiveSection] = useState<EmployeeSection>('invoices')

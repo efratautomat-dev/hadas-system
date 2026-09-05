@@ -236,7 +236,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
           order.status = 'order_arrived'
           order.arrived_at = nowIso()
         }
-        return { success: true, delivery_note_id: ownRow }
+        return { success: true, deliveryNoteId: ownRow }
       }
     }
     if (adoptId) {
@@ -253,7 +253,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
           order.arrived_at = nowIso()
           order.delivery_note_id = adopted.id
         }
-        return { success: true, delivery_note_id: adopted.id }
+        return { success: true, deliveryNoteId: adopted.id }
       }
     }
 
@@ -292,7 +292,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       order.arrived_at = nowIso()
       order.delivery_note_id = note.id
     }
-    return { success: true, delivery_note_id: note.id }
+    return { success: true, deliveryNoteId: note.id }
   }
 
   // ── /ingest/* ────────────────────────────────────────────────────────────
