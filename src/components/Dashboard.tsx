@@ -1,4 +1,5 @@
 import { Users, FileText, TrendingUp, AlertCircle, Package, AlertTriangle, Bell, Camera } from 'lucide-react'
+import ParkedDocuments from './ParkedDocuments'
 import { useInvoices } from '../hooks/useInvoices'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { usePayments } from '../hooks/usePayments'
@@ -172,6 +173,11 @@ export default function Dashboard({
 
   return (
     <div className="space-y-6">
+      {/* Above everything, and silent at zero: a parked document is the one
+          failure the system could not report on itself, and the dashboard read as
+          healthy while it sat there. */}
+      <ParkedDocuments />
+
       {/* Greeting (right in RTL) + prominent capture shortcut (left in RTL).
           Opens the same CaptureDocument screen the sidebar links to. */}
       <div className="flex items-start justify-between gap-3">

@@ -295,6 +295,13 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return { success: true, delivery_note_id: note.id }
   }
 
+  // ── /ingest/* ────────────────────────────────────────────────────────────
+  // The demo has no mailbox, so there is nothing parked and the panel correctly
+  // renders nothing. Answered explicitly rather than left to the generic stub,
+  // which would have returned a synthetic id and made the panel read an error.
+  if (path === '/ingest/parked') return { count: 0, parked: [] } as unknown as Row
+  if (path === '/ingest/requeue') return { success: true, parkedBefore: 0, parkedAfter: 0 } as unknown as Row
+
   // ── PUT /invoices/:id/open-pipeline ──────────────────────────────────────
   const openPipe = path.match(/^\/invoices\/([^/]+)\/open-pipeline$/)
   if (method === 'PUT' && openPipe) {

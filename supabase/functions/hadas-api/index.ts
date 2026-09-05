@@ -1098,6 +1098,82 @@ async function createOrder(req: Request, supabase: SupabaseClient, actor?: strin
  * `note_number` stays empty and `intake_source` says where it came from, so a row
  * with no goods behind it is never mistaken for a delivery that happened.
  */
+// ─── Documents that never got in ────────────────────────────────────────────
+//
+// A parked email is the one failure mode that is INVISIBLE. Ingest retries twice,
+// then labels the mail "פענוח נכשל" so it stops clogging the queue — and from
+// that moment nothing in the app mentions it. `ingest_failures` was surfaced on no
+// screen at all, so a supplier's invoice could sit unread for months while every
+// dashboard read as healthy.
+//
+// That is the wrong shape for a system whose whole promise is that documents stop
+// getting lost, and it matters most exactly when it hurts most: in a busy month,
+// when the owner is least able to notice a gap by memory.
+//
+// Read-only, manager-only, and it carries no figures — a parked email has not been
+// parsed, so there is nothing to mask.
+async function listParkedDocuments(supabase: SupabaseClient): Promise<Response> {
+  const { data, error } = await supabase.from("ingest_failures")
+    .select("gmail_message_id, attempts, last_error, last_attempt_at")
+    .order("last_attempt_at", { ascending: false })
+    .limit(200);
+  if (error) return json({ error: error.message }, 500);
+
+  return json({
+    count: data?.length ?? 0,
+    parked: (data ?? []).map(r => ({
+      gmailMessageId: r.gmail_message_id,
+      attempts:       r.attempts,
+      lastAttemptAt:  r.last_attempt_at,
+      // Trimmed: these are raw extractor errors, often a whole truncated JSON
+      // document. The screen needs the shape of the problem, not the payload.
+      lastError:      String(r.last_error ?? "").slice(0, 200),
+    })),
+  });
+}
+
+/**
+ * Put parked emails back in the queue, from the UI.
+ *
+ * Recovery existed only as a curl call carrying a secret that cannot be read back
+ * from the dashboard — which meant it existed for me and not for the owner. This
+ * calls invoices-ingest server-to-server with the key both functions already
+ * share, so the button needs nothing but a normal login.
+ *
+ * `mode` picks which hole to sweep. They are different holes:
+ *   requeue — emails wearing the FAILED label
+ *   sweep   — emails that failed, were left UNLABELED for a retry, and then aged
+ *             out of the routine 14-day window. Invisible to requeue.
+ */
+async function requeueParked(req: Request, supabase: SupabaseClient): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const mode = body?.mode === "sweep" ? "sweep" : "requeue";
+  const days = Number(body?.days) || (mode === "sweep" ? 120 : undefined);
+
+  const key = Deno.env.get("HADAS_API_KEY");
+  const url = Deno.env.get("SUPABASE_URL");
+  if (!key || !url) return json({ error: "Ingest credentials are not configured" }, 500);
+
+  const before = await supabase.from("ingest_failures").select("gmail_message_id");
+  const beforeCount = before.data?.length ?? 0;
+
+  const res = await fetch(`${url}/functions/v1/invoices-ingest`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "x-hadas-key": key },
+    body:    JSON.stringify({ source: mode, days }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) return json({ error: "Ingest run failed", details: out }, 502);
+
+  const after = await supabase.from("ingest_failures").select("gmail_message_id");
+  return json({
+    success: true, mode,
+    parkedBefore: beforeCount,
+    parkedAfter:  after.data?.length ?? 0,
+    result: out,
+  });
+}
+
 async function openPipelineForInvoice(
   supabase: SupabaseClient, invoiceId: string, actor?: string,
 ): Promise<Response> {
@@ -2417,6 +2493,11 @@ Deno.serve(async (req: Request) => {
     // ── Orders ────────────────────────────────────────────────────────────────
     // Each of the three parts can start the chain (the owner's model): the invoice
     // leg was the one that could not.
+    if (path === "/ingest/parked" && req.method === "GET")
+      return await listParkedDocuments(supabase);
+    if (path === "/ingest/requeue" && req.method === "PUT")
+      return await requeueParked(req, supabase);
+
     const openPipe = path.match(/^\/invoices\/([^/]+)\/open-pipeline$/);
     if (openPipe && req.method === "PUT")
       return await openPipelineForInvoice(supabase, openPipe[1], auth.email);
