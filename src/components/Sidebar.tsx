@@ -41,6 +41,13 @@ interface SidebarProps {
   userEmail: string
   mobileStyle?: React.CSSProperties
   newAlertsCount?: number
+  /**
+   * Rows sitting at "ממתין לאישור" — goods and an invoice attached, waiting for a
+   * person to confirm they match. It is the only pipeline state that is a TASK, so
+   * it earns the same mark alerts already carry: work you have not done should be
+   * visible from wherever you are, not only once you open the screen.
+   */
+  pendingApprovalCount?: number
 }
 
 const navItems = [
@@ -68,6 +75,7 @@ export default function Sidebar({
   userEmail,
   mobileStyle,
   newAlertsCount = 0,
+  pendingApprovalCount = 0,
 }: SidebarProps) {
   const isTablet = useIsTablet()
   const collapsed = isCollapsed
@@ -205,13 +213,20 @@ export default function Sidebar({
                   >
                     {label}
                   </span>
-                  {id === 'alerts' && newAlertsCount > 0 && (
+                  {(() => {
+                    const n = id === 'alerts' ? newAlertsCount
+                      : id === 'deliveries' ? pendingApprovalCount : 0
+                    return n > 0 ? (
                     <span
                       style={{
                         minWidth: '20px',
                         height: '20px',
                         borderRadius: '10px',
-                        background: '#DC2626',
+                        // Alerts are red because something went wrong. Approvals
+                        // are orange because nothing did — a person is simply
+                        // needed. Same shape, different urgency, and using red for
+                        // both is how red stops meaning anything.
+                        background: id === 'alerts' ? '#DC2626' : '#C2410C',
                         color: 'white',
                         fontSize: '11px',
                         fontWeight: 700,
@@ -221,9 +236,10 @@ export default function Sidebar({
                         padding: '0 5px',
                       }}
                     >
-                      {newAlertsCount}
+                      {n}
                     </span>
-                  )}
+                    ) : null
+                  })()}
                 </div>
               )}
               <div style={{ position: 'relative', flexShrink: 0 }}>

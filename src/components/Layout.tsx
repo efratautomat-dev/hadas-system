@@ -20,6 +20,7 @@ import Integrations from './Integrations'
 import SystemLogs from '../pages/SystemLogs'
 import type { Alert } from '../data/mockData'
 import { useAlerts } from '../hooks/useAlerts'
+import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { AppLogoProvider } from '../hooks/useAppLogo'
 import { brand } from '../brand.config'
 import { tierAllows } from '../lib/tiers'
@@ -141,6 +142,10 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     try { localStorage.setItem('hadas.notesOpen', notesOpen ? '1' : '0') } catch { /* private mode */ }
   }, [notesOpen])
   const { data: alerts, markRead, markResolved, remove: removeAlert } = useAlerts()
+  // Counted here rather than inside the goods screen: the badge has to be right
+  // while she is anywhere else, which is the only time it is worth having.
+  const { data: pipelineNotes } = useDeliveryNotes()
+  const pendingApprovalCount = pipelineNotes.filter(n => n.stage === 'awaiting_approval').length
   const [alertForSupplier, setAlertForSupplier] = useState<AlertPrefillState | null>(null)
   // Single source of truth for navigation — index 0 is always the origin (dashboard)
   const [navStack, setNavStack] = useState<NavEntry[]>([{ page: 'dashboard' }])
@@ -427,6 +432,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onPageChange={handlePageChange}
         onLogout={onLogout}
         userEmail={userEmail}
+        pendingApprovalCount={pendingApprovalCount}
         newAlertsCount={newAlertsCount}
         mobileStyle={isMobile ? {
           transform: mobileMenuOpen ? 'translateX(0)' : 'translateX(110%)',

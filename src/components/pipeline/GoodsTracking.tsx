@@ -150,7 +150,12 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
   // list competing for attention underneath is exactly what made the modal feel
   // cramped. Same shape the invoice screen uses.
   if (openNote) {
+    // The picker is rendered HERE, inside the early return. It used to live only
+    // beside the list, which the return above never reaches — so "שינוי ספק" set
+    // its state and nothing appeared. A modal that belongs to a page has to be
+    // mounted by that page.
     return (
+      <>
       <DeliveryPage
         note={openNote}
         stage={stageOf(openNote)}
@@ -171,6 +176,18 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
             : undefined
         }
       />
+      {reassign && (
+        <SupplierPicker
+          current={openNote.supplierId ?? ''}
+          suppliers={suppliers.map(s => ({ id: s.id, name: s.name, hp: (s as { hp?: string }).hp }))}
+          onClose={() => setReassign(null)}
+          onPick={async supplierId => {
+            await update(reassign, { supplierId } as Parameters<typeof update>[1])
+            setReassign(null)
+          }}
+        />
+      )}
+      </>
     )
   }
 

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, ChevronRight, X, LayoutGrid, Table2, AlertTriangle, GitMerge, ArrowRightLeft } from 'lucide-react'
+import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
+import { supplierAttention, ATTENTION_COLOR } from '../lib/supplierAttention'
 import { useSuppliers, type MergePreview, type MergeResult } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
 import { STATUS } from '../theme/status'
@@ -732,6 +734,11 @@ export default function Suppliers({
                   {/* status + category */}
                   <div className="flex items-center justify-between gap-2" style={{ minHeight: '28px' }}>
                     <div className="flex items-center gap-1.5 flex-wrap">
+                      {/* Same dot the employee's picker carries, same rule file.
+                          The manager was the one person who could NOT see at a
+                          glance which suppliers had work waiting — she had to open
+                          the goods screen and read it the other way round. */}
+                      <AttentionDot supplierId={sup.id} />
                       <StatusPill status={sup.status} />
                       {sup.paymentArrangement && <ArrangementPill />}
                     </div>
@@ -1149,5 +1156,26 @@ function MergeSuppliersModal({
         </div>
       </div>
     </div>
+  )
+}
+
+
+// ── The attention dot, on a supplier card ────────────────────────────────────
+// Reads the SAME rule as the employee's picker (src/lib/supplierAttention.ts) so
+// the two can never disagree about which supplier needs someone. Stages only —
+// how many and at which step, never how much.
+function AttentionDot({ supplierId }: { supplierId: string }) {
+  const { data: notes } = useDeliveryNotes()
+  const a = supplierAttention(notes.filter(n => n.supplierId === supplierId).map(n => n.stage))
+  if (a.level === 'green') return null
+  return (
+    <span
+      className="inline-flex items-center gap-1.5"
+      title={a.label}
+      style={{ fontSize: '11.5px', color: ATTENTION_COLOR[a.level], fontWeight: 700 }}
+    >
+      <i aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: ATTENTION_COLOR[a.level], display: 'inline-block' }} />
+      {a.label}
+    </span>
   )
 }
