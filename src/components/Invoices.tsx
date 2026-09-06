@@ -1450,6 +1450,23 @@ export default function Invoices({
                       >
                         {inv.supplier}
                       </span>
+                      {/* ── A note is on this invoice ─────────────────────────
+                          Notes were readable only by opening the row or by going
+                          to the supplier's notes panel — so a remark an employee
+                          left after taking the delivery ("380 מטר במקום 400")
+                          waited to be stumbled on. The list is where the manager
+                          decides what to open, so it is where the existence of a
+                          note has to be visible.
+                          The ICON only: the text belongs in its own context, and a
+                          preview here would be a second copy to keep in step. */}
+                      {inv.notes?.trim() && (
+                        <span
+                          title="יש הערה על החשבונית"
+                          style={{ display: 'flex', flexShrink: 0, color: 'var(--brand-primary)' }}
+                        >
+                          <StickyNote size={14} />
+                        </span>
+                      )}
                       {inv.duplicateFlag === 'כפילות אפשרית' && isMobile && (
                         <button
                           onClick={e => openDupModal(inv, e)}
