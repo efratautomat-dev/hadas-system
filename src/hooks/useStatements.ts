@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
+import { subscribe } from '../lib/dataBus'
 
 export type VendorStatementStatus = 'matched' | 'mismatch' | 'pending' | 'investigating' | 'needs_review'
 
@@ -92,6 +93,9 @@ export function useStatements() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+
+  useEffect(() => subscribe(['statements'], load), [load])
 
   const create = async (body: Omit<VendorStatement, 'id'>) => {
     const { supplier_name: _supplier_name, ...rest } = body

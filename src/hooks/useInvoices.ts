@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { mockInvoices, type Invoice } from '../data/mockData'
 import { isoToDisplay } from '../lib/dates'
+import { subscribe } from '../lib/dataBus'
 
 
 export function useInvoices() {
@@ -46,6 +47,10 @@ export function useInvoices() {
           isDuplicate:       r.is_duplicate       ?? false,
           hasError:          r.has_error          ?? false,
           awaitingApproval:  r.awaiting_approval  ?? false,
+          // The pipeline's own gate — a TIMESTAMP, not a flag, so absence is the
+          // pending state. Mapped explicitly even though `...r` already carries the
+          // snake_case column, so the field the ledger reads is typed and greppable.
+          ledgerApprovedAt:  r.ledger_approved_at ?? null,
           notes:             r.notes              ?? '',
           status:            r.status             ?? '',
           category:          r.category           ?? '',
@@ -77,6 +82,9 @@ export function useInvoices() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+
+  useEffect(() => subscribe(['invoices'], load), [load])
 
   const create = async (body: Partial<Invoice>) => {
     console.log('[useInvoices] create payload:', body)
@@ -120,6 +128,72 @@ export function useInvoices() {
     }
   }
 
+  // ─── The goods pipeline's gate into the ledger (§6.e) ──────────────────────
+  // NOT the ₪20K threshold gate — that one is cleared from the alerts screen via
+  // `PUT /invoices/:id/approve`. This one lets a goods↔invoice PAIR into the ledger,
+  // and approving once moves every delivery note attached to the invoice, which is
+  // what makes a consolidated invoice one decision instead of five (§6.7).
+  // Returns how many notes moved so the caller can say so.
+  /**
+   * Open a pipeline for an invoice that arrived before its goods (§6.6).
+   * Idempotent: an invoice already in a chain reports that and opens nothing.
+   */
+  /**
+   * Save an invoice note through the narrow route, so an employee may leave one
+   * without gaining the general update permission that also writes amounts.
+   */
+  const saveNotes = async (id: string, notes: string) => {
+    try {
+      await api.put(`/invoices/${id}/notes`, { notes })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בשמירת ההערה: ${msg}`)
+      throw err
+    }
+  }
+
+  const openPipeline = async (id: string): Promise<string | null> => {
+    try {
+      const res = await api.put(`/invoices/${id}/open-pipeline`, {}) as
+        { deliveryNoteId?: string; alreadyLinked?: boolean }
+      await load()
+      return res.deliveryNoteId ?? null
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בפתיחת פייפליין: ${msg}`)
+      throw err
+    }
+  }
+
+  const ledgerApprove = async (id: string): Promise<number> => {
+    try {
+      const res = await api.put(`/invoices/${id}/ledger-approve`, {})
+      await load()
+      return (res as { notesMoved?: number }).notesMoved ?? 0
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[useInvoices] ledgerApprove error:', msg)
+      setError(`שגיאה באישור לכרטסת: ${msg}`)
+      throw err
+    }
+  }
+
+  // Reversible on purpose (§6.14): an approval given by mistake is a mistake about a
+  // pair, not about a document, and taking it back destroys nothing.
+  const ledgerUnapprove = async (id: string): Promise<number> => {
+    try {
+      const res = await api.put(`/invoices/${id}/ledger-unapprove`, {})
+      await load()
+      return (res as { notesMoved?: number }).notesMoved ?? 0
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[useInvoices] ledgerUnapprove error:', msg)
+      setError(`שגיאה בביטול האישור: ${msg}`)
+      throw err
+    }
+  }
+
   const remove = async (id: string) => {
     console.log('[useInvoices] delete id:', id)
     try {
@@ -134,5 +208,5 @@ export function useInvoices() {
     }
   }
 
-  return { data, loading, error, create, update, updateStatus, remove }
+  return { data, loading, error, create, update, updateStatus, remove, ledgerApprove, ledgerUnapprove, openPipeline, saveNotes }
 }

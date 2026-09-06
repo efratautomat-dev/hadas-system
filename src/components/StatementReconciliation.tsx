@@ -25,6 +25,7 @@ import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 import { PdfPreviewModal, DocumentBody } from './PdfPreviewModal'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
+import { FilterTabs } from './ui/FilterTabs'
 
 type VendorStatement = ServerStatement
 
@@ -122,6 +123,7 @@ const EMPTY_LEDGER: LedgerResult = {
   rows: [], periodOpening: 0, closingBalance: 0,
   undatedCount: 0, undatedTotal: 0, excludedCount: 0,
   pendingApprovalCount: 0, pendingApprovalTotal: 0,
+  awaitingLedgerCount: 0, awaitingLedgerTotal: 0,
 }
 
 function StatusBadge({ status }: { status: VendorStatementStatus }) {
@@ -929,39 +931,18 @@ export default function StatementReconciliation({ initialStatementId }: { initia
           of being tiles: hiding them app-wide took the only way to filter this
           screen with them. The count rides on the chip, so nothing is lost. */}
       <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div
-          className="bg-white border p-1 flex-shrink-0"
-          style={{ borderColor: '#EEEEF2', display: 'flex', gap: '2px' }}
-        >
-          {STATUS_FILTERS.map(({ key, label }) => {
-            const active = filterStatus === key
-            const n = key === 'all' ? statements.length : counts[key]
-            return (
-              <button
-                key={key}
-                // Clicking the active chip clears back to הכל — the tiles behaved
-                // the same way, and it saves a trip to a separate "clear" control.
-                onClick={() => setFilterStatus(active && key !== 'all' ? 'all' : key)}
-                style={{
-                  padding: '7px 12px', fontSize: '14px', fontWeight: 600,
-                  border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                  background: active ? 'var(--brand-primary)' : 'transparent',
-                  color: active ? 'white' : '#6B7280',
-                  display: 'flex', alignItems: 'center', gap: '6px',
-                }}
-              >
-                {label}
-                <span style={{
-                  fontSize: '11px', fontWeight: 700, lineHeight: 1.4, padding: '1px 6px',
-                  background: active ? 'rgba(255,255,255,0.28)' : '#F1F2F4',
-                  color: active ? 'white' : '#6B7280',
-                }}>
-                  {n}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+          <FilterTabs
+            tabs={STATUS_FILTERS.map(({ key, label }) => ({
+              key,
+              label,
+              count: key === 'all' ? statements.length : counts[key],
+            }))}
+            value={filterStatus}
+            // Clicking the active tab clears back to הכל — the tiles behaved the
+            // same way, and it saves a trip to a separate "clear" control.
+            onChange={k => setFilterStatus(k === filterStatus && k !== 'all' ? 'all' : k)}
+            style={{ flex: 1 }}
+          />
       </div>
 
       {/* Filter bar */}

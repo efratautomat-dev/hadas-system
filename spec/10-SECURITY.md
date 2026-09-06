@@ -104,3 +104,57 @@ Already in place — **verify still true, don't assume**:
 - **Legacy `HADAS_SERVICE_KEY` fallback** — `hadas-api` and `suppliers-list` fall back to
   `HADAS_SERVICE_KEY` if `SUPABASE_SERVICE_ROLE_KEY` is absent. Confirm it is dead/transitional and
   remove the fallback, and confirm the key is not lingering anywhere it shouldn't. (Point 5.)
+
+---
+
+## DECIDED — authentication moves to JWT only (owner, 2026-08-25)
+
+**The decision:** every caller of every edge function authenticates with a **Supabase
+JWT**. The shared-secret header `x-hadas-key` is retired.
+
+**Why.** `hadas-api`, `invoices-ingest` and `payments-ingest` all run with
+`verify_jwt = false` in `supabase/config.toml` and authenticate themselves, accepting
+**either** a Bearer JWT whose email is in `allowed_users` **or** a bare `x-hadas-key`
+header. That second path is a single long-lived secret that:
+
+- grants **full** access with no user behind it — nothing to attribute an action to,
+  and no role to gate on, so the employee/manager split does not apply to it at all;
+- has already leaked once and been rotated (2026-06-18, `docs/07-OPEN-ISSUES.md` #11);
+- lives in cron job definitions, in `curl` snippets in READMEs, and in whatever N8N
+  still holds — every one of them a place it can leak again;
+- cannot be revoked for one caller without breaking every caller.
+
+A JWT expires, carries an identity, and is already the mechanism the frontend uses.
+
+### What has to be answered before implementing
+
+1. **The cron callers.** `invoices-ingest` and `payments-ingest` are triggered by
+   `pg_cron` via `net.http_post`, which has no user session. Options: a service
+   account in `allowed_users` with a long-lived token, a Supabase service-role JWT
+   verified by `aud`/`role` claim, or moving the trigger to a Database Webhook that
+   carries one. **This is the decision the rest depends on.**
+2. **The one-off tools.** `drive-migrate`, `drive-probe` and `drive-reconcile` use a
+   hard-coded `?key=` in source (`docs/07-OPEN-ISSUES.md` #12) — worse than the header
+   and on the same path out.
+3. **The legacy N8N flow**, while it still runs in parallel on the `חשבונית` label.
+4. **Rollout order** — accept both for one deploy, migrate callers, then remove the
+   header, so no tick is missed in between.
+
+### Related, and the reason this surfaced
+
+**⚠️ `hadas-api` runs on the SERVICE-ROLE key, so it bypasses RLS *and the masking
+views*.** A handler that reads a base table gets the unmasked row: `invoices_v` /
+`suppliers_v` / `delivery_notes_v` are not in the path. Any handler an employee is
+allowed to call must therefore **re-apply the mask by hand**.
+
+Found the hard way on 2026-08-25: `GET /delivery-notes/:id/candidates` (the goods
+pipeline's suggestion list, which employees may call per §6.7) selected
+`invoices.total_amount` from the base table and returned it — handing employees, from
+one endpoint, the exact figures `invoices_v` withholds everywhere else. Fixed by
+masking inside the handler on the caller's role.
+
+**The general rule, which nothing currently enforces:** every entry in
+`employeeMayAccess` needs its handler read as if the views did not exist, because for
+that handler they do not. A guard in the same spirit as `check-twins` would be better
+than remembering.
+

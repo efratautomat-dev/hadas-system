@@ -9,11 +9,15 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-demo
 dist-ssr
 *.local
 .env
 .env.*
 !.env.example
+# Committed on purpose — the standalone demo build config holds no secret, and every
+# machine that builds the demo needs it. See docs/08-DEMO-DEPLOYMENT.md.
+!.env.demo
 
 # Editor directories and files
 .vscode/*
@@ -29,6 +33,8 @@ dist-ssr
 # Playwright
 /test-results/
 /playwright-report/
+# Screenshot scratch from an E2E run — captured output, not source.
+/tmp-e2e/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/

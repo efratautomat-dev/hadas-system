@@ -448,9 +448,31 @@ async function deleteInvoice(supabase: SupabaseClient, id: string): Promise<Resp
     if (stErr) console.error("[deleteInvoice] storage cleanup failed:", stErr.message);
   }
 
+  // 3b. Delivery notes attached to this invoice. `delivery_note_invoices` cascades on
+  //     the delete below, but a cascade only removes the LINK — it cannot know what
+  //     state the note should land in, and a note left at `awaiting_approval` pointing
+  //     at an invoice that no longer exists is a pair nobody can ever resolve.
+  //     Rejecting a ₪20K invoice is exactly this path, so it is not a rare case.
+  //     Captured BEFORE the delete, because afterwards the link rows are gone.
+  const { data: linkedNotes } = await supabase.from("delivery_note_invoices")
+    .select("delivery_note_id").eq("invoice_id", id);
+  const orphanedNoteIds = ((linkedNotes ?? []) as Array<{ delivery_note_id: string }>)
+    .map(r => String(r.delivery_note_id));
+
   // 4. The invoice row itself
   const { error } = await supabase.from("invoices").delete().eq("id", id);
   if (error) return json({ error: error.message }, 500);
+
+  // 4b. Send those notes back to waiting for an invoice. The goods did arrive — only
+  //     the bill was withdrawn — so they return to the pipeline rather than vanishing.
+  let notesReleased = 0;
+  if (orphanedNoteIds.length > 0) {
+    const { data: released } = await supabase.from("delivery_notes")
+      .update({ stage: "awaiting_invoice", status: "unlinked", invoice_id: null })
+      .in("id", orphanedNoteIds)
+      .select("id");
+    notesReleased = released?.length ?? 0;
+  }
 
   // 5. Duplicate cleanup: after deleting one of a duplicate pair, if exactly ONE
   //    invoice now remains sharing this invoice number, it is no longer a duplicate —
@@ -469,7 +491,7 @@ async function deleteInvoice(supabase: SupabaseClient, id: string): Promise<Resp
     }
   }
 
-  return json({ success: true, drive, alerts, unflagged });
+  return json({ success: true, drive, alerts, unflagged, notesReleased });
 }
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
@@ -574,6 +596,9 @@ async function deletePayment(supabase: SupabaseClient, id: string): Promise<Resp
 async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
   const { supplier_name, note_number, date, amount, amount_before_vat, vat_amount, line_items, source_email, received_at } = body;
+  // The photographed page, when the sheet path filed one. Without this the
+  // reading survives and the document it came from does not.
+  const storageUrl = body.storage_url ?? body.storageUrl ?? null;
   // A MANUAL goods receipt has only a supplier + item list — no delivery-note number
   // and often no amount. Email-ingested notes pass the full set. Require only the
   // supplier; default the rest. No gmail_message_id → the row reads as source='manual'.
@@ -586,19 +611,97 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
     : await resolveOrCreateSupplier(supabase, supplier_name, body.hp as string | undefined);
   if (!supplierId) return json({ error: "Failed to resolve/create supplier" }, 500);
 
+  // ── Is this delivery already in the system? ───────────────────────────────
+  //
+  // The ordinary case, and the one the owner drew: the supplier's note or his
+  // invoice reached the mailbox BEFORE the goods reached the door. Inserting a
+  // fresh row regardless produced two records of one physical delivery — the same
+  // duplication fixed on the order path, still open here, and this is the path
+  // employees use most.
+  //
+  // Two shapes of candidate, and they resolve differently:
+  //   awaiting_invoice — his note arrived by email. Same delivery: fill in what
+  //                      the employee saw and leave the stage alone.
+  //   awaiting_goods   — his INVOICE arrived first and opened a chain. The goods
+  //                      just closed that gap, so with an invoice already attached
+  //                      the pair is now ready for a person: awaiting_approval.
+  //
+  // Nothing is adopted automatically. Two deliveries from one supplier in a week
+  // are ordinary, and a silent merge loses a shipment while a duplicate only shows
+  // one — of the two errors, only the visible one can be corrected.
+  const adoptId  = body.delivery_note_id ?? body.deliveryNoteId ?? null;
+  const forceNew = body.force_new === true || body.forceNew === true;
+
+  if (!adoptId && !forceNew) {
+    const since = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const { data: waiting } = await supabase.from("delivery_notes")
+      .select("id, note_number, date, stage, supplier_name")
+      .eq("supplier_id", supplierId)
+      .in("stage", ["awaiting_invoice", "awaiting_goods"])
+      .gte("date", since)
+      .order("date", { ascending: false })
+      .limit(10);
+    if (waiting && waiting.length > 0) {
+      // Nothing has happened yet, so the call is safe to repeat with an answer.
+      return json({ success: false, needsChoice: true, candidates: waiting }, 200);
+    }
+  }
+
+  if (adoptId) {
+    const { data: target } = await supabase.from("delivery_notes")
+      .select("id, stage").eq("id", String(adoptId)).maybeSingle();
+    if (!target) return json({ error: "That delivery no longer exists" }, 409);
+
+    const patch: Record<string, unknown> = {
+      // What the employee saw, added to what the document said. Only filled where
+      // the row is empty — a note number read off the supplier's own paper is
+      // better than one typed at the counter.
+      employee_id:   body.employee_id ?? body.employeeId ?? null,
+      intake_source: body.intake_source ?? body.intakeSource ?? "manual",
+    };
+    if (line_items) patch.line_items = line_items;
+    if (note_number) patch.note_number = note_number;
+    // The sheet's cost total, when it had one. Only fills a hole — a figure read
+    // off the supplier's own document outranks one summed at the counter.
+    const safeAmount = storableAmount(amount);
+    if (safeAmount !== null) patch.amount = safeAmount;
+    // Only fills a hole: an emailed note already carries the supplier's own
+    // document, which outranks a photograph of a handwritten page.
+    if (storageUrl) patch.storage_url = storageUrl;
+    // Goods have now been seen. An invoice-first chain was only ever waiting for
+    // this, so it moves on; a note-first chain is still waiting for its invoice.
+    if (target.stage === "awaiting_goods") patch.stage = "awaiting_approval";
+
+    const { error: updErr } = await supabase.from("delivery_notes")
+      .update(patch).eq("id", String(adoptId));
+    if (updErr) return json({ error: updErr.message }, 500);
+    return json({ id: adoptId, adopted: true }, 200);
+  }
+
   const { data: note, error: noteErr } = await supabase.from("delivery_notes")
     .insert({
       supplier_id: supplierId,
       supplier_name:     supplier_name     ?? null,
       note_number:       note_number       ?? "",   // NOT NULL; manual receipts have no number
       date:              date              ?? new Date().toISOString().slice(0, 10),
-      amount:            amount            ?? 0,
-      amount_before_vat: amount_before_vat ?? null,
-      vat_amount:        vat_amount        ?? null,
+      // null, not 0 — "not known" and "cost nothing" are different claims, and
+      // an unstorable figure is dropped rather than taking the row down with it.
+      amount:            storableAmount(amount),
+      amount_before_vat: storableAmount(amount_before_vat),
+      vat_amount:        storableAmount(vat_amount),
       line_items:        line_items        ?? null,
       source_email:      source_email      ?? null,
       received_at:       received_at       ?? null,
+      storage_url:       storageUrl,
       status: "pending",
+      // Goods are in hand and no invoice is attached — the pipeline's starting state.
+      stage: "awaiting_invoice" satisfies PipelineStage,
+      // Who physically took the delivery. The UI has always sent this; it used to be
+      // dropped here because the column did not exist (added 20260823000000).
+      employee_id:   body.employee_id ?? body.employeeId ?? null,
+      // How the row was made. 'manual' is the honest default for this endpoint —
+      // the camera path passes 'photo' explicitly; email ingest inserts directly.
+      intake_source: body.intake_source ?? body.intakeSource ?? "manual",
     })
     .select("id").single();
 
@@ -628,11 +731,28 @@ async function updateDeliveryNote(req: Request, supabase: SupabaseClient, id: st
   if (body.amount          !== undefined) updates.amount        = body.amount;
   if (body.date            !== undefined) updates.date          = body.date;
   if (body.supplierName    !== undefined) updates.supplier_name = body.supplierName;
+  // "שינוי ספק" — reassigning a delivery whose supplier was read wrong. The id and
+  // the NAME move together, resolved server-side from the id, exactly as the
+  // invoice screen does: a row showing one supplier and belonging to another is
+  // the specific defect that free-text supplier fields kept producing. Sending a
+  // name alongside is therefore ignored; the id decides.
+  if (body.supplierId      !== undefined) {
+    updates.supplier_id = body.supplierId || null;
+    const { data: sup } = await supabase
+      .from("suppliers").select("name").eq("id", body.supplierId).maybeSingle();
+    if (sup?.name) updates.supplier_name = sup.name;
+  }
   // PIECE 2 — manual↔arrived match correction: the matched arrived note's document +
   // number are copied onto the manual row (mirrors Returns storing the credit-note doc
   // in drive_file_link). Setting them = confirm/override; clearing = unmatch.
   if (body.driveFileLink   !== undefined) updates.drive_file_link = body.driveFileLink;
   if (body.noteNumber      !== undefined) updates.note_number     = body.noteNumber;
+  // Pipeline columns. `stage` is normally moved by link/unlink/approve rather than
+  // written directly, but the screen must be able to correct a state by hand — §6.f
+  // is explicit that a suggested match is always overridable from the page.
+  if (body.stage           !== undefined) updates.stage         = body.stage;
+  if (body.employeeId      !== undefined) updates.employee_id   = body.employeeId || null;
+  if (body.intakeSource    !== undefined) updates.intake_source = body.intakeSource;
   // body.notes intentionally excluded — no notes column in delivery_notes
 
   if (Object.keys(updates).length === 0) return json({ error: "No fields to update" }, 400);
@@ -676,20 +796,923 @@ async function matchDeliveryNote(supabase: SupabaseClient, arrivedId: string): P
   return json({ success: true, matched: manual.id });
 }
 
-async function linkDeliveryNote(req: Request, supabase: SupabaseClient, id: string): Promise<Response> {
+// ─── The goods pipeline state machine (spec ch. 6) ────────────────────────────
+//
+//   סחורה → חשבונית → אישור → בכרטסת
+//
+// `delivery_notes.stage` is the state; `delivery_note_invoices` is the link, and it
+// is many-to-many because ONE invoice routinely covers several deliveries (a
+// consolidated supplier) and, rarely, one delivery is split across invoices.
+//
+// The legacy `status` column and the single `invoice_id` are still WRITTEN here, as
+// a mirror, because screens and scripts still read them. They are no longer the
+// truth: stage and the link table are. Dropping the mirror is a later, separate step.
+type PipelineStage = "awaiting_goods" | "awaiting_invoice" | "awaiting_approval" | "in_ledger";
+
+/** Which invoices is this delivery note attached to? */
+async function linkedInvoiceIds(supabase: SupabaseClient, noteId: string): Promise<string[]> {
+  const { data } = await supabase.from("delivery_note_invoices")
+    .select("invoice_id").eq("delivery_note_id", noteId);
+  return ((data ?? []) as Array<{ invoice_id: string }>).map(r => String(r.invoice_id));
+}
+
+async function linkDeliveryNote(
+  req: Request, supabase: SupabaseClient, id: string, actor?: string,
+): Promise<Response> {
   const { invoice_id } = await req.json();
   if (!invoice_id) return json({ error: "invoice_id is required" }, 400);
+
+  // The invoice decides the resulting stage. Attaching a note to an invoice that is
+  // ALREADY in the ledger (the consolidated case, where a late note joins an invoice
+  // the owner approved last week) must not reopen an approval nobody is waiting on.
+  const { data: inv } = await supabase.from("invoices")
+    .select("id, ledger_approved_at").eq("id", invoice_id).maybeSingle();
+  if (!inv) return json({ error: "Invoice not found" }, 404);
+
+  const { error: linkErr } = await supabase.from("delivery_note_invoices")
+    .upsert(
+      { delivery_note_id: id, invoice_id, created_by: actor ?? null },
+      { onConflict: "delivery_note_id,invoice_id" },
+    );
+  if (linkErr) return json({ error: linkErr.message }, 500);
+
+  const stage: PipelineStage = inv.ledger_approved_at ? "in_ledger" : "awaiting_approval";
   const { error } = await supabase.from("delivery_notes")
-    .update({ invoice_id, status: "linked" })
+    .update({ invoice_id, status: "linked", stage })
     .eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, stage });
+}
+
+// Unlink one invoice, or all of them. With many-to-many, "unlink" is ambiguous:
+// pass `invoice_id` to detach a single one, omit it to detach every invoice from the
+// note. The stage is then DERIVED from what is left — a note that still holds another
+// invoice has not gone back to waiting for one.
+async function unlinkDeliveryNote(
+  req: Request, supabase: SupabaseClient, id: string,
+): Promise<Response> {
+  let invoiceId: string | undefined;
+  try {
+    const body = await req.json();
+    invoiceId = body?.invoice_id ? String(body.invoice_id) : undefined;
+  } catch { /* no body = detach everything, the pre-many-to-many behaviour */ }
+
+  let del = supabase.from("delivery_note_invoices").delete().eq("delivery_note_id", id);
+  if (invoiceId) del = del.eq("invoice_id", invoiceId);
+  const { error: delErr } = await del;
+  if (delErr) return json({ error: delErr.message }, 500);
+
+  const remaining = await linkedInvoiceIds(supabase, id);
+  const stage: PipelineStage = remaining.length > 0 ? "awaiting_approval" : "awaiting_invoice";
+  const { error } = await supabase.from("delivery_notes")
+    .update({
+      invoice_id: remaining[0] ?? null,          // mirror follows the surviving link
+      status: remaining.length > 0 ? "linked" : "unlinked",
+      stage,
+    })
+    .eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, stage, remaining: remaining.length });
+}
+
+// ─── The gate into the ledger (§6.e, §6.7) ────────────────────────────────────
+//
+// Approval is stamped on the INVOICE, not on the note, because the money is the
+// invoice's and it must enter the balance exactly ONCE however many deliveries it
+// covers (§6.c). Approving therefore moves every note attached to it in one go —
+// which is precisely what makes a consolidated invoice one decision instead of five.
+//
+// NOTE this is not `invoices.awaiting_approval`. That is the ₪20K threshold gate and
+// it is a different question, decided on a different screen. They coexist.
+async function ledgerApproveInvoice(
+  supabase: SupabaseClient, id: string, actor?: string,
+): Promise<Response> {
+  const { data: inv, error: fetchErr } = await supabase.from("invoices")
+    .select("id, ledger_approved_at").eq("id", id).maybeSingle();
+  if (fetchErr) return json({ error: fetchErr.message }, 500);
+  if (!inv)     return json({ error: "Invoice not found" }, 404);
+
+  // Idempotent: approving twice must not re-stamp the date or re-report the move.
+  if (inv.ledger_approved_at) return json({ success: true, alreadyApproved: true, notesMoved: 0 });
+
+  const { error } = await supabase.from("invoices")
+    .update({ ledger_approved_at: new Date().toISOString(), ledger_approved_by: actor ?? null })
+    .eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+
+  const { data: links } = await supabase.from("delivery_note_invoices")
+    .select("delivery_note_id").eq("invoice_id", id);
+  const noteIds = ((links ?? []) as Array<{ delivery_note_id: string }>)
+    .map(r => String(r.delivery_note_id));
+
+  // ⚠️ Rows still WAITING FOR GOODS are left where they are.
+  //
+  // This used to move every linked row to `in_ledger`, which said the chain was
+  // complete — of a row whose goods have not arrived. Approving an invoice does
+  // not make goods turn up, and "בכרטסת" on a delivery that never happened is the
+  // system asserting something nobody witnessed.
+  //
+  // The invoice is approved either way; only the rows that were actually waiting
+  // on this decision move.
+  // ── A row moves only when ALL of its invoices are approved ────────────────
+  //
+  // One delivery can carry several invoices — a supplier who bills it in parts —
+  // and the owner's rule is that they live on ONE row. So approving one of them
+  // does not finish the row: "בכרטסת" on a delivery that still has an unapproved
+  // bill against it says the money is settled when part of it is not.
+  //
+  // The other direction is unchanged and is the consolidated case: one invoice
+  // across several deliveries closes all of them at once, and the amount enters
+  // the balance once, from the invoice.
+  let moved = 0;
+  if (noteIds.length > 0) {
+    const { data: allLinks } = await supabase.from("delivery_note_invoices")
+      .select("delivery_note_id, invoice_id").in("delivery_note_id", noteIds);
+
+    const invoiceIds = [...new Set((allLinks ?? []).map(l => String(l.invoice_id)))];
+    const { data: invs } = await supabase.from("invoices")
+      .select("id, ledger_approved_at").in("id", invoiceIds);
+    const approved = new Set((invs ?? [])
+      .filter(i => i.ledger_approved_at).map(i => String(i.id)));
+    approved.add(id);   // this one, just stamped above
+
+    const ready = noteIds.filter(noteId =>
+      (allLinks ?? [])
+        .filter(l => String(l.delivery_note_id) === noteId)
+        .every(l => approved.has(String(l.invoice_id))));
+
+    if (ready.length > 0) {
+      const { data: advanced } = await supabase.from("delivery_notes")
+        .update({ stage: "in_ledger", status: "archived" })
+        .in("id", ready)
+        .neq("stage", "awaiting_goods")
+        .select("id");
+      moved = advanced?.length ?? 0;
+    }
+  }
+  return json({ success: true, notesMoved: moved });
+}
+
+// The reverse (§6.14: "ביטול הצמדה אחרי אישור"). Reversible on purpose — an approval
+// given by mistake is a mistake about a pair, not about a document, and nothing is
+// destroyed by taking it back.
+async function ledgerUnapproveInvoice(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { data: inv, error: fetchErr } = await supabase.from("invoices")
+    .select("id, ledger_approved_at").eq("id", id).maybeSingle();
+  if (fetchErr) return json({ error: fetchErr.message }, 500);
+  if (!inv)     return json({ error: "Invoice not found" }, 404);
+  if (!inv.ledger_approved_at) return json({ success: true, alreadyPending: true, notesMoved: 0 });
+
+  const { error } = await supabase.from("invoices")
+    .update({ ledger_approved_at: null, ledger_approved_by: null })
+    .eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+
+  const { data: links } = await supabase.from("delivery_note_invoices")
+    .select("delivery_note_id").eq("invoice_id", id);
+  const noteIds = ((links ?? []) as Array<{ delivery_note_id: string }>)
+    .map(r => String(r.delivery_note_id));
+  let moved = 0;
+  if (noteIds.length > 0) {
+    // Same exclusion as the approve side. Un-approving an invoice does not make
+    // goods appear, so a chain whose goods never arrived must not be relabelled
+    // "waiting for approval" — that would claim stock nobody has seen.
+    const { data: reverted } = await supabase.from("delivery_notes")
+      .update({ stage: "awaiting_approval", status: "linked" })
+      .in("id", noteIds)
+      .neq("stage", "awaiting_goods")
+      .select("id");
+    moved = reverted?.length ?? 0;
+  }
+  return json({ success: true, notesMoved: moved });
+}
+
+// ─── Suggested matches (§6.f) ─────────────────────────────────────────────────
+//
+// The system SUGGESTS; a human confirms. It never attaches on its own — a wrong
+// automatic link is worse than no link, because nobody goes looking for it.
+//
+// Ranked on supplier + date proximity + amount, in that order of trust. Amount is the
+// strongest single signal when it matches, so an exact amount outranks a closer date.
+// Line items are deliberately NOT used: `delivery_notes.line_items` is free-form and
+// its shape varies per supplier (spec/12 §constraints), so matching on it would look
+// precise while being arbitrary.
+const MATCH_WINDOW_DAYS = 45;
+
+interface ScoredCandidate {
+  invoice: { id: string; invoice_number: string | null; invoice_date: string | null;
+             total_amount: number | null; ledger_approved_at: string | null };
+  dayGap: number | null;
+  amountGap: number | null;
+  amountMatch: boolean;
+}
+
+// ⚠️ `role` is NOT optional decoration. This function runs on the SERVICE-ROLE key, so
+// it reads the BASE `invoices` table and bypasses `invoices_v` — the very view whose
+// job is to NULL the amount columns for anyone who is not a manager. Employees are
+// allowed to call this (§6.7 lets them confirm a match), so returning `total_amount`
+// raw would hand them, through this endpoint, the exact figures the view withholds
+// everywhere else. The mask below reproduces `invoices_v` by hand because there is no
+// view to lean on down here.
+async function deliveryNoteCandidates(
+  supabase: SupabaseClient, id: string, role?: string,
+): Promise<Response> {
+  const isManager = role === "manager";
+  const { data: note, error: noteErr } = await supabase.from("delivery_notes")
+    .select("id, supplier_id, date, amount").eq("id", id).maybeSingle();
+  if (noteErr) return json({ error: noteErr.message }, 500);
+  if (!note)   return json({ error: "Delivery note not found" }, 404);
+  if (!note.supplier_id) return json({ candidates: [], reason: "note has no supplier" });
+
+  const noteDate = note.date ? new Date(note.date) : null;
+
+  interface CandidateInvoice {
+    id: string;
+    invoice_number: string | null;
+    invoice_date: string | null;
+    total_amount: number | null;
+    ledger_approved_at: string | null;
+  }
+  const { data: invoices } = await supabase.from("invoices")
+    .select("id, invoice_number, invoice_date, total_amount, ledger_approved_at")
+    .eq("supplier_id", note.supplier_id)
+    .or("is_duplicate.is.false,is_duplicate.is.null")
+    .or("has_error.is.false,has_error.is.null");
+
+  const already = new Set(await linkedInvoiceIds(supabase, id));
+  const noteAmount = Math.abs(Number(note.amount ?? 0));
+
+  const scored = ((invoices ?? []) as CandidateInvoice[])
+    .filter((i: CandidateInvoice) => !already.has(String(i.id)))
+    .map((i: CandidateInvoice) => {
+      const invDate = i.invoice_date ? new Date(i.invoice_date) : null;
+      const dayGap = noteDate && invDate
+        ? Math.round(Math.abs(invDate.getTime() - noteDate.getTime()) / 86_400_000)
+        : null;
+      const invAmount = Math.abs(Number(i.total_amount ?? 0));
+      // "Same amount" to the agora, with a 1% tolerance for a delivery note that
+      // rounds or omits a line the invoice carries.
+      const amountGap = noteAmount > 0 && invAmount > 0 ? Math.abs(invAmount - noteAmount) : null;
+      const amountMatch = amountGap !== null && amountGap <= Math.max(1, noteAmount * 0.01);
+      return { invoice: i, dayGap, amountGap, amountMatch };
+    })
+    .filter((c: ScoredCandidate) => c.dayGap === null || c.dayGap <= MATCH_WINDOW_DAYS)
+    .sort((a: ScoredCandidate, b: ScoredCandidate) => {
+      if (a.amountMatch !== b.amountMatch) return a.amountMatch ? -1 : 1;
+      return (a.dayGap ?? 9999) - (b.dayGap ?? 9999);
+    })
+    .slice(0, 10);
+
+  return json({
+    candidates: scored.map((c: ScoredCandidate) => ({
+      invoice_id:     c.invoice.id,
+      invoice_number: c.invoice.invoice_number,
+      invoice_date:   c.invoice.invoice_date,
+      // Masked exactly as invoices_v masks it. `amount_match` survives either way —
+      // it is a yes/no about two numbers the caller never sees, which is all an
+      // employee needs to judge a suggestion.
+      total_amount:   isManager ? c.invoice.total_amount : null,
+      already_in_ledger: !!c.invoice.ledger_approved_at,
+      day_gap:        c.dayGap,
+      amount_match:   c.amountMatch,
+    })),
+    windowDays: MATCH_WINDOW_DAYS,
+  });
+}
+
+// ─── Orders (spec ch. 7) ──────────────────────────────────────────────────────
+//
+// The board that replaces the WhatsApp group. A supplier, free text, a date.
+//
+// 🔑 D22 — AN ORDER IS NOT A SOURCE OF TRUTH. Nothing here computes a quantity or
+// an amount, and nothing here reaches the ledger. The order catches goods early
+// and answers a waiting customer; the money is settled by the delivery note
+// against the invoice.
+
+async function createOrder(req: Request, supabase: SupabaseClient, actor?: string): Promise<Response> {
+  const body = await req.json();
+  const supplierName = body.supplier_name ?? body.supplierName ?? null;
+  if (!body.supplier_id && !supplierName) return json({ error: "supplier is required" }, 400);
+
+  const supplierId = body.supplier_id
+    ? String(body.supplier_id)
+    : await resolveOrCreateSupplier(supabase, supplierName, body.hp as string | undefined);
+  if (!supplierId) return json({ error: "Failed to resolve/create supplier" }, 500);
+
+  const { data, error } = await supabase.from("orders").insert({
+    supplier_id:    supplierId,
+    supplier_name:  supplierName,
+    description:    body.description ?? "",
+    // §7.b — the date is automatic. Accepted from the body only so a back-dated
+    // entry is possible; the UI never sends one.
+    date:           body.date ?? new Date().toISOString().slice(0, 10),
+    // §7.7 — when the supplier said it would arrive. Nullable and never required:
+    // the owner usually does not know, and a required field she cannot fill gets
+    // an invented answer.
+    expected_date:  body.expected_date ?? body.expectedDate ?? null,
+    status:         "order_waiting",
+    customer_name:  body.customer_name  ?? body.customerName  ?? null,
+    customer_phone: body.customer_phone ?? body.customerPhone ?? null,
+    created_by:     actor ?? null,
+  }).select("id").single();
+
+  if (error || !data) return json({ error: "Failed to create order", details: error?.message }, 500);
+
+  // ── The order opens its pipeline immediately ──────────────────────────────
+  //
+  // Each of the three parts starts a chain — that is the model, and an order was
+  // the one still waiting for a second event before it counted. So an order lived
+  // only on its own board, and the goods list, which is where the owner actually
+  // looks, did not know it existed. Nothing showed a purchase between "asked for"
+  // and "arrived".
+  //
+  // `awaiting_goods` is the right stage and not a new one: it says the goods are
+  // what is missing, which is equally true of an invoice that came first and of an
+  // order not yet delivered. The strip tells them apart from the order step, which
+  // is why that step exists.
+  // The error is READ. It was not, and the cost was invisible: a rejected insert
+  // left `pipe` null, `if (pipe)` skipped the link, and createOrder still answered
+  // 201 — an order with no pipeline behind it and nothing in the logs. An insert
+  // whose failure is not checked is a write you have not really made.
+  const { data: pipe, error: pipeErr } = await supabase.from("delivery_notes").insert({
+    supplier_id:   supplierId,
+    supplier_name: supplierName,
+    note_number:   "",
+    date:          body.date ?? new Date().toISOString().slice(0, 10),
+    amount:        0,
+    status:        "pending",
+    stage:         "awaiting_goods" satisfies PipelineStage,
+    // Names the door it came through, so a row that never carried goods is never
+    // read as a delivery that happened.
+    intake_source: "order",
+    line_items:    body.description ?? null,
+  }).select("id").single();
+  if (pipeErr || !pipe) {
+    // The order exists and is not lost, but it is not in the chain — say so rather
+    // than report success. Half a thing reported as a whole one is the failure the
+    // owner cannot see and cannot chase.
+    return json({
+      id: data.id,
+      pipelineOpened: false,
+      warning: "ההזמנה נשמרה אך לא נפתח עבורה מעקב סחורה",
+      details: pipeErr?.message ?? null,
+    }, 201);
+  }
+  await supabase.from("orders").update({ delivery_note_id: pipe.id }).eq("id", data.id);
+
+  // ── A customer order landing on a supplier that already has one open ──────
+  //
+  // The owner's rule, and the reason it exists: the shipment is already on its
+  // way, so the customer's item can ride along instead of triggering a second
+  // delivery — but only if somebody notices in time. An employee taking the order
+  // over the phone has no way to know, so the system tells the manager.
+  //
+  // Only for CUSTOMER orders. A restock order joining another restock order is
+  // ordinary and needs no interruption; the alert exists because a customer is
+  // waiting and a missed window costs her the wait, not the store a delivery fee.
+  const customerName = body.customer_name ?? body.customerName ?? null;
+  if (customerName) {
+    const { data: openSiblings } = await supabase.from("orders")
+      .select("id, description, expected_date, date")
+      .eq("supplier_id", supplierId)
+      .eq("status", "order_waiting")
+      .neq("id", data.id)
+      .order("expected_date", { ascending: true, nullsFirst: false })
+      .limit(1);
+    const sibling = openSiblings?.[0];
+    if (sibling) {
+      const when = sibling.expected_date
+        ? `צפי הגעה ${String(sibling.expected_date).split("-").reverse().join("/")}`
+        : "ללא צפי הגעה";
+      await supabase.from("alerts").insert({
+        type:    "customer_order_joins_shipment",
+        title:   "הזמנת לקוחה אצל ספק עם משלוח בדרך",
+        message: `${customerName} הזמינה מ${supplierName ?? "הספק"}. יש כבר הזמנה פתוחה אצל אותו ספק (${when}) — אפשר לצרף.`,
+        status:  "unread",
+        payload: {
+          supplierId,
+          supplierName:   supplierName ?? "",
+          orderId:        data.id,
+          existingOrderId: sibling.id,
+          customerName,
+          expectedDate:   sibling.expected_date ?? null,
+        },
+      });
+    }
+  }
+
+  return json({ id: data.id }, 201);
+}
+
+/**
+ * "הגיע" — one click (§7.e), and the only place an order touches the pipeline.
+ *
+ * Full arrival: the order is marked arrived and a delivery row is opened for it,
+ * entering at `awaiting_invoice` — goods in hand, no invoice yet.
+ *
+ * PARTIAL arrival (§7.5) is the subtle one: a NEW order is created for what came,
+ * and **the original keeps waiting** for the rest. The new one is what feeds the
+ * pipeline. Splitting rather than editing is what keeps the outstanding remainder
+ * visible instead of quietly shrinking an order nobody re-reads.
+ */
+/**
+ * An invoice that arrived before its goods opens a pipeline of its own.
+ *
+ * The model the owner settled on: order, delivery and invoice are three parts of
+ * one chain, and EACH can start it — every part first looks for a pipeline it
+ * belongs to, and opens one only when there is none. Two of the three legs
+ * existed; this is the third. `awaiting_goods` was drawn, labelled and filterable
+ * from the start, but nothing ever wrote it, so an invoice that came first was
+ * invisible to the pipeline and there was nothing to attach it to.
+ *
+ * That case is not an edge: in the first months most invoices will arrive with no
+ * order behind them at all.
+ *
+ * The pipeline row lives in `delivery_notes` because that table IS the spine —
+ * `note_number` stays empty and `intake_source` says where it came from, so a row
+ * with no goods behind it is never mistaken for a delivery that happened.
+ */
+// ─── Documents that never got in ────────────────────────────────────────────
+//
+// A parked email is the one failure mode that is INVISIBLE. Ingest retries twice,
+// then labels the mail "פענוח נכשל" so it stops clogging the queue — and from
+// that moment nothing in the app mentions it. `ingest_failures` was surfaced on no
+// screen at all, so a supplier's invoice could sit unread for months while every
+// dashboard read as healthy.
+//
+// That is the wrong shape for a system whose whole promise is that documents stop
+// getting lost, and it matters most exactly when it hurts most: in a busy month,
+// when the owner is least able to notice a gap by memory.
+//
+// Read-only, manager-only, and it carries no figures — a parked email has not been
+// parsed, so there is nothing to mask.
+/**
+ * Reassign a delivery to a different supplier — and nothing else.
+ *
+ * A narrow route rather than opening `PUT /delivery-notes/:id` to employees: that
+ * handler also writes `amount`, `date` and `status`, and an employee who may fix a
+ * misread supplier has no business setting a figure. The permission belongs to the
+ * ACTION, not to the record.
+ *
+ * The id decides and the NAME follows it, resolved here — a delivery showing one
+ * supplier and belonging to another is the defect free-text supplier fields kept
+ * producing.
+ */
+const CUSTOMER_STATUSES = [
+  "customer_waiting", "customer_ordered", "customer_arrived",
+  "customer_notified", "customer_delivered",
+] as const;
+
+/**
+ * Move a customer order along its own line.
+ *
+ * Every value here except `customer_arrived` describes something that happened in
+ * a conversation — she was called, she collected it. The system was not present
+ * for any of them, so it does not guess: a customer marked "notified" who was
+ * never called is worse than one marked nothing.
+ *
+ * Employees set these. They are the ones on the phone.
+ */
+async function setCustomerStatus(
+  req: Request, supabase: SupabaseClient, id: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const next = String(body?.customer_status ?? body?.customerStatus ?? "");
+  if (!(CUSTOMER_STATUSES as readonly string[]).includes(next))
+    return json({ error: "Unknown customer status" }, 400);
+
+  const { data: order } = await supabase.from("orders")
+    .select("id, customer_name").eq("id", id).maybeSingle();
+  if (!order) return json({ error: "Order not found" }, 404);
+  // Guarded rather than silently accepted: a restock with a customer status is a
+  // promise to nobody, and it would show up in the notebook as a nameless line.
+  if (!order.customer_name)
+    return json({ error: "This order has no customer" }, 409);
+
+  const { error } = await supabase.from("orders")
+    .update({ customer_status: next }).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, customerStatus: next });
+}
+
+/**
+ * Write an invoice's note — and nothing else.
+ *
+ * A narrow route rather than opening `PUT /invoices/:id` to employees: that
+ * handler also writes the amounts, the supplier and the status, and someone who
+ * may leave a remark has no business changing a figure. The permission belongs to
+ * the ACTION.
+ *
+ * She is often the one who knows: she took the delivery, she saw what was short.
+ * A note she cannot leave is knowledge the system loses at the counter.
+ */
+// ─── A number that cannot be stored is not a price ──────────────────────────
+//
+// The same guard invoices-ingest carries, on the path employees actually use.
+// `delivery_notes.amount` is numeric(10,2) in production — up to 99,999,999.99 —
+// and Postgres answers an oversized value with 22003 by rejecting the WHOLE ROW.
+// Ingest learned this when a barcode read as a price kept an entire document out
+// of the system; hadas-api never did, and the handwritten sheet now POSTs
+// Σ price × quantity, so one mistyped unit price loses the delivery.
+//
+// Dropping the figure and keeping the document is the right trade in both places:
+// the amount is a comparison aid here, never the ledger's number.
+const NUMERIC_10_2_MAX = 99_999_999.99;
+
+function storableAmount(n: unknown): number | null {
+  if (n === null || n === undefined || n === "") return null;
+  const v = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(v)) return null;
+  return Math.abs(v) > NUMERIC_10_2_MAX ? null : v;
+}
+
+async function setInvoiceNotes(
+  req: Request, supabase: SupabaseClient, id: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const notes = typeof body?.notes === "string" ? body.notes : null;
+  if (notes === null) return json({ error: "notes is required" }, 400);
+
+  const { error } = await supabase.from("invoices").update({ notes }).eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true });
 }
 
-async function unlinkDeliveryNote(supabase: SupabaseClient, id: string): Promise<Response> {
+/**
+ * The supplier's note turned up after the goods were already recorded by hand.
+ *
+ * `absorb` — the emailed note wins. It carries the supplier's own document and his
+ *   number, which outrank a page typed at the counter; the manual row keeps only
+ *   what the document does not have (the employee who took it, and her item list
+ *   when the extraction found none). The manual row is then removed, because two
+ *   rows for one delivery is the thing being fixed.
+ *
+ * `keep` — a person looked and said these are different shipments. Recorded rather
+ *   than acted on, so the question stops being asked: a prompt re-raised after it
+ *   was answered is one people learn to click past.
+ *
+ * Never decided automatically. Two deliveries from one supplier in a week are
+ * ordinary, and a silent merge loses a shipment while a duplicate only shows one.
+ */
+async function resolveDeliveryPair(
+  req: Request, supabase: SupabaseClient, manualId: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const arrivedId = String(body?.arrived_id ?? body?.arrivedId ?? "");
+  const action    = body?.action === "keep" ? "keep" : "absorb";
+  if (!arrivedId) return json({ error: "arrived_id is required" }, 400);
+
+  const { data: rows } = await supabase.from("delivery_notes")
+    .select("id, note_number, line_items, drive_file_link, storage_url, employee_id, amount, date, invoice_id, stage")
+    .in("id", [manualId, arrivedId]);
+  const manual  = rows?.find(r => String(r.id) === manualId);
+  const arrived = rows?.find(r => String(r.id) === arrivedId);
+  if (!manual || !arrived) return json({ error: "Delivery not found" }, 404);
+
+  if (action === "keep") {
+    // Both directions, so whichever row the screen opens next already knows.
+    await supabase.from("delivery_notes").update({ paired_note_id: arrivedId }).eq("id", manualId);
+    await supabase.from("delivery_notes").update({ paired_note_id: manualId }).eq("id", arrivedId);
+    return json({ success: true, action: "keep" });
+  }
+
+  // The arrived row absorbs what only the manual row knows, then replaces it.
+  const patch: Record<string, unknown> = {};
+  if (manual.employee_id && !arrived.employee_id) patch.employee_id = manual.employee_id;
+  // Her list is kept only where the document produced none — a supplier's own
+  // itemisation is the better record of what he says he sent.
+  if (manual.line_items && !arrived.line_items) patch.line_items = manual.line_items;
+  if (manual.amount != null && arrived.amount == null) patch.amount = manual.amount;
+  if (Object.keys(patch).length > 0) {
+    const { error } = await supabase.from("delivery_notes").update(patch).eq("id", arrivedId);
+    if (error) return json({ error: error.message }, 500);
+  }
+
+  // Anything hanging off the manual row moves before it goes, or it goes with it.
+  await supabase.from("orders")
+    .update({ delivery_note_id: arrivedId }).eq("delivery_note_id", manualId);
+  await supabase.from("delivery_note_invoices").delete().eq("delivery_note_id", manualId);
+
+  const { error: delErr } = await supabase.from("delivery_notes").delete().eq("id", manualId);
+  if (delErr) return json({ error: delErr.message }, 500);
+  return json({ success: true, action: "absorb", keptId: arrivedId });
+}
+
+async function reassignDeliverySupplier(
+  req: Request, supabase: SupabaseClient, id: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const supplierId = body?.supplier_id ?? body?.supplierId;
+  if (!supplierId) return json({ error: "supplier_id is required" }, 400);
+
+  const { data: sup } = await supabase
+    .from("suppliers").select("id, name").eq("id", String(supplierId)).maybeSingle();
+  if (!sup) return json({ error: "Supplier not found" }, 404);
+
   const { error } = await supabase.from("delivery_notes")
-    .update({ invoice_id: null, status: "unlinked" })
+    .update({ supplier_id: sup.id, supplier_name: sup.name })
     .eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, supplierId: sup.id, supplierName: sup.name });
+}
+
+async function listParkedDocuments(supabase: SupabaseClient): Promise<Response> {
+  const { data, error } = await supabase.from("ingest_failures")
+    .select("gmail_message_id, attempts, last_error, last_attempt_at")
+    .order("last_attempt_at", { ascending: false })
+    .limit(200);
+  if (error) return json({ error: error.message }, 500);
+
+  return json({
+    count: data?.length ?? 0,
+    parked: (data ?? []).map(r => ({
+      gmailMessageId: r.gmail_message_id,
+      attempts:       r.attempts,
+      lastAttemptAt:  r.last_attempt_at,
+      // Trimmed: these are raw extractor errors, often a whole truncated JSON
+      // document. The screen needs the shape of the problem, not the payload.
+      lastError:      String(r.last_error ?? "").slice(0, 200),
+    })),
+  });
+}
+
+/**
+ * Put parked emails back in the queue, from the UI.
+ *
+ * Recovery existed only as a curl call carrying a secret that cannot be read back
+ * from the dashboard — which meant it existed for me and not for the owner. This
+ * calls invoices-ingest server-to-server with the key both functions already
+ * share, so the button needs nothing but a normal login.
+ *
+ * `mode` picks which hole to sweep. They are different holes:
+ *   requeue — emails wearing the FAILED label
+ *   sweep   — emails that failed, were left UNLABELED for a retry, and then aged
+ *             out of the routine 14-day window. Invisible to requeue.
+ */
+async function requeueParked(req: Request, supabase: SupabaseClient): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const mode = body?.mode === "sweep" ? "sweep" : "requeue";
+  const days = Number(body?.days) || (mode === "sweep" ? 120 : undefined);
+
+  const key = Deno.env.get("HADAS_API_KEY");
+  const url = Deno.env.get("SUPABASE_URL");
+  if (!key || !url) return json({ error: "Ingest credentials are not configured" }, 500);
+
+  const before = await supabase.from("ingest_failures").select("gmail_message_id");
+  const beforeCount = before.data?.length ?? 0;
+
+  const res = await fetch(`${url}/functions/v1/invoices-ingest`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "x-hadas-key": key },
+    body:    JSON.stringify({ source: mode, days }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) return json({ error: "Ingest run failed", details: out }, 502);
+
+  const after = await supabase.from("ingest_failures").select("gmail_message_id");
+  return json({
+    success: true, mode,
+    parkedBefore: beforeCount,
+    parkedAfter:  after.data?.length ?? 0,
+    result: out,
+  });
+}
+
+async function openPipelineForInvoice(
+  supabase: SupabaseClient, invoiceId: string, actor?: string,
+): Promise<Response> {
+  const { data: inv, error: invErr } = await supabase.from("invoices")
+    .select("id, supplier_id, supplier_name, invoice_date").eq("id", invoiceId).maybeSingle();
+  if (invErr) return json({ error: invErr.message }, 500);
+  if (!inv)   return json({ error: "Invoice not found" }, 404);
+
+  // Already in a pipeline? Then there is nothing to open — say so rather than
+  // opening a second one, which is the duplication this whole rule prevents.
+  const { data: existing } = await supabase.from("delivery_note_invoices")
+    .select("delivery_note_id").eq("invoice_id", invoiceId).limit(1);
+  if (existing && existing.length > 0)
+    return json({ success: true, alreadyLinked: true, deliveryNoteId: existing[0].delivery_note_id });
+
+  const { data: note, error } = await supabase.from("delivery_notes").insert({
+    supplier_id:   inv.supplier_id,
+    supplier_name: inv.supplier_name,
+    note_number:   "",
+    date:          inv.invoice_date ?? new Date().toISOString().slice(0, 10),
+    amount:        0,
+    status:        "pending",
+    // The invoice is in and the goods are not — the mirror image of the usual start.
+    stage:         "awaiting_goods" satisfies PipelineStage,
+    intake_source: "invoice",
+  }).select("id").single();
+  if (error || !note) return json({ error: "Failed to open pipeline", details: error?.message }, 500);
+
+  const { error: linkErr } = await supabase.from("delivery_note_invoices")
+    .insert({ delivery_note_id: note.id, invoice_id: invoiceId, created_by: actor ?? null });
+  if (linkErr) return json({ error: linkErr.message }, 500);
+
+  return json({ success: true, deliveryNoteId: note.id }, 201);
+}
+
+/**
+ * Take a pipeline apart without deleting anything it holds.
+ *
+ * "Dismantle only" is the owner's decision, and it is the right one: deleting a
+ * document is a separate action that already exists behind its own confirmation,
+ * and folding the two together during a learning period is how an invoice gets
+ * deleted by someone who only meant to undo a match. So the links go, the stages
+ * reset, and every document stays exactly where it was.
+ *
+ * The empty shell — a pipeline row that never carried goods — is removed too,
+ * because leaving it produces a delivery that never happened.
+ */
+async function dismantlePipeline(
+  supabase: SupabaseClient, noteId: string,
+): Promise<Response> {
+  const { data: note, error: noteErr } = await supabase.from("delivery_notes")
+    .select("id, stage, note_number, intake_source").eq("id", noteId).maybeSingle();
+  if (noteErr) return json({ error: noteErr.message }, 500);
+  if (!note)   return json({ error: "Pipeline not found" }, 404);
+
+  const { data: links } = await supabase.from("delivery_note_invoices")
+    .select("invoice_id").eq("delivery_note_id", noteId);
+  const invoiceIds = (links ?? []).map(l => String(l.invoice_id));
+
+  await supabase.from("delivery_note_invoices").delete().eq("delivery_note_id", noteId);
+  await supabase.from("orders")
+    .update({ delivery_note_id: null, status: "order_waiting", arrived_at: null })
+    .eq("delivery_note_id", noteId);
+
+  // A row opened BY an invoice holds no goods of its own, so once the invoice is
+  // detached nothing is left to keep. One that recorded a real delivery stays and
+  // simply goes back to waiting.
+  const wasShell = note.intake_source === "invoice" && !note.note_number;
+  if (wasShell) {
+    await supabase.from("delivery_notes").delete().eq("id", noteId);
+  } else {
+    await supabase.from("delivery_notes")
+      .update({ invoice_id: null, status: "pending_match", stage: "awaiting_invoice" })
+      .eq("id", noteId);
+  }
+
+  return json({
+    success: true, removedShell: wasShell, releasedInvoices: invoiceIds,
+    note: "המסמכים לא נמחקו — רק הקשר ביניהם פורק.",
+  });
+}
+
+async function markOrderArrived(
+  req: Request, supabase: SupabaseClient, id: string, actor?: string,
+): Promise<Response> {
+  let partial = false;
+  let description: string | undefined;
+  let adoptId: string | null = null;
+  let forceNew = false;
+  try {
+    const body = await req.json();
+    partial = !!body?.partial;
+    description = typeof body?.description === "string" ? body.description : undefined;
+    // Set by the screen AFTER it asked: adopt this specific waiting delivery, or
+    // go ahead and open a new one because none of them is this shipment.
+    adoptId  = typeof body?.delivery_note_id === "string" ? body.delivery_note_id : null;
+    forceNew = !!body?.force_new;
+  } catch { /* no body = a full arrival */ }
+
+  const { data: order, error: fetchErr } = await supabase.from("orders")
+    .select("id, supplier_id, supplier_name, description, status, delivery_note_id, customer_name, customer_status").eq("id", id).maybeSingle();
+  if (fetchErr) return json({ error: fetchErr.message }, 500);
+  if (!order)   return json({ error: "Order not found" }, 404);
+  if (order.status !== "order_waiting") {
+    // Idempotent, and it protects the split: pressing "הגיע" twice on an order
+    // that already produced one must not produce a second.
+    return json({ success: true, alreadyArrived: true });
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const nowIso = new Date().toISOString();
+
+  // ── Is the delivery ALREADY here? ─────────────────────────────────────────
+  //
+  // The ordinary case is that the supplier's note arrives by EMAIL before the
+  // goods do. This used to insert a fresh row regardless, so pressing "הגיע"
+  // produced a SECOND row for one physical delivery and left the employee to
+  // guess which was real — the exact confusion the pipeline exists to remove.
+  //
+  // So look first. A candidate is a delivery from this supplier that is still
+  // waiting for an invoice and is not already attached to another order.
+  //
+  // Nothing is attached automatically. The system SUGGESTS and a person confirms
+  // (§6.f): only the caller passing `delivery_note_id` adopts a specific row, and
+  // an unresolved match comes back as `candidates` for the screen to ask about.
+  // Guessing here would silently merge two different deliveries that happened to
+  // share a supplier and a week.
+  const ARRIVAL_WINDOW_DAYS = 30;
+  const since = new Date(Date.now() - ARRIVAL_WINDOW_DAYS * 86_400_000)
+    .toISOString().slice(0, 10);
+
+  let noteId: string | null = null;
+
+  const { data: waiting } = await supabase.from("delivery_notes")
+    .select("id, note_number, date, supplier_name")
+    .eq("supplier_id", order.supplier_id)
+    .eq("stage", "awaiting_invoice")
+    .gte("date", since)
+    .order("date", { ascending: false })
+    .limit(10);
+
+  const claimed = new Set<string>();
+  if (waiting && waiting.length > 0) {
+    const { data: others } = await supabase.from("orders")
+      .select("delivery_note_id").not("delivery_note_id", "is", null);
+    for (const o of others ?? []) claimed.add(String(o.delivery_note_id));
+  }
+  // The order's own row is not a candidate to merge with itself.
+  const candidates = (waiting ?? [])
+    .filter(n => !claimed.has(String(n.id)) && String(n.id) !== String(order.delivery_note_id ?? ""));
+
+  // The order opened a row when it was created, so "arrived" normally MOVES that
+  // row rather than making another. The offer below is about merging: if the
+  // supplier also emailed a note for this same shipment, two rows describe one
+  // delivery and the emailed one — which carries the document — should win.
+  const ownRow = order.delivery_note_id ? String(order.delivery_note_id) : null;
+
+  if (adoptId) {
+    // The screen asked the person and she picked one.
+    if (!candidates.some(c => String(c.id) === adoptId))
+      return json({ error: "That delivery is not available to attach" }, 409);
+    noteId = adoptId;
+    // The order's own placeholder held nothing; keeping it would leave a delivery
+    // that never happened beside the one that did.
+    if (ownRow && ownRow !== adoptId) {
+      await supabase.from("delivery_note_invoices").delete().eq("delivery_note_id", ownRow);
+      await supabase.from("delivery_notes").delete().eq("id", ownRow).eq("intake_source", "order");
+    }
+  } else if (ownRow && candidates.length === 0) {
+    // Nothing else to merge with: this row IS the delivery, and the goods just
+    // turned up in it.
+    await supabase.from("delivery_notes")
+      .update({ stage: "awaiting_invoice" satisfies PipelineStage, date: today })
+      .eq("id", ownRow);
+    noteId = ownRow;
+  } else if (candidates.length > 0 && !forceNew) {
+    // Hand the choice back rather than deciding it. The order is left untouched,
+    // so nothing has happened yet and the call is safe to repeat.
+    return json({ success: false, needsChoice: true, candidates }, 200);
+  }
+
+  if (!noteId) {
+    // The delivery row. Goods are in hand and no invoice is attached — the pipeline's
+    // starting state. No amount: an order carries no figure worth trusting (D22), and
+    // inventing one here would put a number nobody measured in front of a person.
+    const { data: note, error: noteErr } = await supabase.from("delivery_notes").insert({
+      supplier_id:   order.supplier_id,
+      supplier_name: order.supplier_name,
+      note_number:   "",
+      date:          today,
+      amount:        0,
+      status:        "pending",
+      stage:         "awaiting_invoice" satisfies PipelineStage,
+      intake_source: "manual",
+    }).select("id").single();
+    if (noteErr || !note) return json({ error: "Failed to open delivery", details: noteErr?.message }, 500);
+    noteId = String(note.id);
+  }
+  const note = { id: noteId };
+
+  if (partial) {
+    const { data: split, error: splitErr } = await supabase.from("orders").insert({
+      supplier_id:      order.supplier_id,
+      supplier_name:    order.supplier_name,
+      description:      description ?? `הגיע: ${order.description ?? ""}`.trim(),
+      date:             today,
+      status:           "order_partial",
+      arrived_at:       nowIso,
+      delivery_note_id: note.id,
+      created_by:       actor ?? null,
+    }).select("id").single();
+    if (splitErr) return json({ error: splitErr.message }, 500);
+    // The original is deliberately NOT touched: it stays `order_waiting` until the
+    // rest of the goods turn up.
+    return json({ success: true, partial: true, newOrderId: split?.id, deliveryNoteId: note.id });
+  }
+
+  const { error } = await supabase.from("orders")
+    .update({
+      status: "order_arrived", arrived_at: nowIso, delivery_note_id: note.id,
+      // The one step the system can witness. Only forward, and only past the
+      // stages that precede it: an order already marked delivered must not be
+      // dragged back to "arrived" by a late goods record.
+      ...(order.customer_name && ["customer_waiting", "customer_ordered", null, undefined]
+        .includes(order.customer_status as string | null)
+        ? { customer_status: "customer_arrived" } : {}),
+    })
+    .eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, deliveryNoteId: note.id });
+}
+
+/** §7.j — what arrived differs from what was ordered. DOCUMENTATION ONLY. */
+async function markOrderDiffers(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { error } = await supabase.from("orders").update({ arrived_differs: true }).eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true });
 }
@@ -1525,16 +2548,64 @@ async function authenticate(req: Request, supabase: SupabaseClient): Promise<Aut
 
 // Employee WRITE allowlist. hadas-api runs with the service-role key, which
 // bypasses RLS, so role enforcement MUST live here — otherwise any authenticated
-// employee JWT could create/update/delete anything. Employees legitimately need
-// exactly TWO operational writes, both from the employee view (EmployeeSupplierView):
+// employee JWT could create/update/delete anything.
+//
+// The two long-standing creates, both from EmployeeSupplierView:
 //   • POST /returns        — create a manual return   (useReturns.create)
 //   • POST /delivery-notes — create a manual goods-receipt (useDeliveryNotes.create)
-// Every other write — and every GET (employees read via the anon client under RLS,
-// never through this API) — is manager-only. CaptureDocument posts to
-// invoices-ingest, not here. Note these are creates only: PUT/DELETE on the same
-// paths stay blocked (e.g. no editing/deleting delivery notes, no status changes).
+//
+// Plus the goods pipeline (spec §6.7, decision D18 — "גם עובדת וגם מנהלת"). The owner
+// was explicit: employees already see invoices at the invoice level; what is withheld
+// from them is the FULL LEDGER. Confirming that the goods in front of them match the
+// supplier's invoice is their job, and routing it through the manager would add work
+// to the one person the pipeline exists to unburden.
+//
+// This stays safe because the money never becomes visible: `invoices_v` NULLs the
+// amount columns for a non-manager and `delivery_notes_v` does the same, so an
+// employee's approval screen compares a document to goods, not figures. Aggregate
+// balances remain manager-only through those same views.
+//
+// Everything else — payments, invoice edits, deletes, statement reconcile, bizbox
+// stamp, reclassify, category/employee/supplier admin, and every GET (employees read
+// via the anon client under RLS, never through this API) — stays manager-only.
+// CaptureDocument posts to invoices-ingest, not here.
+const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
+  // The orders board is the employee screen (§7). Marking "הגיע" is the gesture the
+  // whole chapter is built around, and it moves no money — it opens a delivery row
+  // with no amount on it.
+  /^\/orders\/[^/]+\/arrived$/,
+  // Opening a pipeline for an invoice is the same class of act as attaching one:
+  // it says goods are expected, and carries no figure. Dismantling is NOT here —
+  // taking a chain apart is the owner's call even during the learning period.
+  /^\/invoices\/[^/]+\/open-pipeline$/,
+  /^\/orders\/[^/]+\/differs$/,
+  /^\/delivery-notes\/[^/]+\/link$/,
+  // Correcting a misread supplier is squarely the employee's job — she is the one
+  // holding the goods and reading the header. It carries no figure, which is why
+  // it is its own route rather than the general update.
+  /^\/delivery-notes\/[^/]+\/supplier$/,
+  // The customer line is hers to move — she is the one who phones.
+  /^\/orders\/[^/]+\/customer-status$/,
+  // A remark on an invoice. She took the delivery and saw what was short; a note
+  // she cannot leave is knowledge lost at the counter.
+  /^\/invoices\/[^/]+\/notes$/,
+  // Answering "is the note that just arrived the same delivery you recorded?" —
+  // a judgement about goods she handled, which is hers to make.
+  /^\/delivery-notes\/[^/]+\/pair$/,
+  /^\/delivery-notes\/[^/]+\/unlink$/,
+  /^\/invoices\/[^/]+\/ledger-approve$/,
+  /^\/invoices\/[^/]+\/ledger-unapprove$/,
+];
+
 function employeeMayAccess(method: string, path: string): boolean {
-  return method === "POST" && (path === "/returns" || path === "/delivery-notes");
+  if (method === "POST" && (path === "/returns" || path === "/delivery-notes" || path === "/orders")) return true;
+  // The suggestion list is a read, but it is served by this API rather than the anon
+  // client because it joins invoices to the link table. Advisory only — it attaches
+  // nothing, and the handler masks `total_amount` for a non-manager itself, because
+  // running on the service-role key means it does NOT get invoices_v's mask for free.
+  if (method === "GET" && /^\/delivery-notes\/[^/]+\/candidates$/.test(path)) return true;
+  if (method === "PUT" && EMPLOYEE_PIPELINE_WRITES.some(re => re.test(path))) return true;
+  return false;
 }
 
 // ─── Categories (Settings → category management) ───────────────────────────────
@@ -1682,6 +2753,15 @@ Deno.serve(async (req: Request) => {
     if (invoiceApproveMatch && req.method === "PUT")
       return await approveInvoice(supabase, invoiceApproveMatch[1]);
 
+    // The GOODS pipeline's gate — distinct from /approve above, which clears the ₪20K
+    // threshold flag. Named in full so the two can never be confused at a call site.
+    const ledgerApproveMatch = path.match(/^\/invoices\/([^/]+)\/ledger-approve$/);
+    if (ledgerApproveMatch && req.method === "PUT")
+      return await ledgerApproveInvoice(supabase, ledgerApproveMatch[1], auth.email);
+    const ledgerUnapproveMatch = path.match(/^\/invoices\/([^/]+)\/ledger-unapprove$/);
+    if (ledgerUnapproveMatch && req.method === "PUT")
+      return await ledgerUnapproveInvoice(supabase, ledgerUnapproveMatch[1]);
+
     const invoiceMatch = path.match(/^\/invoices\/([^/]+)$/);
     if (invoiceMatch) {
       const id = invoiceMatch[1];
@@ -1715,8 +2795,13 @@ Deno.serve(async (req: Request) => {
     }
     const linkMatch   = path.match(/^\/delivery-notes\/([^/]+)\/link$/);
     const unlinkMatch = path.match(/^\/delivery-notes\/([^/]+)\/unlink$/);
-    if (linkMatch   && req.method === "PUT") return await linkDeliveryNote(req, supabase, linkMatch[1]);
-    if (unlinkMatch && req.method === "PUT") return await unlinkDeliveryNote(supabase, unlinkMatch[1]);
+    if (linkMatch   && req.method === "PUT") return await linkDeliveryNote(req, supabase, linkMatch[1], auth.email);
+    if (unlinkMatch && req.method === "PUT") return await unlinkDeliveryNote(req, supabase, unlinkMatch[1]);
+
+    // Suggested invoices for a delivery note — advisory only, never attached.
+    const dnCandidates = path.match(/^\/delivery-notes\/([^/]+)\/candidates$/);
+    if (dnCandidates && req.method === "GET")
+      return await deliveryNoteCandidates(supabase, dnCandidates[1], auth.role);
 
     // PIECE 2 — auto-match an arrived (email) note {id} to a manual goods receipt.
     const dnMatchRoute = path.match(/^\/delivery-notes\/([^/]+)\/match$/);
@@ -1728,6 +2813,47 @@ Deno.serve(async (req: Request) => {
       if (req.method === "PUT")    return await updateDeliveryNote(req, supabase, id);
       if (req.method === "DELETE") return await deleteDeliveryNote(supabase, id);
     }
+
+    // ── Orders ────────────────────────────────────────────────────────────────
+    // Each of the three parts can start the chain (the owner's model): the invoice
+    // leg was the one that could not.
+    const custStatus = path.match(/^\/orders\/([^/]+)\/customer-status$/);
+    if (custStatus && req.method === "PUT")
+      return await setCustomerStatus(req, supabase, custStatus[1]);
+
+    const pair = path.match(/^\/delivery-notes\/([^/]+)\/pair$/);
+    if (pair && req.method === "PUT")
+      return await resolveDeliveryPair(req, supabase, pair[1]);
+
+    const invNotes = path.match(/^\/invoices\/([^/]+)\/notes$/);
+    if (invNotes && req.method === "PUT")
+      return await setInvoiceNotes(req, supabase, invNotes[1]);
+
+    const reassign = path.match(/^\/delivery-notes\/([^/]+)\/supplier$/);
+    if (reassign && req.method === "PUT")
+      return await reassignDeliverySupplier(req, supabase, reassign[1]);
+
+    if (path === "/ingest/parked" && req.method === "GET")
+      return await listParkedDocuments(supabase);
+    if (path === "/ingest/requeue" && req.method === "PUT")
+      return await requeueParked(req, supabase);
+
+    const openPipe = path.match(/^\/invoices\/([^/]+)\/open-pipeline$/);
+    if (openPipe && req.method === "PUT")
+      return await openPipelineForInvoice(supabase, openPipe[1], auth.email);
+
+    const dismantle = path.match(/^\/delivery-notes\/([^/]+)\/dismantle$/);
+    if (dismantle && req.method === "DELETE")
+      return await dismantlePipeline(supabase, dismantle[1]);
+
+    if (path === "/orders" && req.method === "POST")
+      return await createOrder(req, supabase, auth.email);
+    const orderArrived = path.match(/^\/orders\/([^/]+)\/arrived$/);
+    if (orderArrived && req.method === "PUT")
+      return await markOrderArrived(req, supabase, orderArrived[1], auth.email);
+    const orderDiffers = path.match(/^\/orders\/([^/]+)\/differs$/);
+    if (orderDiffers && req.method === "PUT")
+      return await markOrderDiffers(supabase, orderDiffers[1]);
 
     // ── Returns ───────────────────────────────────────────────────────────────
     if (path === "/returns") {

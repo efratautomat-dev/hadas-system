@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react'
-import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw } from 'lucide-react'
+import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw, Plus, PackageCheck } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
+import { useOrders } from '../hooks/useOrders'
+import OrderForm from './pipeline/OrderForm'
+import GoodsIntake from './pipeline/GoodsIntake'
+import { PipelineStrip } from './pipeline/PipelineStrip'
+import type { PipelineStage } from '../data/mockData'
 import { usePayments } from '../hooks/usePayments'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { useReturns } from '../hooks/useReturns'
@@ -66,6 +71,14 @@ interface Props {
   onViewPayments?: () => void
   onOpenInvoice?: (invoiceId: string) => void
   onToggleActive?: (nextActive: boolean) => void
+  /**
+   * Open one delivery's goods page.
+   *
+   * The strip was drawn here and led nowhere, which is worse than not drawing it:
+   * a picture of a chain you cannot follow tells you there IS somewhere to go and
+   * then refuses. Absent = the rows stay inert rather than pretending.
+   */
+  onOpenDelivery?: (deliveryNoteId: string) => void
 }
 
 // invoiceStatusStyle removed: it keyed on the STORED vocabulary (ממתין/שולם/בטיפול),
@@ -197,7 +210,7 @@ function fmtDate(d: string): string {
   return `${day}/${m}/${y}`
 }
 
-export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onMerge, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive }: Props) {
+export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onMerge, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive, onOpenDelivery }: Props) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
@@ -206,10 +219,13 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   // chosen section renders full width beneath them — these tables are wide
   // (תאריך·סוג·אסמכתא·חובה·זכות·יתרה) and a half-screen pane would force
   // horizontal scrolling, especially on tablet.
+  const { openForSupplier, create: createOrder } = useOrders()
+  const [newOrder, setNewOrder] = useState(false)
+  const [intake, setIntake] = useState(false)
   const [tab, setTab] = useState<TabKey>('ledger')
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
-  const { data: allNotes } = useDeliveryNotes()
+  const { data: allNotes, create: createDeliveryNote } = useDeliveryNotes()
   const { data: allReturns } = useReturns()
   const { data: allStatements } = useStatements()
   // Invoice status is DERIVED, never read from the stored column (CLAUDE.md:
@@ -223,6 +239,18 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   const invoices = allInvoices.filter((inv) => inv.supplierId === supplier.id)
   const payments = allPayments.filter((pay) => pay.supplier_id === supplier.id && pay.status !== 'cancelled')
   const notes      = allNotes.filter((n) => n.supplierId === supplier.id)
+  // Matched by id only — every order is created through the picker, so it always
+  // carries one, and matching on name too would attach a namesake's order here.
+  const orders     = openForSupplier(supplier.id)
+  // What each delivery row's order says, and who is waiting for it. Both were
+  // only in the separate panel that is now gone.
+  const orderMeta = new Map(orders.filter(o => o.deliveryNoteId)
+    .map(o => [o.deliveryNoteId as string, { description: o.description }]))
+  const customersByNote = new Map<string, string[]>()
+  for (const o of orders) {
+    if (!o.deliveryNoteId || !o.customerName) continue
+    customersByNote.set(o.deliveryNoteId, [...(customersByNote.get(o.deliveryNoteId) ?? []), o.customerName])
+  }
   const returns    = allReturns.filter((r) => r.supplierId === supplier.id)
   const statements = allStatements.filter((s) => s.supplier_id === supplier.id)
   // Statements needing attention drive the warning badge on the card.
@@ -258,7 +286,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
 
   const ledger = [
     ...(openingBalance !== 0
-      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false }]
+      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false, awaitingLedgerApproval: false, excluded: false, movement: 0 }]
       : []),
     ...ledgerResult.rows.map(r => ({
       id: r.id,
@@ -266,9 +294,13 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
       description: r.description,
       debit: r.debit,
       credit: r.credit,
+      // Kept so the row can show what it is NOT counting, and why.
+      excluded: r.excluded,
+      movement: r.movement,
       balance: r.balance,
       undated: r.undated,
       pendingApproval: r.pendingApproval,
+      awaitingLedgerApproval: r.awaitingLedgerApproval,
     })),
   ]
   const txEntries = ledgerResult.rows
@@ -450,7 +482,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
           selected={tab === 'invoices'} onClick={() => setTab('invoices')}
         />
         <TabCard
-          label="תעודות משלוח" Icon={Truck} value={String(notes.length)}
+          label="הזמנות וסחורה" Icon={Truck} value={String(orders.length + notes.length)}
           selected={tab === 'notes'} onClick={() => setTab('notes')}
         />
         <TabCard
@@ -497,6 +529,17 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               הן נספרות ביתרה למעלה. ההכרעה נמצאת במסך ההתראות.
             </div>
           )}
+          {/* The goods pipeline's own gate (§6.e) — a DIFFERENT question from the
+              threshold line above, resolved on a different screen, so it gets its own
+              line and its own words rather than a second "ממתינה לאישור" the reader
+              would have to disambiguate. Same counting rule: the movements are in the
+              balance and this is the mark, never a second figure. */}
+          {ledgerResult.awaitingLedgerCount > 0 && (
+            <div className="text-right" style={{ padding: '10px 20px', background: '#EDE9FE', color: '#5B21B6', fontSize: '13px', fontWeight: 600 }}>
+              קיימות תנועות שטרם אושרו לכרטסת — {ledgerResult.awaitingLedgerCount} חשבוניות בסך {formatILS(ledgerResult.awaitingLedgerTotal)}.
+              הן נספרות ביתרה למעלה. האישור נעשה במסך מעקב הזמנות וסחורה.
+            </div>
+          )}
           {/* Table header */}
           <div style={{ overflowX: 'auto' }}>
           <div
@@ -526,12 +569,26 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                     style={{ fontSize: '10.5px', padding: '2px 6px', background: '#FFEDD5', color: '#9A3412', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
                   >ממתינה לאישור</span>
                 )}
+                {entry.awaitingLedgerApproval && (
+                  <span
+                    className="rounded-md font-bold"
+                    style={{ fontSize: '10.5px', padding: '2px 6px', background: '#EDE9FE', color: '#5B21B6', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
+                  >טרם אושרה לכרטסת</span>
+                )}
+                {entry.excluded && (
+                  <span
+                    className="rounded-md font-bold"
+                    style={{ fontSize: '10.5px', padding: '2px 6px', background: '#FEE2E2', color: '#B91C1C', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
+                  >כפילות/שגיאה — לא נספרת</span>
+                )}
               </span>
               <span className="text-center font-medium" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>
                 {entry.credit > 0 ? formatILS(entry.credit) : '—'}
               </span>
               <span className="text-center font-medium" style={{ color: '#A16207', fontSize: fs('14px', '13px') }}>
-                {entry.debit > 0 ? formatILS(entry.debit) : '—'}
+                {entry.excluded && entry.movement > 0
+                  ? <s style={{ color: '#B7B9C0' }}>{formatILS(entry.movement)}</s>
+                  : entry.debit > 0 ? formatILS(entry.debit) : '—'}
               </span>
               <span className="text-right text-gray-400" style={{ fontSize: '12px' }}>{fmtDate(entry.date)}</span>
             </div>
@@ -620,38 +677,90 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
       </div>
       )}
 
-      {/* ── תעודות משלוח ── NEW for the manager (the employees already had it) */}
+      {/* ── הזמנות וסחורה ─────────────────────────────────────────────────────
+          Orders live here too, above the goods and with the same name the area
+          carries everywhere else. The supplier card was the one screen still
+          calling this "תעודות משלוח" and still unable to show — or open — an
+          order, which made it the last place the two roles disagreed. */}
+
       {tab === 'notes' && (
-        <Panel title="תעודות משלוח" Icon={Truck} action={<span className="text-sm text-gray-400">{notes.length} רשומות</span>}>
+        <Panel
+          title="הזמנות וסחורה"
+          Icon={Truck}
+          action={
+            <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIntake(true)}
+              className="flex items-center gap-1.5 font-bold"
+              style={{ minHeight: '36px', padding: '0 14px', background: 'var(--brand-primary)', color: 'white', border: 'none', fontSize: '13px', cursor: 'pointer' }}
+            >
+              <PackageCheck className="w-4 h-4" />
+              קליטת סחורה
+            </button>
+            <button
+              onClick={() => setNewOrder(true)}
+              className="flex items-center gap-1.5 font-bold"
+              style={{ minHeight: '36px', padding: '0 14px', background: 'white', color: 'var(--brand-primary)', border: '1px solid var(--brand-primary)', fontSize: '13px', cursor: 'pointer' }}
+            >
+              <Plus className="w-4 h-4" />
+              הזמנה חדשה
+            </button>
+            </div>
+          }
+        >
           {notes.length === 0 ? (
-            <EmptyPanel text="אין תעודות משלוח עבור ספק זה" />
+            <EmptyPanel text="אין סחורה עבור ספק זה" />
           ) : (
             <div>
               <div
                 className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
                 style={{ gridTemplateColumns: '1fr 110px 120px', borderColor: '#E2E4E9', fontSize: '11px', padding: '10px 16px' }}
               >
-                <span className="text-right">תאריך · מספר</span>
-                <span className="text-center">מקור</span>
+                <span className="text-right">מצב · תעודה</span>
+                <span className="text-center">שלב</span>
                 <span className="text-left">סכום</span>
               </div>
               {notes.map((n) => (
                 <div
                   key={n.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOpenDelivery?.(n.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpenDelivery?.(n.id) }}
                   className="grid items-center"
-                  style={{ gridTemplateColumns: '1fr 110px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                  style={{
+                    gridTemplateColumns: '1fr 110px 120px', borderBottom: '1px solid #E2E4E9',
+                    minHeight: '56px', padding: '12px 16px',
+                    cursor: onOpenDelivery ? 'pointer' : undefined,
+                  }}
                 >
-                  <p className="text-right text-gray-600" style={{ fontSize: '13px' }}>
-                    {n.noteNumber || n.id}
-                    <span className="text-gray-400"> · {n.date}</span>
-                  </p>
+                  {/* The pipeline, in the manager's supplier card too. It had the
+                      old source pill and nothing about the chain — so the one
+                      screen she opens per supplier was the one that could not say
+                      where that supplier's goods stood. */}
+                  <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
+                    <PipelineStrip
+                      stage={(n.stage as PipelineStage) ?? 'awaiting_invoice'}
+                      hasInvoice={!!n.linkedInvoiceId}
+                      compact
+                      showLabels={false}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <p className="text-right text-gray-600" style={{ fontSize: '13px', margin: 0 }}>
+                        {orderMeta.get(n.id)?.description || n.noteNumber || n.id}
+                        <span className="text-gray-400"> · {n.date}</span>
+                      </p>
+                      {customersByNote.get(n.id)?.length ? (
+                        <p style={{ fontSize: '11.5px', color: 'var(--brand-primary)', fontWeight: 700, margin: '2px 0 0' }}>
+                          {customersByNote.get(n.id)!.length === 1
+                            ? `עבור ${customersByNote.get(n.id)![0]}`
+                            : `${customersByNote.get(n.id)!.length} לקוחות מחכות`}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
                   <span className="text-center">
-                    <span
-                      className="rounded-lg font-bold"
-                      style={{ fontSize: '11px', padding: '4px 9px', ...(n.source === 'email' ? { background: '#DBEAFE', color: '#1E40AF' } : { background: '#F3F4F6', color: '#6B7280' }) }}
-                    >
-                      {n.source === 'email' ? 'הגיע במייל' : 'קליטה ידנית'}
-                    </span>
+                    <StatusBadge status={(n.stage as string) ?? 'awaiting_invoice'} />
                   </span>
                   <span className="text-left font-black text-gray-800" style={{ fontSize: fs('15px', '14px') }}>
                     {n.amount ? formatILS(n.amount) : '—'}
@@ -897,6 +1006,28 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
         </div>
       )}
 
+
+      {intake && (
+        <GoodsIntake
+          suppliers={[]}
+          lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          onClose={() => setIntake(false)}
+          onCreate={async d => { await createDeliveryNote(d) }}
+        />
+      )}
+
+      {newOrder && (
+        <OrderForm
+          suppliers={[]}
+          lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          openOrders={orders.map(o => ({
+            id: o.id, supplierId: o.supplierId, description: o.description,
+            date: o.date, expectedDate: o.expectedDate, customerName: o.customerName,
+          }))}
+          onClose={() => setNewOrder(false)}
+          onCreate={async d => { await createOrder(d) }}
+        />
+      )}
     </div>
   )
 }

@@ -1,16 +1,18 @@
-import { useState } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight, List, X } from 'lucide-react'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { useReturns } from '../../hooks/useReturns'
 import { useEmployees } from '../../hooks/useEmployees'
 import { useSuppliers } from '../../hooks/useSuppliers'
+import { useOrders } from '../../hooks/useOrders'
+import { useIsWide } from '../../hooks/useIsWide'
 import SectionHeader from '../SectionHeader'
 import { SearchableSelect } from '../SearchableSelect'
 import { PdfPreviewModal } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
 import { STATUS } from '../../theme/status'
-import type { Invoice } from '../../data/mockData'
+import type { Invoice, PipelineStage } from '../../data/mockData'
 import {
   FormModal as ReturnFormModal,
   emptyForm,
@@ -19,6 +21,9 @@ import {
 import { isoToDisplay } from '../../lib/dates'
 import { invoiceStatusKey } from '../../lib/invoiceStatus'
 import { StatusBadge } from '../StatusBadge'
+import { PipelineStrip } from '../pipeline/PipelineStrip'
+import OrderForm from '../pipeline/OrderForm'
+import GoodsIntake from '../pipeline/GoodsIntake'
 import { DateField } from '../ui/form'
 
 export type EmployeeSection = 'invoices' | 'deliveries' | 'returns'
@@ -40,6 +45,17 @@ interface SupplierLike {
 interface Props {
   supplier: SupplierLike
   activeSection: EmployeeSection
+  /** Open the full pipeline panel for one delivery. Same panel the manager gets. */
+  onOpenPipeline?: (deliveryNoteId: string) => void
+  /** Who is capturing — stamped on the row for audit, as the camera path does. */
+  userEmail?: string
+  /**
+   * Tells the dashboard a full-page view is open, so the orders rail can step
+   * aside. The board is something you GLANCE at while doing something else; when
+   * the something else is reading a document, it is taking width from the only
+   * thing on screen that needs it.
+   */
+  onFullPage?: (open: boolean) => void
 }
 
 // Status colors from the FIXED functional tokens (src/theme/status.ts) — same
@@ -150,11 +166,28 @@ function MetaModal({ title, Icon, rows, note, items, onClose }: MetaModalData & 
   )
 }
 
-// Read-only invoice view for employees: non-financial metadata + the original
-// document (image/PDF). NO before-VAT / VAT / total, NO inputs, NO save — the
-// employee can view the scanned source but never edit the app's invoice data.
-function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: () => void }) {
+// ── The invoice, as a full page ──────────────────────────────────────────────
+//
+// Two panes like the manager's screen: the document on one side and the fields on
+// the other, because reading a scan in a strip beside a list is not reading it.
+//
+// The FIELDS are the curated set, not the manager's form — the owner's rule is
+// same screen, fewer things, and the amounts are absent by permission rather than
+// by layout (the masking view NULLs them long before this renders).
+//
+// One thing she CAN write: a note. She took the delivery and saw what was short,
+// and a remark she cannot leave is knowledge the system loses at the counter. It
+// goes through a narrow route that writes the note and nothing else.
+function EmployeeInvoiceView({ invoice, onBack, onSaveNotes, isWide }: {
+  invoice: Invoice
+  onBack: () => void
+  onSaveNotes?: (id: string, notes: string) => Promise<void>
+  isWide: boolean
+}) {
   const [showDoc, setShowDoc] = useState(false)
+  const [note, setNote] = useState(invoice.notes ?? '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const docUrl = (invoice.driveFileLink || invoice.storage_url || '').trim()
   const statusKey = invoiceStatusKey(invoice, NO_ALERTS)
   const rows = [
@@ -176,6 +209,30 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
         חזרה
       </button>
 
+      <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', flexDirection: isWide ? 'row' : 'column' }}>
+      {docUrl && (
+        <div style={{
+          background: '#F3F4F6', border: '1px solid #DEDFE5', overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
+          ...(isWide
+            ? { flex: '1 1 50%', position: 'sticky' as const, top: '8px', height: 'calc(100vh - 190px)' }
+            : { width: '100%', height: '50vh' }),
+        }}>
+          <div className="flex items-center justify-between" style={{ padding: '8px 12px', background: '#FAFAFC', borderBottom: '1px solid #E2E4E9' }}>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#6B7280' }}>מסמך מקור</span>
+            <button
+              onClick={() => setShowDoc(true)}
+              className="inline-flex items-center gap-1.5"
+              style={{ padding: '5px 10px', border: '1px solid #DEDFE5', background: 'white', color: 'var(--brand-primary)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+            ><Eye size={13} />הגדל</button>
+          </div>
+          <div className="grid place-items-center" style={{ flex: 1, color: '#B7B9C0', fontSize: '13px', padding: '16px', textAlign: 'center' }}>
+            לחצי "הגדל" לצפייה במסמך
+          </div>
+        </div>
+      )}
+
+      <div style={{ flex: isWide && docUrl ? '1 1 50%' : undefined, width: isWide && docUrl ? undefined : '100%', display: 'grid', gap: '16px' }}>
       {/* Non-financial metadata (read-only text, no inputs) */}
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
         <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#EEEEF2', background: '#FAFAFC' }}>
@@ -207,22 +264,49 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
         </div>
       )}
 
-      {/* Original document (image/PDF) — viewing only, no download of app data */}
-      <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#EEEEF2' }}>
-        {docUrl ? (
-          <button
-            onClick={() => setShowDoc(true)}
-            className="flex items-center gap-2 rounded-xl font-bold text-white w-full justify-center transition-all"
-            style={{ minHeight: '48px', background: 'var(--brand-primary)', fontSize: '15px' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
-          >
-            <Eye className="w-5 h-5" />
-            צפייה במסמך המקורי
-          </button>
-        ) : (
-          <p className="text-center text-gray-400 py-2" style={{ fontSize: '14px' }}>אין מסמך מצורף</p>
-        )}
+      {/* The note — the one thing she may write here. Placed last, where the
+          buttons that act on it are, exactly as the manager's screen puts it. */}
+      {onSaveNotes && (
+        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
+          <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#EEEEF2', background: '#FAFAFC' }}>
+            <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>הערות</h2>
+            <MessageSquare className="w-4 h-4 text-gray-400" />
+          </div>
+          <div style={{ padding: '14px 24px', display: 'grid', gap: '10px' }}>
+            <textarea
+              value={note}
+              onChange={(e) => { setNote(e.target.value); setSaved(false) }}
+              rows={3}
+              placeholder="למשל: הגיעו 380 מטר במקום 400 — סוכם זיכוי."
+              style={{ width: '100%', border: '1px solid #E2E4E9', padding: '10px 12px', fontSize: '14px', fontFamily: 'inherit', resize: 'vertical', outline: 'none' }}
+            />
+            <div className="flex items-center gap-2">
+              <button
+                disabled={saving || note === (invoice.notes ?? '')}
+                onClick={async () => {
+                  setSaving(true)
+                  try { await onSaveNotes(invoice.id, note); setSaved(true) }
+                  finally { setSaving(false) }
+                }}
+                className="font-semibold text-white"
+                style={{
+                  background: note !== (invoice.notes ?? '') ? 'var(--brand-primary)' : '#D6D7DD',
+                  border: 'none', padding: '9px 18px', fontSize: '13px',
+                  cursor: saving ? 'wait' : note !== (invoice.notes ?? '') ? 'pointer' : 'not-allowed',
+                }}
+              >{saving ? 'שומר…' : 'שמירת הערה'}</button>
+              {/* Saving must NOT leave the screen: she is reading the document and
+                  jotting against it, and navigating away is the opposite of that. */}
+              {saved && <span style={{ fontSize: '12.5px', color: '#166534' }}>נשמר</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!docUrl && (
+        <p className="text-center text-gray-400" style={{ fontSize: '14px', padding: '8px' }}>אין מסמך מצורף</p>
+      )}
+      </div>
       </div>
 
       {showDoc && docUrl && <PdfPreviewModal url={docUrl} onClose={() => setShowDoc(false)} />}
@@ -303,18 +387,26 @@ function ReceiptFormModal({ form, setForm, supplierName, employees, onSave, onCl
   )
 }
 
-export default function EmployeeSupplierView({ supplier, activeSection }: Props) {
-  const { data: allInvoices } = useInvoices()
+export default function EmployeeSupplierView({ supplier, activeSection, onOpenPipeline, userEmail, onFullPage }: Props) {
+  const { data: allInvoices, saveNotes: saveInvoiceNotes } = useInvoices()
   const { data: allDeliveries, create: createDeliveryNote } = useDeliveryNotes()
   const { data: allReturns, create: createReturn } = useReturns()
   const { data: employees }        = useEmployees()
   const { data: suppliers }        = useSuppliers()
+  const { openForSupplier, create: createOrder } = useOrders()
+  const isWide = useIsWide()
+
 
   const [invoiceQuery, setInvoiceQuery] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+  // Reported rather than derived by the parent: this component owns the state that
+  // decides it, and a second copy upstairs would be one more thing to keep in step.
+  useEffect(() => { onFullPage?.(!!selectedInvoice) }, [selectedInvoice, onFullPage])
   const [showReturnForm, setShowReturnForm] = useState(false)
   const [returnForm, setReturnForm] = useState<FormState>(emptyForm())
   const [showReceiptForm, setShowReceiptForm] = useState(false)
+  const [newOrder, setNewOrder] = useState(false)
+  const [intake, setIntake] = useState(false)
   const [receiptForm, setReceiptForm] = useState<ReceiptFormState>({ isoDate: '', items: '', noteNumber: '', employeeId: '' })
   // Document image/PDF popup (arrived records) and metadata popup (manual records).
   const [docView, setDocView] = useState<{ url: string; previewSrc?: string } | null>(null)
@@ -338,6 +430,21 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
   const deliveries = allDeliveries.filter(
     (dn) => dn.supplierId === supplier.id || dn.supplierName === supplier.name,
   )
+  // Orders match by id ONLY — unlike the datasets above there is no name
+  // fallback, because every order is created through the supplier picker and so
+  // always carries an id. Matching on name too would attach an order to a
+  // second supplier that merely shares a name.
+  const supplierOrders = openForSupplier(supplier.id)
+  // What the order behind a row says about itself. The separate orders panel is
+  // gone — an order IS a row here — so the row carries the description and the
+  // customer, which are the two things the panel uniquely showed.
+  const orderMeta = useMemo(() => {
+    const m = new Map<string, { description: string; customerName: string | null }>()
+    for (const o of supplierOrders) {
+      if (o.deliveryNoteId) m.set(o.deliveryNoteId, { description: o.description, customerName: o.customerName })
+    }
+    return m
+  }, [supplierOrders])
   const returns = allReturns.filter(
     (r) => (r as { supplierId?: string }).supplierId === supplier.id,
   )
@@ -355,11 +462,9 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
     setShowReturnForm(true)
   }
 
-  // ── Manual goods-receipt (delivery note) — persists via useDeliveryNotes.create ──
-  function openAddReceipt() {
-    setReceiptForm({ isoDate: new Date().toISOString().slice(0, 10), items: '', noteNumber: '', employeeId: '' })
-    setShowReceiptForm(true)
-  }
+  // Manual receipt now lives behind the shared GoodsIntake door, together with
+  // photo capture — one door, two ways in, per the owner's decision. The modal
+  // below is what it replaced and is kept only until the walkthrough is re-cut.
 
   async function handleSaveReceipt() {
     if (!receiptForm.items.trim()) return
@@ -417,7 +522,12 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
   // document image/PDF (viewing the scanned source is allowed). When a row is
   // selected it replaces the whole supplier view; its "חזרה" button clears it.
   if (selectedInvoice) {
-    return <EmployeeInvoiceView invoice={selectedInvoice} onBack={() => setSelectedInvoice(null)} />
+    return <EmployeeInvoiceView
+        invoice={selectedInvoice}
+        onBack={() => setSelectedInvoice(null)}
+        onSaveNotes={saveInvoiceNotes}
+        isWide={isWide}
+      />
   }
 
   return (
@@ -523,15 +633,56 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
         </SectionShell>
       )}
 
-      {/* ── Delivery notes ── */}
+      {/* The two forms open INSIDE the page — above the list they add to, so the
+          result of saving is already on screen when the form closes. */}
+      {intake && activeSection === 'deliveries' && (
+        <GoodsIntake
+          inline
+          suppliers={[]}
+          lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          capturedBy={userEmail}
+          onClose={() => setIntake(false)}
+          onCreate={async d => { await createDeliveryNote(d) }}
+        />
+      )}
+
+      {newOrder && activeSection === 'deliveries' && (
+        <OrderForm
+          inline
+          suppliers={[]}
+          lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          customerOnly
+          openOrders={supplierOrders.map(o => ({
+            id: o.id, supplierId: o.supplierId, description: o.description,
+            date: o.date, expectedDate: o.expectedDate, customerName: o.customerName,
+          }))}
+          onClose={() => setNewOrder(false)}
+          onCreate={async d => { await createOrder(d) }}
+        />
+      )}
+
+      {/* ── הזמנות וסחורה — one list ─────────────────────────────────────────
+          NOT two panels. An order opens its pipeline row the moment it is placed,
+          so it is already in this list — a separate "הזמנות פתוחות" panel above
+          was showing the same records twice, which is the duplication the
+          manager's tabs were removed for. */}
       {activeSection === 'deliveries' && (
         <SectionShell
-          title="תעודות משלוח"
+          title="הזמנות וסחורה"
           Icon={Truck}
           count={deliveries.length}
           action={
+            <div className="flex items-center gap-2">
             <button
-              onClick={openAddReceipt}
+              onClick={() => setNewOrder(true)}
+              className="flex items-center gap-1.5 font-bold"
+              style={{ minHeight: '38px', padding: '0 14px', background: 'white', color: 'var(--brand-primary)', border: '1px solid var(--brand-primary)', fontSize: '13.5px' }}
+            >
+              <Plus className="w-4 h-4" />
+              הזמנה ללקוחה
+            </button>
+            <button
+              onClick={() => setIntake(true)}
               className="flex items-center gap-1.5 rounded-xl font-bold text-white transition-all"
               style={{ minHeight: '38px', padding: '0 16px', background: 'var(--brand-primary)', fontSize: '14px' }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
@@ -540,24 +691,44 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
               <Plus className="w-4 h-4" />
               קליטת סחורה
             </button>
+            </div>
           }
         >
           {deliveries.length === 0 ? (
-            <EmptyRow text="אין תעודות משלוח עבור ספק זה" />
+            <EmptyRow text="אין סחורה עבור ספק זה" />
           ) : (
             deliveries.map((dn) => {
-              const d = dn as unknown as { id: string; date: string; status: string; driveFileLink?: string; storage_url?: string; noteNumber?: string; lineItems?: string }
+              const d = dn as unknown as { id: string; date: string; status: string; stage?: PipelineStage; driveFileLink?: string; storage_url?: string; noteNumber?: string; lineItems?: string }
               const hasDoc = !!(d.driveFileLink || d.storage_url)
+              // The pipeline stage, in the SAME words the manager sees. This row used
+              // to say ממתין / בארכיון — a fourth status vocabulary, unrelated to the
+              // chain the record is actually in, which is why the employee could not
+              // see the pipeline at all.
+              const stage: PipelineStage = d.stage ?? 'awaiting_invoice'
               return (
                 <div
                   key={d.id}
                   className="grid items-center border-b"
-                  style={{ gridTemplateColumns: '1fr 90px 44px', borderColor: '#EEEEF2', minHeight: '56px', padding: '12px 16px' }}
+                  style={{ gridTemplateColumns: 'auto 1fr auto 44px', gap: '12px', borderColor: '#EEEEF2', minHeight: '58px', padding: '12px 16px' }}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOpenPipeline?.(d.id)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onOpenPipeline?.(d.id) }}
                 >
-                  <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{(d.noteNumber || d.id)} · {d.date}</p>
-                  <span className="text-center text-gray-400" style={{ fontSize: '12px' }}>
-                    {d.status === 'archived' ? 'בארכיון' : 'ממתין'}
-                  </span>
+                  {/* Compact and label-less: in a row the badge beside it carries the
+                      words, and the strip is here to be read as a shape. */}
+                  <PipelineStrip stage={stage} compact showLabels={false} hasInvoice={!!(dn as { linkedInvoiceId?: string }).linkedInvoiceId} />
+                  <div style={{ minWidth: 0 }}>
+                    <p className="text-right text-gray-600" style={{ fontSize: '13px', margin: 0 }}>
+                      {orderMeta.get(d.id)?.description || d.noteNumber || d.id} · {d.date}
+                    </p>
+                    {orderMeta.get(d.id)?.customerName && (
+                      <p className="text-right" style={{ fontSize: '11.5px', color: 'var(--brand-primary)', margin: '2px 0 0', fontWeight: 600 }}>
+                        עבור {orderMeta.get(d.id)!.customerName}
+                      </p>
+                    )}
+                  </div>
+                  <StatusBadge status={stage} />
                   <div className="flex justify-center">
                     {hasDoc ? (
                       <IconBtn title="צפייה במסמך המקורי" onClick={() => openDoc(d.driveFileLink, d.storage_url)}>
@@ -684,6 +855,7 @@ export default function EmployeeSupplierView({ supplier, activeSection }: Props)
 
       {/* Manual record → operational details only, no monetary amounts. */}
       {metaModal && <MetaModal {...metaModal} onClose={() => setMetaModal(null)} />}
+
 
     </div>
   )

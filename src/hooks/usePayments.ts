@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
+import { subscribe } from '../lib/dataBus'
 
 export type PaymentStatus = 'paid' | 'pending' | 'cancelled'
 
@@ -76,6 +77,9 @@ export function usePayments() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+
+  useEffect(() => subscribe(['payments'], load), [load])
 
   // bizboxExportedAt מוחרג: החותמת נכתבת רק דרך mark-bizbox-exported, לא ביצירה
   const create = async (body: Omit<Payment, 'id' | 'bizboxExportedAt' | 'createdAt'>) => {

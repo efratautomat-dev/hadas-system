@@ -1,0 +1,21 @@
+<!-- inControl mark.
+     Drawn for the two places the app actually puts a logo, which have opposite
+     backgrounds: a 28px slot inside the sidebar's near-white pink box, and a 40px
+     slot inside the burgundy gradient tile on the login / demo door. A single flat
+     glyph cannot serve both — so the mark carries its own burgundy plate with a
+     white glyph on it. On the light box the plate reads as the mark; on the
+     burgundy tile the plate melts into the background and the white glyph carries
+     it. Legible either way, at 28px.
+
+     A gauge, not a document: the product's claim is being in control of what is
+     already arriving, not filing paper. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="inControl">
+  <rect width="64" height="64" rx="16" fill="#A91D3A"/>
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round">
+    <!-- 220° arc, open at the bottom -->
+    <path d="M16.96 43.47 A16 16 0 1 1 47.04 43.47" stroke-width="6"/>
+    <!-- needle, held short of the arc so the two never touch at small sizes -->
+    <path d="M32 38 L38.9 28.2" stroke-width="5"/>
+  </g>
+  <circle cx="32" cy="38" r="3.6" fill="#FFFFFF"/>
+</svg>

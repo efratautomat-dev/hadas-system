@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { mockSuppliers } from '../data/mockData'
 import { computeSupplierBalance } from '../lib/supplierBalance'
 import { isExcludedFromBalance } from '../lib/supplierLedger'
+import { subscribe } from '../lib/dataBus'
 
 export type SupplierRow = typeof mockSuppliers[number]
 
@@ -126,6 +127,9 @@ export function useSuppliers() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+
+  useEffect(() => subscribe(['suppliers', 'invoices', 'payments'], load), [load])
 
   // Returns the raw create result. On a dedup hit the backend does NOT create and
   // returns { duplicate:true, existing:{...} } so the UI can ask the user; pass

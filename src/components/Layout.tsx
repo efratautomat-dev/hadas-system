@@ -10,26 +10,29 @@ import Suppliers from './Suppliers'
 import Invoices, { type DuplicateResolution } from './Invoices'
 import Payments from '../pages/Payments'
 import SupplierLedger from './SupplierLedger'
-import DeliveryNotes from './DeliveryNotes'
+import GoodsTracking from './pipeline/GoodsTracking'
 import StatementReconciliation from './StatementReconciliation'
 import Returns from './Returns'
 import CaptureDocument from './CaptureDocument'
 import Alerts from './Alerts'
 import Settings from '../pages/Settings'
+import Integrations from './Integrations'
 import SystemLogs from '../pages/SystemLogs'
 import type { Alert } from '../data/mockData'
 import { useAlerts } from '../hooks/useAlerts'
+import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { AppLogoProvider } from '../hooks/useAppLogo'
 import { brand } from '../brand.config'
+import { tierAllows } from '../lib/tiers'
 import { api } from '../lib/api'
 import { supabase } from '../lib/supabase'
 
 function getGreeting(): string {
   const hour = new Date().getHours()
-  if (hour >= 5 && hour < 12) return `בוקר טוב ${brand.appName}`
-  if (hour >= 12 && hour < 17) return `צהריים טובים ${brand.appName}`
-  if (hour >= 17 && hour < 21) return `ערב טוב ${brand.appName}`
-  return `לילה טוב ${brand.appName}`
+  if (hour >= 5 && hour < 12) return `בוקר טוב ${brand.greetingName}`
+  if (hour >= 12 && hour < 17) return `צהריים טובים ${brand.greetingName}`
+  if (hour >= 17 && hour < 21) return `ערב טוב ${brand.greetingName}`
+  return `לילה טוב ${brand.greetingName}`
 }
 
 function useIsMobile() {
@@ -68,7 +71,7 @@ const pageLabels: Record<string, string> = {
   invoices:              'חשבוניות',
   'invoices-duplicates': 'חשבוניות',
   payments:              'תשלומים',
-  deliveries:            'תעודות משלוח',
+  deliveries:            'מעקב הזמנות וסחורה',
   returns:               'חזרות',
   reconciliation:        'התאמת כרטסות',
   'system-logs':         'לוגי מערכת',
@@ -97,6 +100,8 @@ interface NavEntry {
   paymentsSupplierFilter?: string
   returnsEditId?: string
   statementViewId?: string
+  /** Open this delivery's goods page on arrival — the supplier card links here. */
+  deliverySelectedId?: string
   /** Open this exact payment's row on arrival. Set when a collected note in the
    *  notes panel links back to the payment it was written on. */
   paymentOpenId?: string
@@ -139,6 +144,10 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     try { localStorage.setItem('hadas.notesOpen', notesOpen ? '1' : '0') } catch { /* private mode */ }
   }, [notesOpen])
   const { data: alerts, markRead, markResolved, remove: removeAlert } = useAlerts()
+  // Counted here rather than inside the goods screen: the badge has to be right
+  // while she is anywhere else, which is the only time it is worth having.
+  const { data: pipelineNotes } = useDeliveryNotes()
+  const pendingApprovalCount = pipelineNotes.filter(n => n.stage === 'awaiting_approval').length
   const [alertForSupplier, setAlertForSupplier] = useState<AlertPrefillState | null>(null)
   // Single source of truth for navigation — index 0 is always the origin (dashboard)
   const [navStack, setNavStack] = useState<NavEntry[]>([{ page: 'dashboard' }])
@@ -270,6 +279,24 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   }
 
   const renderPage = () => {
+    // A screen outside the viewer's tier is not reachable from the nav, but it is
+    // still reachable through history state (a back button into a page that was
+    // open before, a restored session). Falling back to the dashboard keeps the
+    // tier honest wherever the navigation came from.
+    if (!tierAllows(activePage)) return (
+      <Dashboard
+        onPageChange={handlePageChange}
+        alerts={alerts}
+        onMarkRead={handleMarkRead}
+        onOpenInvoice={(id)                => pushNav({ page: 'invoices',  invoiceSelectedId:  id   })}
+        onOpenInvoiceDuplicate={(id)       => pushNav({ page: 'invoices',  invoiceDuplicateId: id   })}
+        onOpenInvoiceByGmailMessageId={handleOpenInvoiceByGmailMessageId}
+        onOpenSupplier={(id)               => pushNav({ page: 'suppliers', supplierViewId:     id   })}
+        onOpenSupplierByName={(name)       => pushNav({ page: 'suppliers', supplierViewName:   name })}
+        onOpenReturn={(id)                 => pushNav({ page: 'returns',   returnsEditId:      id   })}
+        onCreateSupplierFromAlert={handleCreateSupplierFromAlert}
+      />
+    )
     if (activePage === 'dashboard')      return (
       <Dashboard
         onPageChange={handlePageChange}
@@ -305,6 +332,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     )
     if (activePage === 'suppliers')      return (
       <Suppliers
+        onOpenDelivery={(id) => pushNav({ page: 'deliveries', deliverySelectedId: id })}
         onViewLedger={(id) => pushNav({ page: 'ledger', ledgerSupplierId: id })}
         onViewPayments={(name) => pushNav({ page: 'payments', paymentsSupplierFilter: name })}
         controlledViewId={currentNav.supplierViewId ?? null}
@@ -358,10 +386,19 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         initialPaymentId={currentNav.paymentOpenId}
       />
     )
-    if (activePage === 'deliveries')     return <DeliveryNotes />
+    // D24 — one area, one chain. `DeliveryNotes` used to be stacked UNDER the new
+    // screen so its link/match work stayed reachable, and the result was the whole
+    // old screen — its own filters, its own "מסמכים שהגיעו / קליטה ידנית" split, its
+    // own vocabulary — sitting below a screen describing the same records. Two
+    // pictures of one thing is worse than a missing feature, and everything it did
+    // is now here: attach and detach in the delivery panel, intake behind one door.
+    if (activePage === 'deliveries') return (
+      <GoodsTracking userEmail={userEmail} initialNoteId={currentNav.deliverySelectedId ?? null} />
+    )
     if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
     if (activePage === 'capture')        return <CaptureDocument capturedBy={userEmail} />
+    if (activePage === 'integrations')   return <Integrations />
     if (activePage === 'system-logs')    return <SystemLogs />
     if (activePage === 'settings')       return <Settings />
     return <ComingSoon page={activePage} />
@@ -400,6 +437,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onPageChange={handlePageChange}
         onLogout={onLogout}
         userEmail={userEmail}
+        pendingApprovalCount={pendingApprovalCount}
         newAlertsCount={newAlertsCount}
         mobileStyle={isMobile ? {
           transform: mobileMenuOpen ? 'translateX(0)' : 'translateX(110%)',

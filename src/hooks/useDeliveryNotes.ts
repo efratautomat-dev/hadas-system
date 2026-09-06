@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
-import { mockDeliveryNotes, type DeliveryNote } from '../data/mockData'
+import { mockDeliveryNotes, type DeliveryNote, type InvoiceCandidate, type PipelineStage } from '../data/mockData'
 import { isoToDisplay } from '../lib/dates'
+import { subscribe } from '../lib/dataBus'
+import type { ArrivalCandidate } from './useOrders'
 
 
 export function useDeliveryNotes() {
@@ -24,6 +26,8 @@ export function useDeliveryNotes() {
           date:            isoToDisplay(r.date ?? ''),
           // DB `invoice_id` column → linkedInvoiceId frontend field
           linkedInvoiceId: r.invoice_id   ?? undefined,
+          storageUrl:      r.storage_url  ?? undefined,
+          pairedNoteId:    r.paired_note_id ?? null,
           amount:          Number(r.amount ?? 0),
           status:          r.status       ?? 'pending',
           driveFileLink:   r.drive_file_link ?? '',
@@ -33,6 +37,11 @@ export function useDeliveryNotes() {
           lineItems:       r.line_items ?? '',
           noteNumber:      r.note_number ?? '',
           employeeId:      r.employee_id ?? '',
+          // The pipeline state. Falls back to `awaiting_invoice` — the same default the
+          // DB column carries — so a row written before the migration still reads as a
+          // delivery waiting for its invoice rather than as an undefined state.
+          stage:           (r.stage as PipelineStage) ?? 'awaiting_invoice',
+          intakeSource:    r.intake_source ?? (r.gmail_message_id ? 'email' : 'manual'),
           // notes field doesn't exist in DB; omit it
         })) as DeliveryNote[])
         setError(null)
@@ -54,10 +63,29 @@ export function useDeliveryNotes() {
 
   useEffect(() => { load() }, [load])
 
+
+  useEffect(() => subscribe(['delivery_notes'], load), [load])
+
   // Manual goods receipt — PERSISTS to the DB (fixes the old local-state-only bug).
   // No delivery-note number / amount required; source is derived as 'manual' because
   // no gmail_message_id is set.
-  const create = async (body: { supplierId: string; supplierName: string; isoDate: string; lineItems: string; noteNumber?: string; employeeId?: string }) => {
+  /**
+   * Record goods that arrived at the door.
+   *
+   * Returns `needsChoice` when this supplier already has a delivery waiting —
+   * because his note or his invoice usually reaches the mailbox before the goods
+   * reach the counter. The caller must ASK; answering with `adopt` joins that
+   * chain, `forceNew` starts a separate one.
+   */
+  const create = async (body: {
+    supplierId: string; supplierName: string; isoDate: string; lineItems: string
+    noteNumber?: string; employeeId?: string
+    /** Σ cost read off a handwritten sheet. `null`/absent = not known. */
+    amount?: number | null
+    /** The filed photo of that sheet — the document the reading came from. */
+    storageUrl?: string | null
+    adopt?: string; forceNew?: boolean
+  }): Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[]; id?: string }> => {
     try {
       const res = await api.post('/delivery-notes', {
         supplier_id:   body.supplierId,
@@ -66,10 +94,18 @@ export function useDeliveryNotes() {
         line_items:    body.lineItems,
         note_number:   body.noteNumber || null,
         employee_id:   body.employeeId || null,
-        amount:        0,
-      })
+        // null, not 0. "Not known" and "cost nothing" are different claims, and
+        // the ledger never reads this figure either way.
+        amount:        body.amount ?? null,
+        storage_url:   body.storageUrl ?? null,
+        delivery_note_id: body.adopt,
+        force_new:        body.forceNew,
+      }) as { needsChoice?: boolean; candidates?: ArrivalCandidate[]; id?: string }
+      // Nothing was written when the server asks — return the question unanswered
+      // rather than reloading and reporting success.
+      if (res?.needsChoice) return res
       await load()
-      return (res as { id?: string }).id
+      return { id: res?.id }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[useDeliveryNotes] create error:', msg)
@@ -89,6 +125,53 @@ export function useDeliveryNotes() {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[useDeliveryNotes] setMatch error:', msg)
       setError(`שגיאה בעדכון ההתאמה: ${msg}`)
+      throw err
+    }
+  }
+
+  /**
+   * Take the chain apart WITHOUT deleting anything in it (owner's decision).
+   * The documents stay; only the links between them go.
+   */
+  /**
+   * Move a delivery to a different supplier. A route of its own, open to employees:
+   * she is the one holding the goods and reading the header, and the action carries
+   * no figure. The name follows the id server-side so the two cannot drift.
+   */
+  const reassignSupplier = async (id: string, supplierId: string) => {
+    try {
+      await api.put(`/delivery-notes/${id}/supplier`, { supplier_id: supplierId })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בשינוי הספק: ${msg}`)
+      throw err
+    }
+  }
+
+  /**
+   * Answer "is the note that just arrived the same delivery you recorded?".
+   * `absorb` keeps the supplier's document and removes the hand-typed row;
+   * `keep` records that a person looked and said they are different shipments.
+   */
+  const resolvePair = async (manualId: string, arrivedId: string, action: 'absorb' | 'keep') => {
+    try {
+      await api.put(`/delivery-notes/${manualId}/pair`, { arrived_id: arrivedId, action })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בטיפול בכפילות: ${msg}`)
+      throw err
+    }
+  }
+
+  const dismantle = async (id: string) => {
+    try {
+      await api.delete(`/delivery-notes/${id}/dismantle`)
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בפירוק הפייפליין: ${msg}`)
       throw err
     }
   }
@@ -121,11 +204,29 @@ export function useDeliveryNotes() {
     }
   }
 
-  const unlink = async (id: string) => {
-    console.log('[useDeliveryNotes] unlink id:', id)
+  // Suggested invoices for a note — supplier + date proximity + amount, ranked by the
+  // API. ADVISORY: this returns a list to show, and attaching is still a separate,
+  // explicit `link` call made by a person (§6.f). Nothing here writes.
+  const candidates = async (id: string): Promise<InvoiceCandidate[]> => {
     try {
-      const res = await api.put(`/delivery-notes/${id}/unlink`, {})
-      console.log('[useDeliveryNotes] unlink response:', res)
+      const res = await api.get(`/delivery-notes/${id}/candidates`)
+      return (res as { candidates?: InvoiceCandidate[] }).candidates ?? []
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[useDeliveryNotes] candidates error:', msg)
+      setError(`שגיאה בטעינת התאמות אפשריות: ${msg}`)
+      return []
+    }
+  }
+
+  /**
+   * Detach ONE invoice from a delivery, or all of them when none is named.
+   * A row may carry several — a supplier who bills one delivery in parts — so
+   * removing "the" invoice was never a complete instruction.
+   */
+  const unlink = async (id: string, invoiceId?: string) => {
+    try {
+      await api.put(`/delivery-notes/${id}/unlink`, invoiceId ? { invoice_id: invoiceId } : {})
       await load()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -149,5 +250,5 @@ export function useDeliveryNotes() {
     }
   }
 
-  return { data, loading, error, create, setMatch, update, link, unlink, remove }
+  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reassignSupplier, resolvePair, reload: load }
 }

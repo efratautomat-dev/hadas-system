@@ -16,6 +16,14 @@ export interface SearchableOption {
   label: string
   /** Extra text to match typed queries against (not displayed), e.g. ח.פ. */
   keywords?: string
+  /**
+   * A status dot rendered BEFORE the label — a colour and a short note.
+   *
+   * The point of putting it here rather than in a list below is the moment: the
+   * question "does this supplier need me?" is asked while choosing, so the answer
+   * belongs inside the choosing. Optional, so every other caller is unaffected.
+   */
+  dot?: { color: string; title?: string }
 }
 
 export interface SearchableSelectProps {
@@ -264,7 +272,23 @@ export function SearchableSelect({
                   textOverflow: 'ellipsis',
                 }}
               >
-                {o.label}
+                {o.dot ? (
+                  <span className="inline-flex items-center gap-2" title={o.dot.title}>
+                    <i
+                      aria-hidden="true"
+                      style={{
+                        width: 8, height: 8, borderRadius: 999,
+                        background: o.dot.color, flex: 'none', display: 'inline-block',
+                      }}
+                    />
+                    {o.label}
+                    {o.dot.title && (
+                      <small style={{ color: '#9CA3AF', fontSize: '12px', fontWeight: 400 }}>
+                        {o.dot.title}
+                      </small>
+                    )}
+                  </span>
+                ) : o.label}
               </div>
             ))}
 

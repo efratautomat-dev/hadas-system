@@ -2,7 +2,7 @@ import { useState, useLayoutEffect } from 'react'
 import {
   Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus,
   HelpCircle, FileX, Paperclip, Unlink, AlertTriangle, Clock,
-  FileWarning, Receipt, AlertCircle, Tag, Mail, X, ShieldCheck, AlertOctagon,
+  FileWarning, Receipt, AlertCircle, Tag, Mail, X, ShieldCheck, AlertOctagon, Coins, Package,
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 import { SummaryCards } from './ui/SummaryCards'
+import { FilterTabs } from './ui/FilterTabs'
 
 // Color is keyed to the alert TYPE, grouped into four severity-like buckets.
 // (severity is "info" on every live row, so it can't drive color.) The bucket is
@@ -66,6 +67,17 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // human reads the document and fills both in. Broken ingest → urgent, not a
   // routine state.
   statement_extract_failed:    b('פענוח כרטסת נכשל — טיפול ידני', FileWarning, 'urgent'),
+  // Parked after MAX_INGEST_ATTEMPTS — the per-document-type siblings of
+  // invoice_ingest_failed. Until now that ONE type served every document, so a
+  // תעודת משלוח whose extraction kept failing was announced to the owner as a failed
+  // INVOICE — the same defect spec/09-IDEAS.md §10 records for כרטסת. The email is
+  // parked behind the "פענוח נכשל" Gmail label and re-queues when the label is removed.
+  //
+  // NOT the same as statement_extract_failed above: there the row WAS saved and sits
+  // inert awaiting a human; here nothing was saved and the email is out of the queue.
+  delivery_note_ingest_failed: b('פענוח תעודת משלוח נכשל — טיפול ידני', Truck,    'urgent'),
+  statement_ingest_failed:     b('פענוח כרטסת נכשל — טיפול ידני',       Scale,    'urgent'),
+  return_ingest_failed:        b('פענוח זיכוי/חזרה נכשל — טיפול ידני',  Receipt,  'urgent'),
 
   // ── Action (orange): a human action is required ──
   supplier_incomplete:         b('ספק – חסר פרטים',         UserPlus,      'action'),
@@ -75,6 +87,17 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // The approval gate. ACTION, not urgent: nothing is broken and nothing was
   // lost — the invoice is filed and counted. What is outstanding is a decision.
   invoice_approval_required:   b('חשבונית גדולה — נדרש אישור', ShieldCheck, 'action'),
+  // A figure the extractor read off the document could not be a price, so it was
+  // dropped and the document filed without it. ACTION rather than urgent for the
+  // same reason as the gate: nothing was lost, a number is missing. The invoice
+  // one comes FIRST in the pair because an invoice without its amount moves no
+  // balance — the supplier is owed money the ledger does not show.
+  invoice_amount_unreadable:      b('סכום לא נקרא בחשבונית', Coins, 'action'),
+  delivery_note_amount_unreadable: b('סכום לא נקרא בתעודה',  Coins, 'action'),
+  // An employee took a customer's order for a supplier whose shipment is already
+  // on its way. ACTION and time-sensitive: the value is entirely in catching it
+  // before that shipment leaves, and a day late it is merely history.
+  customer_order_joins_shipment:  b('הזמנת לקוחה — אפשר לצרף למשלוח', Package, 'action'),
 
   // ── Check (yellow): worth a look / verify ──
   invoice_low_confidence:      b('וודאות נמוכה',            AlertTriangle, 'check'),
@@ -378,10 +401,15 @@ export function resolveAlertDestination(
   // The three non-invoice variants are the same situation for a כרטסת / delivery
   // note / credit note: nothing was saved anywhere, so the email IS the only
   // place to act. There is no row to open.
+  // The parked-extraction variants land here for the same reason: extraction failed
+  // MAX_INGEST_ATTEMPTS times, nothing was written to any table, and the email is out
+  // of the ingest queue behind the "פענוח נכשל" label. There is no row to open — the
+  // email is where the document is and where the label is removed to re-queue it.
   if (
     t === 'invoice_no_attachment'  || t === 'invoice_no_valid_attachment' ||
     t === 'statement_no_file'      || t === 'delivery_note_no_file'       ||
-    t === 'return_no_file'
+    t === 'return_no_file'         || t === 'delivery_note_ingest_failed' ||
+    t === 'statement_ingest_failed'|| t === 'return_ingest_failed'
   ) {
     if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
     handlers.onPageChange?.('alerts')
@@ -481,28 +509,6 @@ export default function Alerts({
     statusFilter === 'all' ? a.status !== 'resolved' : a.status === statusFilter,
   ).length
 
-  const filterBtn = (
-    active: boolean,
-    label: string,
-    onClick: () => void,
-    activeColor = 'var(--brand-primary-dark)',
-  ) => (
-    <button
-      // The chips are rendered from .map(), so each needs its own key — the label
-      // is unique within both filter rows.
-      key={label}
-      onClick={onClick}
-      className="px-3 py-1.5 rounded-xl text-sm font-semibold transition-all"
-      style={{
-        background: active ? activeColor : 'white',
-        color: active ? 'white' : '#6B7280',
-        border: `1.5px solid ${active ? activeColor : '#E2E4E9'}`,
-      }}
-    >
-      {label}
-    </button>
-  )
-
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -519,30 +525,26 @@ export default function Alerts({
         { label: 'טופל',   value: resolvedCount, Icon: Check, tone: 'green' },
       ]} />
 
-      {/* Filters */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border space-y-3" style={{ borderColor: '#E2E4E9' }}>
-        {/* Type filter (by severity bucket) */}
-        <div className="flex items-center gap-2 flex-wrap" style={{ direction: 'rtl' }}>
-          <span className="text-xs font-semibold text-gray-400 ml-1">סוג:</span>
-          {filterBtn(typeFilter === 'all', 'הכל', () => setTypeFilter('all'))}
-          {TYPE_BUCKETS.map(t =>
-            filterBtn(typeFilter === t, BUCKET_LABEL[t], () => setTypeFilter(t))
-          )}
-        </div>
-
-        {/* Status filter */}
-        <div className="flex items-center gap-2 flex-wrap" style={{ direction: 'rtl' }}>
-          <span className="text-xs font-semibold text-gray-400 ml-1">סטטוס:</span>
-          {filterBtn(statusFilter === 'all', 'הכל', () => setStatusFilter('all'))}
-          {(Object.keys(STATUS_LABELS) as AlertStatus[]).map(s =>
-            filterBtn(
-              statusFilter === s,
-              STATUS_LABELS[s],
-              () => setStatusFilter(s),
-              STATUS_CONFIG[s].indicator,
-            )
-          )}
-        </div>
+      {/* Filters — two rows of tabs rather than two rows of chips inside a card.
+          The card was doing nothing but holding them together, and the rule under
+          each row groups it better than a border around both. */}
+      <div className="space-y-1">
+        <FilterTabs
+          tabs={[
+            { key: 'all' as const, label: 'הכל' },
+            ...TYPE_BUCKETS.map(t => ({ key: t, label: BUCKET_LABEL[t] })),
+          ]}
+          value={typeFilter}
+          onChange={setTypeFilter}
+        />
+        <FilterTabs
+          tabs={[
+            { key: 'all' as const, label: 'הכל' },
+            ...(Object.keys(STATUS_LABELS) as AlertStatus[]).map(s => ({ key: s, label: STATUS_LABELS[s] })),
+          ]}
+          value={statusFilter}
+          onChange={setStatusFilter}
+        />
       </div>
 
       {/* Alert list */}

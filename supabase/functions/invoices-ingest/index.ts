@@ -22,6 +22,12 @@ const CAPTURE_LABEL_SOURCE      = "צילום ידני";       // stamped on row
 const PROCESSED_LABEL_NAME      = "טופל_ממתין במערכת";
 const FAILED_LABEL_NAME         = "פענוח נכשל";        // parks emails that keep failing extraction
 const MAX_INGEST_ATTEMPTS       = 2;                   // cap before we stop retrying & alert
+// Recovery mode (POST {source:"requeue"}). The normal tick deliberately looks back
+// only 14 days, so an email parked behind the FAILED label is unreachable forever
+// once it ages out — removing the label by hand does nothing. These bound the
+// deliberate catch-up sweep instead of widening the routine query.
+const REQUEUE_LOOKBACK_DAYS     = 120;                 // owner's figure, not 365
+const REQUEUE_MAX_MESSAGES      = 50;                  // one batch; call again for the next
 // "דורש בדיקה ידנית" was removed 2026-08-19: ingest no longer labels the mailbox
 // for review. An alert already carries the item, and a second queue in Gmail
 // that nothing clears is worse than none. Existing labels stay in the mailbox
@@ -955,6 +961,22 @@ const NO_FILE_ALERT: Partial<Record<DocType, { type: string; title: string; docL
   return_doc:    { type: "return_no_file",        title: "זיכוי/חזרה ללא קובץ",     docLabel: "תעודת זיכוי/חזרה" },
 };
 
+// ── "we know what the document is, but extraction kept failing" ──────────────
+// Same shape and the same reasoning as NO_FILE_ALERT above: one type per document
+// type, the reason rides in the payload. This exists because the parked-failure
+// alert used to be hard-coded to the INVOICE wording, so a תעודת משלוח that failed
+// extraction was reported to the owner as a failed invoice — the same defect
+// spec/09-IDEAS.md §10 records for כרטסת, where a statement whose file could not be
+// fetched surfaced as a failed invoice and never reached vendor_statements.
+//
+// invoice / unknown are deliberately absent: they keep `invoice_ingest_failed`,
+// which existing alert rows and the frontend already know.
+const FAILED_ALERT: Partial<Record<DocType, { type: string; title: string }>> = {
+  statement:     { type: "statement_ingest_failed",     title: "פענוח כרטסת נכשל — דורש טיפול ידני" },
+  delivery_note: { type: "delivery_note_ingest_failed", title: "פענוח תעודת משלוח נכשל — דורש טיפול ידני" },
+  return_doc:    { type: "return_ingest_failed",        title: "פענוח תעודת זיכוי/חזרה נכשל — דורש טיפול ידני" },
+};
+
 // ─── Anthropic helpers ─────────────────────────────────────────────────────
 
 interface AnthropicTextBlock { type: "text"; text: string }
@@ -1425,6 +1447,48 @@ async function appendAltName(
 // when no same-type alert already exists for this Gmail message. Returns true if
 // a NEW alert row was written (callers gate counters / manager emails on that).
 // `status:"unread"` is always set here so call sites don't repeat it.
+// ─── A number that cannot be stored is not a price ──────────────────────────
+//
+// The amount columns are numeric(10,2) on production — up to 99,999,999.99. The
+// largest delivery note this business has ever filed is ₪34,354, so a figure that
+// does not fit was never a price: it is a barcode, an item code, an hp or a phone
+// number the extractor picked off a table. Report-style PDFs are full of them.
+//
+// Postgres answers such an insert with 22003 and rejects the WHOLE row, and the
+// caller then leaves the email unlabeled — so ONE bad cell kept an entire document
+// out of the system. That is the wrong trade, and it is the same trade the ₪20K
+// gate already refuses to make: file the document, mark what is wrong, never hide
+// it (docs/04-BUSINESS-LOGIC.md, spec/06-RULES.md).
+//
+// The bound is the column's own limit, on purpose. No business threshold is
+// invented here that nobody chose — cf. the approval gate, where an empty setting
+// means OFF rather than a default figure.
+const NUMERIC_10_2_MAX = 99_999_999.99;
+
+function storableAmount(n: unknown): number | null {
+  const v = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(v)) return null;
+  return Math.abs(v) > NUMERIC_10_2_MAX ? null : v;
+}
+
+/**
+ * Replaces every unstorable figure with null and names the fields it dropped.
+ * An empty `dropped` means the row is unchanged and nothing needs saying.
+ */
+function storableAmounts<K extends string>(
+  fields: Record<K, unknown>,
+): { values: Record<K, number | null>; dropped: K[] } {
+  const values = {} as Record<K, number | null>;
+  const dropped: K[] = [];
+  for (const key of Object.keys(fields) as K[]) {
+    const raw = fields[key];
+    const safe = storableAmount(raw);
+    values[key] = safe;
+    if (safe === null && raw !== null && raw !== undefined) dropped.push(key);
+  }
+  return { values, dropped };
+}
+
 async function insertAlertOnce(
   supabase: SupabaseClient,
   log:      Logger,
@@ -1460,8 +1524,37 @@ async function insertAlertOnce(
 // false → caller leaves the email unlabeled so the next tick retries (transient
 // API/network errors recover on their own). At the cap it PARKS the email — adds
 // the FAILED label (which the cron query excludes) + raises a visible alert — and
-// returns true. Nothing is silently dropped: removing the FAILED label in Gmail
-// re-queues the email for another MAX_INGEST_ATTEMPTS.
+// returns true.
+//
+// Nothing is silently dropped, but removing the FAILED label by hand is NOT a full
+// re-queue: this counter is never reset, so the email comes back at attempts=MAX and
+// the next failure parks it again on the FIRST try. It also only works inside the
+// routine 14-day window. The supported recovery is POST {source:"requeue"}, which
+// clears the counter and sweeps REQUEUE_LOOKBACK_DAYS back.
+/**
+ * One email finished successfully: label it processed AND clear its failure row.
+ *
+ * `ingest_failures` used to record only failure, never resolution. A row was
+ * deleted by exactly one path — the requeue sweep — so an email that failed on
+ * Monday and succeeded on Tuesday kept its row forever, indistinguishable from a
+ * live problem. Production carried eleven such rows, of which every one was an
+ * incident already closed; they cost real time to rule out twice.
+ *
+ * Clearing it here makes success mean what it says. The delete is deliberately
+ * unchecked: the document is in, the label is set, and failing to tidy a counter
+ * must never turn a completed ingest into a reported failure.
+ */
+async function markProcessed(
+  supabase: SupabaseClient,
+  token: string,
+  msgId: string,
+  processedLabelId: string,
+  sourceLabelId: string,
+): Promise<void> {
+  await gmailModifyLabels(token, msgId, [processedLabelId], [sourceLabelId, "UNREAD"]);
+  await supabase.from("ingest_failures").delete().eq("gmail_message_id", msgId);
+}
+
 async function recordFailureAndMaybePark(
   supabase: SupabaseClient,
   log:      Logger,
@@ -1470,6 +1563,11 @@ async function recordFailureAndMaybePark(
   failedLabelId: string,
   meta:     { subject: string; from: string; messageLink: string },
   errorMsg: string,
+  // What the classifier decided this email was. It selects the alert the owner
+  // sees: a delivery note that failed extraction must not be reported as a failed
+  // invoice (see FAILED_ALERT). `unknown` keeps the invoice wording, which is the
+  // honest default when nothing identified the document.
+  docType:  DocType = "unknown",
 ): Promise<boolean> {
   const { data: row } = await supabase
     .from("ingest_failures")
@@ -1496,14 +1594,17 @@ async function recordFailureAndMaybePark(
 
   // Cap reached → park out of the query and surface it.
   await gmailModifyLabels(token, msgId, [failedLabelId], ["UNREAD"]);
+  const failedAlert = FAILED_ALERT[docType] ??
+    { type: "invoice_ingest_failed", title: "פענוח חשבונית נכשל — דורש טיפול ידני" };
   await insertAlertOnce(supabase, log, msgId, {
-    type:    "invoice_ingest_failed",
-    title:   "פענוח חשבונית נכשל — דורש טיפול ידני",
+    type:    failedAlert.type,
+    title:   failedAlert.title,
     message: `המייל "${meta.subject}" נכשל בפענוח ${attempts} פעמים ולא יעובד שוב אוטומטית. ` +
              `להסרת החסימה ולניסיון חוזר — הסר/י את התווית "${FAILED_LABEL_NAME}" מהמייל.`,
     payload: {
       gmailMessageId: msgId, subject: meta.subject, from: meta.from,
       messageLink: meta.messageLink, attempts, lastError: errorMsg.slice(0, 300),
+      docType,
     },
   });
   await log("error",
@@ -1520,6 +1621,33 @@ interface IngestResult {
   skipped:    number;
   errors:     string[];
   ts:         string;
+  /** Recovery mode only: how many parked emails this run put back in the queue. */
+  requeued?:  number;
+}
+
+interface IngestOptions {
+  /**
+   * Recovery run: process the emails PARKED behind the failed label instead of the
+   * normal queue, ignoring the 14-day window. Their `ingest_failures` counters are
+   * cleared and the label removed first, so each one gets a full retry budget again
+   * rather than the single attempt a leftover counter would allow.
+   */
+  requeueFailed?:       boolean;
+  /** How far back the recovery sweep looks. Defaults to REQUEUE_LOOKBACK_DAYS. */
+  requeueLookbackDays?: number;
+  /**
+   * Widen the ROUTINE queue's lookback for one run. Defaults to 14 days.
+   *
+   * There is a gap between the two recovery paths, and production fell into it:
+   * an email that fails is left UNLABELED for the next tick to retry, but the
+   * requeue sweep finds emails by the FAILED label — which that email does not
+   * carry yet. Once it ages past 14 days it is invisible to the routine tick and
+   * invisible to the sweep, while its `ingest_failures` row still says it failed.
+   *
+   * Safe to widen: the query already excludes anything carrying the processed
+   * label, so a wide sweep sees only what genuinely never got in.
+   */
+  lookbackDays?:        number;
 }
 
 // Context shared by every invoice file in one email (the email-level facts plus
@@ -1847,7 +1975,19 @@ async function handleInvoiceFile(
   // The invoice is still inserted normally. The gate marks it and asks; it does
   // not hold the document hostage — a filed invoice that the owner cannot see is
   // worse than one she has yet to rule on.
-  const preVat = Math.abs(Number(extracted.amount_before_vat ?? 0)) || 0;
+  // Same 22003 guard as the delivery-note path, and it matters more here: losing
+  // an invoice loses money owed. A figure that cannot be stored is dropped, the
+  // invoice is filed as needs_review with the reason on the row, and an alert
+  // carries it to the owner. The gate below then measures the SANITISED figure —
+  // reading a threshold off a number Postgres refused would be meaningless.
+  const money = storableAmounts({
+    total_amount:      extracted.total_amount,
+    amount_before_vat: extracted.amount_before_vat,
+    vat_amount:        extracted.vat_amount,
+  });
+  const amountUnreadable = money.dropped.length > 0;
+
+  const preVat = Math.abs(Number(money.values.amount_before_vat ?? 0)) || 0;
   const overThreshold = ctx.approvalThreshold !== null && preVat > ctx.approvalThreshold;
   const insertRow: Record<string, unknown> = {
     supplier_id:        supplierId,
@@ -1857,15 +1997,16 @@ async function handleInvoiceFile(
     supplier_name:      supplierDisplayName,
     invoice_number:     extracted.invoice_number,
     invoice_date:       extracted.invoice_date || null,
-    total_amount:       extracted.total_amount,
-    amount_before_vat:  extracted.amount_before_vat,
-    vat_amount:         extracted.vat_amount,
+    ...money.values,
     category:           finalCategory,
     line_items:         extracted.line_items.join("\n"),
     ai_confidence:      extracted.confidence,
-    status:             extracted.confidence === "low" ? "needs_review" : "ממתין",
+    status:             (extracted.confidence === "low" || amountUnreadable)
+                          ? "needs_review" : "ממתין",
     is_duplicate:       isDuplicate,
-    has_error:          false,
+    has_error:          amountUnreadable,
+    error_reason:       amountUnreadable
+                          ? `סכום לא קריא: ${money.dropped.join(", ")}` : null,
     awaiting_approval:  overThreshold,
     partial_return:     partialReturn,
     drive_file_link:    driveFileLink,
@@ -1908,6 +2049,33 @@ async function handleInvoiceFile(
   // dedupKeys ["invoiceId"] — one email can carry several invoices, and each big
   // one deserves its own decision. Without it the second invoice in an email
   // would be silently suppressed as "an alert of this type already exists".
+  // An invoice filed without its figure moves no balance, so it cannot be left to
+  // be noticed on a list. dedupKeys ["invoiceId"] for the same reason as below:
+  // one email can carry several invoices.
+  if (amountUnreadable) {
+    await log("warn", "invoice amount was not storable — filed for review without it",
+      { invoiceId: insertedId, dropped: money.dropped }, msgId);
+    await insertAlertOnce(supabase, log, msgId, {
+      type:    "invoice_amount_unreadable",
+      title:   "סכום לא נקרא בחשבונית — דורש השלמה",
+      message: `חשבונית ${extracted.invoice_number || ""} מ-${supplierDisplayName || extracted.vendor_name || "ספק לא ידוע"} נקלטה, אך הסכום שנקרא ממנה אינו סכום אפשרי והושאר ריק. עד להשלמה היא אינה משפיעה על יתרת הספק.`,
+      payload: {
+        gmailMessageId: msgId,
+        invoiceId:      insertedId,
+        supplierId,
+        supplierName:   supplierDisplayName || extracted.vendor_name || "",
+        invoiceNumber:  extracted.invoice_number ?? "",
+        fields:         money.dropped,
+        driveFileLink,
+        storageUrl:     storagePath || null,
+        subject,
+        from,
+        messageLink,
+      },
+    }, ["invoiceId"]);
+    result.alerts++;
+  }
+
   if (overThreshold) {
     await log("warn", "invoice over approval threshold — awaiting owner decision", {
       invoiceId: insertedId, preVat, threshold: ctx.approvalThreshold,
@@ -1973,7 +2141,10 @@ async function handleInvoiceFile(
   return "created";
 }
 
-async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
+async function ingestInvoices(
+  supabase: SupabaseClient,
+  opts: IngestOptions = {},
+): Promise<IngestResult> {
   const result: IngestResult = {
     processed: 0,
     alerts:    0,
@@ -2046,17 +2217,56 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
   //     failed-skipped, so it no longer depends on the supplier label being
   //     co-applied. Exclusions stay name-based (those labels are code-created,
   //     always top-level, so name search is reliable for them).
-  const srcIds  = await gmailListMessages(
-    token,
-    `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:14d`,
-    [sourceLabelId],
-  );
-  const partIds = partialRefundLabelId
-    ? await gmailListMessages(token, `-label:"${PROCESSED_LABEL_NAME}" newer_than:90d`, [partialRefundLabelId])
-    : [];
-  const messageIds = [...new Set([...srcIds, ...partIds])];
-  await log("info", `found ${messageIds.length} candidate messages`,
-    { source: srcIds.length, partialReturn: partIds.length });
+  let messageIds: string[];
+
+  if (opts.requeueFailed) {
+    // ── Recovery sweep ──────────────────────────────────────────────────────
+    // Emails carrying BOTH the source label and the FAILED label (Gmail ANDs the
+    // labelIds), over a deliberately wider window. This exists because the routine
+    // 14-day lookback makes a parked email permanently unreachable once it ages
+    // out — the code used to tell the owner that removing the label re-queues it,
+    // which is only true inside those 14 days.
+    const days = opts.requeueLookbackDays ?? REQUEUE_LOOKBACK_DAYS;
+    messageIds = await gmailListMessages(
+      token,
+      `-label:"${PROCESSED_LABEL_NAME}" newer_than:${days}d`,
+      [sourceLabelId, destFailed],
+      REQUEUE_MAX_MESSAGES,
+    );
+    await log("info", `requeue: found ${messageIds.length} parked message(s)`,
+      { lookbackDays: days, cap: REQUEUE_MAX_MESSAGES });
+
+    if (messageIds.length > 0) {
+      // Clear the counters BEFORE processing. `ingest_failures` is never reset
+      // anywhere else, so a parked email sits at attempts=MAX and the very next
+      // failure parks it again immediately — one attempt, not a retry budget.
+      const { error: clearErr } = await supabase
+        .from("ingest_failures").delete().in("gmail_message_id", messageIds);
+      if (clearErr) {
+        await log("warn", `requeue: could not clear failure counters — retries will be limited`,
+          { error: clearErr.message });
+      }
+      // Drop the FAILED label so a run that succeeds ends with ONE label (טופל),
+      // and so the routine tick can see the email again if this run is interrupted.
+      for (const id of messageIds) {
+        await gmailModifyLabels(token, id, [], [destFailed]);
+      }
+    }
+    result.requeued = messageIds.length;
+  } else {
+    const lookback = opts.lookbackDays ?? 14;
+    const srcIds  = await gmailListMessages(
+      token,
+      `-label:"${PROCESSED_LABEL_NAME}" -label:"${FAILED_LABEL_NAME}" newer_than:${lookback}d`,
+      [sourceLabelId],
+    );
+    const partIds = partialRefundLabelId
+      ? await gmailListMessages(token, `-label:"${PROCESSED_LABEL_NAME}" newer_than:90d`, [partialRefundLabelId])
+      : [];
+    messageIds = [...new Set([...srcIds, ...partIds])];
+    await log("info", `found ${messageIds.length} candidate messages`,
+      { source: srcIds.length, partialReturn: partIds.length, lookbackDays: lookback });
+  }
 
   if (messageIds.length === 0) return result;
 
@@ -2074,10 +2284,13 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
 
   for (const msgId of messageIds) {
     // Hoisted so the per-message catch below can reference them when a failure
-    // (e.g. extractInvoice throwing) unwinds out of the try.
+    // (e.g. extractInvoice throwing) unwinds out of the try. `docType` is hoisted
+    // for the same reason and one more: the parked-failure alert is chosen by it,
+    // and an extraction that throws unwinds past the point where it was decided.
     let subject     = "(no subject)";
     let from        = "";
     let messageLink = `https://mail.google.com/mail/u/0/#all/${msgId}`;
+    let docType: DocType = "unknown";
     try {
       // Idempotency fast-path: if this email already produced any invoice row,
       // skip it. limit(1) (not maybeSingle) because one email can now legitimately
@@ -2091,7 +2304,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       const dup = dupRows?.[0] ?? null;
       if (dup) {
         await log("info", "already ingested, applying processed label", { invoiceId: dup.id }, msgId);
-        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+        await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
         result.skipped++;
         continue;
       }
@@ -2114,7 +2327,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       // was reported as a failed INVOICE and never reached vendor_statements at
       // all. classifyBySubject depends on nothing but the subject string, so it
       // belongs up here; the AI CONTENT fallback stays below, where a file exists.
-      let docType = classifyBySubject(subject);
+      docType = classifyBySubject(subject);
 
       // ── RECEIPTS DO NOT ENTER THE SYSTEM (owner's rule, 2026-08-05) ──
       // A קבלה is proof that a payment was made; it carries no tax obligation and
@@ -2138,7 +2351,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
         if (docType !== "receipt") return false;
         await log("info", "receipt — deliberately NOT ingested (receipts are not invoices)",
           { subject, from }, msgId);
-        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+        await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
         result.skipped++;
         return true;
       };
@@ -2232,7 +2445,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
             docType, reason, linkFailures, droppedFiles: dropped,
           },
         });
-        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+        await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
         result.alerts++;
         continue;
       }
@@ -2277,10 +2490,10 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
           await log("warn", "a document write failed — leaving email unlabeled for retry", { docType }, msgId);
           await recordFailureAndMaybePark(
             supabase, log, token, msgId, destFailed,
-            { subject, from, messageLink }, "a document write failed");
+            { subject, from, messageLink }, "a document write failed", docType);
           continue;
         }
-        await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+        await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
         result.processed++;
         continue;
       }
@@ -2335,7 +2548,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
           { created, alerted, skipped, ads, errored }, msgId);
         await recordFailureAndMaybePark(
           supabase, log, token, msgId, destFailed,
-          { subject, from, messageLink }, `${errored} invoice file(s) errored`);
+          { subject, from, messageLink }, `${errored} invoice file(s) errored`, docType);
         continue;
       }
 
@@ -2344,7 +2557,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       // queue competing with the alerts screen — the same item in two places, one
       // of which nothing ever cleared. The SYSTEM is where review happens; the
       // mailbox only records that ingest ran.
-      await gmailModifyLabels(token, msgId, [destProcessed], [sourceLabelId, "UNREAD"]);
+      await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
       await log("info", "email invoice processing complete",
         { created, alerted, skipped, ads, errored }, msgId);
 
@@ -2354,7 +2567,7 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
       result.errors.push(`Error processing ${msgId}: ${msg}`);
       await recordFailureAndMaybePark(
         supabase, log, token, msgId, destFailed,
-        { subject, from, messageLink }, msg);
+        { subject, from, messageLink }, msg, docType);
     }
   }
 
@@ -2371,6 +2584,8 @@ async function ingestInvoices(supabase: SupabaseClient): Promise<IngestResult> {
 
 interface ExtractedDeliveryNote {
   vendor_name:       string;
+  /** Supplier's business number (ח.פ) — the PRIMARY supplier join key (§2b). */
+  hp:                string;
   note_number:       string;
   date:              string; // YYYY-MM-DD
   amount:            number;
@@ -2384,12 +2599,19 @@ async function extractDeliveryNote(
 ): Promise<ExtractedDeliveryNote> {
   const prompt =
     "אתה מנתח תעודות משלוח. חלץ את הפרטים מהמסמך וחזור ב-JSON בלבד, ללא הסברים.\n" +
-    '{"vendor_name":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}\n' +
-    "כללים: תאריך YYYY-MM-DD, סכומים ללא סימני מטבע.";
+    '{"vendor_name":"","hp":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}\n' +
+    "כללים: תאריך YYYY-MM-DD, סכומים ללא סימני מטבע, hp = מספר ח.פ/עוסק של הספק (ספרות בלבד, ריק אם אינו מופיע).";
+  // EXTRACTION_MAX_TOKENS, not a tight cap: `line_items` is an UNBOUNDED array and a
+  // delivery note is precisely the document that lists every item. At 1024 the reply
+  // was cut mid-array, the JSON never closed, parseJsonRobust returned null, the retry
+  // ran under the SAME cap and was cut at the same place, and the note was parked as a
+  // failed *invoice* after MAX_INGEST_ATTEMPTS. extractInvoice has always used the full
+  // budget for the same reason; extractReturn/extractStatement stay small because their
+  // schemas are fixed-size.
   const raw = await anthropicMessage(
     ANTHROPIC_MODEL_EXTRACTOR,
     [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
-    1024,
+    EXTRACTION_MAX_TOKENS,
   );
   let parsed = parseJsonRobust(raw);
   if (parsed === null) {
@@ -2398,13 +2620,18 @@ async function extractDeliveryNote(
       [{ role: "user", content: [
         buildDocumentBlock(doc.mimeType, doc.bytes),
         { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" +
-          '{"vendor_name":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}' },
+          '{"vendor_name":"","hp":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}' },
       ] }],
-      1024,
+      EXTRACTION_MAX_TOKENS,
     );
     parsed = parseJsonRobust(retryRaw);
     if (parsed === null) {
-      throw new Error(`extractDeliveryNote failed after retry. Raw: ${raw.slice(0, 500)}`);
+      // Same truncation hint extractInvoice carries — an unclosed reply is the one
+      // failure whose cause is legible from the raw text.
+      const looksTruncated = !retryRaw.trimEnd().endsWith("}");
+      throw new Error(
+        `extractDeliveryNote failed after retry${looksTruncated ? " — response appears TRUNCATED (raise max_tokens)" : ""}. ` +
+        `Raw: ${raw.slice(0, 500)}`);
     }
   }
   const p = parsed as Record<string, unknown>;
@@ -2419,6 +2646,7 @@ async function extractDeliveryNote(
 
   return {
     vendor_name:       String(p.vendor_name ?? ""),
+    hp:                String(p.hp ?? ""),
     note_number:       String(p.note_number ?? ""),
     date,
     amount:            filled.gross,
@@ -2430,6 +2658,8 @@ async function extractDeliveryNote(
 
 interface ExtractedReturn {
   vendor_name:        string;
+  /** Issuer's company number. Empty when the document does not carry one. */
+  hp:                 string;
   credit_note_number: string;
   date:               string; // YYYY-MM-DD
   amount:             number;
@@ -2442,8 +2672,9 @@ async function extractReturn(
 ): Promise<ExtractedReturn> {
   const prompt =
     "אתה מנתח תעודות זיכוי וחזרות. חלץ את הפרטים מהמסמך וחזור ב-JSON בלבד.\n" +
-    '{"vendor_name":"","credit_note_number":"","date":"","amount":0,"reason":"","detail":""}\n' +
-    "כללים: תאריך YYYY-MM-DD, amount = סכום מוחזר (מספר חיובי), credit_note_number = מספר תעודת הזיכוי שהונפק על ידי הספק.";
+    '{"vendor_name":"","hp":"","credit_note_number":"","date":"","amount":0,"reason":"","detail":""}\n' +
+    "כללים: תאריך YYYY-MM-DD, amount = סכום מוחזר (מספר חיובי), credit_note_number = מספר תעודת הזיכוי שהונפק על ידי הספק, " +
+    "hp = ח.פ / ע.מ של הספק המנפיק (ולא של העסק המקבל) — ספרות בלבד, ריק אם אינו מופיע.";
   const raw = await anthropicMessage(
     ANTHROPIC_MODEL_EXTRACTOR,
     [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
@@ -2456,7 +2687,7 @@ async function extractReturn(
       [{ role: "user", content: [
         buildDocumentBlock(doc.mimeType, doc.bytes),
         { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" +
-          '{"vendor_name":"","credit_note_number":"","date":"","amount":0,"reason":"","detail":""}' },
+          '{"vendor_name":"","hp":"","credit_note_number":"","date":"","amount":0,"reason":"","detail":""}' },
       ] }],
       512,
     );
@@ -2468,6 +2699,7 @@ async function extractReturn(
   const p = parsed as Record<string, unknown>;
   return {
     vendor_name:        String(p.vendor_name ?? ""),
+    hp:                 String(p.hp ?? ""),
     credit_note_number: String(p.credit_note_number ?? ""),
     date:               String(p.date ?? ""),
     amount:             Number(p.amount ?? 0),
@@ -2981,9 +3213,12 @@ async function handleNonInvoice(
     // alerting + labeling and losing the document. (No clean "not a delivery
     // note" verdict exists here; the doc was already routed by subject/content.)
     const extracted = await extractDeliveryNote(ctx.doc);
-    // NAME-FALLBACK: extractDeliveryNote does not capture ח.פ yet, so this links by
-    // name only. Add `hp` to the delivery-note prompt + pass it here to make it hp-primary.
-    const supplierId = await resolveSupplier(extracted.vendor_name);
+    // ח.פ FIRST, name as the fallback — `resolveSupplier` has always supported that
+    // order (spec/06-RULES.md §2b); what was missing was the number itself, because
+    // the delivery-note prompt never asked for it, so every note linked by NAME alone.
+    // Name matching is fragile across spelling and whitespace, and a wrong link here
+    // attaches goods to the wrong supplier's balance.
+    const supplierId = await resolveSupplier(extracted.vendor_name, extracted.hp);
 
     // Dedup: primary = gmail_message_id + note_number + supplier_id
     //        fallback = gmail_message_id + supplier_id (no note_number)
@@ -3026,14 +3261,21 @@ async function handleNonInvoice(
         { filename: ctx.doc.filename }, msgId);
     }
 
+    // A report-style delivery note put a barcode where the total belongs and
+    // Postgres rejected the row (22003), which kept the whole email out. The
+    // figure is dropped, the note is filed, and the alert below says which.
+    const money = storableAmounts({
+      amount:            extracted.amount,
+      amount_before_vat: extracted.amount_before_vat,
+      vat_amount:        extracted.vat_amount,
+    });
+
     const { error } = await supabase.from("delivery_notes").insert({
       supplier_id:       supplierId,
       supplier_name:     extracted.vendor_name,
       note_number:       extracted.note_number,
       date:              extracted.date || null,
-      amount:            extracted.amount,
-      amount_before_vat: extracted.amount_before_vat,
-      vat_amount:        extracted.vat_amount,
+      ...money.values,
       line_items:        extracted.line_items.join("\n"),
       status:            "pending_match",
       invoice_id:        null,
@@ -3050,6 +3292,23 @@ async function handleNonInvoice(
         { code: error.code, filename: ctx.doc.filename }, msgId);
       return false; // DB write failed — leave email for retry
     }
+    if (money.dropped.length > 0) {
+      await log("warn", "delivery_note amount was not storable — filed without it",
+        { dropped: money.dropped, filename: ctx.doc.filename }, msgId);
+      await insertAlertOnce(supabase, log, msgId, {
+        type:    "delivery_note_amount_unreadable",
+        title:   "סכום לא נקרא בתעודת משלוח — דורש בדיקה",
+        message: `התעודה נקלטה, אך הסכום שנקרא ממנה אינו סכום אפשרי והושאר ריק. ` +
+                 `ספק: ${extracted.vendor_name || "—"}. קובץ: ${ctx.doc.filename}.`,
+        payload: {
+          gmailMessageId: msgId,
+          supplierId,
+          noteNumber: extracted.note_number,
+          fields:     money.dropped,
+          filename:   ctx.doc.filename,
+        },
+      }, ["noteNumber"]);
+    }
     await log("info", "delivery_note ingested",
       { supplierId, noteNumber: extracted.note_number, filename: ctx.doc.filename }, msgId);
     return true;
@@ -3060,9 +3319,13 @@ async function handleNonInvoice(
     // As with delivery notes — a thrown extraction error propagates so the email
     // stays unlabeled and the next run retries, rather than escalating + labeling.
     const extracted = await extractReturn(ctx.doc);
-    // NAME-FALLBACK: extractReturn (credit note) does not capture ח.פ yet, so this
-    // links by name only. Add `hp` to the credit-note prompt + pass it here for hp-primary.
-    const supplierId = await resolveSupplier(extracted.vendor_name);
+    // ח.פ FIRST, name as the fallback — the same chain invoices and delivery notes
+    // use. Credit notes matched by NAME alone for as long as they existed, which
+    // put them behind every other document type: a supplier whose name is spelled
+    // differently on its credit notes than on its invoices produced a second card,
+    // and a credit note filed against the wrong supplier moves money on the wrong
+    // ledger. The issuer's number is what the prompt asks for, never the recipient's.
+    const supplierId = await resolveSupplier(extracted.vendor_name, extracted.hp);
 
     // Upload the credit-note file to Storage up front so it's available whether
     // we match a return (storage_url goes on the row) or alert (goes in payload).
@@ -3378,6 +3641,108 @@ async function handleNonInvoice(
   }
 }
 
+// ─── Handwritten goods sheet ────────────────────────────────────────────────
+//
+// The owner's decision (spec/STATUS.md): NOT free text — a fixed two-column form
+// the employees fill by hand, item and quantity, and nothing else.
+//
+// What this does NOT extract, and why it matters:
+//
+//   supplier — the photo is taken from inside a supplier's card, so the caller
+//              already knows. Reading it off the page would be a second, worse
+//              answer competing with a certain one.
+//   date     — stamped at capture.
+//   amounts  — the sheet carries no prices. The figure comes from the invoice,
+//              once, as it always has.
+//
+// That removes both of the things that actually break ingest — the supplier
+// matching chain and amount extraction — from this path entirely. What is left is
+// reading a table, which is the part a model is good at.
+//
+// Low confidence is REPORTED, never dropped. A line the model is unsure of comes
+// back marked so a person can fix it; guessing silently would put invented goods
+// into a delivery, and a missing line someone can see beats a wrong line nobody
+// can.
+
+interface HandwrittenLine {
+  item:     string;
+  quantity: string;
+  /**
+   * Cost price, as written — empty when the sheet carries none.
+   *
+   * Safe to record because `delivery_notes.amount` never reaches the ledger:
+   * buildLedger reads invoices and payments only. What a price on the note buys
+   * is the COMPARISON at approval — goods against bill — which is the whole job
+   * that screen exists for.
+   */
+  price:    string;
+  /** The model's own doubt about THIS line, surfaced for review. */
+  uncertain: boolean;
+}
+
+async function extractHandwrittenSheet(
+  doc: { mimeType: string; bytes: Uint8Array },
+): Promise<HandwrittenLine[]> {
+  const shape = '{"lines":[{"item":"","quantity":"","price":"","uncertain":false}]}';
+  // Written for the PRINTED template, but deliberately tolerant of what actually
+  // reaches a counter: a table drawn by hand on a blank page, or a note that just
+  // lists what came in. The form gives the best reading, but a scrap of paper must
+  // not lose a delivery — that is the same rule as "never park a document nobody
+  // can see". Anything ambiguous comes back marked rather than dropped.
+  const prompt =
+    "בתמונה רשימת סחורה שנכתבה בכתב יד. היא יכולה להיות טופס מודפס שמולא, " +
+    "טבלה שסורטטה ביד על דף חלק, או פתק חופשי שרשומים בו פריטים.\n" +
+    "חלץ את הפריטים והכמויות שנכתבו ביד וחזור ב-JSON בלבד:\n" + shape + "\n" +
+    "כללים:\n" +
+    "• שורות ריקות — לדלג עליהן לגמרי.\n" +
+    "• אל תמציא פריטים שאינם כתובים, ואל תשלים רשימה.\n" +
+    "• quantity כמחרוזת בדיוק כפי שנכתבה (גם '2 ארגזים' או '1.5').\n" +
+    "• price = מחיר ליחידה בלבד, אם נכתב. מספרים בלבד, בלי ₪ ובלי פסיקים.\n" +
+    "• אם על הדף יש גם עמודת סה\"כ — להתעלם ממנה ולקחת את מחיר היחידה. " +
+    "המערכת מחשבת את הסה\"כ בעצמה, וסה\"כ שנקרא בטעות כמחיר יחידה מכפיל כל שורה.\n" +
+    "• אין מחיר? price ריק — לא להשלים ולא לחשב.\n" +
+    "• אין כמות ליד הפריט? quantity ריק — לא להשלים ולא לנחש 1.\n" +
+    "• פתק חופשי: כל פריט בשורה נפרדת, גם אם נכתבו כמה בשורה אחת " +
+    "(למשל '2 חלב, 1 קוטג׳' → שתי שורות).\n" +
+    "• uncertain=true לכל שורה שהכתב בה אינו ברור — עדיף לסמן מאשר לנחש.\n" +
+    "• להתעלם מכותרות, מלוגו ומכל טקסט מודפס — רק כתב היד.";
+
+  const raw = await anthropicMessage(
+    ANTHROPIC_MODEL_EXTRACTOR,
+    [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
+    EXTRACTION_MAX_TOKENS,
+  );
+  let parsed = parseJsonRobust(raw);
+  if (parsed === null) {
+    const retry = await anthropicMessage(
+      ANTHROPIC_MODEL_EXTRACTOR,
+      [{ role: "user", content: [
+        buildDocumentBlock(doc.mimeType, doc.bytes),
+        { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" + shape },
+      ] }],
+      EXTRACTION_MAX_TOKENS,
+    );
+    parsed = parseJsonRobust(retry);
+    if (parsed === null) {
+      throw new Error(`extractHandwrittenSheet failed after retry. Raw: ${raw.slice(0, 400)}`);
+    }
+  }
+  const rows = (parsed as { lines?: unknown[] }).lines ?? [];
+  return rows
+    .map(r => {
+      const o = r as Record<string, unknown>;
+      return {
+        item:      String(o.item ?? "").trim(),
+        quantity:  String(o.quantity ?? "").trim(),
+        price:     String(o.price ?? "").trim(),
+        uncertain: o.uncertain === true,
+      };
+    })
+    // An empty item is a blank row the model reported anyway; there is nothing to
+    // review and nothing to correct, so it is noise rather than a finding.
+    .filter(l => l.item.length > 0);
+}
+
 // ─── Camera capture (shares the email IMAGE pipeline) ───────────────────────
 //
 // A document photographed in the app reaches the SAME per-document logic as an
@@ -3416,6 +3781,77 @@ const CAPTURE_TYPE_LABEL: Record<CaptureDocType, string> = {
   delivery_note: "תעודת משלוח",
   return_doc:    "חזרה/זיכוי",
 };
+
+/**
+ * Read a handwritten goods sheet and RETURN what it read. Saves nothing.
+ *
+ * Deliberately not an ingest: handwriting is the one input where the machine is
+ * least certain and the person standing there is most certain. So the model
+ * proposes, the screen shows the lines beside the photo, and the employee confirms
+ * — the same "suggest, never attach" rule the invoice matching follows (§6.f).
+ *
+ * The delivery row is then created through the ordinary POST /delivery-notes, so
+ * a sheet-captured delivery is the same record as a typed one and needs no special
+ * case anywhere downstream.
+ */
+async function handleHandwrittenSheet(
+  supabase: SupabaseClient, body: CaptureRequest,
+): Promise<Response> {
+  const log = makeLogger(supabase);
+  if (!body.imageBase64 || typeof body.imageBase64 !== "string") {
+    return json({ error: "imageBase64 is required" }, 400);
+  }
+  let bytes: Uint8Array;
+  try { bytes = captureBase64ToBytes(body.imageBase64); }
+  catch { return json({ error: "imageBase64 is not valid base64" }, 400); }
+  if (bytes.length === 0)                 return json({ error: "image is empty" }, 400);
+  if (bytes.length > MAX_CAPTURE_BYTES)   return json({ error: "image is too large" }, 413);
+
+  const mimeType = body.mimeType && body.mimeType.startsWith("image/")
+    ? body.mimeType : "image/jpeg";
+
+  try {
+    const lines = await extractHandwrittenSheet({ mimeType, bytes });
+
+    // ── Keep the page ────────────────────────────────────────────────────────
+    //
+    // The photo was read and thrown away. Every other intake path keeps its
+    // source — email ingest uploads to Storage, camera capture goes through
+    // handleNonInvoice which uploads — and this one, the LEAST certain of them,
+    // kept nothing. If the reading was wrong there was nothing to check it
+    // against; in a disagreement with a supplier there was no document at all.
+    //
+    // Uploaded before the answer is returned, and its path handed back so the
+    // delivery the screen then creates can carry it. A failure here does not
+    // fail the read: the lines are already extracted, and losing the reading
+    // because the filing failed would be the larger loss.
+    let storagePath: string | null = null;
+    try {
+      const ext = mimeType.includes("png") ? "png" : "jpg";
+      storagePath = await uploadToStorage(
+        supabase, "delivery-notes", new Date(),
+        `handwritten-${Date.now()}.${ext}`, mimeType, bytes,
+      );
+    } catch (e) {
+      await log("warn", `handwritten sheet stored read but file upload failed: ${
+        e instanceof Error ? e.message : String(e)}`, { capturedBy: body.capturedBy ?? null });
+    }
+
+    await log("info", "handwritten sheet read", {
+      lines: lines.length,
+      uncertain: lines.filter(l => l.uncertain).length,
+      stored: !!storagePath,
+      capturedBy: body.capturedBy ?? null,
+    });
+    return json({ success: true, lines, storageUrl: storagePath });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await log("error", `handwritten sheet failed: ${msg}`, { capturedBy: body.capturedBy ?? null });
+    // No alert and no parked row: nothing was filed, the employee is standing
+    // there, and the honest answer is "try again" rather than a task for later.
+    return json({ error: "לא הצלחתי לקרוא את הדף. נסי לצלם שוב, ישר ובאור טוב." }, 422);
+  }
+}
 
 async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Promise<Response> {
   const log = makeLogger(supabase);
@@ -3540,8 +3976,40 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  // Handwritten goods sheet: a POST with { source: "handwritten" }. Reads and
+  // RETURNS; nothing is filed. The employee confirms what it read and the row is
+  // then created through the ordinary delivery-note route.
+  if (body && typeof body === "object" && (body as { source?: string }).source === "handwritten") {
+    try {
+      return await handleHandwrittenSheet(supabase, body as CaptureRequest);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      try { await makeLogger(supabase)("error", `handwritten handler aborted: ${msg}`); } catch { /* self-guards */ }
+      return json({ ok: false, error: msg }, 500);
+    }
+  }
+
+  // Recovery path: a POST with { source: "requeue" }. Re-runs the emails parked
+  // behind the "פענוח נכשל" label over a wider window than the routine tick uses.
+  // Bounded to REQUEUE_MAX_MESSAGES per call and idempotent — anything that
+  // succeeds gets the processed label and drops out, so calling again continues
+  // with the next batch.
+  const source = body && typeof body === "object"
+    ? (body as { source?: string }).source : undefined;
+  const days   = Number((body as { days?: number } | null)?.days) || undefined;
+
   try {
-    const result = await ingestInvoices(supabase);
+    const result = source === "requeue"
+      ? await ingestInvoices(supabase, {
+          requeueFailed:       true,
+          requeueLookbackDays: days,
+        })
+      // POST { source: "sweep", days: N } — the ROUTINE queue over a wider
+      // window. For emails that failed, lost nothing but their place in the
+      // 14-day window, and never earned the FAILED label the requeue looks for.
+      : source === "sweep"
+      ? await ingestInvoices(supabase, { lookbackDays: days ?? 120 })
+      : await ingestInvoices(supabase);
     return json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

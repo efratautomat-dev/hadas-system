@@ -59,6 +59,17 @@ Supabase project ref: `jcwphkuwwuxvjibmvgdh` (from `supabase/.temp/linked-projec
 > ⚠️ NEEDS OWNER CONFIRMATION — There is no committed Vercel config or CI workflow proving the
 > deploy pipeline; "auto-deploy on push to main" is taken from prior project notes, not the repo.
 
+### Frontend → the demo server (second target)
+Vercel is **not** the only place this frontend is deployed. The same repo also builds a
+standalone, DB-less demo (`npm run build:demo`, driven by `.env.demo`) that is served at
+**https://incontrol.ctrlplusf.com** from a Contabo VPS, behind the Traefik proxy already
+running there. `npm run deploy` ships one change to **both** targets; a change that reaches
+only one of them leaves the demo showing a system that no longer exists.
+
+Everything about that target — server, proxy, the `VITE_DEMO_STANDALONE` build flag, the
+password gate and its (deliberately limited) security posture — is in
+**[08-DEMO-DEPLOYMENT.md](./08-DEMO-DEPLOYMENT.md)**.
+
 ### Backend → Supabase
 - Edge Functions deployed with the Supabase CLI: `supabase functions deploy <name>`.
 - DB schema applied with `supabase db push` against `supabase/migrations/`.

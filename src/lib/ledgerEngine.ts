@@ -93,6 +93,22 @@ export interface LedgerRow {
    * The mark is what stops it from being invisible.
    */
   pendingApproval: boolean
+  /**
+   * The PIPELINE's approval (§6.e): goods and invoice are paired, and no human has
+   * yet let the pair into the ledger. Sourced from `invoices.ledger_approved_at`
+   * being null.
+   *
+   * Deliberately a SECOND field and not a reuse of `pendingApproval` above, which
+   * is the ₪20K gate. They are two different questions that happen to share the
+   * word "approval", they are set by different code, and one invoice can be
+   * waiting on both at once — collapsing them would make "approve" ambiguous at
+   * exactly the moment someone clicks it.
+   *
+   * It follows the same COUNT-AND-MARK rule, for the same reason: a balance that
+   * quietly omits a real, filed invoice shows less than is owed, and that is the
+   * more dangerous of the two errors. The mark is what stops it being invisible.
+   */
+  awaitingLedgerApproval: boolean
 }
 
 interface InvoiceLike {
@@ -111,6 +127,8 @@ interface InvoiceLike {
   has_error?: boolean | null
   awaitingApproval?: boolean | null
   awaiting_approval?: boolean | null
+  ledgerApprovedAt?: string | null
+  ledger_approved_at?: string | null
 }
 
 /**
@@ -141,6 +159,25 @@ export function isAwaitingApproval(inv: {
   awaiting_approval?: boolean | null
 }): boolean {
   return !!(inv.awaitingApproval ?? inv.awaiting_approval)
+}
+
+/**
+ * Waiting to be let into the ledger by the goods pipeline (see
+ * LedgerRow.awaitingLedgerApproval). A TIMESTAMP, not a boolean: the column
+ * records when it was approved, so absence is the pending state.
+ *
+ * Both spellings for the same reason the two predicates above accept both — the
+ * suppliers list reads the view directly, without useInvoices' camelCase mapping.
+ *
+ * Every invoice that existed before the pipeline shipped was stamped approved by
+ * the migration, so this is false for all of them. Without that backfill this
+ * would be true for the entire history and the mark would mean nothing.
+ */
+export function isAwaitingLedgerApproval(inv: {
+  ledgerApprovedAt?: string | null
+  ledger_approved_at?: string | null
+}): boolean {
+  return !(inv.ledgerApprovedAt ?? inv.ledger_approved_at)
 }
 
 interface PaymentLike {
@@ -176,8 +213,15 @@ export function buildLedgerEntries(
   invoices: InvoiceLike[],
   payments: PaymentLike[],
 ): Omit<LedgerRow, 'balance'>[] {
+  // ⚠️ Invoices are keyed on `supplierId` and payments on `supplier_id` — two
+  // conventions inside one function, because that is how the two hooks map them.
+  // A caller passing the other spelling gets an EMPTY ledger and no error, and a
+  // balance of zero reads as a supplier who paid everything. Accept both rather
+  // than let a silent nothing stand in for a real number.
+  const invSupplier = (i: InvoiceLike) =>
+    i.supplierId ?? (i as { supplier_id?: string }).supplier_id
   const inv = invoices
-    .filter(i => i.supplierId === supplierId)
+    .filter(i => invSupplier(i) === supplierId)
     .map(i => {
       const amount = num(i.total_amount ?? i.amount)
       const credit = isCreditRow(amount)
@@ -196,6 +240,7 @@ export function buildLedgerEntries(
         movement: amount,
         undated: !iso,
         pendingApproval: isAwaitingApproval(i),
+        awaitingLedgerApproval: isAwaitingLedgerApproval(i),
       }
     })
 
@@ -213,8 +258,10 @@ export function buildLedgerEntries(
         excluded: false,
         movement: -num(p.amount),
         undated: !iso,
-        // Only invoices pass through the approval gate.
+        // Only invoices pass through either approval gate — a payment is money that
+        // already moved, and there is nothing to hold back.
         pendingApproval: false,
+        awaitingLedgerApproval: false,
       }
     })
 
@@ -250,6 +297,14 @@ export interface LedgerResult {
    */
   pendingApprovalCount: number
   pendingApprovalTotal: number
+  /**
+   * Movements counted in the balance that the goods pipeline has not approved into
+   * the ledger yet. These feed a MESSAGE ("קיימות תנועות הממתינות לאישור"), never a
+   * second balance: the owner's decision was one figure plus a mark, because two
+   * balances on one screen is the ambiguity this engine exists to remove.
+   */
+  awaitingLedgerCount: number
+  awaitingLedgerTotal: number
 }
 
 /**
@@ -292,6 +347,10 @@ export function buildLedger(
   // month. Excluded rows are left out — they contribute nothing to the balance,
   // so nothing of theirs is pending.
   const pending = entries.filter(e => e.pendingApproval && !e.excluded)
+  // Same exclusion rule as `pending`, and counted from ALL entries rather than the
+  // windowed rows: how much of what is owed is still unapproved does not change
+  // because the screen is showing one month.
+  const awaitingLedger = entries.filter(e => e.awaitingLedgerApproval && !e.excluded)
   return {
     rows,
     periodOpening,
@@ -302,5 +361,7 @@ export function buildLedger(
     excludedCount: excluded.length,
     pendingApprovalCount: pending.length,
     pendingApprovalTotal: round2(pending.reduce((s, e) => s + e.debit - e.credit, 0)),
+    awaitingLedgerCount: awaitingLedger.length,
+    awaitingLedgerTotal: round2(awaitingLedger.reduce((s, e) => s + e.debit - e.credit, 0)),
   }
 }

@@ -1,6 +1,7 @@
 import { DEMO_MODE } from './demo'
 import { applyDemoWrite } from './demoWrites'
 import { supabase } from './supabase'
+import { notify, resourcesFor } from './dataBus'
 
 const BASE = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hadas-api`
 
@@ -8,14 +9,24 @@ async function call(method: string, path: string, body?: unknown): Promise<unkno
   // Demo mode: never hit the network. Accept the write and echo a synthetic id
   // so optimistic UI flows (e.g. supplier create) keep working on fake data.
   if (DEMO_MODE) {
-    // Supplier notes are the one write the demo APPLIES, to its in-memory table.
-    // Everything else stays a no-op: an invoice or a payment is a financial record
-    // whose demo dataset is curated, and mutating it would make the walkthrough
-    // drift. A note is a free-text scratch line — the whole point of the panel is
-    // writing one, and a demo where the central gesture silently does nothing
-    // teaches the wrong thing about the feature.
+    // Supplier notes and the PIPELINE gestures are what the demo APPLIES, to its
+    // in-memory tables. Everything else stays a no-op: an invoice or a payment is
+    // a financial record whose demo dataset is curated, and mutating it would make
+    // the walkthrough drift.
+    //
+    // The exceptions share one test — is the gesture the feature? Writing a note
+    // is the whole point of the notes panel; marking an order arrived, attaching
+    // an invoice and approving into the ledger ARE the pipeline. A demo whose
+    // central button silently does nothing teaches the opposite of the feature.
+    // None of them touches money: the amounts stay exactly as seeded, and only
+    // the stage a row sits at moves.
     const applied = applyDemoWrite(method, path, body)
-    if (applied) return applied
+    if (applied) {
+      // Demo writes mutate in-memory tables, so every other screen holding a copy
+      // must be told — the same wire the real path uses, for the same reason.
+      if (method !== 'GET') notify(resourcesFor(path))
+      return applied
+    }
     console.warn(`[DEMO MODE] stubbed ${method} ${path} — no network call`)
     return { id: `demo-${Date.now()}` }
   }
@@ -33,6 +44,10 @@ async function call(method: string, path: string, body?: unknown): Promise<unkno
   // hadas-api reports failures as { error: string }; fall back to the status when
   // the body is empty or shaped differently.
   if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`)
+  // Announce the write. Every hook reading a touched resource reloads, so a change
+  // made on one screen is true on all of them — the difference between a system
+  // with one source of truth and several screens that each remember something.
+  if (method !== 'GET') notify(resourcesFor(path))
   return data
 }
 
@@ -84,4 +99,62 @@ export async function captureDocument(input: {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`)
   return data as CaptureResult
+}
+
+
+/** One handwritten line as the reader returned it. */
+export interface HandwrittenLine {
+  item: string
+  quantity: string
+  /**
+   * Cost price as written, or '' when the sheet carries none.
+   *
+   * Recording it is safe because a delivery's amount never reaches the ledger —
+   * buildLedger reads invoices and payments only. What it buys is the comparison
+   * at approval: goods against bill, which is that screen's whole job.
+   */
+  price: string
+  /** The model's own doubt about THIS line. Marked, never dropped. */
+  uncertain: boolean
+}
+
+/**
+ * Read a handwritten goods sheet. Returns what it read and files NOTHING.
+ *
+ * Handwriting is the one input where the machine is least certain and the person
+ * standing there is most certain, so the model proposes and she confirms. The
+ * delivery is then created through the ordinary `POST /delivery-notes`, which is
+ * why a sheet-captured delivery needs no special case anywhere downstream.
+ */
+export async function readHandwrittenSheet(input: {
+  imageBase64: string
+  mimeType: string
+  capturedBy?: string
+}): Promise<{ lines: HandwrittenLine[]; storageUrl: string | null }> {
+  if (DEMO_MODE) {
+    // A fixed answer, and honestly labelled: the demo has no model behind it, and
+    // pretending to read the photo would teach that the reading is trustworthy
+    // without ever having tested it.
+    console.warn('[DEMO MODE] stubbed readHandwrittenSheet — no network call')
+    return {
+      lines: [
+        { item: 'חלב 3% ארגז', quantity: '2', price: '128.5', uncertain: false },
+        { item: 'קוטג׳ ארגז',  quantity: '1', price: '96',    uncertain: false },
+        { item: 'ביצים מגש',   quantity: '4', price: '',      uncertain: true  },
+      ],
+      storageUrl: null,
+    }
+  }
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) throw new Error('לא מחוברת — יש להתחבר מחדש כדי לבצע את הפעולה')
+  const res = await fetch(INGEST_BASE, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body:    JSON.stringify({ source: 'handwritten', ...input }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`)
+  const out = data as { lines?: HandwrittenLine[]; storageUrl?: string | null }
+  return { lines: out.lines ?? [], storageUrl: out.storageUrl ?? null }
 }

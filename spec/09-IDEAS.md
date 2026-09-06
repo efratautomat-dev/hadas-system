@@ -233,3 +233,46 @@ pipeline or on the status re-spec. It can be built whenever the owner wants it.
 - Whether an approved-then-regretted invoice can be un-approved.
 
 **Owner: to be specified together before any implementation.**
+
+---
+
+## 11. Alerts are DELETED, so the trail of what ingest failed on is gone (raised by the owner 2026-08-23)
+
+**How it surfaced.** Recovering the delivery notes that failed extraction, the
+plan was to identify them from their alerts — the parked-failure alert carries
+`payload.gmailMessageId`, the subject and `lastError`, and `lastError` literally
+reads `extractDeliveryNote failed after retry`. That query returned **nothing**.
+The rows had been deleted. Meanwhile 27 delivery notes that DID ingest were
+sitting in the table unseen since **2022-12-06**, so the failures they were
+mixed in with are not recent either.
+
+**The problem.** An alert is the only record that ingest ever tried and failed
+on a given email. Deleting it destroys:
+- which emails were parked, and why (`lastError`)
+- the `gmailMessageId` needed to re-queue them
+- any way to measure how long a class of failure has been running
+
+The row is also the cheapest audit the system has — a few hundred bytes.
+
+**The owner's proposal:** *don't delete — mark as not-viewed / dismissed.* An
+alert leaves the queue when it is handled, but the row survives.
+
+**What exists today.** `alerts` already has `status` (`unread` / `read` /
+`resolved`) plus a legacy `resolved` boolean, and `useAlerts` exposes
+`markRead` / `markResolved` **and** `remove` (a hard `delete`). `hadas-api`
+also deletes alerts outright when an invoice is deleted
+(`hadas-api/index.ts:436`). So the soft path is already built; deletion is a
+second, destructive path beside it.
+
+**To decide before implementing:**
+1. Does `remove` become a status write (`dismissed`), or does it stay and only
+   get hidden behind a confirmation?
+2. What happens to the sibling-alert deletion when an invoice is rejected —
+   there the alert points at a row that no longer exists.
+3. Does the alerts screen need a "show dismissed" view, or is the history for
+   queries only?
+4. Retention — do dismissed alerts age out, and after how long?
+
+**Related:** §10 below/above (the same class of loss: a non-invoice failure
+reported as an invoice failure, which is what made these unfindable by type in
+the first place — fixed 2026-08-23, alerts are now typed per document).

@@ -42,6 +42,8 @@ export interface Invoice {
    * omit it.
    */
   awaitingApproval?: boolean
+  /** Pipeline approval into the ledger (§6.e). Null/absent = not approved yet. */
+  ledgerApprovedAt?: string | null
   /**
    * A remark about THIS invoice (DB: notes). Same shape as a statement's
    * resolution_notes: one field, edited where the row is edited. Collected
@@ -297,12 +299,66 @@ export interface DeliveryNote {
   linkedInvoiceId?: string
   notes?: string
   driveFileLink?: string
+  /**
+   * Storage PATH (not a URL) of the source document.
+   *
+   * Ingested delivery notes are deliberately NOT filed to Drive, so they carry
+   * `drive_file_link: null` and only this. It was never mapped to the frontend,
+   * which is why every screen that keyed on driveFileLink showed no document for
+   * exactly the notes that came in by email — the majority of them.
+   *
+   * Needs a signed URL before it can be displayed.
+   */
+  storageUrl?: string
   // 'email' = arrived by email (has gmail_message_id); 'manual' = goods receipt
   // entered by hand. Derived in useDeliveryNotes; splits the two views.
   source?: 'email' | 'manual'
   lineItems?: string  // free-text item list (goods receipt / AI-parsed)
   noteNumber?: string // supplier delivery-note number (email notes); blank for manual
   employeeId?: string // who received the goods (manual receipt) — delivery_notes.employee_id
+  /**
+   * The goods pipeline's state machine (spec ch. 6):
+   *   סחורה → חשבונית → אישור → בכרטסת
+   * This is the truth about where a delivery stands. `status` above is the legacy
+   * five-value vocabulary, still written as a mirror while screens migrate — it is
+   * NOT the state, and new code should read `stage`.
+   */
+  stage?: PipelineStage
+  /** How the row came to exist. Recorded now rather than derived, so a typed
+   *  receipt and a photographed one are distinguishable (§6.5). */
+  /**
+   * Which door this row came through.
+   *
+   * `order` and `invoice` are rows the pipeline opened ITSELF — one when an order
+   * was placed, one when an invoice arrived before its goods. Neither describes a
+   * delivery that happened, and naming the door is what keeps them from being read
+   * as one (their `note_number` is empty for the same reason).
+   */
+  intakeSource?: 'email' | 'manual' | 'photo' | 'order' | 'invoice'
+  /**
+   * Another delivery a PERSON confirmed is a different shipment, despite looking
+   * like a duplicate. Set only by answering "keep both" — never inferred.
+   */
+  pairedNoteId?: string | null
+}
+
+/** The four pipeline states. Mirrors delivery_notes_stage_check in the DB. */
+export type PipelineStage = 'awaiting_goods' | 'awaiting_invoice' | 'awaiting_approval' | 'in_ledger'
+
+/**
+ * An invoice the system SUGGESTS for a delivery note. Returned ranked by
+ * `GET /delivery-notes/:id/candidates`; a person still confirms (§6.f).
+ */
+export interface InvoiceCandidate {
+  invoice_id: string
+  invoice_number: string | null
+  invoice_date: string | null
+  total_amount: number | null
+  /** The invoice is already in the ledger — attaching adds this note to it directly. */
+  already_in_ledger: boolean
+  /** Days between the note's date and the invoice's; null when either is missing. */
+  day_gap: number | null
+  amount_match: boolean
 }
 
 export const mockDeliveryNotes: DeliveryNote[] = [
@@ -325,7 +381,18 @@ export const mockVendorStatements: { id: string; supplier_id: string; status: Ve
   { id: 'VS-003', supplier_id: 'SUP-003', status: 'pending' },
 ]
 
-export type AlertType = 'duplicate_invoice' | 'delivery_note' | 'statement_mismatch'
+/**
+ * `alerts.type` is FREE TEXT written by the edge functions, and the list grows every
+ * time an ingest rule is added — there are ~20 live values today. The union here used
+ * to name three of them, which made `useAlerts` cast blindly past it and made the type
+ * a claim the data does not honour.
+ *
+ * Per-type behaviour (label, icon, color, filter bucket) belongs to ALERT_TYPE_CONFIG
+ * in `components/Alerts.tsx`, which carries a gray + raw-label fallback for anything it
+ * does not know — the same rule `spec/06-RULES.md §1` makes mandatory for StatusBadge.
+ * That is the single place to register a new type; nothing needs changing here.
+ */
+export type AlertType = string
 export type AlertStatus = 'new' | 'read' | 'resolved'
 
 export interface Alert {

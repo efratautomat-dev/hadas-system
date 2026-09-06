@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/check-twins.mjs && tsc -b && vite build",
+    "build:demo": "node scripts/check-twins.mjs && tsc -b && vite build --mode demo --outDir dist-demo",
+    "deploy": "node scripts/deploy.mjs",
+    "deploy:demo": "node scripts/deploy.mjs --only=demo",
+    "deploy:vercel": "node scripts/deploy.mjs --only=vercel",
     "lint": "node scripts/check-twins.mjs && eslint .",
     "check:twins": "node scripts/check-twins.mjs",
     "preview": "vite preview"

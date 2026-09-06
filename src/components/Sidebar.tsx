@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { brand } from '../brand.config'
+import { tierAllows } from '../lib/tiers'
 import {
   LayoutDashboard,
   Users,
@@ -16,6 +17,7 @@ import {
   Bell,
   ScrollText,
   Camera,
+  Plug,
 } from 'lucide-react'
 
 function useIsTablet() {
@@ -39,6 +41,13 @@ interface SidebarProps {
   userEmail: string
   mobileStyle?: React.CSSProperties
   newAlertsCount?: number
+  /**
+   * Rows sitting at "ממתין לאישור" — goods and an invoice attached, waiting for a
+   * person to confirm they match. It is the only pipeline state that is a TASK, so
+   * it earns the same mark alerts already carry: work you have not done should be
+   * visible from wherever you are, not only once you open the screen.
+   */
+  pendingApprovalCount?: number
 }
 
 const navItems = [
@@ -49,9 +58,10 @@ const navItems = [
   { id: 'ledger',    label: 'כרטסת ספק', Icon: Receipt },
   { id: 'invoices',  label: 'חשבוניות', Icon: FileText },
   { id: 'payments', label: 'תשלומים', Icon: CreditCard },
-  { id: 'deliveries', label: 'תעודות משלוח', Icon: Truck },
+  { id: 'deliveries', label: 'מעקב הזמנות וסחורה', Icon: Truck },
   { id: 'returns', label: 'חזרות', Icon: RotateCcw },
   { id: 'reconciliation', label: 'התאמת כרטסות', Icon: BookOpen },
+  { id: 'integrations',   label: 'אינטגרציות',    Icon: Plug },
   { id: 'system-logs',    label: 'לוגי מערכת',    Icon: ScrollText },
   { id: 'settings',       label: 'הגדרות',        Icon: Settings },
 ]
@@ -65,6 +75,7 @@ export default function Sidebar({
   userEmail,
   mobileStyle,
   newAlertsCount = 0,
+  pendingApprovalCount = 0,
 }: SidebarProps) {
   const isTablet = useIsTablet()
   const collapsed = isCollapsed
@@ -160,7 +171,9 @@ export default function Sidebar({
 
       {/* Navigation */}
       <nav className="flex-1 py-3 px-2 overflow-y-auto overflow-x-hidden">
-        {navItems.map(({ id, label, Icon }) => {
+        {/* Only the screens the viewer's product tier includes. One list, one
+            filter — the tier catalogue in src/lib/tiers.ts decides. */}
+        {navItems.filter(({ id }) => tierAllows(id)).map(({ id, label, Icon }) => {
           const isActive = activePage === id
           return (
             <button
@@ -200,13 +213,20 @@ export default function Sidebar({
                   >
                     {label}
                   </span>
-                  {id === 'alerts' && newAlertsCount > 0 && (
+                  {(() => {
+                    const n = id === 'alerts' ? newAlertsCount
+                      : id === 'deliveries' ? pendingApprovalCount : 0
+                    return n > 0 ? (
                     <span
                       style={{
                         minWidth: '20px',
                         height: '20px',
                         borderRadius: '10px',
-                        background: '#DC2626',
+                        // Alerts are red because something went wrong. Approvals
+                        // are orange because nothing did — a person is simply
+                        // needed. Same shape, different urgency, and using red for
+                        // both is how red stops meaning anything.
+                        background: id === 'alerts' ? '#DC2626' : '#C2410C',
                         color: 'white',
                         fontSize: '11px',
                         fontWeight: 700,
@@ -216,9 +236,10 @@ export default function Sidebar({
                         padding: '0 5px',
                       }}
                     >
-                      {newAlertsCount}
+                      {n}
                     </span>
-                  )}
+                    ) : null
+                  })()}
                 </div>
               )}
               <div style={{ position: 'relative', flexShrink: 0 }}>

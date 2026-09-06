@@ -2,7 +2,21 @@ import { useState, useEffect } from 'react'
 import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import CaptureDocument from '../CaptureDocument'
+import OrdersRail from '../pipeline/OrdersRail'
+import CustomerOrdersBook from '../pipeline/CustomerOrdersBook'
+import { FilterTabs } from '../ui/FilterTabs'
+import { useOrders, type ArrivalCandidate } from '../../hooks/useOrders'
+import ArrivalChoice from '../pipeline/ArrivalChoice'
+import DeliveryPage from '../pipeline/DeliveryPage'
+import SupplierPicker from '../pipeline/SupplierPicker'
+import { useIsWide } from '../../hooks/useIsWide'
+import { useDeliveryLinks } from '../../hooks/useDeliveryLinks'
+import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
+import { supplierAttention, ATTENTION_COLOR } from '../../lib/supplierAttention'
+import { pendingPairCount, pendingPairFor } from '../../lib/deliveryPairs'
+import { useInvoices } from '../../hooks/useInvoices'
 import { useSuppliers } from '../../hooks/useSuppliers'
+import { tierAllows } from '../../lib/tiers'
 import EmployeeSupplierView, { type EmployeeSection } from './EmployeeSupplierView'
 
 // Time-based greeting WITHOUT a name (managers' header says "בוקר טוב הדס";
@@ -26,15 +40,63 @@ interface Props {
 // The three sections an employee can drill into. Order matches the cards below.
 const SECTION_CARDS: { key: EmployeeSection; label: string; Icon: typeof FileText }[] = [
   { key: 'invoices',   label: 'חשבוניות',     Icon: FileText },
-  { key: 'deliveries', label: 'תעודות משלוח', Icon: Truck },
+  { key: 'deliveries', label: 'הזמנות וסחורה', Icon: Truck },
   { key: 'returns',    label: 'חזרות',        Icon: RotateCcw },
 ]
 
 export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const { data: suppliers } = useSuppliers()
+  const { data: orders, markArrived, setCustomerStatus } = useOrders()
+  // Cards ⇄ notebook. Two ways of reading the same orders: the board is what
+  // you glance at mid-task, the notebook is what you search when a customer
+  // calls. Neither replaces the other, so it is a tab and not a setting.
+  const [board, setBoard] = useState<'cards' | 'book'>('cards')
+  // A document open below means the rail gives up its column.
+  const [fullPage, setFullPage] = useState(false)
+  // The employee hits this more often than the manager does: the note is almost
+  // always already in the inbox by the time the goods reach the counter.
+  const [arrival, setArrival] = useState<
+    { orderId: string; partial: boolean; candidates: ArrivalCandidate[] } | null
+  >(null)
+
+  // The SAME panel the manager opens. The role difference is which props are
+  // passed, not which component renders: no onDismantle here, and the amounts are
+  // already NULL because the masking view decided that long before this screen.
+  const { data: allNotes, link, unlink, candidates, reassignSupplier, resolvePair, reload: reloadNotes } = useDeliveryNotes()
+  const { data: allInv, ledgerApprove } = useInvoices()
+  const [openNoteId, setOpenNoteId] = useState<string | null>(null)
+  // The delivery page's two-pane threshold (1100) is NOT the board's (1024):
+  // one asks "can a document and its details sit side by side", the other "is
+  // there a spare column for the orders rail". Different questions, so different
+  // numbers, and naming them apart keeps a later edit from collapsing them.
+  const isDocWide = useIsWide()
+  const { invoicesFor } = useDeliveryLinks()
+  const [reassign, setReassign] = useState<string | null>(null)
+  const openNote = allNotes.find(n => n.id === openNoteId)
+
+  const arrive = async (id: string, partial: boolean, choice?: { adopt?: string; forceNew?: boolean }) => {
+    const res = await markArrived(id, partial, choice)
+    if (res.needsChoice) { setArrival({ orderId: id, partial, candidates: res.candidates ?? [] }); return }
+    setArrival(null)
+    // Same as the manager's board: arrival opens the chain rather than leaving the
+    // employee to go looking for what the order became.
+    if (res.deliveryNoteId) { await reloadNotes(); setOpenNoteId(res.deliveryNoteId) }
+  }
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
   const [activeSection, setActiveSection] = useState<EmployeeSection>('invoices')
   const [showCapture, setShowCapture] = useState(false)
+  // The board only gets its own column when there is width to give it.
+  const [isWide, setIsWide] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= 1024,
+  )
+  useEffect(() => {
+    const h = () => setIsWide(window.innerWidth >= 1024)
+    window.addEventListener('resize', h)
+    return () => window.removeEventListener('resize', h)
+  }, [])
+
+  // Arrived orders leave the board — it shows what is still on its way.
+  const openOrders = orders.filter(o => o.status !== 'order_arrived')
 
   // Browser back/forward across employee sections (flat set, no stack).
   const go = (section: EmployeeSection) => { setActiveSection(section); history.pushState({ section }, '') }
@@ -46,6 +108,54 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   }, [])
 
   const selectedSupplier = suppliers.find(s => s.id === selectedSupplierId) ?? null
+
+  // The delivery opens as a PAGE for the employee too — same component, same
+  // layout, fewer props. Comparing two documents needs the width whoever is doing
+  // it, and handing her a cramped dialog for the job the manager gets a page for
+  // is exactly the split that "identical but for permissions" forbids.
+  //
+  // Kept inside the shell: the header carries the logout and the role switcher,
+  // and a page that drops them strands her.
+  if (openNote) {
+    return (
+      <div className="min-h-screen" style={{ background: '#F8F8FA', direction: 'rtl' }}>
+        <header
+          className="sticky top-0 z-40 flex items-center"
+          style={{ height: '60px', padding: '0 16px', background: ACCENT, color: 'white' }}
+        >
+          <span className="font-semibold" style={{ fontSize: '16px' }}>הזמנות וסחורה</span>
+        </header>
+        <main style={{ padding: '20px 16px', margin: '0 auto', maxWidth: '1420px' }}>
+          <DeliveryPage
+            note={openNote}
+            stage={openNote.stage ?? 'awaiting_invoice'}
+            order="none"
+            linked={invoicesFor(openNote.id).map(id => allInv.find(i => i.id === id)).filter(Boolean) as typeof allInv}
+            invoices={allInv}
+            isWide={isDocWide}
+            onBack={() => setOpenNoteId(null)}
+            customerOrders={orders.filter(o => o.deliveryNoteId === openNote.id && !!o.customerName)}
+            onSetCustomerStatus={setCustomerStatus}
+            onLoadCandidates={candidates}
+            onLink={async (id, invoiceId) => { await link(id, invoiceId); await reloadNotes() }}
+            onUnlink={async (id, invoiceId) => { await unlink(id, invoiceId); await reloadNotes() }}
+            onApprove={async invoiceId => { const n = await ledgerApprove(invoiceId); await reloadNotes(); return n }}
+            onChangeSupplier={() => setReassign(openNote.id)}
+            pendingPair={pendingPairFor(openNote, allNotes)}
+            onResolvePair={async (arrivedId, action) => { await resolvePair(openNote.id, arrivedId, action) }}
+          />
+          {reassign && (
+            <SupplierPicker
+              current={openNote.supplierId ?? ''}
+              suppliers={suppliers.map(s => ({ id: s.id, name: s.name, hp: (s as { hp?: string }).hp }))}
+              onClose={() => setReassign(null)}
+              onPick={async supplierId => { await reassignSupplier(reassign, supplierId); setReassign(null) }}
+            />
+          )}
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen" style={{ background: '#F8F8FA', direction: 'rtl' }}>
@@ -78,8 +188,55 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
         </button>
       </header>
 
-      {/* ── Content ── */}
-      <main style={{ padding: '20px 16px', maxWidth: '1000px', margin: '0 auto' }}>
+      {/* ── Content ──
+          Two columns from 1024px up: the screen keeps its 1000px column on the
+          RIGHT (first child in RTL) and the orders board takes the space that was
+          empty to its LEFT. Below that width the board drops underneath rather
+          than disappearing — on a phone there is no width to give it, and the
+          same rule the supplier notes panel follows. */}
+      <main
+        style={{
+          padding: '20px 16px', margin: '0 auto', maxWidth: '1420px',
+          display: 'grid', gap: '20px', alignItems: 'start',
+          // RTL: the FIRST track is the right-hand one. The screen keeps its own
+          // column there; the board takes the narrow track on the left.
+          gridTemplateColumns: isWide && !fullPage ? 'minmax(0, 1000px) minmax(0, 320px)' : '1fr',
+        }}
+      >
+        {/* LEFT in RTL — declared last so the reading order stays screen-first. */}
+        {/* Hidden outright rather than shrunk: a board with no width is not a
+            smaller board, it is a column of clipped text. */}
+        {!fullPage && (
+        <div style={{ order: isWide ? 2 : 1 }}>
+          <FilterTabs
+            tabs={[
+              { key: 'cards' as const, label: 'הזמנות בדרך', count: openOrders.length },
+              // Delivered orders are gone from her board, so counting them here
+              // would advertise lines she cannot see.
+              { key: 'book'  as const, label: 'מחברת לקוחות', count: orders.filter(o => o.customerName && o.customerStatus !== 'customer_delivered').length },
+            ]}
+            value={board}
+            onChange={setBoard}
+            style={{ marginBottom: '12px' }}
+          />
+          {board === 'cards' ? (
+            <OrdersRail
+              orders={openOrders}
+              onArrived={id => arrive(id, false)}
+              onArrivedPartial={id => arrive(id, true)}
+            />
+          ) : (
+            <CustomerOrdersBook
+              orders={orders}
+              onOpen={setOpenNoteId}
+              onSetStatus={setCustomerStatus}
+              delivered="hide"
+            />
+          )}
+        </div>
+        )}
+
+        <div style={{ order: isWide ? 1 : 2, minWidth: 0 }}>
         {/* Prominent standalone capture button (below header, visual left in RTL) */}
         <div className="flex mb-5" style={{ justifyContent: 'flex-end' }}>
           <button
@@ -102,7 +259,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             </div>
             <div className="text-right">
               <h1 className="font-bold text-gray-800" style={{ fontSize: '17px' }}>חיפוש ספק</h1>
-              <p className="text-gray-400" style={{ fontSize: '13px' }}>בחרי ספק כדי לצפות בחשבוניות, תעודות משלוח, חזרות ופרטי קשר</p>
+              <p className="text-gray-400" style={{ fontSize: '13px' }}>בחרי ספק כדי לצפות בחשבוניות, בהזמנות ובסחורה, בחזרות ובפרטי קשר</p>
             </div>
           </div>
           <SearchableSelect
@@ -110,17 +267,26 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             onChange={(v) => { setSelectedSupplierId(v); go('invoices') }}
             placeholder="— חיפוש לפי שם ספק או ח.פ —"
             allowClear
-            options={suppliers.map(s => ({
-              value: s.id,
-              label: s.name,
-              keywords: (s as { hp?: string }).hp,
-            }))}
+            options={suppliers.map(s => {
+              // Derived from STAGES only — how many and at which step, never how
+              // much. Safe on a screen where every amount is masked.
+              const mine = allNotes.filter(n => n.supplierId === s.id)
+              const a = supplierAttention(mine.map(n => n.stage), pendingPairCount(mine))
+              return {
+                value: s.id,
+                label: s.name,
+                keywords: (s as { hp?: string }).hp,
+                dot: { color: ATTENTION_COLOR[a.level], title: a.label },
+              }
+            })}
           />
         </div>
 
         {/* Section cards */}
         <div className="grid grid-cols-3 gap-3 mb-5">
-          {SECTION_CARDS.map(({ key, label, Icon }) => {
+          {/* Same tier rule as the manager nav — an employee on a basic-tier
+              account has no deliveries or returns to open either. */}
+          {SECTION_CARDS.filter(({ key }) => tierAllows(key)).map(({ key, label, Icon }) => {
             const active = !!selectedSupplier && activeSection === key
             const enabled = !!selectedSupplier
             return (
@@ -160,6 +326,9 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             <EmployeeSupplierView
               supplier={selectedSupplier}
               activeSection={activeSection}
+            onOpenPipeline={setOpenNoteId}
+            userEmail={userEmail}
+            onFullPage={setFullPage}
             />
           </div>
         ) : (
@@ -174,6 +343,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             <p className="text-gray-400 mt-1" style={{ fontSize: '14px' }}>כל המידע שיוצג שייך לספק שתבחרי בלבד</p>
           </div>
         )}
+        </div>
       </main>
 
       {/* ── Capture overlay (reuses the existing CaptureDocument flow) ── */}
@@ -200,6 +370,17 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+
+      {arrival && (
+        <ArrivalChoice
+          supplierName={orders.find(o => o.id === arrival.orderId)?.supplierName ?? ''}
+          candidates={arrival.candidates}
+          onClose={() => setArrival(null)}
+          onPick={async id => { await arrive(arrival.orderId, arrival.partial, { adopt: id }) }}
+          onNew={async () => { await arrive(arrival.orderId, arrival.partial, { forceNew: true }) }}
+        />
       )}
     </div>
   )

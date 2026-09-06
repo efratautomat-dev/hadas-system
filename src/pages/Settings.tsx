@@ -4,6 +4,7 @@ import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
 import { useCategories } from '../hooks/useCategories'
 import { supabase } from '../lib/supabase'
+import { tierAllowsIntegrations } from '../lib/tiers'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { Button } from '../components/ui/Button'
 // Shared with the supplier form so the two screens stay visually identical.
@@ -1245,7 +1246,9 @@ export default function Settings() {
         className="flex bg-white rounded-2xl shadow-sm border overflow-hidden"
         style={{ borderColor: '#E2E4E9' }}
       >
-        {TABS.map(({ id, label, Icon }) => (
+        {/* Bizibox export is one of the integrations the top tier sells, so the
+            tab follows the same catalogue as the rest of the app. */}
+        {TABS.filter(({ id }) => id !== 'bizbox' || tierAllowsIntegrations()).map(({ id, label, Icon }) => (
           <button
             key={id}
             onClick={() => setActiveTab(id)}

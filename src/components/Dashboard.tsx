@@ -1,4 +1,5 @@
 import { Users, FileText, TrendingUp, AlertCircle, Package, AlertTriangle, Bell, Camera } from 'lucide-react'
+import ParkedDocuments from './ParkedDocuments'
 import { useInvoices } from '../hooks/useInvoices'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { usePayments } from '../hooks/usePayments'
@@ -8,6 +9,7 @@ import { useStatements } from '../hooks/useStatements'
 import { resolveAlertDestination, getAlertTypeConf } from './Alerts'
 import type { Alert } from '../data/mockData'
 import { brand } from '../brand.config'
+import { tierAllows } from '../lib/tiers'
 import { STATUS } from '../theme/status'
 import { deriveInvoiceStatus, STATUS_WAITING } from '../lib/invoiceStatus'
 
@@ -92,10 +94,10 @@ function StatCard({ title, value, sub, icon, iconBg, iconColor, subColor, loadin
 
 function getGreeting(): string {
   const hour = new Date().getHours()
-  if (hour >= 5 && hour < 12) return `בוקר טוב ${brand.appName}`
-  if (hour >= 12 && hour < 17) return `צהריים טובים ${brand.appName}`
-  if (hour >= 17 && hour < 21) return `ערב טוב ${brand.appName}`
-  return `לילה טוב ${brand.appName}`
+  if (hour >= 5 && hour < 12) return `בוקר טוב ${brand.greetingName}`
+  if (hour >= 12 && hour < 17) return `צהריים טובים ${brand.greetingName}`
+  if (hour >= 17 && hour < 21) return `ערב טוב ${brand.greetingName}`
+  return `לילה טוב ${brand.greetingName}`
 }
 
 interface DashboardProps {
@@ -171,6 +173,11 @@ export default function Dashboard({
 
   return (
     <div className="space-y-6">
+      {/* Above everything, and silent at zero: a parked document is the one
+          failure the system could not report on itself, and the dashboard read as
+          healthy while it sat there. */}
+      <ParkedDocuments />
+
       {/* Greeting (right in RTL) + prominent capture shortcut (left in RTL).
           Opens the same CaptureDocument screen the sidebar links to. */}
       <div className="flex items-start justify-between gap-3">
@@ -227,7 +234,9 @@ export default function Dashboard({
       )}
 
       {/* Mismatch alert */}
-      {!stmtLoading && mismatchCount > 0 && (
+      {/* Points at statement reconciliation — a screen the lower tiers do not
+          include, so the banner that advertises it goes with it. */}
+      {tierAllows('reconciliation') && !stmtLoading && mismatchCount > 0 && (
         <div
           className="rounded-2xl border cursor-pointer transition-all"
           style={{ borderColor: '#F3D3D3', background: '#FEF7F7', boxShadow: CARD_SHADOW, position: 'relative', overflow: 'hidden', direction: 'rtl' }}
@@ -268,12 +277,18 @@ export default function Dashboard({
         <StatCard title="חשבוניות ממתינות" value={statsLoading ? '...' : String(pendingInvoices)} sub="4 דחופות לטיפול"
           icon={<FileText className="w-5 h-5" />} iconBg={STATUS.yellow.bg} iconColor={STATUS.yellow.fg} subColor={STATUS.yellow.fg} loading={statsLoading}
           onClick={() => onPageChange?.('invoices')} />
+        {/* A tile that opens a screen the viewer's tier does not include would
+            advertise a feature they cannot reach — so the tile goes with it. */}
+        {tierAllows('payments') && (
         <StatCard title="תשלומים החודש" value={statsLoading ? '...' : formatILS(monthlyPayments)} sub="+12% מחודש קודם"
           icon={<TrendingUp className="w-5 h-5" />} iconBg={STATUS.green.bg} iconColor={STATUS.green.fg} subColor={STATUS.green.fg} loading={statsLoading}
           onClick={() => onPageChange?.('payments')} />
+        )}
+        {tierAllows('returns') && (
         <StatCard title="חזרות פתוחות" value={statsLoading ? '...' : String(openReturns)} sub="דורש טיפול דחוף"
           icon={<AlertCircle className="w-5 h-5" />} iconBg={STATUS.red.bg} iconColor={STATUS.red.fg} subColor={STATUS.red.fg} loading={statsLoading}
           onClick={() => onPageChange?.('returns')} />
+        )}
       </div>
 
       {/* Recent Alerts card */}
@@ -451,7 +466,9 @@ export default function Dashboard({
 
         {/* Right column */}
         <div className="flex flex-col gap-6">
-          {/* Upcoming Payments */}
+          {/* Upcoming Payments. Whole panels, not just tiles: a basic-tier
+              viewer has no payments or deliveries screen to open from them. */}
+          {tierAllows('payments') && (
           <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
             <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: '#EEEEF2', direction: 'rtl' }}>
               <div className="flex items-center gap-2">
@@ -514,14 +531,16 @@ export default function Dashboard({
               </div>
             )}
           </div>
+          )}
 
           {/* Recent Deliveries */}
+          {tierAllows('deliveries') && (
           <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
             <div className="px-5 py-4 border-b" style={{ borderColor: '#EEEEF2', direction: 'rtl' }}>
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <Package className="w-4 h-4 text-gray-400" />
-                  <h2 className="font-semibold text-gray-800 text-sm">תעודות משלוח</h2>
+                  <h2 className="font-semibold text-gray-800 text-sm">הזמנות וסחורה</h2>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {!dnLoading && pendingDeliveryCount > 0 && (
@@ -581,6 +600,7 @@ export default function Dashboard({
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
     </div>

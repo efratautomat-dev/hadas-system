@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { isoToDisplay } from '../lib/dates'
+import { subscribe } from '../lib/dataBus'
 
 export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
 
@@ -92,6 +93,9 @@ export function useReturns() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+
+  useEffect(() => subscribe(['returns'], load), [load])
 
   const create = async (body: Omit<ReturnEntry, 'id'>) => {
     // Strip display-only fields before sending to API

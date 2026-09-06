@@ -142,6 +142,50 @@ Response shape:
 
 ---
 
+## Recovery: re-queueing parked emails
+
+An email that fails extraction `MAX_INGEST_ATTEMPTS` times is **parked** — it gets the
+`פענוח נכשל` label, which the routine query excludes, and an alert is raised.
+
+**Removing that label by hand does not bring it back**, for two reasons that are easy
+to miss:
+
+1. The routine query is `newer_than:14d`. Once a parked email ages past 14 days it is
+   outside the query no matter what labels it carries.
+2. `ingest_failures.attempts` is never reset. The email returns at the cap, so the
+   next failure parks it again on the **first** try instead of giving it a fresh
+   budget.
+
+The supported recovery is a POST with `source: "requeue"`. It sweeps emails carrying
+**both** the source label and `פענוח נכשל`, looking back `REQUEUE_LOOKBACK_DAYS`
+(**120**), clears their failure counters, removes the label, and runs them through the
+normal pipeline.
+
+```bash
+curl -X POST \
+  -H "x-hadas-key: $HADAS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"source":"requeue"}' \
+  https://jcwphkuwwuxvjibmvgdh.supabase.co/functions/v1/invoices-ingest
+```
+
+Optional `{"source":"requeue","days":30}` narrows the window.
+
+Capped at `REQUEUE_MAX_MESSAGES` (**50**) per call, and **idempotent**: anything that
+succeeds takes the processed label and drops out of the query, so calling again picks
+up the next batch. The response carries `requeued` — how many parked emails the run
+put back:
+
+```json
+{ "processed": 12, "alerts": 0, "skipped": 1, "errors": [], "requeued": 13, "ts": "…" }
+```
+
+⚠️ This deliberately does **not** widen the routine 14-day window. That window exists
+so a fresh deploy does not chew through (and re-bill for) every historical email under
+the source label; the recovery sweep is bounded to emails already known to have failed.
+
+---
+
 ## Observability
 
 All function actions write to the `system_logs` table with `source = 'invoices-ingest'`. The **לוגי מערכת** page in the UI (sidebar) is a filterable viewer for that table. Auto-refreshes every 30 seconds.
@@ -182,6 +226,31 @@ Budgets: **2048** tokens on the first attempt, **3072** on the retry. This is th
 **Reconciliation** runs only when the supplier *and* the closing balance are both known. It loads that supplier's invoices, payments and `opening_balance` and calls `buildLedger` from `../_shared/ledgerEngine.ts` — the byte-locked twin of `src/lib/ledgerEngine.ts`, so the server and the screen cannot disagree (`spec/06-RULES.md §9`). `status` is `matched` when the difference is **exactly zero** (no tolerance band) and `mismatch` otherwise; a mismatch raises a `statement_mismatch` alert carrying `statementId` for UI routing. If either side is missing, the row stays `needs_review` with no alert — there is nothing to compare. `our_balance` / `diff` are written as a **record of the filing date only**; nothing reads them back, every screen recomputes live.
 
 `month` now takes the statement's **own** period when the document states one, falling back to the email-received month only when it doesn't (a June כרטסת routinely arrives in July).
+
+---
+
+## Delivery notes (תעודת משלוח)
+
+**Extraction budget: `EXTRACTION_MAX_TOKENS` (8192), same as an invoice.** It used to
+be **1024** on both the first attempt and the retry, and that is the same failure the
+כרטסת section above records: `line_items` is an **unbounded array** and a delivery note
+is precisely the document that lists every item, so the reply was cut mid-array,
+`parseJsonRobust` found no closing `}`, the retry reused the same ceiling and failed
+identically, and the note was parked. `max_tokens` is a ceiling and billing is on
+tokens actually produced, so raising it is not a cost increase.
+
+Two consequences that made this hard to see from the outside:
+
+- The parked-failure alert was hard-coded to the **invoice** wording, so a failed
+  delivery note reached the owner as `פענוח חשבונית נכשל`. It now selects the alert by
+  document type (`FAILED_ALERT`), giving `delivery_note_ingest_failed` and its כרטסת /
+  זיכוי siblings. Same defect `spec/09-IDEAS.md §10` records for statements.
+- Notes that DID ingest were written with `status = 'pending_match'`, which the
+  delivery-notes screen bucketed as *archived* and hid by default — so the successes
+  were invisible too.
+
+Delivery notes are **not filed to Drive**, by design: `driveUploadFile` has exactly one
+call site, the invoice path. The file lives in Storage and is reachable by signed URL.
 
 ---
 

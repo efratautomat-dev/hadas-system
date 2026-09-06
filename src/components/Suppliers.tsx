@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, ChevronRight, X, LayoutGrid, Table2, AlertTriangle, GitMerge, ArrowRightLeft } from 'lucide-react'
+import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
+import { supplierAttention, ATTENTION_COLOR } from '../lib/supplierAttention'
+import { pendingPairCount } from '../lib/deliveryPairs'
 import { useSuppliers, type MergePreview, type MergeResult } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
 import { STATUS } from '../theme/status'
@@ -8,6 +11,7 @@ import { Button } from './ui/Button'
 import { SummaryCards } from './ui/SummaryCards'
 // Same primitives as the categories form in Settings — shared, not copied.
 import { SectionCard, Field, FieldRow, TextInput, Select, Textarea } from './ui/form'
+import { FilterTabs } from './ui/FilterTabs'
 
 // Active/inactive uses the FIXED functional tokens (green = active, gray = inactive),
 // never the brand palette — so the state reads the same after any reskin.
@@ -341,6 +345,7 @@ interface SuppliersProps {
   onOpenDetail?: (id: string) => void
   onCloseDetail?: () => void
   onOpenInvoice?: (invoiceId: string) => void
+  onOpenDelivery?: (deliveryNoteId: string) => void
   prefillForAlert?: AlertPrefill | null
   onAlertSupplierCreated?: (supplierId: string, alertId: string, payload: Record<string, unknown>) => Promise<void>
   onCancelAlertPrefill?: () => void
@@ -354,6 +359,7 @@ export default function Suppliers({
   onOpenDetail,
   onCloseDetail,
   onOpenInvoice,
+  onOpenDelivery,
   prefillForAlert,
   onAlertSupplierCreated,
   onCancelAlertPrefill,
@@ -434,6 +440,7 @@ export default function Suppliers({
           onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
           onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
           onOpenInvoice={onOpenInvoice}
+          onOpenDelivery={onOpenDelivery}
           onToggleActive={async (nextActive: boolean) => {
             try {
               await updateSupplier(sup.id, { active: nextActive })
@@ -639,23 +646,15 @@ export default function Suppliers({
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#EEEEF2' }}>
-          {(['all', 'פעיל', 'לא פעיל'] as StatusFilter[]).map((f) => (
-            <button
-              key={f}
-              onClick={() => setStatusFilter(f)}
-              className="rounded-lg px-3 font-medium transition-all"
-              style={{
-                minHeight: isTablet ? '40px' : '34px',
-                fontSize: isTablet ? '16px' : '13px',
-                background: statusFilter === f ? 'var(--brand-primary)' : 'transparent',
-                color: statusFilter === f ? 'white' : '#6B7280',
-              }}
-            >
-              {f === 'all' ? 'הכל' : f === 'פעיל' ? 'פעילים' : 'לא פעילים'}
-            </button>
-          ))}
-        </div>
+        <FilterTabs
+          tabs={(['all', 'פעיל', 'לא פעיל'] as StatusFilter[]).map(f => ({
+            key: f,
+            label: f === 'all' ? 'הכל' : f === 'פעיל' ? 'פעילים' : 'לא פעילים',
+          }))}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          style={{ flex: 1, minWidth: '220px' }}
+        />
         <div
           className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4"
           style={{ borderColor: '#EEEEF2', minHeight: '44px' }}
@@ -732,6 +731,11 @@ export default function Suppliers({
                   {/* status + category */}
                   <div className="flex items-center justify-between gap-2" style={{ minHeight: '28px' }}>
                     <div className="flex items-center gap-1.5 flex-wrap">
+                      {/* Same dot the employee's picker carries, same rule file.
+                          The manager was the one person who could NOT see at a
+                          glance which suppliers had work waiting — she had to open
+                          the goods screen and read it the other way round. */}
+                      <AttentionDot supplierId={sup.id} />
                       <StatusPill status={sup.status} />
                       {sup.paymentArrangement && <ArrangementPill />}
                     </div>
@@ -904,7 +908,7 @@ const MERGE_COUNT_LABELS: [string, string][] = [
   ['invoices',          'חשבוניות'],
   ['payments',          'תשלומים'],
   ['returns',           'החזרות'],
-  ['delivery_notes',    'תעודות משלוח'],
+  ['delivery_notes',    'הזמנות וסחורה'],
   ['vendor_statements', 'דפי ספק'],
 ]
 
@@ -1149,5 +1153,27 @@ function MergeSuppliersModal({
         </div>
       </div>
     </div>
+  )
+}
+
+
+// ── The attention dot, on a supplier card ────────────────────────────────────
+// Reads the SAME rule as the employee's picker (src/lib/supplierAttention.ts) so
+// the two can never disagree about which supplier needs someone. Stages only —
+// how many and at which step, never how much.
+function AttentionDot({ supplierId }: { supplierId: string }) {
+  const { data: notes } = useDeliveryNotes()
+  const mine = notes.filter(n => n.supplierId === supplierId)
+  const a = supplierAttention(mine.map(n => n.stage), pendingPairCount(mine))
+  if (a.level === 'green') return null
+  return (
+    <span
+      className="inline-flex items-center gap-1.5"
+      title={a.label}
+      style={{ fontSize: '11.5px', color: ATTENTION_COLOR[a.level], fontWeight: 700 }}
+    >
+      <i aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, background: ATTENTION_COLOR[a.level], display: 'inline-block' }} />
+      {a.label}
+    </span>
   )
 }
