@@ -608,6 +608,66 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
     : await resolveOrCreateSupplier(supabase, supplier_name, body.hp as string | undefined);
   if (!supplierId) return json({ error: "Failed to resolve/create supplier" }, 500);
 
+  // ── Is this delivery already in the system? ───────────────────────────────
+  //
+  // The ordinary case, and the one the owner drew: the supplier's note or his
+  // invoice reached the mailbox BEFORE the goods reached the door. Inserting a
+  // fresh row regardless produced two records of one physical delivery — the same
+  // duplication fixed on the order path, still open here, and this is the path
+  // employees use most.
+  //
+  // Two shapes of candidate, and they resolve differently:
+  //   awaiting_invoice — his note arrived by email. Same delivery: fill in what
+  //                      the employee saw and leave the stage alone.
+  //   awaiting_goods   — his INVOICE arrived first and opened a chain. The goods
+  //                      just closed that gap, so with an invoice already attached
+  //                      the pair is now ready for a person: awaiting_approval.
+  //
+  // Nothing is adopted automatically. Two deliveries from one supplier in a week
+  // are ordinary, and a silent merge loses a shipment while a duplicate only shows
+  // one — of the two errors, only the visible one can be corrected.
+  const adoptId  = body.delivery_note_id ?? body.deliveryNoteId ?? null;
+  const forceNew = body.force_new === true || body.forceNew === true;
+
+  if (!adoptId && !forceNew) {
+    const since = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const { data: waiting } = await supabase.from("delivery_notes")
+      .select("id, note_number, date, stage, supplier_name")
+      .eq("supplier_id", supplierId)
+      .in("stage", ["awaiting_invoice", "awaiting_goods"])
+      .gte("date", since)
+      .order("date", { ascending: false })
+      .limit(10);
+    if (waiting && waiting.length > 0) {
+      // Nothing has happened yet, so the call is safe to repeat with an answer.
+      return json({ success: false, needsChoice: true, candidates: waiting }, 200);
+    }
+  }
+
+  if (adoptId) {
+    const { data: target } = await supabase.from("delivery_notes")
+      .select("id, stage").eq("id", String(adoptId)).maybeSingle();
+    if (!target) return json({ error: "That delivery no longer exists" }, 409);
+
+    const patch: Record<string, unknown> = {
+      // What the employee saw, added to what the document said. Only filled where
+      // the row is empty — a note number read off the supplier's own paper is
+      // better than one typed at the counter.
+      employee_id:   body.employee_id ?? body.employeeId ?? null,
+      intake_source: body.intake_source ?? body.intakeSource ?? "manual",
+    };
+    if (line_items) patch.line_items = line_items;
+    if (note_number) patch.note_number = note_number;
+    // Goods have now been seen. An invoice-first chain was only ever waiting for
+    // this, so it moves on; a note-first chain is still waiting for its invoice.
+    if (target.stage === "awaiting_goods") patch.stage = "awaiting_approval";
+
+    const { error: updErr } = await supabase.from("delivery_notes")
+      .update(patch).eq("id", String(adoptId));
+    if (updErr) return json({ error: updErr.message }, 500);
+    return json({ id: adoptId, adopted: true }, 200);
+  }
+
   const { data: note, error: noteErr } = await supabase.from("delivery_notes")
     .insert({
       supplier_id: supplierId,

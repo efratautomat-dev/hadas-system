@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { mockDeliveryNotes, type DeliveryNote, type InvoiceCandidate, type PipelineStage } from '../data/mockData'
 import { isoToDisplay } from '../lib/dates'
 import { subscribe } from '../lib/dataBus'
+import type { ArrivalCandidate } from './useOrders'
 
 
 export function useDeliveryNotes() {
@@ -67,7 +68,19 @@ export function useDeliveryNotes() {
   // Manual goods receipt — PERSISTS to the DB (fixes the old local-state-only bug).
   // No delivery-note number / amount required; source is derived as 'manual' because
   // no gmail_message_id is set.
-  const create = async (body: { supplierId: string; supplierName: string; isoDate: string; lineItems: string; noteNumber?: string; employeeId?: string }) => {
+  /**
+   * Record goods that arrived at the door.
+   *
+   * Returns `needsChoice` when this supplier already has a delivery waiting —
+   * because his note or his invoice usually reaches the mailbox before the goods
+   * reach the counter. The caller must ASK; answering with `adopt` joins that
+   * chain, `forceNew` starts a separate one.
+   */
+  const create = async (body: {
+    supplierId: string; supplierName: string; isoDate: string; lineItems: string
+    noteNumber?: string; employeeId?: string
+    adopt?: string; forceNew?: boolean
+  }): Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[]; id?: string }> => {
     try {
       const res = await api.post('/delivery-notes', {
         supplier_id:   body.supplierId,
@@ -77,9 +90,14 @@ export function useDeliveryNotes() {
         note_number:   body.noteNumber || null,
         employee_id:   body.employeeId || null,
         amount:        0,
-      })
+        delivery_note_id: body.adopt,
+        force_new:        body.forceNew,
+      }) as { needsChoice?: boolean; candidates?: ArrivalCandidate[]; id?: string }
+      // Nothing was written when the server asks — return the question unanswered
+      // rather than reloading and reporting success.
+      if (res?.needsChoice) return res
       await load()
-      return (res as { id?: string }).id
+      return { id: res?.id }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[useDeliveryNotes] create error:', msg)

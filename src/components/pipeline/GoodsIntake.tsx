@@ -4,6 +4,8 @@ import { SearchableSelect } from '../SearchableSelect'
 import { FieldLabel, TextInput, Textarea } from '../ui/form'
 import CaptureDocument from '../CaptureDocument'
 import HandwrittenSheet from './HandwrittenSheet'
+import ArrivalChoice from './ArrivalChoice'
+import type { ArrivalCandidate } from '../../hooks/useOrders'
 import { FormShell } from './FormShell'
 
 // ── קליטת סחורה — one door, two ways in ──────────────────────────────────────
@@ -29,7 +31,8 @@ export default function GoodsIntake({
   onCreate: (draft: {
     supplierId: string; supplierName: string
     isoDate: string; lineItems: string; noteNumber?: string
-  }) => Promise<void>
+    adopt?: string; forceNew?: boolean
+  }) => Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[] } | void>
   /**
    * Render in the page flow instead of over it. The employee screens open these
    * inline — a dialog inside a supplier card on a phone is a letterbox — while a
@@ -44,6 +47,11 @@ export default function GoodsIntake({
   const [items, setItems] = useState('')
   const [noteNumber, setNoteNumber] = useState('')
   const [busy, setBusy] = useState(false)
+  // The server answers "there is already a delivery waiting for this supplier"
+  // instead of writing. The draft is held so answering resumes the same save.
+  const [choice, setChoice] = useState<
+    { candidates: ArrivalCandidate[]; draft: Parameters<typeof onCreate>[0] } | null
+  >(null)
 
   const supplier = lockedSupplier ?? suppliers.find(s => s.id === supplierId)
   // The sheet needs a supplier from somewhere: the card it opened from, or the
@@ -51,22 +59,40 @@ export default function GoodsIntake({
   const sheetSupplier = lockedSupplier ?? suppliers.find(s => s.id === supplierId)
   const ready = !!supplierId && items.trim().length > 0
 
-  const save = async () => {
-    if (!ready || busy) return
+  const submit = async (draft: Parameters<typeof onCreate>[0]) => {
     setBusy(true)
     try {
-      await onCreate({
-        supplierId,
-        supplierName: supplier?.name ?? '',
-        isoDate,
-        lineItems: items.trim(),
-        noteNumber: noteNumber.trim() || undefined,
-      })
+      const res = await onCreate(draft)
+      if (res && res.needsChoice) {
+        setChoice({ candidates: res.candidates ?? [], draft })
+        return
+      }
       onClose()
     } finally { setBusy(false) }
   }
 
+  const save = () => {
+    if (!ready || busy) return
+    return submit({
+      supplierId,
+      supplierName: supplier?.name ?? '',
+      isoDate,
+      lineItems: items.trim(),
+      noteNumber: noteNumber.trim() || undefined,
+    })
+  }
+
   return (
+    <>
+    {choice && (
+      <ArrivalChoice
+        supplierName={supplier?.name ?? ''}
+        candidates={choice.candidates}
+        onClose={() => setChoice(null)}
+        onPick={async id => { setChoice(null); await submit({ ...choice.draft, adopt: id }) }}
+        onNew={async () => { setChoice(null); await submit({ ...choice.draft, forceNew: true }) }}
+      />
+    )}
     <FormShell onClose={onClose} inline={inline} maxWidth={mode === 'photo' ? '680px' : '560px'}>
         <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: '#EEEEF2' }}>
           <span className="font-bold text-gray-800 inline-flex items-center gap-2" style={{ fontSize: '15px' }}>
@@ -167,13 +193,12 @@ export default function GoodsIntake({
               capturedBy={capturedBy}
               onCancel={() => setMode('choose')}
               onSave={async lineItems => {
-                await onCreate({
+                await submit({
                   supplierId: sheetSupplier.id,
                   supplierName: sheetSupplier.name,
                   isoDate: new Date().toISOString().slice(0, 10),
                   lineItems,
                 })
-                onClose()
               }}
             />
           </div>
@@ -243,5 +268,6 @@ export default function GoodsIntake({
           </>
         )}
     </FormShell>
+    </>
   )
 }

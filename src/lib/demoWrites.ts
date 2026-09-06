@@ -356,6 +356,52 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return { success: true, removedShell: shell }
   }
 
+  // ── POST /delivery-notes ─────────────────────────────────────────────────
+  // Mirrors the server: goods at the door join a chain that is already waiting
+  // for this supplier rather than opening a second record of one delivery.
+  if (method === 'POST' && path === '/delivery-notes') {
+    const supplierId = String(b.supplier_id ?? '')
+    const adoptId  = typeof b.delivery_note_id === 'string' ? b.delivery_note_id : null
+    const forceNew = b.force_new === true
+
+    if (!adoptId && !forceNew) {
+      const waiting = notes.filter(n =>
+        n.supplier_id === supplierId &&
+        (n.stage === 'awaiting_invoice' || n.stage === 'awaiting_goods'))
+      if (waiting.length > 0) {
+        return {
+          success: false, needsChoice: true,
+          candidates: waiting.map(n => ({
+            id: String(n.id), note_number: n.note_number ?? null,
+            date: n.date ?? null, supplier_name: n.supplier_name ?? null,
+          })),
+        } as unknown as Row
+      }
+    }
+    if (adoptId) {
+      const target = find('delivery_notes', adoptId)
+      if (!target) return null
+      if (b.line_items)  target.line_items  = b.line_items
+      if (b.note_number) target.note_number = b.note_number
+      target.intake_source = b.intake_source ?? 'manual'
+      // Goods have now been seen: an invoice-first chain was only waiting for this.
+      if (target.stage === 'awaiting_goods') target.stage = 'awaiting_approval'
+      return { id: target.id, adopted: true }
+    }
+    const row: Row = {
+      id: `dn_${Date.now()}`,
+      supplier_id: supplierId, supplier_name: String(b.supplier_name ?? ''),
+      date: b.date ?? nowIso().slice(0, 10),
+      amount: null, amount_before_vat: null, vat_amount: null,
+      status: 'pending', stage: 'awaiting_invoice', invoice_id: null,
+      line_items: b.line_items ?? null, note_number: b.note_number ?? '',
+      intake_source: b.intake_source ?? 'manual',
+      drive_file_link: null, storage_url: null,
+    }
+    notes.unshift(row)
+    return row
+  }
+
   // ── PUT /orders/:id/customer-status ──────────────────────────────────────
   const custStatus = path.match(/^\/orders\/([^/]+)\/customer-status$/)
   if (method === 'PUT' && custStatus) {
