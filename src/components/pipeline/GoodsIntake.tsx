@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Camera, Keyboard, X, Check, PackageCheck, FileSignature } from 'lucide-react'
+import { Camera, Keyboard, X, Check, PackageCheck, FileSignature, ChevronRight } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import { FieldLabel, TextInput } from '../ui/form'
 import LineItemsEditor from './LineItemsEditor'
@@ -89,6 +89,18 @@ export default function GoodsIntake({
     })
   }
 
+  // The same control, in the same place, on every mode. It used to be three
+  // different things: "← חזרה" at the bottom of the photo pane, "חזרה" beside the
+  // save button on the typed form, and a proper labelled back on the sheet. Three
+  // spellings of one action is three things to learn.
+  const back = (
+    <button
+      onClick={() => setMode('choose')}
+      className="inline-flex items-center gap-1"
+      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B6E73', fontSize: '12.5px', fontWeight: 600, fontFamily: 'inherit', padding: 0 }}
+    ><ChevronRight className="w-4 h-4" />חזרה לבחירה</button>
+  )
+
   return (
     <>
     {choice && (
@@ -163,16 +175,14 @@ export default function GoodsIntake({
 
         {mode === 'photo' && (
           <div className="px-5 py-4">
+            <div style={{ marginBottom: '10px' }}>{back}</div>
             <CaptureDocument capturedBy={capturedBy} />
-            <button
-              onClick={() => setMode('choose')}
-              style={{ marginTop: '12px', background: 'transparent', border: 'none', color: '#6B6E73', fontSize: '12.5px', cursor: 'pointer', padding: 0 }}
-            >← חזרה</button>
           </div>
         )}
 
         {mode === 'sheet' && !sheetSupplier && (
           <div className="px-5 py-4 grid gap-3">
+            {back}
             <p style={{ fontSize: '13px', color: '#6B6E73', margin: 0 }}>
               הדף נושא פריטים וכמויות בלבד — <b>הספק לא כתוב עליו</b>. בחרי אותו כאן
               והוא יירשם על התעודה.
@@ -186,10 +196,6 @@ export default function GoodsIntake({
                 options={suppliers.map(s => ({ value: s.id, label: s.name, keywords: s.hp }))}
               />
             </div>
-            <button
-              onClick={() => setMode('choose')}
-              style={{ background: 'transparent', border: 'none', color: '#6B6E73', fontSize: '12.5px', cursor: 'pointer', padding: 0, justifySelf: 'start' }}
-            >← חזרה</button>
           </div>
         )}
 
@@ -216,6 +222,7 @@ export default function GoodsIntake({
         {mode === 'manual' && (
           <>
             <div className="px-5 py-4 grid gap-4">
+              {back}
               {lockedSupplier ? (
                 <div>
                   <FieldLabel>ספק</FieldLabel>
@@ -271,10 +278,6 @@ export default function GoodsIntake({
                   cursor: !ready ? 'not-allowed' : busy ? 'wait' : 'pointer',
                 }}
               ><Check className="w-4 h-4" />{busy ? 'שומר…' : 'שמירה'}</button>
-              <button
-                onClick={() => setMode('choose')}
-                style={{ background: 'transparent', border: '1px solid #E2E4E9', color: '#6B6E73', padding: '9px 16px', fontSize: '13px', cursor: 'pointer' }}
-              >חזרה</button>
             </div>
           </>
         )}
