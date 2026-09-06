@@ -931,10 +931,6 @@ export default function StatementReconciliation({ initialStatementId }: { initia
           of being tiles: hiding them app-wide took the only way to filter this
           screen with them. The count rides on the chip, so nothing is lost. */}
       <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div
-          className="bg-white border p-1 flex-shrink-0"
-          style={{ borderColor: '#EEEEF2', display: 'flex', gap: '2px' }}
-        >
           <FilterTabs
             tabs={STATUS_FILTERS.map(({ key, label }) => ({
               key,
@@ -947,7 +943,6 @@ export default function StatementReconciliation({ initialStatementId }: { initia
             onChange={k => setFilterStatus(k === filterStatus && k !== 'all' ? 'all' : k)}
             style={{ flex: 1 }}
           />
-        </div>
       </div>
 
       {/* Filter bar */}

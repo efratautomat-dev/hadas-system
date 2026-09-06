@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 import { SummaryCards } from './ui/SummaryCards'
+import { FilterTabs } from './ui/FilterTabs'
 
 // Color is keyed to the alert TYPE, grouped into four severity-like buckets.
 // (severity is "info" on every live row, so it can't drive color.) The bucket is
@@ -508,28 +509,6 @@ export default function Alerts({
     statusFilter === 'all' ? a.status !== 'resolved' : a.status === statusFilter,
   ).length
 
-  const filterBtn = (
-    active: boolean,
-    label: string,
-    onClick: () => void,
-    activeColor = 'var(--brand-primary-dark)',
-  ) => (
-    <button
-      // The chips are rendered from .map(), so each needs its own key — the label
-      // is unique within both filter rows.
-      key={label}
-      onClick={onClick}
-      className="px-3 py-1.5 rounded-xl text-sm font-semibold transition-all"
-      style={{
-        background: active ? activeColor : 'white',
-        color: active ? 'white' : '#6B7280',
-        border: `1.5px solid ${active ? activeColor : '#E2E4E9'}`,
-      }}
-    >
-      {label}
-    </button>
-  )
-
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -546,30 +525,26 @@ export default function Alerts({
         { label: 'טופל',   value: resolvedCount, Icon: Check, tone: 'green' },
       ]} />
 
-      {/* Filters */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border space-y-3" style={{ borderColor: '#E2E4E9' }}>
-        {/* Type filter (by severity bucket) */}
-        <div className="flex items-center gap-2 flex-wrap" style={{ direction: 'rtl' }}>
-          <span className="text-xs font-semibold text-gray-400 ml-1">סוג:</span>
-          {filterBtn(typeFilter === 'all', 'הכל', () => setTypeFilter('all'))}
-          {TYPE_BUCKETS.map(t =>
-            filterBtn(typeFilter === t, BUCKET_LABEL[t], () => setTypeFilter(t))
-          )}
-        </div>
-
-        {/* Status filter */}
-        <div className="flex items-center gap-2 flex-wrap" style={{ direction: 'rtl' }}>
-          <span className="text-xs font-semibold text-gray-400 ml-1">סטטוס:</span>
-          {filterBtn(statusFilter === 'all', 'הכל', () => setStatusFilter('all'))}
-          {(Object.keys(STATUS_LABELS) as AlertStatus[]).map(s =>
-            filterBtn(
-              statusFilter === s,
-              STATUS_LABELS[s],
-              () => setStatusFilter(s),
-              STATUS_CONFIG[s].indicator,
-            )
-          )}
-        </div>
+      {/* Filters — two rows of tabs rather than two rows of chips inside a card.
+          The card was doing nothing but holding them together, and the rule under
+          each row groups it better than a border around both. */}
+      <div className="space-y-1">
+        <FilterTabs
+          tabs={[
+            { key: 'all' as const, label: 'הכל' },
+            ...TYPE_BUCKETS.map(t => ({ key: t, label: BUCKET_LABEL[t] })),
+          ]}
+          value={typeFilter}
+          onChange={setTypeFilter}
+        />
+        <FilterTabs
+          tabs={[
+            { key: 'all' as const, label: 'הכל' },
+            ...(Object.keys(STATUS_LABELS) as AlertStatus[]).map(s => ({ key: s, label: STATUS_LABELS[s] })),
+          ]}
+          value={statusFilter}
+          onChange={setStatusFilter}
+        />
       </div>
 
       {/* Alert list */}

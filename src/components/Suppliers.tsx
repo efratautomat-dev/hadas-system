@@ -10,6 +10,7 @@ import { Button } from './ui/Button'
 import { SummaryCards } from './ui/SummaryCards'
 // Same primitives as the categories form in Settings — shared, not copied.
 import { SectionCard, Field, FieldRow, TextInput, Select, Textarea } from './ui/form'
+import { FilterTabs } from './ui/FilterTabs'
 
 // Active/inactive uses the FIXED functional tokens (green = active, gray = inactive),
 // never the brand palette — so the state reads the same after any reskin.
@@ -641,23 +642,15 @@ export default function Suppliers({
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1 bg-white rounded-xl border p-1 flex-shrink-0" style={{ borderColor: '#EEEEF2' }}>
-          {(['all', 'פעיל', 'לא פעיל'] as StatusFilter[]).map((f) => (
-            <button
-              key={f}
-              onClick={() => setStatusFilter(f)}
-              className="rounded-lg px-3 font-medium transition-all"
-              style={{
-                minHeight: isTablet ? '40px' : '34px',
-                fontSize: isTablet ? '16px' : '13px',
-                background: statusFilter === f ? 'var(--brand-primary)' : 'transparent',
-                color: statusFilter === f ? 'white' : '#6B7280',
-              }}
-            >
-              {f === 'all' ? 'הכל' : f === 'פעיל' ? 'פעילים' : 'לא פעילים'}
-            </button>
-          ))}
-        </div>
+        <FilterTabs
+          tabs={(['all', 'פעיל', 'לא פעיל'] as StatusFilter[]).map(f => ({
+            key: f,
+            label: f === 'all' ? 'הכל' : f === 'פעיל' ? 'פעילים' : 'לא פעילים',
+          }))}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          style={{ flex: 1, minWidth: '220px' }}
+        />
         <div
           className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4"
           style={{ borderColor: '#EEEEF2', minHeight: '44px' }}
