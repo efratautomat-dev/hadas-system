@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Camera, Keyboard, X, Check, PackageCheck, FileSignature } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
-import { FieldLabel, TextInput, Textarea } from '../ui/form'
+import { FieldLabel, TextInput } from '../ui/form'
+import LineItemsEditor from './LineItemsEditor'
+import { newLine, lineTotal, linesToText, type Line } from '../../lib/lineItems'
 import CaptureDocument from '../CaptureDocument'
 import HandwrittenSheet from './HandwrittenSheet'
 import ArrivalChoice from './ArrivalChoice'
@@ -46,7 +48,9 @@ export default function GoodsIntake({
   const [mode, setMode] = useState<Mode>('choose')
   const [supplierId, setSupplierId] = useState(lockedSupplier?.id ?? '')
   const [isoDate, setIsoDate] = useState(new Date().toISOString().slice(0, 10))
-  const [items, setItems] = useState('')
+  // Same grid the sheet's confirmation uses. A free-text box here and a priced
+  // grid there would have been two ways to record one delivery.
+  const [lines, setLines] = useState<Line[]>([newLine(), newLine(), newLine()])
   const [noteNumber, setNoteNumber] = useState('')
   const [busy, setBusy] = useState(false)
   // The server answers "there is already a delivery waiting for this supplier"
@@ -59,7 +63,7 @@ export default function GoodsIntake({
   // The sheet needs a supplier from somewhere: the card it opened from, or the
   // picker it shows when there is no card.
   const sheetSupplier = lockedSupplier ?? suppliers.find(s => s.id === supplierId)
-  const ready = !!supplierId && items.trim().length > 0
+  const ready = !!supplierId && lines.some(l => l.item.trim())
 
   const submit = async (draft: Parameters<typeof onCreate>[0]) => {
     setBusy(true)
@@ -79,7 +83,8 @@ export default function GoodsIntake({
       supplierId,
       supplierName: supplier?.name ?? '',
       isoDate,
-      lineItems: items.trim(),
+      lineItems: linesToText(lines),
+      amount: lineTotal(lines),
       noteNumber: noteNumber.trim() || undefined,
     })
   }
@@ -245,11 +250,13 @@ export default function GoodsIntake({
               </div>
               <div>
                 <FieldLabel required>מה התקבל</FieldLabel>
-                <Textarea rows={5} value={items} onChange={setItems} placeholder={'שם פריט וכמות בכל שורה'} />
-                {/* No amount field, deliberately: the figure comes from the invoice,
-                    once, and a number typed here would be a second one to reconcile. */}
-                <p style={{ margin: '3px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
-                  בלי סכומים — הם מגיעים מהחשבונית.
+                <LineItemsEditor lines={lines} onChange={setLines} priceLabel="מחיר" />
+                <p style={{ margin: '5px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
+                  {/* The price is optional and never reaches the ledger — it is
+                      what the approval screen compares the invoice against. */}
+                  {lineTotal(lines) !== null
+                    ? `סה"כ עלות: ₪${lineTotal(lines)!.toLocaleString('he-IL')} — להשוואה מול החשבונית, לא נכנס ליתרה.`
+                    : 'מחיר לא חובה. בלי מחיר בכל השורות לא יחושב סכום — היתרה זזה מהחשבונית בלבד.'}
                 </p>
               </div>
             </div>

@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
-import { Camera, Check, Loader2, Pencil, Plus, Printer, Trash2, X } from 'lucide-react'
-import { readHandwrittenSheet, type HandwrittenLine } from '../../lib/api'
+import { ChevronRight, Camera, Check, Loader2, Pencil, Printer } from 'lucide-react'
+import { readHandwrittenSheet } from '../../lib/api'
 import { printGoodsSheet } from '../../utils/pdf/goodsSheetPdf'
+import LineItemsEditor from './LineItemsEditor'
+import { newLine, lineTotal, linesToText, type Line } from '../../lib/lineItems'
 
 // ── קליטת סחורה מדף בכתב יד ──────────────────────────────────────────────────
 //
@@ -20,9 +22,6 @@ import { printGoodsSheet } from '../../utils/pdf/goodsSheetPdf'
 // editable and lines the model doubted are marked rather than dropped. A missing
 // line someone can see beats a wrong line nobody can.
 
-interface Row extends HandwrittenLine { key: string }
-
-const uid = () => `l_${Math.random().toString(36).slice(2, 9)}`
 
 function fileToDataUrl(f: File): Promise<string> {
   return new Promise((res, rej) => {
@@ -48,7 +47,7 @@ export default function HandwrittenSheet({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [photo, setPhoto] = useState<string | null>(null)
-  const [rows, setRows] = useState<Row[] | null>(null)
+  const [rows, setRows] = useState<Line[] | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const read = async (f: File) => {
@@ -59,7 +58,7 @@ export default function HandwrittenSheet({
       const lines = await readHandwrittenSheet({
         imageBase64: dataUrl, mimeType: f.type || 'image/jpeg', capturedBy,
       })
-      setRows(lines.map(l => ({ ...l, key: uid() })))
+      setRows(lines.map(l => ({ ...l, ...newLine(), item: l.item, quantity: l.quantity, price: l.price, uncertain: l.uncertain })))
       if (lines.length === 0) setErr('לא זוהו שורות בדף. אפשר להוסיף ידנית.')
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
@@ -73,14 +72,7 @@ export default function HandwrittenSheet({
     try {
       // Stored the way a typed receipt is stored — one line per item — so nothing
       // downstream needs to know this arrived as a photograph.
-      await onSave(
-        kept.map(r => {
-          const q = r.quantity.trim() ? ` — ${r.quantity.trim()}` : ''
-          const p = r.price.trim() ? ` · ₪${r.price.trim()}` : ''
-          return `${r.item.trim()}${q}${p}`
-        }).join('\n'),
-        total,
-      )
+      await onSave(linesToText(kept), total)
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
@@ -93,10 +85,7 @@ export default function HandwrittenSheet({
   // number, because nobody re-checks a figure that is already there.
   const filled = (rows ?? []).filter(r => r.item.trim())
   const priced = filled.filter(r => r.price.trim() !== '')
-  const complete = filled.length > 0 && priced.length === filled.length
-  const total = complete
-    ? filled.reduce((s, r) => s + (Number(r.price) || 0) * (Number(r.quantity) || 1), 0)
-    : null
+  const total = lineTotal(rows ?? [])
 
   return (
     <div className="bg-white border" style={{ borderColor: '#E2E4E9' }}>
@@ -105,11 +94,15 @@ export default function HandwrittenSheet({
           <Camera className="w-4 h-4" style={{ color: 'var(--brand-primary)' }} />
           דף סחורה בכתב יד — {supplierName}
         </span>
+        {/* NOT an X. The dialog around this one already has an X that closes
+            everything, and two identical icons meaning two different things is a
+            control nobody can use — you cannot tell which one you are pressing
+            until after you press it. */}
         <button
           onClick={onCancel}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF' }}
-          title="סגירה"
-        ><X className="w-5 h-5" /></button>
+          className="inline-flex items-center gap-1"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B6E73', fontSize: '12.5px', fontWeight: 600, fontFamily: 'inherit' }}
+        ><ChevronRight className="w-4 h-4" />חזרה לבחירה</button>
       </div>
 
       {!rows && (
@@ -173,56 +166,7 @@ export default function HandwrittenSheet({
                 style={{ width: '100%', border: '1px solid #E2E4E9', objectFit: 'contain', maxHeight: '460px' }}
               />
             )}
-            <div className="border" style={{ borderColor: '#E2E4E9' }}>
-              <div
-                className="grid"
-                style={{ gridTemplateColumns: '1fr 72px 84px 38px', background: '#F8F8FA', borderBottom: '1px solid #E2E4E9', fontSize: '11.5px', fontWeight: 800, color: '#6B6E73' }}
-              >
-                <span style={{ padding: '7px 11px' }}>פריט</span>
-                <span style={{ padding: '7px 11px' }}>כמות</span>
-                <span style={{ padding: '7px 11px' }}>מחיר</span>
-                <span />
-              </div>
-              {rows.map((r, i) => (
-                <div
-                  key={r.key}
-                  className="grid items-center"
-                  style={{
-                    gridTemplateColumns: '1fr 72px 84px 38px',
-                    borderBottom: '1px solid #F3F4F6',
-                    background: r.uncertain ? '#FFFBEB' : undefined,
-                  }}
-                >
-                  <input
-                    value={r.item}
-                    onChange={e => setRows(rows.map((x, j) => j === i ? { ...x, item: e.target.value, uncertain: false } : x))}
-                    style={{ border: 'none', background: 'transparent', padding: '9px 11px', fontSize: '13.5px', fontFamily: 'inherit', outline: 'none', width: '100%' }}
-                  />
-                  <input
-                    value={r.quantity}
-                    onChange={e => setRows(rows.map((x, j) => j === i ? { ...x, quantity: e.target.value, uncertain: false } : x))}
-                    style={{ border: 'none', borderInlineStart: '1px solid #F3F4F6', background: 'transparent', padding: '9px 11px', fontSize: '13.5px', fontFamily: 'inherit', outline: 'none', width: '100%' }}
-                  />
-                  <input
-                    value={r.price}
-                    inputMode="decimal"
-                    placeholder="—"
-                    onChange={e => setRows(rows.map((x, j) => j === i ? { ...x, price: e.target.value, uncertain: false } : x))}
-                    style={{ border: 'none', borderInlineStart: '1px solid #F3F4F6', background: 'transparent', padding: '9px 11px', fontSize: '13.5px', fontFamily: 'inherit', outline: 'none', width: '100%', fontVariantNumeric: 'tabular-nums' }}
-                  />
-                  <button
-                    onClick={() => setRows(rows.filter((_, j) => j !== i))}
-                    title="מחיקת שורה"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C9C7CC' }}
-                  ><Trash2 className="w-3.5 h-3.5" /></button>
-                </div>
-              ))}
-              <button
-                onClick={() => setRows([...rows, { key: uid(), item: '', quantity: '', price: '', uncertain: false }])}
-                className="inline-flex items-center gap-1.5"
-                style={{ background: 'transparent', border: 'none', color: 'var(--brand-primary)', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', padding: '9px 11px' }}
-              ><Plus className="w-3.5 h-3.5" />הוספת שורה</button>
-            </div>
+            <LineItemsEditor lines={rows} onChange={setRows} priceLabel="מחיר" />
           </div>
 
           {err && <p style={{ margin: 0, fontSize: '13px', color: '#DC2626' }}>{err}</p>}
