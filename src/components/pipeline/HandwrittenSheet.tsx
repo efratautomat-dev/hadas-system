@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Camera, Check, Loader2, Pencil, Plus, Printer, Trash2, X } from 'lucide-react'
 import { readHandwrittenSheet, type HandwrittenLine } from '../../lib/api'
+import { printGoodsSheet } from '../../utils/pdf/goodsSheetPdf'
 
 // ── קליטת סחורה מדף בכתב יד ──────────────────────────────────────────────────
 //
@@ -95,7 +96,8 @@ export default function HandwrittenSheet({
         <div className="px-5 py-5 grid gap-3">
           <p style={{ fontSize: '13px', color: '#6B6E73', margin: 0 }}>
             צלמי את הדף כך שהטבלה תמלא את המסגרת. <b>אין צורך לכתוב ספק או תאריך</b> —
-            הם נרשמים לבד.
+            הם נרשמים לבד. אם אין לך טפסים מודפסים, אפשר להדפיס כאן — הטופס יוצא
+            עם שם הספק כבר עליו.
           </p>
           <input
             ref={fileRef}
@@ -116,10 +118,10 @@ export default function HandwrittenSheet({
               {busy ? 'קורא את הדף…' : 'צילום הדף'}
             </button>
             <button
-              onClick={() => window.print()}
+              onClick={() => printGoodsSheet({ supplierName })}
               className="inline-flex items-center gap-1.5"
               style={{ background: 'white', color: 'var(--brand-primary)', border: '1px solid var(--brand-primary)', padding: '10px 16px', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer' }}
-            ><Printer className="w-4 h-4" />הדפסת טופס ריק</button>
+            ><Printer className="w-4 h-4" />הדפסת הטופס למילוי</button>
           </div>
           {err && <p style={{ margin: 0, fontSize: '13px', color: '#DC2626' }}>{err}</p>}
         </div>
