@@ -9,6 +9,8 @@ import { PdfPreviewModal } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
 import type { OrderLink } from '../../lib/pipelineSteps'
 import type { DeliveryNote, Invoice, InvoiceCandidate, PipelineStage } from '../../data/mockData'
+import type { Order } from '../../hooks/useOrders'
+import { CUSTOMER_STATUS_LABEL } from '../../lib/customerStatus'
 
 // ── One delivery, as a PAGE ──────────────────────────────────────────────────
 //
@@ -48,7 +50,7 @@ const BTN_QUIET: React.CSSProperties = {
 export default function DeliveryPage({
   note, stage, order, invoice, invoices, isWide,
   onBack, onLoadCandidates, onLink, onUnlink, onApprove,
-  onChangeSupplier, onDismantle, onOpenInvoice, onArrived,
+  onChangeSupplier, onDismantle, onOpenInvoice, onArrived, customerOrders = [],
 }: {
   note: DeliveryNote
   stage: PipelineStage
@@ -67,6 +69,15 @@ export default function DeliveryPage({
   onOpenInvoice?: (invoiceId: string) => void
   /** Present only while the goods have not arrived — an order still waiting. */
   onArrived?: (partial: boolean) => Promise<void>
+  /**
+   * Customer orders riding on this delivery.
+   *
+   * Someone is waiting for these by name. Without them on this screen the person
+   * approving a delivery cannot see that a customer has been promised something
+   * in it — and the call telling her it arrived is the whole point of having
+   * written her down.
+   */
+  customerOrders?: Order[]
 }) {
   const [candidates, setCandidates] = useState<InvoiceCandidate[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -200,6 +211,39 @@ export default function DeliveryPage({
                   <p style={{ fontSize: '13px', color: '#9CA3AF', margin: 0 }}>עדיין לא הוצמדה חשבונית.</p>
                 )}
               </section>
+
+              {customerOrders.length > 0 && (
+                <section
+                  className="border"
+                  style={{ borderColor: '#F3D6DD', background: 'var(--brand-active-bg)', padding: '14px 16px' }}
+                >
+                  <h4 className="font-bold" style={{ fontSize: '11.5px', color: 'var(--brand-primary)', margin: '0 0 9px' }}>
+                    {customerOrders.length === 1 ? 'לקוחה מחכה למשלוח הזה' : `${customerOrders.length} לקוחות מחכות למשלוח הזה`}
+                  </h4>
+                  {customerOrders.map(o => (
+                    <div
+                      key={o.id}
+                      className="flex items-start justify-between gap-3 flex-wrap"
+                      style={{ padding: '6px 0', borderTop: '1px solid #F3D6DD' }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <p className="font-bold text-gray-800" style={{ fontSize: '13.5px', margin: 0 }}>
+                          {o.customerName}
+                          {o.customerPhone && (
+                            <span dir="ltr" style={{ fontWeight: 400, color: '#6B6E73', fontSize: '12.5px' }}>
+                              {` · ${o.customerPhone}`}
+                            </span>
+                          )}
+                        </p>
+                        <p style={{ fontSize: '12.5px', color: '#6B6E73', margin: '2px 0 0' }}>{o.description || '—'}</p>
+                      </div>
+                      <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--brand-primary)', whiteSpace: 'nowrap' }}>
+                        {CUSTOMER_STATUS_LABEL[o.customerStatus ?? 'customer_waiting']}
+                      </span>
+                    </div>
+                  ))}
+                </section>
+              )}
 
               {needsInvoice && (
                 <section className="bg-white border" style={{ borderColor: '#E2E4E9', padding: '14px 16px' }}>

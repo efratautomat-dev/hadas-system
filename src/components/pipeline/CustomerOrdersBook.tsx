@@ -35,19 +35,34 @@ function dayLabel(iso: string) {
 }
 
 export default function CustomerOrdersBook({
-  orders, onOpen, onSetStatus,
+  orders, onOpen, onSetStatus, delivered = 'bottom',
 }: {
   orders: Order[]
   /** Jump to the goods chain this order became, when it has one. */
   onOpen?: (deliveryNoteId: string) => void
   /** Move the customer line along. Absent = read-only notebook. */
   onSetStatus?: (orderId: string, next: CustomerStatus) => Promise<void>
+  /**
+   * What happens to `נמסר`.
+   *
+   * `hide`   — the employee's board. Handed over is finished, and a board she
+   *            glances at mid-task should hold only what is still hers to do.
+   * `bottom` — the manager's notebook. It keeps everything, because "did we ever
+   *            order that for her?" is the question a notebook exists to answer,
+   *            and a page you tore out answers nothing. Finished lines simply
+   *            stop competing for the top.
+   */
+  delivered?: 'hide' | 'bottom'
 }) {
-  const withCustomer = orders
+  const all = orders
     .filter(o => !!o.customerName)
     .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''))
 
-  if (withCustomer.length === 0) {
+  const isDone = (o: Order) => o.customerStatus === 'customer_delivered'
+  const withCustomer = all.filter(o => !isDone(o))
+  const done = delivered === 'bottom' ? all.filter(isDone) : []
+
+  if (withCustomer.length === 0 && done.length === 0) {
     return (
       <div
         className="bg-white border text-center"
@@ -126,6 +141,40 @@ export default function CustomerOrdersBook({
           ))}
         </div>
       ))}
+
+      {/* Handed over. Kept, and out of the way — the two things a finished line
+          needs to be at once. */}
+      {done.length > 0 && (
+        <>
+          <div
+            style={{
+              padding: '8px 18px', background: '#FAFAFC', borderTop: '1px solid #E2E4E9',
+              borderBottom: '1px solid #EEEEF2', fontSize: '11.5px', fontWeight: 800,
+              color: '#9CA3AF', letterSpacing: '.03em',
+            }}
+          >נמסר · {done.length}</div>
+          {done.map(o => (
+            <div
+              key={o.id}
+              className="flex items-start justify-between gap-4 flex-wrap"
+              style={{ padding: '11px 18px', borderBottom: '1px solid #F3F4F6', opacity: 0.62 }}
+            >
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p className="font-semibold text-gray-700" style={{ fontSize: '13.5px', margin: 0 }}>
+                  {o.customerName}
+                </p>
+                <p style={{ fontSize: '12.5px', color: '#6B6E73', margin: '2px 0 0' }}>
+                  {o.description || '—'}
+                  <span style={{ color: '#9CA3AF' }}>{` · ${o.supplierName} · ${o.date}`}</span>
+                </p>
+              </div>
+              <div style={{ flex: 'none' }}>
+                <CustomerStatusControl order={o} onSet={onSetStatus} />
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   )
 }
@@ -145,6 +194,10 @@ function CustomerStatusControl({ order, onSet }: {
 }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  // A write that fails must say so HERE. The hook catches and stores the message,
+  // which nothing rendered — so a rejected status change looked exactly like a
+  // click that did nothing, and there was no way to tell them apart.
+  const [err, setErr] = useState<string | null>(null)
   const current = order.customerStatus ?? 'customer_waiting'
 
   if (!onSet) return <StatusBadge status={current} />
@@ -170,7 +223,13 @@ function CustomerStatusControl({ order, onSet }: {
             onClick={async () => {
               if (on) { setOpen(false); return }
               setBusy(true)
-              try { await onSet(order.id, k) } finally { setBusy(false); setOpen(false) }
+              setErr(null)
+              try {
+                await onSet(order.id, k)
+                setOpen(false)
+              } catch (e) {
+                setErr(e instanceof Error ? e.message : String(e))
+              } finally { setBusy(false) }
             }}
             className="inline-flex items-center gap-2"
             style={{
@@ -186,6 +245,9 @@ function CustomerStatusControl({ order, onSet }: {
           </button>
         )
       })}
+      {err && (
+        <p style={{ margin: 0, fontSize: '11.5px', color: '#DC2626', lineHeight: 1.5 }}>{err}</p>
+      )}
       <button
         onClick={() => setOpen(false)}
         style={{ background: 'transparent', border: 'none', color: '#9CA3AF', fontSize: '11.5px', cursor: 'pointer', padding: '2px 0' }}

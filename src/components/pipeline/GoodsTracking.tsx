@@ -169,6 +169,7 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
         invoices={invoices}
         isWide={isWide}
         onBack={() => setOpenId(null)}
+        customerOrders={orders.filter(o => o.deliveryNoteId === openNote.id && !!o.customerName)}
         onLoadCandidates={candidates}
         onLink={async (id, invoiceId) => { await link(id, invoiceId) }}
         onUnlink={async id => { await unlink(id) }}

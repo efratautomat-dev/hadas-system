@@ -129,6 +129,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             invoices={allInv}
             isWide={isDocWide}
             onBack={() => setOpenNoteId(null)}
+            customerOrders={orders.filter(o => o.deliveryNoteId === openNote.id && !!o.customerName)}
             onLoadCandidates={candidates}
             onLink={async (id, invoiceId) => { await link(id, invoiceId); await reloadNotes() }}
             onUnlink={async id => { await unlink(id); await reloadNotes() }}
@@ -199,7 +200,9 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
           <FilterTabs
             tabs={[
               { key: 'cards' as const, label: 'הזמנות בדרך', count: openOrders.length },
-              { key: 'book'  as const, label: 'מחברת לקוחות', count: orders.filter(o => o.customerName).length },
+              // Delivered orders are gone from her board, so counting them here
+              // would advertise lines she cannot see.
+              { key: 'book'  as const, label: 'מחברת לקוחות', count: orders.filter(o => o.customerName && o.customerStatus !== 'customer_delivered').length },
             ]}
             value={board}
             onChange={setBoard}
@@ -216,6 +219,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
               orders={orders}
               onOpen={setOpenNoteId}
               onSetStatus={setCustomerStatus}
+              delivered="hide"
             />
           )}
         </div>
