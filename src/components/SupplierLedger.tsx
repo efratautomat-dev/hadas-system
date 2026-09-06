@@ -24,6 +24,10 @@ interface TableRow {
   pendingApproval: boolean
   /** Paired with goods but not yet let into the ledger by the pipeline (§6.e). */
   awaitingLedgerApproval: boolean
+  /** Kept out of the balance — a suspected duplicate or an errored row. */
+  excluded: boolean
+  /** The real amount, which `debit`/`credit` zero when excluded. */
+  movement: number
 }
 
 function formatILS(n: number | null | undefined) {
@@ -100,6 +104,8 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       runningBalance: ledger.periodOpening,
       pendingApproval: false,
       awaitingLedgerApproval: false,
+      excluded: false,
+      movement: 0,
     },
     ...ledger.rows.map(r => ({
       id: r.id,
@@ -112,6 +118,8 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       runningBalance: r.balance,
       pendingApproval: r.pendingApproval,
       awaitingLedgerApproval: r.awaitingLedgerApproval,
+      excluded: r.excluded,
+      movement: r.movement,
     })),
   ]
 
@@ -380,6 +388,15 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                       style={{ fontSize: '10.5px', padding: '2px 6px', background: '#EDE9FE', color: '#5B21B6', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
                     >טרם אושרה לכרטסת</span>
                   )}
+                  {/* An excluded row rendered as a blank line said nothing: not the
+                      amount, and not why it was missing. The engine keeps the real
+                      figure on `movement` precisely so it can be shown. */}
+                  {row.excluded && (
+                    <span
+                      className="rounded-md font-bold"
+                      style={{ fontSize: '10.5px', padding: '2px 6px', background: '#FEE2E2', color: '#B91C1C', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
+                    >כפילות/שגיאה — לא נספרת</span>
+                  )}
                 </span>
                 {!isMobile && (
                   <span className="flex justify-center">
@@ -393,7 +410,12 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
                 )}
                 {!isMobile && (
                   <span className="text-right font-medium" style={{ color: '#A16207', fontSize: '14px' }}>
-                    {row.debit > 0 ? formatILS(row.debit) : '—'}
+                    {/* Excluded: the real figure, struck through. A dash hid the
+                        one number the reader came for and made the row look
+                        empty rather than deliberately uncounted. */}
+                    {row.excluded && row.movement > 0
+                      ? <s style={{ color: '#B7B9C0' }}>{formatILS(row.movement)}</s>
+                      : row.debit > 0 ? formatILS(row.debit) : '—'}
                   </span>
                 )}
                 {!isMobile && (

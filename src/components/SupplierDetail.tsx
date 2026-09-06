@@ -286,7 +286,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
 
   const ledger = [
     ...(openingBalance !== 0
-      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false, awaitingLedgerApproval: false }]
+      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false, awaitingLedgerApproval: false, excluded: false, movement: 0 }]
       : []),
     ...ledgerResult.rows.map(r => ({
       id: r.id,
@@ -294,6 +294,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
       description: r.description,
       debit: r.debit,
       credit: r.credit,
+      // Kept so the row can show what it is NOT counting, and why.
+      excluded: r.excluded,
+      movement: r.movement,
       balance: r.balance,
       undated: r.undated,
       pendingApproval: r.pendingApproval,
@@ -572,12 +575,20 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                     style={{ fontSize: '10.5px', padding: '2px 6px', background: '#EDE9FE', color: '#5B21B6', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
                   >טרם אושרה לכרטסת</span>
                 )}
+                {entry.excluded && (
+                  <span
+                    className="rounded-md font-bold"
+                    style={{ fontSize: '10.5px', padding: '2px 6px', background: '#FEE2E2', color: '#B91C1C', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
+                  >כפילות/שגיאה — לא נספרת</span>
+                )}
               </span>
               <span className="text-center font-medium" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>
                 {entry.credit > 0 ? formatILS(entry.credit) : '—'}
               </span>
               <span className="text-center font-medium" style={{ color: '#A16207', fontSize: fs('14px', '13px') }}>
-                {entry.debit > 0 ? formatILS(entry.debit) : '—'}
+                {entry.excluded && entry.movement > 0
+                  ? <s style={{ color: '#B7B9C0' }}>{formatILS(entry.movement)}</s>
+                  : entry.debit > 0 ? formatILS(entry.debit) : '—'}
               </span>
               <span className="text-right text-gray-400" style={{ fontSize: '12px' }}>{fmtDate(entry.date)}</span>
             </div>
