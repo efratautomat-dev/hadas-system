@@ -317,6 +317,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
               supplier={selectedSupplier}
               activeSection={activeSection}
             onOpenPipeline={setOpenNoteId}
+            userEmail={userEmail}
             />
           </div>
         ) : (

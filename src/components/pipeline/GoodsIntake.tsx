@@ -46,6 +46,9 @@ export default function GoodsIntake({
   const [busy, setBusy] = useState(false)
 
   const supplier = lockedSupplier ?? suppliers.find(s => s.id === supplierId)
+  // The sheet needs a supplier from somewhere: the card it opened from, or the
+  // picker it shows when there is no card.
+  const sheetSupplier = lockedSupplier ?? suppliers.find(s => s.id === supplierId)
   const ready = !!supplierId && items.trim().length > 0
 
   const save = async () => {
@@ -93,10 +96,12 @@ export default function GoodsIntake({
                 <span style={{ fontSize: '12px', color: '#9CA3AF' }}>תעודה של הספק, או דף פריטים בכתב יד.</span>
               </span>
             </button>
-            {/* Only offered from inside a supplier's card, because the sheet
-                carries no supplier — the card IS the answer. Without one there is
-                nothing to attach the reading to. */}
-            {lockedSupplier && (
+            {/* Offered ALWAYS. It used to be hidden unless a supplier was locked,
+                so opening intake from the goods screen simply had one fewer option
+                than opening it from a card — with nothing saying why. An option
+                that disappears without explanation reads as a missing feature.
+                The sheet carries no supplier, so it asks for one instead. */}
+            {(
               <button
                 onClick={() => setMode('sheet')}
                 className="flex items-start gap-3 text-right"
@@ -133,16 +138,38 @@ export default function GoodsIntake({
           </div>
         )}
 
-        {mode === 'sheet' && lockedSupplier && (
+        {mode === 'sheet' && !sheetSupplier && (
+          <div className="px-5 py-4 grid gap-3">
+            <p style={{ fontSize: '13px', color: '#6B6E73', margin: 0 }}>
+              הדף נושא פריטים וכמויות בלבד — <b>הספק לא כתוב עליו</b>. בחרי אותו כאן
+              והוא יירשם על התעודה.
+            </p>
+            <div>
+              <FieldLabel required>ספק</FieldLabel>
+              <SearchableSelect
+                value={supplierId}
+                onChange={setSupplierId}
+                placeholder="-- בחר --"
+                options={suppliers.map(s => ({ value: s.id, label: s.name, keywords: s.hp }))}
+              />
+            </div>
+            <button
+              onClick={() => setMode('choose')}
+              style={{ background: 'transparent', border: 'none', color: '#6B6E73', fontSize: '12.5px', cursor: 'pointer', padding: 0, justifySelf: 'start' }}
+            >← חזרה</button>
+          </div>
+        )}
+
+        {mode === 'sheet' && sheetSupplier && (
           <div className="px-5 py-4">
             <HandwrittenSheet
-              supplierName={lockedSupplier.name}
+              supplierName={sheetSupplier.name}
               capturedBy={capturedBy}
               onCancel={() => setMode('choose')}
               onSave={async lineItems => {
                 await onCreate({
-                  supplierId: lockedSupplier.id,
-                  supplierName: lockedSupplier.name,
+                  supplierId: sheetSupplier.id,
+                  supplierName: sheetSupplier.name,
                   isoDate: new Date().toISOString().slice(0, 10),
                   lineItems,
                 })

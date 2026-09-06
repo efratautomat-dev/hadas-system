@@ -46,6 +46,8 @@ interface Props {
   activeSection: EmployeeSection
   /** Open the full pipeline panel for one delivery. Same panel the manager gets. */
   onOpenPipeline?: (deliveryNoteId: string) => void
+  /** Who is capturing — stamped on the row for audit, as the camera path does. */
+  userEmail?: string
 }
 
 // Status colors from the FIXED functional tokens (src/theme/status.ts) — same
@@ -309,7 +311,7 @@ function ReceiptFormModal({ form, setForm, supplierName, employees, onSave, onCl
   )
 }
 
-export default function EmployeeSupplierView({ supplier, activeSection, onOpenPipeline }: Props) {
+export default function EmployeeSupplierView({ supplier, activeSection, onOpenPipeline, userEmail }: Props) {
   const { data: allInvoices } = useInvoices()
   const { data: allDeliveries, create: createDeliveryNote } = useDeliveryNotes()
   const { data: allReturns, create: createReturn } = useReturns()
@@ -552,6 +554,7 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
           inline
           suppliers={[]}
           lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          capturedBy={userEmail}
           onClose={() => setIntake(false)}
           onCreate={async d => { await createDeliveryNote(d) }}
         />
