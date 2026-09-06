@@ -8,6 +8,7 @@ import OrderForm from './OrderForm'
 import SupplierPicker from './SupplierPicker'
 import ArrivalChoice from './ArrivalChoice'
 import GoodsIntake from './GoodsIntake'
+import CustomerOrdersBook from './CustomerOrdersBook'
 
 import type { ArrivalCandidate } from '../../hooks/useOrders'
 import DeliveryPage from './DeliveryPage'
@@ -126,9 +127,12 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
     for (const n of notes) c[stageOf(n)] = (c[stageOf(n)] ?? 0) + 1
-    c.customer = notes.filter(n => !!orderMeta.get(n.id)?.customerName).length
+    // Counted off the ORDERS, not the rows: the notebook keeps arrived orders too,
+    // and a count that dropped when something arrived would contradict the page it
+    // labels.
+    c.customer = orders.filter(o => !!o.customerName).length
     return c
-  }, [notes, orderMeta])
+  }, [notes, orders])
 
   const shown = useMemo(
     () => notes
@@ -248,7 +252,13 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
             </div>
           </div>
 
-          {view === 'cards' ? (
+          {/* The customer filter opens the NOTEBOOK, not the pipeline table.
+              "מחברת פתוחה" was the owner's word for it and it is the spec: read
+              down the page, customer first, phone in reach — a record you look
+              through, not a table you sort. */}
+          {filter === 'customer' ? (
+            <CustomerOrdersBook orders={orders} onOpen={setOpenId} />
+          ) : view === 'cards' ? (
             <GoodsCards
               notes={shown}
               orderByNote={orderByNote}

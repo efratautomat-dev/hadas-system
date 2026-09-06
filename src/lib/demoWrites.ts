@@ -348,6 +348,18 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return { success: true, removedShell: shell }
   }
 
+  // ── PUT /delivery-notes/:id/supplier ─────────────────────────────────────
+  const reassign = path.match(/^\/delivery-notes\/([^/]+)\/supplier$/)
+  if (method === 'PUT' && reassign) {
+    const note = find('delivery_notes', reassign[1])
+    const sup  = find('suppliers', String(b.supplier_id ?? ''))
+    if (!note || !sup) return null
+    note.supplier_id = sup.id
+    // Name follows the id, as the server does it.
+    note.supplier_name = sup.name
+    return { success: true }
+  }
+
   // ── PUT /delivery-notes/:id/link ─────────────────────────────────────────
   const link = path.match(/^\/delivery-notes\/([^/]+)\/link$/)
   if (method === 'PUT' && link) {

@@ -1112,6 +1112,36 @@ async function createOrder(req: Request, supabase: SupabaseClient, actor?: strin
 //
 // Read-only, manager-only, and it carries no figures — a parked email has not been
 // parsed, so there is nothing to mask.
+/**
+ * Reassign a delivery to a different supplier — and nothing else.
+ *
+ * A narrow route rather than opening `PUT /delivery-notes/:id` to employees: that
+ * handler also writes `amount`, `date` and `status`, and an employee who may fix a
+ * misread supplier has no business setting a figure. The permission belongs to the
+ * ACTION, not to the record.
+ *
+ * The id decides and the NAME follows it, resolved here — a delivery showing one
+ * supplier and belonging to another is the defect free-text supplier fields kept
+ * producing.
+ */
+async function reassignDeliverySupplier(
+  req: Request, supabase: SupabaseClient, id: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const supplierId = body?.supplier_id ?? body?.supplierId;
+  if (!supplierId) return json({ error: "supplier_id is required" }, 400);
+
+  const { data: sup } = await supabase
+    .from("suppliers").select("id, name").eq("id", String(supplierId)).maybeSingle();
+  if (!sup) return json({ error: "Supplier not found" }, 404);
+
+  const { error } = await supabase.from("delivery_notes")
+    .update({ supplier_id: sup.id, supplier_name: sup.name })
+    .eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, supplierId: sup.id, supplierName: sup.name });
+}
+
 async function listParkedDocuments(supabase: SupabaseClient): Promise<Response> {
   const { data, error } = await supabase.from("ingest_failures")
     .select("gmail_message_id, attempts, last_error, last_attempt_at")
@@ -2268,6 +2298,10 @@ const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
   /^\/invoices\/[^/]+\/open-pipeline$/,
   /^\/orders\/[^/]+\/differs$/,
   /^\/delivery-notes\/[^/]+\/link$/,
+  // Correcting a misread supplier is squarely the employee's job — she is the one
+  // holding the goods and reading the header. It carries no figure, which is why
+  // it is its own route rather than the general update.
+  /^\/delivery-notes\/[^/]+\/supplier$/,
   /^\/delivery-notes\/[^/]+\/unlink$/,
   /^\/invoices\/[^/]+\/ledger-approve$/,
   /^\/invoices\/[^/]+\/ledger-unapprove$/,
@@ -2493,6 +2527,10 @@ Deno.serve(async (req: Request) => {
     // ── Orders ────────────────────────────────────────────────────────────────
     // Each of the three parts can start the chain (the owner's model): the invoice
     // leg was the one that could not.
+    const reassign = path.match(/^\/delivery-notes\/([^/]+)\/supplier$/);
+    if (reassign && req.method === "PUT")
+      return await reassignDeliverySupplier(req, supabase, reassign[1]);
+
     if (path === "/ingest/parked" && req.method === "GET")
       return await listParkedDocuments(supabase);
     if (path === "/ingest/requeue" && req.method === "PUT")

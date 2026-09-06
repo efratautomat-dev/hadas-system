@@ -103,6 +103,22 @@ export function useDeliveryNotes() {
    * Take the chain apart WITHOUT deleting anything in it (owner's decision).
    * The documents stay; only the links between them go.
    */
+  /**
+   * Move a delivery to a different supplier. A route of its own, open to employees:
+   * she is the one holding the goods and reading the header, and the action carries
+   * no figure. The name follows the id server-side so the two cannot drift.
+   */
+  const reassignSupplier = async (id: string, supplierId: string) => {
+    try {
+      await api.put(`/delivery-notes/${id}/supplier`, { supplier_id: supplierId })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בשינוי הספק: ${msg}`)
+      throw err
+    }
+  }
+
   const dismantle = async (id: string) => {
     try {
       await api.delete(`/delivery-notes/${id}/dismantle`)
@@ -185,5 +201,5 @@ export function useDeliveryNotes() {
     }
   }
 
-  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reload: load }
+  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reassignSupplier, reload: load }
 }

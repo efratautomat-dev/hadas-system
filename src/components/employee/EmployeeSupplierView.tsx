@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight, List, X, Package } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight, List, X } from 'lucide-react'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { useReturns } from '../../hooks/useReturns'
@@ -352,6 +352,16 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
   // always carries an id. Matching on name too would attach an order to a
   // second supplier that merely shares a name.
   const supplierOrders = openForSupplier(supplier.id)
+  // What the order behind a row says about itself. The separate orders panel is
+  // gone — an order IS a row here — so the row carries the description and the
+  // customer, which are the two things the panel uniquely showed.
+  const orderMeta = useMemo(() => {
+    const m = new Map<string, { description: string; customerName: string | null }>()
+    for (const o of supplierOrders) {
+      if (o.deliveryNoteId) m.set(o.deliveryNoteId, { description: o.description, customerName: o.customerName })
+    }
+    return m
+  }, [supplierOrders])
   const returns = allReturns.filter(
     (r) => (r as { supplierId?: string }).supplierId === supplier.id,
   )
@@ -535,13 +545,9 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
         </SectionShell>
       )}
 
-      {/* ── Open orders ──────────────────────────────────────────────────────
-          ABOVE the delivery notes, and that order is the point (§7.7). The
-          question an employee is asked on the phone is "מתי מגיע?", which is
-          about something that has NOT arrived; "מה הגיע?" comes second. Sorting
-          and filtering live in useOrders.openForSupplier so this screen and the
-          board cannot disagree about what "open" means. */}
-      {intake && (
+      {/* The two forms open INSIDE the page — above the list they add to, so the
+          result of saving is already on screen when the form closes. */}
+      {intake && activeSection === 'deliveries' && (
         <GoodsIntake
           inline
           suppliers={[]}
@@ -551,24 +557,33 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
         />
       )}
 
-      {newOrder && (
+      {newOrder && activeSection === 'deliveries' && (
         <OrderForm
           inline
           suppliers={[]}
           lockedSupplier={{ id: supplier.id, name: supplier.name }}
           customerOnly
+          openOrders={supplierOrders.map(o => ({
+            id: o.id, supplierId: o.supplierId, description: o.description,
+            date: o.date, expectedDate: o.expectedDate, customerName: o.customerName,
+          }))}
           onClose={() => setNewOrder(false)}
-          openOrders={supplierOrders.map(o => ({ id: o.id, supplierId: o.supplierId, description: o.description, date: o.date, expectedDate: o.expectedDate, customerName: o.customerName }))}
           onCreate={async d => { await createOrder(d) }}
         />
       )}
 
+      {/* ── הזמנות וסחורה — one list ─────────────────────────────────────────
+          NOT two panels. An order opens its pipeline row the moment it is placed,
+          so it is already in this list — a separate "הזמנות פתוחות" panel above
+          was showing the same records twice, which is the duplication the
+          manager's tabs were removed for. */}
       {activeSection === 'deliveries' && (
         <SectionShell
-          title="הזמנות פתוחות"
-          Icon={Package}
-          count={supplierOrders.length}
+          title="הזמנות וסחורה"
+          Icon={Truck}
+          count={deliveries.length}
           action={
+            <div className="flex items-center gap-2">
             <button
               onClick={() => setNewOrder(true)}
               className="flex items-center gap-1.5 font-bold"
@@ -577,44 +592,6 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
               <Plus className="w-4 h-4" />
               הזמנה ללקוחה
             </button>
-          }
-        >
-          {supplierOrders.length === 0 && (
-            <EmptyRow text="אין הזמנות פתוחות עבור ספק זה" />
-          )}
-          {supplierOrders.map(o => (
-            <div
-              key={o.id}
-              className="flex items-center justify-between gap-3 border-b flex-wrap"
-              style={{ borderColor: '#EEEEF2', minHeight: '56px', padding: '12px 16px' }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <p className="text-right text-gray-700" style={{ fontSize: '13.5px', margin: 0, fontWeight: 600 }}>
-                  {o.description || '—'}
-                  {o.customerName && (
-                    <span style={{ color: '#9CA3AF', fontWeight: 400 }}>{` — עבור ${o.customerName}`}</span>
-                  )}
-                </p>
-                <p className="text-right" style={{ fontSize: '12px', color: '#9CA3AF', margin: '2px 0 0' }}>
-                  הוזמן {o.date}
-                  {/* Shown only when known. A missing expected date is the common
-                      case and must not read as a date that went missing. */}
-                  {o.expectedDate && ` · צפי ${o.expectedDate}`}
-                </p>
-              </div>
-              <StatusBadge status={o.status} />
-            </div>
-          ))}
-        </SectionShell>
-      )}
-
-      {/* ── Delivery notes ── */}
-      {activeSection === 'deliveries' && (
-        <SectionShell
-          title="סחורה"
-          Icon={Truck}
-          count={deliveries.length}
-          action={
             <button
               onClick={() => setIntake(true)}
               className="flex items-center gap-1.5 rounded-xl font-bold text-white transition-all"
@@ -625,6 +602,7 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
               <Plus className="w-4 h-4" />
               קליטת סחורה
             </button>
+            </div>
           }
         >
           {deliveries.length === 0 ? (
@@ -651,7 +629,16 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
                   {/* Compact and label-less: in a row the badge beside it carries the
                       words, and the strip is here to be read as a shape. */}
                   <PipelineStrip stage={stage} compact showLabels={false} hasInvoice={!!(dn as { linkedInvoiceId?: string }).linkedInvoiceId} />
-                  <p className="text-right text-gray-500" style={{ fontSize: '13px' }}>{(d.noteNumber || d.id)} · {d.date}</p>
+                  <div style={{ minWidth: 0 }}>
+                    <p className="text-right text-gray-600" style={{ fontSize: '13px', margin: 0 }}>
+                      {orderMeta.get(d.id)?.description || d.noteNumber || d.id} · {d.date}
+                    </p>
+                    {orderMeta.get(d.id)?.customerName && (
+                      <p className="text-right" style={{ fontSize: '11.5px', color: 'var(--brand-primary)', margin: '2px 0 0', fontWeight: 600 }}>
+                        עבור {orderMeta.get(d.id)!.customerName}
+                      </p>
+                    )}
+                  </div>
                   <StatusBadge status={stage} />
                   <div className="flex justify-center">
                     {hasDoc ? (

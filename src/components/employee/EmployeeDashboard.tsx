@@ -6,6 +6,7 @@ import OrdersRail from '../pipeline/OrdersRail'
 import { useOrders, type ArrivalCandidate } from '../../hooks/useOrders'
 import ArrivalChoice from '../pipeline/ArrivalChoice'
 import DeliveryPage from '../pipeline/DeliveryPage'
+import SupplierPicker from '../pipeline/SupplierPicker'
 import { useIsWide } from '../../hooks/useIsWide'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { supplierAttention, ATTENTION_COLOR } from '../../lib/supplierAttention'
@@ -51,7 +52,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   // The SAME panel the manager opens. The role difference is which props are
   // passed, not which component renders: no onDismantle here, and the amounts are
   // already NULL because the masking view decided that long before this screen.
-  const { data: allNotes, link, unlink, candidates, reload: reloadNotes } = useDeliveryNotes()
+  const { data: allNotes, link, unlink, candidates, reassignSupplier, reload: reloadNotes } = useDeliveryNotes()
   const { data: allInv, ledgerApprove } = useInvoices()
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
   // The delivery page's two-pane threshold (1100) is NOT the board's (1024):
@@ -59,6 +60,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   // there a spare column for the orders rail". Different questions, so different
   // numbers, and naming them apart keeps a later edit from collapsing them.
   const isDocWide = useIsWide()
+  const [reassign, setReassign] = useState<string | null>(null)
   const openNote = allNotes.find(n => n.id === openNoteId)
 
   const arrive = async (id: string, partial: boolean, choice?: { adopt?: string; forceNew?: boolean }) => {
@@ -125,7 +127,16 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             onLink={async (id, invoiceId) => { await link(id, invoiceId); await reloadNotes() }}
             onUnlink={async id => { await unlink(id); await reloadNotes() }}
             onApprove={async invoiceId => { const n = await ledgerApprove(invoiceId); await reloadNotes(); return n }}
+            onChangeSupplier={() => setReassign(openNote.id)}
           />
+          {reassign && (
+            <SupplierPicker
+              current={openNote.supplierId ?? ''}
+              suppliers={suppliers.map(s => ({ id: s.id, name: s.name, hp: (s as { hp?: string }).hp }))}
+              onClose={() => setReassign(null)}
+              onPick={async supplierId => { await reassignSupplier(reassign, supplierId); setReassign(null) }}
+            />
+          )}
         </main>
       </div>
     )
