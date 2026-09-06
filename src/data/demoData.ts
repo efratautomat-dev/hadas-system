@@ -315,6 +315,17 @@ const delivery_notes: Row[] = [
   { id: 'dn_06', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',        date: '2026-06-12', amount: 9640,  status: 'pending_match', invoice_id: null,      drive_file_link: null, storage_url: DOC_URL, note_number: '2260114', gmail_message_id: 'demo-msg-dn-06', source_email: 'mail@zohar-demo.co.il' },
   // The inverse case (§6.4) — an invoice arrived and the goods never did. Without
   // one of these the red step and its alert dot are unreachable in the demo.
+  // ── Rows an ORDER opened ────────────────────────────────────────────────────
+  // An order opens its pipeline the moment it is placed, so a waiting order IS a
+  // row here. Seeded explicitly because the demo dataset predates that rule, and
+  // without them the goods list showed no orders at all — which is exactly what it
+  // would look like if the feature were broken.
+  //
+  // `note_number` empty and `intake_source: 'order'` together say "no delivery has
+  // happened yet", so this can never be read as goods that arrived.
+  { id: 'dn_o1', supplier_id: 'sup_05', supplier_name: 'כפתורים ופרטים בע"מ', date: '2026-06-08', amount: null, status: 'pending', invoice_id: null, drive_file_link: null, storage_url: null, note_number: '', stage: 'awaiting_goods', intake_source: 'order', line_items: 'כפתורי צדף לבנים, 3 גדלים + סרט גומי שחור' },
+  { id: 'dn_o2', supplier_id: 'sup_06', supplier_name: 'משלוחים מהיר אקספרס',  date: '2026-06-11', amount: null, status: 'pending', invoice_id: null, drive_file_link: null, storage_url: null, note_number: '', stage: 'awaiting_goods', intake_source: 'order', line_items: 'שתי חבילות מהמחסן בחיפה' },
+  { id: 'dn_o4', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',            date: '2026-06-10', amount: null, status: 'pending', invoice_id: null, drive_file_link: null, storage_url: null, note_number: '', stage: 'awaiting_goods', intake_source: 'order', line_items: 'חוט כותנה — 6 גוונים' },
   { id: 'dn_07', supplier_id: 'sup_08', supplier_name: 'תוויות פלוס',      date: '2026-06-14', amount: 3120,  status: 'pending',       invoice_id: null,      drive_file_link: null, storage_url: DOC_URL, note_number: '', stage: 'awaiting_goods', intake_source: 'manual' },
 ]
 
@@ -330,17 +341,18 @@ const delivery_notes: Row[] = [
 const orders: Row[] = [
   { id: 'ord_01', supplier_id: 'sup_05', supplier_name: 'כפתורים ופרטים בע"מ',
     description: 'כפתורי צדף לבנים, 3 גדלים + סרט גומי שחור', date: '2026-06-08',
-    status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: null },
+    status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: 'dn_o1' },
   { id: 'ord_02', supplier_id: 'sup_06', supplier_name: 'משלוחים מהיר אקספרס',
     description: 'שתי חבילות מהמחסן בחיפה', date: '2026-06-11',
-    status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: null },
+    customer_name: 'רונית לוי', customer_phone: '052-4471902', expected_date: '2026-06-15',
+    status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: 'dn_o2' },
   { id: 'ord_03', supplier_id: 'sup_02', supplier_name: 'אריזות שקד',
     description: 'קרטונים מידה 3, נייר משי לבן', date: '2026-06-09',
     status: 'order_arrived', arrived_at: '2026-06-09T08:20:00', arrived_differs: true,
     delivery_note_id: 'dn_05' },
   { id: 'ord_04', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',
     description: 'חוט כותנה — 6 גוונים', date: '2026-06-10',
-    status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: null },
+    status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: 'dn_o4' },
   { id: 'ord_05', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',
     description: 'הגיע: חוט כותנה, 4 גוונים', date: '2026-06-12',
     status: 'order_partial', arrived_at: '2026-06-12T09:05:00', arrived_differs: false,

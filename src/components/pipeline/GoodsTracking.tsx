@@ -28,7 +28,7 @@ import type { DeliveryNote, PipelineStage } from '../../data/mockData'
 // item: splitting one chain across two screens is what this replaces.
 
 /** Filters over the goods list, named by what the user is looking for. */
-type GoodsFilter = 'all' | PipelineStage
+type GoodsFilter = 'all' | 'customer' | PipelineStage
 
 // One list, not two tabs. Since an order opens its pipeline the moment it is
 // placed, every order ALREADY appears here as a row — the orders tab was showing
@@ -36,6 +36,10 @@ type GoodsFilter = 'all' | PipelineStage
 // the customer) belongs on the row and in the page, which is where they now are.
 const GOODS_FILTERS: { key: GoodsFilter; label: string }[] = [
   { key: 'all',               label: 'הכל' },
+  // Not a stage — a lens. "מתי מגיע?" is asked about a person, and answering it
+  // meant scanning every row for a name. A customer is waiting behind these and
+  // behind no others, which is the whole reason they are worth separating.
+  { key: 'customer',          label: 'הזמנות לקוחות' },
   { key: 'awaiting_goods',    label: 'ממתין לסחורה' },
   { key: 'awaiting_invoice',  label: 'ממתין לחשבונית' },
   { key: 'awaiting_approval', label: 'ממתין לאישור' },
@@ -121,14 +125,18 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
     for (const n of notes) c[stageOf(n)] = (c[stageOf(n)] ?? 0) + 1
+    c.customer = notes.filter(n => !!orderMeta.get(n.id)?.customerName).length
     return c
-  }, [notes])
+  }, [notes, orderMeta])
 
   const shown = useMemo(
     () => notes
-      .filter(n => filter === 'all' || stageOf(n) === filter)
+      .filter(n =>
+        filter === 'all' ? true
+        : filter === 'customer' ? !!orderMeta.get(n.id)?.customerName
+        : stageOf(n) === filter)
       .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || '')),
-    [notes, filter],
+    [notes, filter, orderMeta],
   )
 
   const openOrders = useMemo(

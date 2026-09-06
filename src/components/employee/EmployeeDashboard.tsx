@@ -168,7 +168,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             </div>
             <div className="text-right">
               <h1 className="font-bold text-gray-800" style={{ fontSize: '17px' }}>חיפוש ספק</h1>
-              <p className="text-gray-400" style={{ fontSize: '13px' }}>בחרי ספק כדי לצפות בחשבוניות, תעודות משלוח, חזרות ופרטי קשר</p>
+              <p className="text-gray-400" style={{ fontSize: '13px' }}>בחרי ספק כדי לצפות בחשבוניות, בהזמנות ובסחורה, בחזרות ובפרטי קשר</p>
             </div>
           </div>
           <SearchableSelect

@@ -606,7 +606,7 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
           }
         >
           {deliveries.length === 0 ? (
-            <EmptyRow text="אין תעודות משלוח עבור ספק זה" />
+            <EmptyRow text="אין סחורה עבור ספק זה" />
           ) : (
             deliveries.map((dn) => {
               const d = dn as unknown as { id: string; date: string; status: string; stage?: PipelineStage; driveFileLink?: string; storage_url?: string; noteNumber?: string; lineItems?: string }

@@ -904,7 +904,7 @@ const MERGE_COUNT_LABELS: [string, string][] = [
   ['invoices',          'חשבוניות'],
   ['payments',          'תשלומים'],
   ['returns',           'החזרות'],
-  ['delivery_notes',    'תעודות משלוח'],
+  ['delivery_notes',    'הזמנות וסחורה'],
   ['vendor_statements', 'דפי ספק'],
 ]
 

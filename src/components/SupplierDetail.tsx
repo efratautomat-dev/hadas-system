@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
-import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw } from 'lucide-react'
+import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw, Package, Plus } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
+import { useOrders } from '../hooks/useOrders'
+import OrderForm from './pipeline/OrderForm'
 import { usePayments } from '../hooks/usePayments'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { useReturns } from '../hooks/useReturns'
@@ -206,6 +208,8 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   // chosen section renders full width beneath them — these tables are wide
   // (תאריך·סוג·אסמכתא·חובה·זכות·יתרה) and a half-screen pane would force
   // horizontal scrolling, especially on tablet.
+  const { openForSupplier, create: createOrder } = useOrders()
+  const [newOrder, setNewOrder] = useState(false)
   const [tab, setTab] = useState<TabKey>('ledger')
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
@@ -223,6 +227,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   const invoices = allInvoices.filter((inv) => inv.supplierId === supplier.id)
   const payments = allPayments.filter((pay) => pay.supplier_id === supplier.id && pay.status !== 'cancelled')
   const notes      = allNotes.filter((n) => n.supplierId === supplier.id)
+  // Matched by id only — every order is created through the picker, so it always
+  // carries one, and matching on name too would attach a namesake's order here.
+  const orders     = openForSupplier(supplier.id)
   const returns    = allReturns.filter((r) => r.supplierId === supplier.id)
   const statements = allStatements.filter((s) => s.supplier_id === supplier.id)
   // Statements needing attention drive the warning badge on the card.
@@ -451,7 +458,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
           selected={tab === 'invoices'} onClick={() => setTab('invoices')}
         />
         <TabCard
-          label="תעודות משלוח" Icon={Truck} value={String(notes.length)}
+          label="הזמנות וסחורה" Icon={Truck} value={String(orders.length + notes.length)}
           selected={tab === 'notes'} onClick={() => setTab('notes')}
         />
         <TabCard
@@ -638,11 +645,57 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
       </div>
       )}
 
-      {/* ── תעודות משלוח ── NEW for the manager (the employees already had it) */}
+      {/* ── הזמנות וסחורה ─────────────────────────────────────────────────────
+          Orders live here too, above the goods and with the same name the area
+          carries everywhere else. The supplier card was the one screen still
+          calling this "תעודות משלוח" and still unable to show — or open — an
+          order, which made it the last place the two roles disagreed. */}
+      {tab === 'notes' && orders.length > 0 && (
+        <Panel
+          title="הזמנות פתוחות"
+          Icon={Package}
+          action={<span className="text-sm text-gray-400">{orders.length}</span>}
+        >
+          {orders.map(o => (
+            <div
+              key={o.id}
+              className="flex items-center justify-between gap-3 flex-wrap"
+              style={{ borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <p className="text-right text-gray-700" style={{ fontSize: '13.5px', margin: 0, fontWeight: 600 }}>
+                  {o.description || '—'}
+                  {o.customerName && (
+                    <span style={{ color: '#9CA3AF', fontWeight: 400 }}>{` — עבור ${o.customerName}`}</span>
+                  )}
+                </p>
+                <p className="text-right" style={{ fontSize: '12px', color: '#9CA3AF', margin: '2px 0 0' }}>
+                  הוזמן {o.date}{o.expectedDate ? ` · צפי ${o.expectedDate}` : ''}
+                </p>
+              </div>
+              <StatusBadge status={o.status} />
+            </div>
+          ))}
+        </Panel>
+      )}
+
       {tab === 'notes' && (
-        <Panel title="תעודות משלוח" Icon={Truck} action={<span className="text-sm text-gray-400">{notes.length} רשומות</span>}>
+        <Panel
+          title="סחורה"
+          Icon={Truck}
+          action={
+            <button
+              onClick={() => setNewOrder(true)}
+              className="flex items-center gap-1.5 font-bold"
+              style={{ minHeight: '36px', padding: '0 14px', background: 'white', color: 'var(--brand-primary)', border: '1px solid var(--brand-primary)', fontSize: '13px', cursor: 'pointer' }}
+            >
+              <Plus className="w-4 h-4" />
+              הזמנה חדשה
+            </button>
+          }
+        >
           {notes.length === 0 ? (
-            <EmptyPanel text="אין תעודות משלוח עבור ספק זה" />
+            <EmptyPanel text="אין סחורה עבור ספק זה" />
           ) : (
             <div>
               <div
@@ -915,6 +968,19 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
         </div>
       )}
 
+
+      {newOrder && (
+        <OrderForm
+          suppliers={[]}
+          lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          openOrders={orders.map(o => ({
+            id: o.id, supplierId: o.supplierId, description: o.description,
+            date: o.date, expectedDate: o.expectedDate, customerName: o.customerName,
+          }))}
+          onClose={() => setNewOrder(false)}
+          onCreate={async d => { await createOrder(d) }}
+        />
+      )}
     </div>
   )
 }

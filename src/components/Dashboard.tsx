@@ -540,7 +540,7 @@ export default function Dashboard({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <Package className="w-4 h-4 text-gray-400" />
-                  <h2 className="font-semibold text-gray-800 text-sm">תעודות משלוח</h2>
+                  <h2 className="font-semibold text-gray-800 text-sm">הזמנות וסחורה</h2>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {!dnLoading && pendingDeliveryCount > 0 && (
