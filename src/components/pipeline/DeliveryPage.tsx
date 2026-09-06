@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ChevronRight, Check, Link2, Unlink, UserCog, Scissors, FileText,
-  Truck, Eye, ExternalLink, PackageCheck,
+  Truck, Eye, ExternalLink, PackageCheck, TriangleAlert,
 } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
 import { StatusBadge } from '../StatusBadge'
@@ -51,7 +51,7 @@ const BTN_QUIET: React.CSSProperties = {
 export default function DeliveryPage({
   note, stage, order, invoice, invoices, isWide,
   onBack, onLoadCandidates, onLink, onUnlink, onApprove,
-  onChangeSupplier, onDismantle, onOpenInvoice, onArrived, customerOrders = [],
+  onChangeSupplier, onDismantle, onOpenInvoice, onArrived, onMarkDiffers, customerOrders = [],
   onSetCustomerStatus,
 }: {
   note: DeliveryNote
@@ -71,6 +71,12 @@ export default function DeliveryPage({
   onOpenInvoice?: (invoiceId: string) => void
   /** Present only while the goods have not arrived — an order still waiting. */
   onArrived?: (partial: boolean) => Promise<void>
+  /**
+   * §7.j — mark that what came differs from what was ordered. Documentation only;
+   * the difference is settled against the invoice. Offered where the person is
+   * standing when she notices, which is here.
+   */
+  onMarkDiffers?: () => Promise<void>
   /**
    * Customer orders riding on this delivery.
    *
@@ -353,6 +359,11 @@ export default function DeliveryPage({
               {invoice && onOpenInvoice && (
                 <button onClick={() => onOpenInvoice(invoice.id)} style={BTN_BASE}>
                   <ExternalLink className="w-4 h-4" />פתיחת החשבונית
+                </button>
+              )}
+              {onMarkDiffers && (
+                <button disabled={busy} onClick={() => act(onMarkDiffers)} style={BTN_BASE}>
+                  <TriangleAlert className="w-4 h-4" />שונה מהמוזמן
                 </button>
               )}
               {onChangeSupplier && (

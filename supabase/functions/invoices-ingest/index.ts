@@ -3812,12 +3812,38 @@ async function handleHandwrittenSheet(
 
   try {
     const lines = await extractHandwrittenSheet({ mimeType, bytes });
+
+    // ── Keep the page ────────────────────────────────────────────────────────
+    //
+    // The photo was read and thrown away. Every other intake path keeps its
+    // source — email ingest uploads to Storage, camera capture goes through
+    // handleNonInvoice which uploads — and this one, the LEAST certain of them,
+    // kept nothing. If the reading was wrong there was nothing to check it
+    // against; in a disagreement with a supplier there was no document at all.
+    //
+    // Uploaded before the answer is returned, and its path handed back so the
+    // delivery the screen then creates can carry it. A failure here does not
+    // fail the read: the lines are already extracted, and losing the reading
+    // because the filing failed would be the larger loss.
+    let storagePath: string | null = null;
+    try {
+      const ext = mimeType.includes("png") ? "png" : "jpg";
+      storagePath = await uploadToStorage(
+        supabase, "delivery-notes", new Date(),
+        `handwritten-${Date.now()}.${ext}`, mimeType, bytes,
+      );
+    } catch (e) {
+      await log("warn", `handwritten sheet stored read but file upload failed: ${
+        e instanceof Error ? e.message : String(e)}`, { capturedBy: body.capturedBy ?? null });
+    }
+
     await log("info", "handwritten sheet read", {
       lines: lines.length,
       uncertain: lines.filter(l => l.uncertain).length,
+      stored: !!storagePath,
       capturedBy: body.capturedBy ?? null,
     });
-    return json({ success: true, lines });
+    return json({ success: true, lines, storageUrl: storagePath });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await log("error", `handwritten sheet failed: ${msg}`, { capturedBy: body.capturedBy ?? null });

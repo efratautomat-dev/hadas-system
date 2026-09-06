@@ -130,17 +130,20 @@ export async function readHandwrittenSheet(input: {
   imageBase64: string
   mimeType: string
   capturedBy?: string
-}): Promise<HandwrittenLine[]> {
+}): Promise<{ lines: HandwrittenLine[]; storageUrl: string | null }> {
   if (DEMO_MODE) {
     // A fixed answer, and honestly labelled: the demo has no model behind it, and
     // pretending to read the photo would teach that the reading is trustworthy
     // without ever having tested it.
     console.warn('[DEMO MODE] stubbed readHandwrittenSheet — no network call')
-    return [
-      { item: 'חלב 3% ארגז', quantity: '2', price: '128.5', uncertain: false },
-      { item: 'קוטג׳ ארגז',  quantity: '1', price: '96',    uncertain: false },
-      { item: 'ביצים מגש',   quantity: '4', price: '',      uncertain: true  },
-    ]
+    return {
+      lines: [
+        { item: 'חלב 3% ארגז', quantity: '2', price: '128.5', uncertain: false },
+        { item: 'קוטג׳ ארגז',  quantity: '1', price: '96',    uncertain: false },
+        { item: 'ביצים מגש',   quantity: '4', price: '',      uncertain: true  },
+      ],
+      storageUrl: null,
+    }
   }
   const { data: { session } } = await supabase.auth.getSession()
   const token = session?.access_token
@@ -152,5 +155,6 @@ export async function readHandwrittenSheet(input: {
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`)
-  return ((data as { lines?: HandwrittenLine[] }).lines ?? [])
+  const out = data as { lines?: HandwrittenLine[]; storageUrl?: string | null }
+  return { lines: out.lines ?? [], storageUrl: out.storageUrl ?? null }
 }

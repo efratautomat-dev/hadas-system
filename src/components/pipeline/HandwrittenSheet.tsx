@@ -42,11 +42,12 @@ export default function HandwrittenSheet({
    * The confirmed lines, and a total ONLY when every line was priced.
    * `null` means "not known", which is different from zero and must stay so.
    */
-  onSave: (lineItems: string, amount: number | null) => Promise<void>
+  onSave: (lineItems: string, amount: number | null, storageUrl: string | null) => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [photo, setPhoto] = useState<string | null>(null)
+  const [stored, setStored] = useState<string | null>(null)
   const [rows, setRows] = useState<Line[] | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -55,11 +56,14 @@ export default function HandwrittenSheet({
     try {
       const dataUrl = await fileToDataUrl(f)
       setPhoto(dataUrl)
-      const lines = await readHandwrittenSheet({
+      const read = await readHandwrittenSheet({
         imageBase64: dataUrl, mimeType: f.type || 'image/jpeg', capturedBy,
       })
-      setRows(lines.map(l => ({ ...l, ...newLine(), item: l.item, quantity: l.quantity, price: l.price, uncertain: l.uncertain })))
-      if (lines.length === 0) setErr('לא זוהו שורות בדף. אפשר להוסיף ידנית.')
+      // The stored page travels with the lines, so the delivery keeps the document
+      // it was read from — the thing that makes a disputed reading checkable.
+      setStored(read.storageUrl)
+      setRows(read.lines.map(l => ({ ...newLine(), item: l.item, quantity: l.quantity, price: l.price, uncertain: l.uncertain })))
+      if (read.lines.length === 0) setErr('לא זוהו שורות בדף. אפשר להוסיף ידנית.')
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
@@ -72,7 +76,7 @@ export default function HandwrittenSheet({
     try {
       // Stored the way a typed receipt is stored — one line per item — so nothing
       // downstream needs to know this arrived as a photograph.
-      await onSave(linesToText(kept), total)
+      await onSave(linesToText(kept), total, stored)
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }

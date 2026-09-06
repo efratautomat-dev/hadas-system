@@ -21,6 +21,19 @@
 --    delivery note. They coexist and never read each other.
 -- ─────────────────────────────────────────────────────────────────────────────────────
 
+-- ⚠️ WRAPPED IN A TRANSACTION, added before the production run.
+--
+-- The file rebuilds three views at the END, after the columns and the backfills.
+-- Without a transaction a failure anywhere in between leaves the schema half
+-- migrated with the views not yet rebuilt — and the two statements at lines ~98-99
+-- (`set default` then `set not null`) are the realistic place for that: they run
+-- after the backfill and throw if any row still holds a NULL stage. The backfill
+-- covers every row as written, so this is insurance rather than a known fault, but
+-- the whole class costs one line to remove and there is no reason to run an
+-- untransacted schema change against production.
+begin;
+
+
 -- ═══ 1. delivery_notes — the pipeline stage ═════════════════════════════════════════
 --
 -- A NEW column beside `status`, not a replacement. `status` carries five values from
@@ -369,3 +382,5 @@ from public.suppliers
 where public.current_user_role() is not null;
 
 grant select on public.suppliers_v to anon, authenticated;
+
+commit;

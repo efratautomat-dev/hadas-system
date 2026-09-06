@@ -81,6 +81,8 @@ export function useDeliveryNotes() {
     noteNumber?: string; employeeId?: string
     /** Σ cost read off a handwritten sheet. `null`/absent = not known. */
     amount?: number | null
+    /** The filed photo of that sheet — the document the reading came from. */
+    storageUrl?: string | null
     adopt?: string; forceNew?: boolean
   }): Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[]; id?: string }> => {
     try {
@@ -94,6 +96,7 @@ export function useDeliveryNotes() {
         // null, not 0. "Not known" and "cost nothing" are different claims, and
         // the ledger never reads this figure either way.
         amount:        body.amount ?? null,
+        storage_url:   body.storageUrl ?? null,
         delivery_note_id: body.adopt,
         force_new:        body.forceNew,
       }) as { needsChoice?: boolean; candidates?: ArrivalCandidate[]; id?: string }

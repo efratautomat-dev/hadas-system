@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useEmployees } from '../../hooks/useEmployees'
 import { Camera, Keyboard, X, Check, PackageCheck, FileSignature, ChevronRight } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import { FieldLabel, TextInput } from '../ui/form'
@@ -35,6 +36,10 @@ export default function GoodsIntake({
     isoDate: string; lineItems: string; noteNumber?: string
     /** Σ cost from the sheet, or null when it was not fully priced. */
     amount?: number | null
+    /** Where the photographed page was filed, so the row keeps its source. */
+    storageUrl?: string | null
+    /** Who took the delivery — §6.5. */
+    employeeId?: string
     adopt?: string; forceNew?: boolean
   }) => Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[] } | void>
   /**
@@ -45,6 +50,7 @@ export default function GoodsIntake({
    */
   inline?: boolean
 }) {
+  const { data: employees } = useEmployees()
   const [mode, setMode] = useState<Mode>('choose')
   const [supplierId, setSupplierId] = useState(lockedSupplier?.id ?? '')
   const [isoDate, setIsoDate] = useState(new Date().toISOString().slice(0, 10))
@@ -52,6 +58,11 @@ export default function GoodsIntake({
   // grid there would have been two ways to record one delivery.
   const [lines, setLines] = useState<Line[]>([newLine(), newLine(), newLine()])
   const [noteNumber, setNoteNumber] = useState('')
+  // Who physically took the delivery. The old receipt form asked; the single door
+  // that replaced it did not, so the column 20260823 added — with a comment saying
+  // this had been silently unrecorded — went silently unrecorded again by a new
+  // route. §6.5 is built on it.
+  const [employeeId, setEmployeeId] = useState('')
   const [busy, setBusy] = useState(false)
   // The server answers "there is already a delivery waiting for this supplier"
   // instead of writing. The draft is held so answering resumes the same save.
@@ -86,6 +97,7 @@ export default function GoodsIntake({
       lineItems: linesToText(lines),
       amount: lineTotal(lines),
       noteNumber: noteNumber.trim() || undefined,
+      employeeId: employeeId || undefined,
     })
   }
 
@@ -205,7 +217,7 @@ export default function GoodsIntake({
               supplierName={sheetSupplier.name}
               capturedBy={capturedBy}
               onCancel={() => setMode('choose')}
-              onSave={async (lineItems, amount) => {
+              onSave={async (lineItems, amount, storageUrl) => {
                 await submit({
                   supplierId: sheetSupplier.id,
                   supplierName: sheetSupplier.name,
@@ -213,6 +225,8 @@ export default function GoodsIntake({
                   isoDate: new Date().toISOString().slice(0, 10),
                   lineItems,
                   amount,
+                  storageUrl,
+                  employeeId: employeeId || undefined,
                 })
               }}
             />
@@ -245,6 +259,16 @@ export default function GoodsIntake({
                   />
                 </div>
               )}
+              <div>
+                <FieldLabel>מי קלט/ה</FieldLabel>
+                <SearchableSelect
+                  value={employeeId}
+                  onChange={setEmployeeId}
+                  placeholder="— בחירה —"
+                  allowClear
+                  options={employees.map(e => ({ value: e.id, label: e.name }))}
+                />
+              </div>
               <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
                 <div>
                   <FieldLabel>תאריך</FieldLabel>

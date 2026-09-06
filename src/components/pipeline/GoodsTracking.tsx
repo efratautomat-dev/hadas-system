@@ -59,7 +59,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
 }) {
   const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle, create: createNote, reload: reloadNotes } = useDeliveryNotes()
   const { data: invoices, ledgerApprove } = useInvoices()
-  const { data: orders, create: createOrder, markArrived, setCustomerStatus } = useOrders()
+  const { data: orders, create: createOrder, markArrived, setCustomerStatus, markDiffers } = useOrders()
   const { data: suppliers } = useSuppliers()
   const [newOrder, setNewOrder] = useState(false)
   const [reassign, setReassign] = useState<string | null>(null)
@@ -191,6 +191,11 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
         onApprove={ledgerApprove}
         onChangeSupplier={() => setReassign(openNote.id)}
         onDismantle={async () => { await dismantle(openNote.id) }}
+        onMarkDiffers={
+          orderIdByNote.has(openNote.id)
+            ? async () => { await markDiffers(orderIdByNote.get(openNote.id)!) }
+            : undefined
+        }
         onArrived={
           orderIdByNote.has(openNote.id)
             ? (partial: boolean) => arrive(orderIdByNote.get(openNote.id)!, partial)

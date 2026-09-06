@@ -412,6 +412,15 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return row
   }
 
+  // ── PUT /orders/:id/differs ──────────────────────────────────────────────
+  const differs = path.match(/^\/orders\/([^/]+)\/differs$/)
+  if (method === 'PUT' && differs) {
+    const order = find('orders', differs[1])
+    if (!order) return null
+    order.arrived_differs = b.differs !== false
+    return { success: true }
+  }
+
   // ── PUT /orders/:id/customer-status ──────────────────────────────────────
   const custStatus = path.match(/^\/orders\/([^/]+)\/customer-status$/)
   if (method === 'PUT' && custStatus) {

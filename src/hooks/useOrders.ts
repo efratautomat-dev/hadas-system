@@ -135,6 +135,23 @@ export function useOrders() {
    * opens a fresh one. Deciding here would silently merge two deliveries that
    * happen to share a supplier and a week.
    */
+  /**
+   * §7.j — what arrived is not what was ordered. DOCUMENTATION ONLY: it has no
+   * accounting effect, the difference is settled at invoice matching. The route
+   * and the flag both existed and nothing ever called it, so the one state the
+   * spec gives for "this came wrong" was unreachable.
+   */
+  const markDiffers = async (id: string, differs = true) => {
+    try {
+      await api.put(`/orders/${id}/differs`, { differs })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בסימון: ${msg}`)
+      throw err
+    }
+  }
+
   const setCustomerStatus = async (id: string, next: CustomerStatus) => {
     try {
       await api.put(`/orders/${id}/customer-status`, { customer_status: next })
@@ -181,5 +198,5 @@ export function useOrders() {
       .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || '')),
     [data])
 
-  return { data, loading, error, create, markArrived, openForSupplier, setCustomerStatus, reload: load }
+  return { data, loading, error, create, markArrived, openForSupplier, setCustomerStatus, markDiffers, reload: load }
 }

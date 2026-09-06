@@ -596,6 +596,9 @@ async function deletePayment(supabase: SupabaseClient, id: string): Promise<Resp
 async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
   const { supplier_name, note_number, date, amount, amount_before_vat, vat_amount, line_items, source_email, received_at } = body;
+  // The photographed page, when the sheet path filed one. Without this the
+  // reading survives and the document it came from does not.
+  const storageUrl = body.storage_url ?? body.storageUrl ?? null;
   // A MANUAL goods receipt has only a supplier + item list — no delivery-note number
   // and often no amount. Email-ingested notes pass the full set. Require only the
   // supplier; default the rest. No gmail_message_id → the row reads as source='manual'.
@@ -660,7 +663,11 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
     if (note_number) patch.note_number = note_number;
     // The sheet's cost total, when it had one. Only fills a hole — a figure read
     // off the supplier's own document outranks one summed at the counter.
-    if (amount !== null && amount !== undefined) patch.amount = amount;
+    const safeAmount = storableAmount(amount);
+    if (safeAmount !== null) patch.amount = safeAmount;
+    // Only fills a hole: an emailed note already carries the supplier's own
+    // document, which outranks a photograph of a handwritten page.
+    if (storageUrl) patch.storage_url = storageUrl;
     // Goods have now been seen. An invoice-first chain was only ever waiting for
     // this, so it moves on; a note-first chain is still waiting for its invoice.
     if (target.stage === "awaiting_goods") patch.stage = "awaiting_approval";
@@ -677,12 +684,15 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
       supplier_name:     supplier_name     ?? null,
       note_number:       note_number       ?? "",   // NOT NULL; manual receipts have no number
       date:              date              ?? new Date().toISOString().slice(0, 10),
-      amount:            amount            ?? 0,
-      amount_before_vat: amount_before_vat ?? null,
-      vat_amount:        vat_amount        ?? null,
+      // null, not 0 — "not known" and "cost nothing" are different claims, and
+      // an unstorable figure is dropped rather than taking the row down with it.
+      amount:            storableAmount(amount),
+      amount_before_vat: storableAmount(amount_before_vat),
+      vat_amount:        storableAmount(vat_amount),
       line_items:        line_items        ?? null,
       source_email:      source_email      ?? null,
       received_at:       received_at       ?? null,
+      storage_url:       storageUrl,
       status: "pending",
       // Goods are in hand and no invoice is attached — the pipeline's starting state.
       stage: "awaiting_invoice" satisfies PipelineStage,
@@ -935,12 +945,19 @@ async function ledgerUnapproveInvoice(supabase: SupabaseClient, id: string): Pro
     .select("delivery_note_id").eq("invoice_id", id);
   const noteIds = ((links ?? []) as Array<{ delivery_note_id: string }>)
     .map(r => String(r.delivery_note_id));
+  let moved = 0;
   if (noteIds.length > 0) {
-    await supabase.from("delivery_notes")
+    // Same exclusion as the approve side. Un-approving an invoice does not make
+    // goods appear, so a chain whose goods never arrived must not be relabelled
+    // "waiting for approval" — that would claim stock nobody has seen.
+    const { data: reverted } = await supabase.from("delivery_notes")
       .update({ stage: "awaiting_approval", status: "linked" })
-      .in("id", noteIds);
+      .in("id", noteIds)
+      .neq("stage", "awaiting_goods")
+      .select("id");
+    moved = reverted?.length ?? 0;
   }
-  return json({ success: true, notesMoved: noteIds.length });
+  return json({ success: true, notesMoved: moved });
 }
 
 // ─── Suggested matches (§6.f) ─────────────────────────────────────────────────
@@ -1086,7 +1103,11 @@ async function createOrder(req: Request, supabase: SupabaseClient, actor?: strin
   // what is missing, which is equally true of an invoice that came first and of an
   // order not yet delivered. The strip tells them apart from the order step, which
   // is why that step exists.
-  const { data: pipe } = await supabase.from("delivery_notes").insert({
+  // The error is READ. It was not, and the cost was invisible: a rejected insert
+  // left `pipe` null, `if (pipe)` skipped the link, and createOrder still answered
+  // 201 — an order with no pipeline behind it and nothing in the logs. An insert
+  // whose failure is not checked is a write you have not really made.
+  const { data: pipe, error: pipeErr } = await supabase.from("delivery_notes").insert({
     supplier_id:   supplierId,
     supplier_name: supplierName,
     note_number:   "",
@@ -1099,9 +1120,18 @@ async function createOrder(req: Request, supabase: SupabaseClient, actor?: strin
     intake_source: "order",
     line_items:    body.description ?? null,
   }).select("id").single();
-  if (pipe) {
-    await supabase.from("orders").update({ delivery_note_id: pipe.id }).eq("id", data.id);
+  if (pipeErr || !pipe) {
+    // The order exists and is not lost, but it is not in the chain — say so rather
+    // than report success. Half a thing reported as a whole one is the failure the
+    // owner cannot see and cannot chase.
+    return json({
+      id: data.id,
+      pipelineOpened: false,
+      warning: "ההזמנה נשמרה אך לא נפתח עבורה מעקב סחורה",
+      details: pipeErr?.message ?? null,
+    }, 201);
   }
+  await supabase.from("orders").update({ delivery_note_id: pipe.id }).eq("id", data.id);
 
   // ── A customer order landing on a supplier that already has one open ──────
   //
@@ -1249,6 +1279,26 @@ async function setCustomerStatus(
  * She is often the one who knows: she took the delivery, she saw what was short.
  * A note she cannot leave is knowledge the system loses at the counter.
  */
+// ─── A number that cannot be stored is not a price ──────────────────────────
+//
+// The same guard invoices-ingest carries, on the path employees actually use.
+// `delivery_notes.amount` is numeric(10,2) in production — up to 99,999,999.99 —
+// and Postgres answers an oversized value with 22003 by rejecting the WHOLE ROW.
+// Ingest learned this when a barcode read as a price kept an entire document out
+// of the system; hadas-api never did, and the handwritten sheet now POSTs
+// Σ price × quantity, so one mistyped unit price loses the delivery.
+//
+// Dropping the figure and keeping the document is the right trade in both places:
+// the amount is a comparison aid here, never the ledger's number.
+const NUMERIC_10_2_MAX = 99_999_999.99;
+
+function storableAmount(n: unknown): number | null {
+  if (n === null || n === undefined || n === "") return null;
+  const v = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(v)) return null;
+  return Math.abs(v) > NUMERIC_10_2_MAX ? null : v;
+}
+
 async function setInvoiceNotes(
   req: Request, supabase: SupabaseClient, id: string,
 ): Promise<Response> {
