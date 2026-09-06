@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Camera, Keyboard, X, Check, PackageCheck } from 'lucide-react'
+import { Camera, Keyboard, X, Check, PackageCheck, FileSignature } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import { FieldLabel, TextInput, Textarea } from '../ui/form'
 import CaptureDocument from '../CaptureDocument'
+import HandwrittenSheet from './HandwrittenSheet'
 import { FormShell } from './FormShell'
 
 // ── קליטת סחורה — one door, two ways in ──────────────────────────────────────
@@ -16,7 +17,7 @@ import { FormShell } from './FormShell'
 // Opened from a supplier's card the supplier is fixed and shown, which removes the
 // one field that could file goods against the wrong supplier.
 
-type Mode = 'choose' | 'photo' | 'manual'
+type Mode = 'choose' | 'photo' | 'sheet' | 'manual'
 
 export default function GoodsIntake({
   suppliers, lockedSupplier, capturedBy, onClose, onCreate, inline = false,
@@ -92,6 +93,22 @@ export default function GoodsIntake({
                 <span style={{ fontSize: '12px', color: '#9CA3AF' }}>תעודה של הספק, או דף פריטים בכתב יד.</span>
               </span>
             </button>
+            {/* Only offered from inside a supplier's card, because the sheet
+                carries no supplier — the card IS the answer. Without one there is
+                nothing to attach the reading to. */}
+            {lockedSupplier && (
+              <button
+                onClick={() => setMode('sheet')}
+                className="flex items-start gap-3 text-right"
+                style={{ border: '1px solid #E2E4E9', background: 'white', padding: '15px', cursor: 'pointer', font: 'inherit' }}
+              >
+                <FileSignature className="w-5 h-5" style={{ color: 'var(--brand-primary)', flex: 'none', marginTop: 2 }} />
+                <span>
+                  <b style={{ fontSize: '13.5px', display: 'block' }}>דף בכתב יד</b>
+                  <span style={{ fontSize: '12px', color: '#9CA3AF' }}>טופס הפריטים והכמויות שממלאים ליד המשטח.</span>
+                </span>
+              </button>
+            )}
             <button
               onClick={() => setMode('manual')}
               className="flex items-start gap-3 text-right"
@@ -113,6 +130,25 @@ export default function GoodsIntake({
               onClick={() => setMode('choose')}
               style={{ marginTop: '12px', background: 'transparent', border: 'none', color: '#6B6E73', fontSize: '12.5px', cursor: 'pointer', padding: 0 }}
             >← חזרה</button>
+          </div>
+        )}
+
+        {mode === 'sheet' && lockedSupplier && (
+          <div className="px-5 py-4">
+            <HandwrittenSheet
+              supplierName={lockedSupplier.name}
+              capturedBy={capturedBy}
+              onCancel={() => setMode('choose')}
+              onSave={async lineItems => {
+                await onCreate({
+                  supplierId: lockedSupplier.id,
+                  supplierName: lockedSupplier.name,
+                  isoDate: new Date().toISOString().slice(0, 10),
+                  lineItems,
+                })
+                onClose()
+              }}
+            />
           </div>
         )}
 

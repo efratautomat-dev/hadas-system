@@ -100,3 +100,49 @@ export async function captureDocument(input: {
   if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`)
   return data as CaptureResult
 }
+
+
+/** One handwritten line as the reader returned it. */
+export interface HandwrittenLine {
+  item: string
+  quantity: string
+  /** The model's own doubt about THIS line. Marked, never dropped. */
+  uncertain: boolean
+}
+
+/**
+ * Read a handwritten goods sheet. Returns what it read and files NOTHING.
+ *
+ * Handwriting is the one input where the machine is least certain and the person
+ * standing there is most certain, so the model proposes and she confirms. The
+ * delivery is then created through the ordinary `POST /delivery-notes`, which is
+ * why a sheet-captured delivery needs no special case anywhere downstream.
+ */
+export async function readHandwrittenSheet(input: {
+  imageBase64: string
+  mimeType: string
+  capturedBy?: string
+}): Promise<HandwrittenLine[]> {
+  if (DEMO_MODE) {
+    // A fixed answer, and honestly labelled: the demo has no model behind it, and
+    // pretending to read the photo would teach that the reading is trustworthy
+    // without ever having tested it.
+    console.warn('[DEMO MODE] stubbed readHandwrittenSheet — no network call')
+    return [
+      { item: 'חלב 3% ארגז', quantity: '2', uncertain: false },
+      { item: 'קוטג׳ ארגז',  quantity: '1', uncertain: false },
+      { item: 'ביצים מגש',   quantity: '4', uncertain: true  },
+    ]
+  }
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) throw new Error('לא מחוברת — יש להתחבר מחדש כדי לבצע את הפעולה')
+  const res = await fetch(INGEST_BASE, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body:    JSON.stringify({ source: 'handwritten', ...input }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`)
+  return ((data as { lines?: HandwrittenLine[] }).lines ?? [])
+}

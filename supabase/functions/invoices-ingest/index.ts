@@ -3641,6 +3641,85 @@ async function handleNonInvoice(
   }
 }
 
+// ─── Handwritten goods sheet ────────────────────────────────────────────────
+//
+// The owner's decision (spec/STATUS.md): NOT free text — a fixed two-column form
+// the employees fill by hand, item and quantity, and nothing else.
+//
+// What this does NOT extract, and why it matters:
+//
+//   supplier — the photo is taken from inside a supplier's card, so the caller
+//              already knows. Reading it off the page would be a second, worse
+//              answer competing with a certain one.
+//   date     — stamped at capture.
+//   amounts  — the sheet carries no prices. The figure comes from the invoice,
+//              once, as it always has.
+//
+// That removes both of the things that actually break ingest — the supplier
+// matching chain and amount extraction — from this path entirely. What is left is
+// reading a table, which is the part a model is good at.
+//
+// Low confidence is REPORTED, never dropped. A line the model is unsure of comes
+// back marked so a person can fix it; guessing silently would put invented goods
+// into a delivery, and a missing line someone can see beats a wrong line nobody
+// can.
+
+interface HandwrittenLine {
+  item:     string;
+  quantity: string;
+  /** The model's own doubt about THIS line, surfaced for review. */
+  uncertain: boolean;
+}
+
+async function extractHandwrittenSheet(
+  doc: { mimeType: string; bytes: Uint8Array },
+): Promise<HandwrittenLine[]> {
+  const shape = '{"lines":[{"item":"","quantity":"","uncertain":false}]}';
+  const prompt =
+    "בתמונה טופס קליטת סחורה שמולא בכתב יד. הטבלה היא שתי עמודות: פריט וכמות.\n" +
+    "חלץ אך ורק את השורות שנכתבו ביד וחזור ב-JSON בלבד:\n" + shape + "\n" +
+    "כללים:\n" +
+    "• שורות ריקות — לדלג עליהן לגמרי.\n" +
+    "• אל תמציא פריטים שאינם כתובים, ואל תשלים רשימה.\n" +
+    "• quantity כמחרוזת בדיוק כפי שנכתבה (גם '2 ארגזים' או '1.5').\n" +
+    "• uncertain=true לכל שורה שהכתב בה אינו ברור — עדיף לסמן מאשר לנחש.\n" +
+    "• להתעלם מכותרות, מלוגו ומכל טקסט מודפס — רק כתב היד.";
+
+  const raw = await anthropicMessage(
+    ANTHROPIC_MODEL_EXTRACTOR,
+    [{ role: "user", content: [buildDocumentBlock(doc.mimeType, doc.bytes), { type: "text", text: prompt }] }],
+    EXTRACTION_MAX_TOKENS,
+  );
+  let parsed = parseJsonRobust(raw);
+  if (parsed === null) {
+    const retry = await anthropicMessage(
+      ANTHROPIC_MODEL_EXTRACTOR,
+      [{ role: "user", content: [
+        buildDocumentBlock(doc.mimeType, doc.bytes),
+        { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" + shape },
+      ] }],
+      EXTRACTION_MAX_TOKENS,
+    );
+    parsed = parseJsonRobust(retry);
+    if (parsed === null) {
+      throw new Error(`extractHandwrittenSheet failed after retry. Raw: ${raw.slice(0, 400)}`);
+    }
+  }
+  const rows = (parsed as { lines?: unknown[] }).lines ?? [];
+  return rows
+    .map(r => {
+      const o = r as Record<string, unknown>;
+      return {
+        item:      String(o.item ?? "").trim(),
+        quantity:  String(o.quantity ?? "").trim(),
+        uncertain: o.uncertain === true,
+      };
+    })
+    // An empty item is a blank row the model reported anyway; there is nothing to
+    // review and nothing to correct, so it is noise rather than a finding.
+    .filter(l => l.item.length > 0);
+}
+
 // ─── Camera capture (shares the email IMAGE pipeline) ───────────────────────
 //
 // A document photographed in the app reaches the SAME per-document logic as an
@@ -3679,6 +3758,51 @@ const CAPTURE_TYPE_LABEL: Record<CaptureDocType, string> = {
   delivery_note: "תעודת משלוח",
   return_doc:    "חזרה/זיכוי",
 };
+
+/**
+ * Read a handwritten goods sheet and RETURN what it read. Saves nothing.
+ *
+ * Deliberately not an ingest: handwriting is the one input where the machine is
+ * least certain and the person standing there is most certain. So the model
+ * proposes, the screen shows the lines beside the photo, and the employee confirms
+ * — the same "suggest, never attach" rule the invoice matching follows (§6.f).
+ *
+ * The delivery row is then created through the ordinary POST /delivery-notes, so
+ * a sheet-captured delivery is the same record as a typed one and needs no special
+ * case anywhere downstream.
+ */
+async function handleHandwrittenSheet(
+  supabase: SupabaseClient, body: CaptureRequest,
+): Promise<Response> {
+  const log = makeLogger(supabase);
+  if (!body.imageBase64 || typeof body.imageBase64 !== "string") {
+    return json({ error: "imageBase64 is required" }, 400);
+  }
+  let bytes: Uint8Array;
+  try { bytes = captureBase64ToBytes(body.imageBase64); }
+  catch { return json({ error: "imageBase64 is not valid base64" }, 400); }
+  if (bytes.length === 0)                 return json({ error: "image is empty" }, 400);
+  if (bytes.length > MAX_CAPTURE_BYTES)   return json({ error: "image is too large" }, 413);
+
+  const mimeType = body.mimeType && body.mimeType.startsWith("image/")
+    ? body.mimeType : "image/jpeg";
+
+  try {
+    const lines = await extractHandwrittenSheet({ mimeType, bytes });
+    await log("info", "handwritten sheet read", {
+      lines: lines.length,
+      uncertain: lines.filter(l => l.uncertain).length,
+      capturedBy: body.capturedBy ?? null,
+    });
+    return json({ success: true, lines });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await log("error", `handwritten sheet failed: ${msg}`, { capturedBy: body.capturedBy ?? null });
+    // No alert and no parked row: nothing was filed, the employee is standing
+    // there, and the honest answer is "try again" rather than a task for later.
+    return json({ error: "לא הצלחתי לקרוא את הדף. נסי לצלם שוב, ישר ובאור טוב." }, 422);
+  }
+}
 
 async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Promise<Response> {
   const log = makeLogger(supabase);
@@ -3799,6 +3923,19 @@ Deno.serve(async (req: Request) => {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       try { await makeLogger(supabase)("error", `capture handler aborted: ${msg}`); } catch { /* self-guards */ }
+      return json({ ok: false, error: msg }, 500);
+    }
+  }
+
+  // Handwritten goods sheet: a POST with { source: "handwritten" }. Reads and
+  // RETURNS; nothing is filed. The employee confirms what it read and the row is
+  // then created through the ordinary delivery-note route.
+  if (body && typeof body === "object" && (body as { source?: string }).source === "handwritten") {
+    try {
+      return await handleHandwrittenSheet(supabase, body as CaptureRequest);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      try { await makeLogger(supabase)("error", `handwritten handler aborted: ${msg}`); } catch { /* self-guards */ }
       return json({ ok: false, error: msg }, 500);
     }
   }
