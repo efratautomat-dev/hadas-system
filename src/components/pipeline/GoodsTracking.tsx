@@ -14,6 +14,7 @@ import DeliveryPage from './DeliveryPage'
 import { StatusBadge } from '../StatusBadge'
 import { PipelineStrip } from './PipelineStrip'
 import { useIsWide } from '../../hooks/useIsWide'
+import { FilterTabs } from '../ui/FilterTabs'
 import type { OrderLink } from '../../lib/pipelineSteps'
 import type { DeliveryNote, PipelineStage } from '../../data/mockData'
 
@@ -212,34 +213,20 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
 
           {/* Stage filters. The counts are the point — they say where the work is. */}
           <div className="flex items-center gap-2 mb-4 flex-wrap">
-            {GOODS_FILTERS.map(f => {
-              const on = filter === f.key
-              const n = f.key === 'all' ? notes.length : (counts[f.key] ?? 0)
-              if (f.key !== 'all' && n === 0) return null
-              return (
-                <button
-                  key={f.key}
-                  onClick={() => setFilter(f.key)}
-                  className="inline-flex items-center gap-2"
-                  style={{
-                    fontSize: '12.5px', fontWeight: 500, padding: '6px 13px', cursor: 'pointer',
-                    borderRadius: '999px',
-                    background: on ? 'var(--brand-primary)' : 'var(--brand-coral-bg)',
-                    color: on ? 'white' : 'var(--brand-primary)',
-                    border: `1px solid ${on ? 'var(--brand-primary)' : '#F9BAB5'}`,
-                  }}
-                >
-                  {f.label}
-                  <span
-                    className="rounded-full grid place-items-center font-bold"
-                    style={{
-                      minWidth: '18px', height: '18px', padding: '0 5px', fontSize: '10.5px',
-                      background: on ? 'rgba(255,255,255,0.3)' : 'white', color: on ? 'white' : 'var(--brand-primary)',
-                    }}
-                  >{n}</span>
-                </button>
-              )
-            })}
+            <FilterTabs
+              tabs={GOODS_FILTERS
+                .map(f => ({
+                  key: f.key,
+                  label: f.label,
+                  count: f.key === 'all' ? notes.length : (counts[f.key] ?? 0),
+                }))
+                // A filter that would show nothing is not a choice — it is a dead
+                // end wearing the same clothes as a live one. "הכל" always stays.
+                .filter(t => t.key === 'all' || t.count > 0)}
+              value={filter}
+              onChange={setFilter}
+              style={{ flex: 1 }}
+            />
             <div className="flex items-center gap-1 bg-white border p-1 flex-shrink-0" style={{ borderColor: '#EEEEF2', marginInlineStart: 'auto' }}>
               {([
                 { key: 'table', Icon: Table2,     label: 'תצוגת שורות' },

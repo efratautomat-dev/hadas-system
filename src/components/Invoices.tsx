@@ -8,6 +8,7 @@ import { useCategories } from '../hooks/useCategories'
 import { PdfPreviewButton, PdfPreviewModal, DocumentBody } from './PdfPreviewModal'
 import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge } from './StatusBadge'
+import { FilterTabs } from './ui/FilterTabs'
 import { Button } from './ui/Button'
 import { supabase } from '../lib/supabase'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
@@ -1326,36 +1327,17 @@ export default function Invoices({
 
       {/* Filters + Search */}
       <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div
-          className="bg-white rounded-xl border p-1 flex-shrink-0"
-          style={{ borderColor: '#EEEEF2', display: 'flex', gap: '2px' }}
-        >
-          {(['all', 'כפילויות', STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING] as Filter[]).map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              style={{
-                borderRadius: '8px', padding: '7px 12px', fontSize: '14px', fontWeight: 600,
-                border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                background: filter === f ? (f === 'כפילויות' ? '#D97706' : 'var(--brand-primary)') : 'transparent',
-                color: filter === f ? 'white' : f === 'כפילויות' ? '#D97706' : '#6B7280',
-                display: 'flex', alignItems: 'center', gap: '5px',
-              }}
-            >
-              {f === 'all' ? 'הכל' : f}
-              {f === 'כפילויות' && dupCount > 0 && (
-                <span style={{
-                  fontSize: '10px', fontWeight: 700,
-                  background: filter === 'כפילויות' ? 'rgba(255,255,255,0.3)' : '#FEF9C3',
-                  color: filter === 'כפילויות' ? 'white' : '#92400E',
-                  borderRadius: '10px', padding: '1px 6px', lineHeight: 1.4,
-                }}>
-                  {dupCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <FilterTabs
+          tabs={(['all', 'כפילויות', STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING] as Filter[])
+            .map(f => ({
+              key: f,
+              label: f === 'all' ? 'הכל' : f,
+              count: f === 'כפילויות' ? dupCount : 0,
+            }))}
+          value={filter}
+          onChange={setFilter}
+          style={{ flex: 1, minWidth: '280px' }}
+        />
         <div
           className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4"
           style={{ borderColor: '#EEEEF2', minHeight: '44px' }}
