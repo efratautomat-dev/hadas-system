@@ -541,6 +541,28 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
           about something that has NOT arrived; "מה הגיע?" comes second. Sorting
           and filtering live in useOrders.openForSupplier so this screen and the
           board cannot disagree about what "open" means. */}
+      {intake && (
+        <GoodsIntake
+          inline
+          suppliers={[]}
+          lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          onClose={() => setIntake(false)}
+          onCreate={async d => { await createDeliveryNote(d) }}
+        />
+      )}
+
+      {newOrder && (
+        <OrderForm
+          inline
+          suppliers={[]}
+          lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          customerOnly
+          onClose={() => setNewOrder(false)}
+          openOrders={supplierOrders.map(o => ({ id: o.id, supplierId: o.supplierId, description: o.description, date: o.date, expectedDate: o.expectedDate, customerName: o.customerName }))}
+          onCreate={async d => { await createOrder(d) }}
+        />
+      )}
+
       {activeSection === 'deliveries' && (
         <SectionShell
           title="הזמנות פתוחות"
@@ -759,25 +781,6 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
       {metaModal && <MetaModal {...metaModal} onClose={() => setMetaModal(null)} />}
 
 
-      {intake && (
-        <GoodsIntake
-          suppliers={[]}
-          lockedSupplier={{ id: supplier.id, name: supplier.name }}
-          onClose={() => setIntake(false)}
-          onCreate={async d => { await createDeliveryNote(d) }}
-        />
-      )}
-
-      {newOrder && (
-        <OrderForm
-          suppliers={[]}
-          lockedSupplier={{ id: supplier.id, name: supplier.name }}
-          customerOnly
-          onClose={() => setNewOrder(false)}
-          openOrders={supplierOrders.map(o => ({ id: o.id, supplierId: o.supplierId, description: o.description, date: o.date, expectedDate: o.expectedDate, customerName: o.customerName }))}
-          onCreate={async d => { await createOrder(d) }}
-        />
-      )}
     </div>
   )
 }

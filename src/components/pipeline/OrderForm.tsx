@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, Check, Package } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import { FieldLabel, TextInput, Textarea } from '../ui/form'
+import { FormShell } from './FormShell'
 
 // ── Opening an order (spec ch. 7) ────────────────────────────────────────────
 //
@@ -32,7 +33,7 @@ export interface OrderDraft {
 }
 
 export default function OrderForm({
-  suppliers, onClose, onCreate, lockedSupplier, customerOnly = false, openOrders = [],
+  suppliers, onClose, onCreate, lockedSupplier, customerOnly = false, openOrders = [], inline = false,
 }: {
   suppliers: { id: string; name: string; hp?: string }[]
   onClose: () => void
@@ -59,6 +60,13 @@ export default function OrderForm({
     id: string; supplierId: string; description: string; date: string
     expectedDate: string; customerName: string | null
   }[]
+  /**
+   * Render in the page flow instead of over it. The employee screens open these
+   * inline — a dialog inside a supplier card on a phone is a letterbox — while a
+   * list opens the same component as a dialog, which is right when you are
+   * picking one thing off a page you mean to keep.
+   */
+  inline?: boolean
 }) {
   const [supplierId, setSupplierId] = useState(lockedSupplier?.id ?? '')
   const [description, setDescription] = useState('')
@@ -102,12 +110,7 @@ export default function OrderForm({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center"
-      style={{ background: 'rgba(0,0,0,0.45)', overflowY: 'auto', padding: '24px 12px' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div className="bg-white shadow-2xl w-full" style={{ maxWidth: '620px', direction: 'rtl' }}>
+    <FormShell onClose={onClose} inline={inline} maxWidth={'620px'}>
 
         <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: '#EEEEF2' }}>
           <span className="font-bold text-gray-800 inline-flex items-center gap-2" style={{ fontSize: '15px' }}>
@@ -273,7 +276,6 @@ export default function OrderForm({
             style={{ background: 'transparent', border: '1px solid #E2E4E9', color: '#6B6E73', padding: '9px 16px', fontSize: '13px', cursor: 'pointer' }}
           >ביטול</button>
         </div>
-      </div>
-    </div>
+    </FormShell>
   )
 }

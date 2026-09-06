@@ -3,6 +3,7 @@ import { Camera, Keyboard, X, Check, PackageCheck } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import { FieldLabel, TextInput, Textarea } from '../ui/form'
 import CaptureDocument from '../CaptureDocument'
+import { FormShell } from './FormShell'
 
 // ── קליטת סחורה — one door, two ways in ──────────────────────────────────────
 //
@@ -18,7 +19,7 @@ import CaptureDocument from '../CaptureDocument'
 type Mode = 'choose' | 'photo' | 'manual'
 
 export default function GoodsIntake({
-  suppliers, lockedSupplier, capturedBy, onClose, onCreate,
+  suppliers, lockedSupplier, capturedBy, onClose, onCreate, inline = false,
 }: {
   suppliers: { id: string; name: string; hp?: string }[]
   lockedSupplier?: { id: string; name: string }
@@ -28,6 +29,13 @@ export default function GoodsIntake({
     supplierId: string; supplierName: string
     isoDate: string; lineItems: string; noteNumber?: string
   }) => Promise<void>
+  /**
+   * Render in the page flow instead of over it. The employee screens open these
+   * inline — a dialog inside a supplier card on a phone is a letterbox — while a
+   * list opens the same component as a dialog, which is right when you are
+   * picking one thing off a page you mean to keep.
+   */
+  inline?: boolean
 }) {
   const [mode, setMode] = useState<Mode>('choose')
   const [supplierId, setSupplierId] = useState(lockedSupplier?.id ?? '')
@@ -55,12 +63,7 @@ export default function GoodsIntake({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center"
-      style={{ background: 'rgba(0,0,0,0.45)', overflowY: 'auto', padding: '24px 12px' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div className="bg-white shadow-2xl w-full" style={{ maxWidth: mode === 'photo' ? '680px' : '560px', direction: 'rtl' }}>
+    <FormShell onClose={onClose} inline={inline} maxWidth={mode === 'photo' ? '680px' : '560px'}>
         <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: '#EEEEF2' }}>
           <span className="font-bold text-gray-800 inline-flex items-center gap-2" style={{ fontSize: '15px' }}>
             <PackageCheck className="w-4 h-4" style={{ color: 'var(--brand-primary)' }} />
@@ -176,7 +179,6 @@ export default function GoodsIntake({
             </div>
           </>
         )}
-      </div>
-    </div>
+    </FormShell>
   )
 }

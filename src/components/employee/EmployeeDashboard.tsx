@@ -5,7 +5,8 @@ import CaptureDocument from '../CaptureDocument'
 import OrdersRail from '../pipeline/OrdersRail'
 import { useOrders, type ArrivalCandidate } from '../../hooks/useOrders'
 import ArrivalChoice from '../pipeline/ArrivalChoice'
-import DeliveryDetail from '../pipeline/DeliveryDetail'
+import DeliveryPage from '../pipeline/DeliveryPage'
+import { useIsWide } from '../../hooks/useIsWide'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { supplierAttention, ATTENTION_COLOR } from '../../lib/supplierAttention'
 import { useInvoices } from '../../hooks/useInvoices'
@@ -53,6 +54,11 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const { data: allNotes, link, unlink, candidates, reload: reloadNotes } = useDeliveryNotes()
   const { data: allInv, ledgerApprove } = useInvoices()
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
+  // The delivery page's two-pane threshold (1100) is NOT the board's (1024):
+  // one asks "can a document and its details sit side by side", the other "is
+  // there a spare column for the orders rail". Different questions, so different
+  // numbers, and naming them apart keeps a later edit from collapsing them.
+  const isDocWide = useIsWide()
   const openNote = allNotes.find(n => n.id === openNoteId)
 
   const arrive = async (id: string, partial: boolean, choice?: { adopt?: string; forceNew?: boolean }) => {
@@ -89,6 +95,41 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   }, [])
 
   const selectedSupplier = suppliers.find(s => s.id === selectedSupplierId) ?? null
+
+  // The delivery opens as a PAGE for the employee too — same component, same
+  // layout, fewer props. Comparing two documents needs the width whoever is doing
+  // it, and handing her a cramped dialog for the job the manager gets a page for
+  // is exactly the split that "identical but for permissions" forbids.
+  //
+  // Kept inside the shell: the header carries the logout and the role switcher,
+  // and a page that drops them strands her.
+  if (openNote) {
+    return (
+      <div className="min-h-screen" style={{ background: '#F8F8FA', direction: 'rtl' }}>
+        <header
+          className="sticky top-0 z-40 flex items-center"
+          style={{ height: '60px', padding: '0 16px', background: ACCENT, color: 'white' }}
+        >
+          <span className="font-semibold" style={{ fontSize: '16px' }}>הזמנות וסחורה</span>
+        </header>
+        <main style={{ padding: '20px 16px', margin: '0 auto', maxWidth: '1420px' }}>
+          <DeliveryPage
+            note={openNote}
+            stage={openNote.stage ?? 'awaiting_invoice'}
+            order="none"
+            invoice={allInv.find(i => i.id === openNote.linkedInvoiceId)}
+            invoices={allInv}
+            isWide={isDocWide}
+            onBack={() => setOpenNoteId(null)}
+            onLoadCandidates={candidates}
+            onLink={async (id, invoiceId) => { await link(id, invoiceId); await reloadNotes() }}
+            onUnlink={async id => { await unlink(id); await reloadNotes() }}
+            onApprove={async invoiceId => { const n = await ledgerApprove(invoiceId); await reloadNotes(); return n }}
+          />
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen" style={{ background: '#F8F8FA', direction: 'rtl' }}>
@@ -280,20 +321,6 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
         </div>
       )}
 
-      {openNote && (
-        <DeliveryDetail
-          note={openNote}
-          stage={openNote.stage ?? 'awaiting_invoice'}
-          order="none"
-          invoice={allInv.find(i => i.id === openNote.linkedInvoiceId)}
-          invoices={allInv}
-          onClose={() => setOpenNoteId(null)}
-          onLoadCandidates={candidates}
-          onLink={async (id, invoiceId) => { await link(id, invoiceId); await reloadNotes() }}
-          onUnlink={async id => { await unlink(id); await reloadNotes() }}
-          onApprove={async invoiceId => { const n = await ledgerApprove(invoiceId); await reloadNotes(); return n }}
-        />
-      )}
 
       {arrival && (
         <ArrivalChoice
