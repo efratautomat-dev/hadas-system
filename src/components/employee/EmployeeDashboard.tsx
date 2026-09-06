@@ -49,6 +49,8 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   // you glance at mid-task, the notebook is what you search when a customer
   // calls. Neither replaces the other, so it is a tab and not a setting.
   const [board, setBoard] = useState<'cards' | 'book'>('cards')
+  // A document open below means the rail gives up its column.
+  const [fullPage, setFullPage] = useState(false)
   // The employee hits this more often than the manager does: the note is almost
   // always already in the inbox by the time the goods reach the counter.
   const [arrival, setArrival] = useState<
@@ -193,10 +195,13 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
           display: 'grid', gap: '20px', alignItems: 'start',
           // RTL: the FIRST track is the right-hand one. The screen keeps its own
           // column there; the board takes the narrow track on the left.
-          gridTemplateColumns: isWide ? 'minmax(0, 1000px) minmax(0, 320px)' : '1fr',
+          gridTemplateColumns: isWide && !fullPage ? 'minmax(0, 1000px) minmax(0, 320px)' : '1fr',
         }}
       >
         {/* LEFT in RTL — declared last so the reading order stays screen-first. */}
+        {/* Hidden outright rather than shrunk: a board with no width is not a
+            smaller board, it is a column of clipped text. */}
+        {!fullPage && (
         <div style={{ order: isWide ? 2 : 1 }}>
           <FilterTabs
             tabs={[
@@ -224,6 +229,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             />
           )}
         </div>
+        )}
 
         <div style={{ order: isWide ? 1 : 2, minWidth: 0 }}>
         {/* Prominent standalone capture button (below header, visual left in RTL) */}
@@ -318,6 +324,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
               activeSection={activeSection}
             onOpenPipeline={setOpenNoteId}
             userEmail={userEmail}
+            onFullPage={setFullPage}
             />
           </div>
         ) : (

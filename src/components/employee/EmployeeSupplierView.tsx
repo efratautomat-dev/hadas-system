@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { User, Phone, Mail, Hash, Tag, MessageSquare, FileText, Truck, RotateCcw, Plus, Search, Eye, ChevronRight, List, X } from 'lucide-react'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
@@ -49,6 +49,13 @@ interface Props {
   onOpenPipeline?: (deliveryNoteId: string) => void
   /** Who is capturing — stamped on the row for audit, as the camera path does. */
   userEmail?: string
+  /**
+   * Tells the dashboard a full-page view is open, so the orders rail can step
+   * aside. The board is something you GLANCE at while doing something else; when
+   * the something else is reading a document, it is taking width from the only
+   * thing on screen that needs it.
+   */
+  onFullPage?: (open: boolean) => void
 }
 
 // Status colors from the FIXED functional tokens (src/theme/status.ts) — same
@@ -380,7 +387,7 @@ function ReceiptFormModal({ form, setForm, supplierName, employees, onSave, onCl
   )
 }
 
-export default function EmployeeSupplierView({ supplier, activeSection, onOpenPipeline, userEmail }: Props) {
+export default function EmployeeSupplierView({ supplier, activeSection, onOpenPipeline, userEmail, onFullPage }: Props) {
   const { data: allInvoices, saveNotes: saveInvoiceNotes } = useInvoices()
   const { data: allDeliveries, create: createDeliveryNote } = useDeliveryNotes()
   const { data: allReturns, create: createReturn } = useReturns()
@@ -389,8 +396,12 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
   const { openForSupplier, create: createOrder } = useOrders()
   const isWide = useIsWide()
 
+
   const [invoiceQuery, setInvoiceQuery] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
+  // Reported rather than derived by the parent: this component owns the state that
+  // decides it, and a second copy upstairs would be one more thing to keep in step.
+  useEffect(() => { onFullPage?.(!!selectedInvoice) }, [selectedInvoice, onFullPage])
   const [showReturnForm, setShowReturnForm] = useState(false)
   const [returnForm, setReturnForm] = useState<FormState>(emptyForm())
   const [showReceiptForm, setShowReceiptForm] = useState(false)
