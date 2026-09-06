@@ -1,6 +1,7 @@
 import { DEMO_MODE } from './demo'
 import { applyDemoWrite } from './demoWrites'
 import { supabase } from './supabase'
+import { notify, resourcesFor } from './dataBus'
 
 const BASE = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hadas-api`
 
@@ -20,7 +21,12 @@ async function call(method: string, path: string, body?: unknown): Promise<unkno
     // None of them touches money: the amounts stay exactly as seeded, and only
     // the stage a row sits at moves.
     const applied = applyDemoWrite(method, path, body)
-    if (applied) return applied
+    if (applied) {
+      // Demo writes mutate in-memory tables, so every other screen holding a copy
+      // must be told — the same wire the real path uses, for the same reason.
+      if (method !== 'GET') notify(resourcesFor(path))
+      return applied
+    }
     console.warn(`[DEMO MODE] stubbed ${method} ${path} — no network call`)
     return { id: `demo-${Date.now()}` }
   }
@@ -38,6 +44,10 @@ async function call(method: string, path: string, body?: unknown): Promise<unkno
   // hadas-api reports failures as { error: string }; fall back to the status when
   // the body is empty or shaped differently.
   if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`)
+  // Announce the write. Every hook reading a touched resource reloads, so a change
+  // made on one screen is true on all of them — the difference between a system
+  // with one source of truth and several screens that each remember something.
+  if (method !== 'GET') notify(resourcesFor(path))
   return data
 }
 

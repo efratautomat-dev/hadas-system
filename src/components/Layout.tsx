@@ -100,6 +100,8 @@ interface NavEntry {
   paymentsSupplierFilter?: string
   returnsEditId?: string
   statementViewId?: string
+  /** Open this delivery's goods page on arrival — the supplier card links here. */
+  deliverySelectedId?: string
   /** Open this exact payment's row on arrival. Set when a collected note in the
    *  notes panel links back to the payment it was written on. */
   paymentOpenId?: string
@@ -330,6 +332,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     )
     if (activePage === 'suppliers')      return (
       <Suppliers
+        onOpenDelivery={(id) => pushNav({ page: 'deliveries', deliverySelectedId: id })}
         onViewLedger={(id) => pushNav({ page: 'ledger', ledgerSupplierId: id })}
         onViewPayments={(name) => pushNav({ page: 'payments', paymentsSupplierFilter: name })}
         controlledViewId={currentNav.supplierViewId ?? null}
@@ -389,7 +392,9 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     // own vocabulary — sitting below a screen describing the same records. Two
     // pictures of one thing is worse than a missing feature, and everything it did
     // is now here: attach and detach in the delivery panel, intake behind one door.
-    if (activePage === 'deliveries') return <GoodsTracking userEmail={userEmail} />
+    if (activePage === 'deliveries') return (
+      <GoodsTracking userEmail={userEmail} initialNoteId={currentNav.deliverySelectedId ?? null} />
+    )
     if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
     if (activePage === 'capture')        return <CaptureDocument capturedBy={userEmail} />

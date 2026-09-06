@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { isoToDisplay } from '../lib/dates'
 import type { CustomerStatus } from '../lib/customerStatus'
+import { subscribe } from '../lib/dataBus'
 
 export type { CustomerStatus }
 
@@ -95,6 +96,8 @@ export function useOrders() {
   // the pattern should change it for all of them at once.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [load])
+
+  useEffect(() => subscribe(['orders'], load), [load])
 
   const create = async (body: {
     supplierId: string; supplierName: string; description: string

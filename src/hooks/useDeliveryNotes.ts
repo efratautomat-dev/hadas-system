@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { mockDeliveryNotes, type DeliveryNote, type InvoiceCandidate, type PipelineStage } from '../data/mockData'
 import { isoToDisplay } from '../lib/dates'
+import { subscribe } from '../lib/dataBus'
 
 
 export function useDeliveryNotes() {
@@ -59,6 +60,9 @@ export function useDeliveryNotes() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+
+  useEffect(() => subscribe(['delivery_notes'], load), [load])
 
   // Manual goods receipt — PERSISTS to the DB (fixes the old local-state-only bug).
   // No delivery-note number / amount required; source is derived as 'manual' because

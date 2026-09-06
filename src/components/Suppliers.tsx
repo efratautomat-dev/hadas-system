@@ -344,6 +344,7 @@ interface SuppliersProps {
   onOpenDetail?: (id: string) => void
   onCloseDetail?: () => void
   onOpenInvoice?: (invoiceId: string) => void
+  onOpenDelivery?: (deliveryNoteId: string) => void
   prefillForAlert?: AlertPrefill | null
   onAlertSupplierCreated?: (supplierId: string, alertId: string, payload: Record<string, unknown>) => Promise<void>
   onCancelAlertPrefill?: () => void
@@ -357,6 +358,7 @@ export default function Suppliers({
   onOpenDetail,
   onCloseDetail,
   onOpenInvoice,
+  onOpenDelivery,
   prefillForAlert,
   onAlertSupplierCreated,
   onCancelAlertPrefill,
@@ -437,6 +439,7 @@ export default function Suppliers({
           onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
           onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
           onOpenInvoice={onOpenInvoice}
+          onOpenDelivery={onOpenDelivery}
           onToggleActive={async (nextActive: boolean) => {
             try {
               await updateSupplier(sup.id, { active: nextActive })

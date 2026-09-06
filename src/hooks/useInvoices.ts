@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { mockInvoices, type Invoice } from '../data/mockData'
 import { isoToDisplay } from '../lib/dates'
+import { subscribe } from '../lib/dataBus'
 
 
 export function useInvoices() {
@@ -81,6 +82,9 @@ export function useInvoices() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+
+  useEffect(() => subscribe(['invoices'], load), [load])
 
   const create = async (body: Partial<Invoice>) => {
     console.log('[useInvoices] create payload:', body)

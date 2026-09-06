@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import type { Alert, AlertType, AlertStatus } from '../data/mockData'
 import { mockAlerts } from '../data/mockData'
 import { tierAllowsAlert } from '../lib/tiers'
+import { subscribe } from '../lib/dataBus'
 
 function fmtDate(iso: string): string {
   try {
@@ -64,6 +65,9 @@ export function useAlerts() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+
+  useEffect(() => subscribe(['alerts'], load), [load])
 
   const markRead = async (id: string) => {
     // Optimistic update first

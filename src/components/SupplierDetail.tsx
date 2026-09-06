@@ -71,6 +71,14 @@ interface Props {
   onViewPayments?: () => void
   onOpenInvoice?: (invoiceId: string) => void
   onToggleActive?: (nextActive: boolean) => void
+  /**
+   * Open one delivery's goods page.
+   *
+   * The strip was drawn here and led nowhere, which is worse than not drawing it:
+   * a picture of a chain you cannot follow tells you there IS somewhere to go and
+   * then refuses. Absent = the rows stay inert rather than pretending.
+   */
+  onOpenDelivery?: (deliveryNoteId: string) => void
 }
 
 // invoiceStatusStyle removed: it keyed on the STORED vocabulary (ממתין/שולם/בטיפול),
@@ -202,7 +210,7 @@ function fmtDate(d: string): string {
   return `${day}/${m}/${y}`
 }
 
-export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onMerge, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive }: Props) {
+export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onMerge, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive, onOpenDelivery }: Props) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
@@ -704,8 +712,16 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               {notes.map((n) => (
                 <div
                   key={n.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOpenDelivery?.(n.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpenDelivery?.(n.id) }}
                   className="grid items-center"
-                  style={{ gridTemplateColumns: '1fr 110px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                  style={{
+                    gridTemplateColumns: '1fr 110px 120px', borderBottom: '1px solid #E2E4E9',
+                    minHeight: '56px', padding: '12px 16px',
+                    cursor: onOpenDelivery ? 'pointer' : undefined,
+                  }}
                 >
                   {/* The pipeline, in the manager's supplier card too. It had the
                       old source pill and nothing about the chain — so the one

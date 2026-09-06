@@ -52,7 +52,11 @@ function fmtILS(n: number | null | undefined) {
   return '₪' + (n ?? 0).toLocaleString('he-IL')
 }
 
-export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
+export default function GoodsTracking({ userEmail, initialNoteId = null }: {
+  userEmail?: string
+  /** Land straight on one delivery — the supplier card's rows link here. */
+  initialNoteId?: string | null
+}) {
   const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle, create: createNote, reload: reloadNotes } = useDeliveryNotes()
   const { data: invoices, ledgerApprove } = useInvoices()
   const { data: orders, create: createOrder, markArrived, setCustomerStatus } = useOrders()
@@ -89,7 +93,7 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
     }
   }
   const [filter, setFilter] = useState<GoodsFilter>('all')
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(initialNoteId)
 
   // Which deliveries came from an order, and did that order arrive? Built once
   // here rather than looked up per row — and it is the ONLY thing the strip takes
