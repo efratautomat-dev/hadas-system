@@ -10,6 +10,7 @@ import ArrivalChoice from '../pipeline/ArrivalChoice'
 import DeliveryPage from '../pipeline/DeliveryPage'
 import SupplierPicker from '../pipeline/SupplierPicker'
 import { useIsWide } from '../../hooks/useIsWide'
+import { useDeliveryLinks } from '../../hooks/useDeliveryLinks'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { supplierAttention, ATTENTION_COLOR } from '../../lib/supplierAttention'
 import { pendingPairCount, pendingPairFor } from '../../lib/deliveryPairs'
@@ -69,6 +70,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   // there a spare column for the orders rail". Different questions, so different
   // numbers, and naming them apart keeps a later edit from collapsing them.
   const isDocWide = useIsWide()
+  const { invoicesFor } = useDeliveryLinks()
   const [reassign, setReassign] = useState<string | null>(null)
   const openNote = allNotes.find(n => n.id === openNoteId)
 
@@ -128,7 +130,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             note={openNote}
             stage={openNote.stage ?? 'awaiting_invoice'}
             order="none"
-            invoice={allInv.find(i => i.id === openNote.linkedInvoiceId)}
+            linked={invoicesFor(openNote.id).map(id => allInv.find(i => i.id === id)).filter(Boolean) as typeof allInv}
             invoices={allInv}
             isWide={isDocWide}
             onBack={() => setOpenNoteId(null)}
@@ -136,7 +138,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             onSetCustomerStatus={setCustomerStatus}
             onLoadCandidates={candidates}
             onLink={async (id, invoiceId) => { await link(id, invoiceId); await reloadNotes() }}
-            onUnlink={async id => { await unlink(id); await reloadNotes() }}
+            onUnlink={async (id, invoiceId) => { await unlink(id, invoiceId); await reloadNotes() }}
             onApprove={async invoiceId => { const n = await ledgerApprove(invoiceId); await reloadNotes(); return n }}
             onChangeSupplier={() => setReassign(openNote.id)}
             pendingPair={pendingPairFor(openNote, allNotes)}

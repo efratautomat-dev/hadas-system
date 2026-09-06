@@ -914,14 +914,41 @@ async function ledgerApproveInvoice(
   //
   // The invoice is approved either way; only the rows that were actually waiting
   // on this decision move.
+  // ── A row moves only when ALL of its invoices are approved ────────────────
+  //
+  // One delivery can carry several invoices — a supplier who bills it in parts —
+  // and the owner's rule is that they live on ONE row. So approving one of them
+  // does not finish the row: "בכרטסת" on a delivery that still has an unapproved
+  // bill against it says the money is settled when part of it is not.
+  //
+  // The other direction is unchanged and is the consolidated case: one invoice
+  // across several deliveries closes all of them at once, and the amount enters
+  // the balance once, from the invoice.
   let moved = 0;
   if (noteIds.length > 0) {
-    const { data: advanced } = await supabase.from("delivery_notes")
-      .update({ stage: "in_ledger", status: "archived" })
-      .in("id", noteIds)
-      .neq("stage", "awaiting_goods")
-      .select("id");
-    moved = advanced?.length ?? 0;
+    const { data: allLinks } = await supabase.from("delivery_note_invoices")
+      .select("delivery_note_id, invoice_id").in("delivery_note_id", noteIds);
+
+    const invoiceIds = [...new Set((allLinks ?? []).map(l => String(l.invoice_id)))];
+    const { data: invs } = await supabase.from("invoices")
+      .select("id, ledger_approved_at").in("id", invoiceIds);
+    const approved = new Set((invs ?? [])
+      .filter(i => i.ledger_approved_at).map(i => String(i.id)));
+    approved.add(id);   // this one, just stamped above
+
+    const ready = noteIds.filter(noteId =>
+      (allLinks ?? [])
+        .filter(l => String(l.delivery_note_id) === noteId)
+        .every(l => approved.has(String(l.invoice_id))));
+
+    if (ready.length > 0) {
+      const { data: advanced } = await supabase.from("delivery_notes")
+        .update({ stage: "in_ledger", status: "archived" })
+        .in("id", ready)
+        .neq("stage", "awaiting_goods")
+        .select("id");
+      moved = advanced?.length ?? 0;
+    }
   }
   return json({ success: true, notesMoved: moved });
 }

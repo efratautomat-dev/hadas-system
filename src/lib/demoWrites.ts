@@ -512,6 +512,18 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       // A row still waiting for GOODS is not moved by an invoice decision —
       // approving does not make a delivery happen. Mirrors the server.
       if (on && n.stage === 'awaiting_goods') continue
+      // And a row carrying several invoices only closes when they ALL are:
+      // "בכרטסת" while an unapproved bill still hangs on it says the money is
+      // settled when part of it is not.
+      if (on) {
+        const mine = links.filter(x => String(x.delivery_note_id) === String(n.id))
+        const allApproved = mine.every(x => {
+          if (String(x.invoice_id) === String(invoice.id)) return true
+          const other = find('invoices', String(x.invoice_id))
+          return !!other?.ledger_approved_at
+        })
+        if (!allApproved) continue
+      }
       n.stage = on ? 'in_ledger' : 'awaiting_approval'
       moved++
     }

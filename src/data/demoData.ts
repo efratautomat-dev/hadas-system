@@ -392,7 +392,13 @@ const orders: Row[] = [
 // ── delivery_note_invoices ───────────────────────────────────────────────────
 // The many-to-many link. Empty on purpose: every demo delivery is still waiting
 // for its invoice, which is what makes the pipeline strip worth looking at.
-const delivery_note_invoices: Row[] = []
+const delivery_note_invoices: Row[] = [
+  // The consolidated case, seeded: ONE invoice covering TWO deliveries, which is
+  // what the owner described when a supplier combines a week onto one bill. Also
+  // the case where a single approval must move both rows and the money once.
+  { delivery_note_id: 'dn_03', invoice_id: 'inv_033', created_at: '2026-06-02T10:00:00' },
+  { delivery_note_id: 'dn_04', invoice_id: 'inv_025', created_at: '2026-06-11T10:00:00' },
+]
 
 // ── employees ────────────────────────────────────────────────────────────────
 const employees: Row[] = [

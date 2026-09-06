@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
 import { StatusBadge } from '../StatusBadge'
-import { PdfPreviewModal } from '../PdfPreviewModal'
+import { PdfPreviewButton, PdfPreviewModal } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
 import type { OrderLink } from '../../lib/pipelineSteps'
 import type { DeliveryNote, Invoice, InvoiceCandidate, PipelineStage } from '../../data/mockData'
@@ -49,7 +49,7 @@ const BTN_QUIET: React.CSSProperties = {
 }
 
 export default function DeliveryPage({
-  note, stage, order, invoice, invoices, isWide,
+  note, stage, order, linked, invoices, isWide,
   onBack, onLoadCandidates, onLink, onUnlink, onApprove,
   onChangeSupplier, onDismantle, onOpenInvoice, onArrived, onMarkDiffers, customerOrders = [],
   onSetCustomerStatus, pendingPair, onResolvePair,
@@ -57,13 +57,23 @@ export default function DeliveryPage({
   note: DeliveryNote
   stage: PipelineStage
   order: OrderLink
-  invoice?: Invoice
+  /**
+   * EVERY invoice attached to this delivery, not one.
+   *
+   * The owner's rule: one order is one row, and several invoices belong ON that
+   * row — a supplier who bills a delivery in parts does not make it two
+   * deliveries. The link table has always allowed it; the screen read a single
+   * column, so a second invoice was stored and invisible.
+   */
+  linked: Invoice[]
+  /** Every invoice, for naming a candidate without a second fetch. */
   invoices: Invoice[]
   isWide: boolean
   onBack: () => void
   onLoadCandidates: (noteId: string) => Promise<InvoiceCandidate[]>
   onLink: (noteId: string, invoiceId: string) => Promise<void>
-  onUnlink: (noteId: string) => Promise<void>
+  /** Detach ONE invoice — a row may carry several. */
+  onUnlink: (noteId: string, invoiceId?: string) => Promise<void>
   onApprove: (invoiceId: string) => Promise<number>
   onChangeSupplier?: () => void
   /** Manager only. Absent = the control is not rendered at all. */
@@ -106,7 +116,15 @@ export default function DeliveryPage({
   const [confirm, setConfirm] = useState<'approve' | 'dismantle' | 'arrived' | null>(null)
   const [docView, setDocView] = useState<{ url: string; previewSrc?: string } | null>(null)
   const [pane, setPane] = useState<'note' | 'invoice'>('note')
+  // A supplier who bills one delivery in parts is ordinary, so attaching another
+  // invoice stays possible — behind a click, because it is not the common case and
+  // an always-open candidate list reads as "this is unfinished".
+  const [showMore, setShowMore] = useState(false)
 
+  // A delivery still wants an invoice while it has none. With one or more
+  // attached the list stays reachable — a second invoice on the same goods is
+  // ordinary — but it is no longer what the screen is asking for.
+  const invoice = linked[0]
   const needsInvoice = stage === 'awaiting_invoice' || stage === 'awaiting_goods'
 
   useEffect(() => {
@@ -221,14 +239,34 @@ export default function DeliveryPage({
 
               <section className="bg-white border" style={{ borderColor: '#E2E4E9', padding: '14px 16px' }}>
                 <h4 className="font-bold" style={{ fontSize: '11.5px', color: '#9CA3AF', margin: '0 0 9px' }}>על מה חויבנו</h4>
-                {invoice ? (
-                  <>
-                    <Row k="חשבונית" v={invoice.invoiceNumber || invoice.id} />
-                    <Row k="תאריך" v={invoice.date || '—'} />
-                    {/* NULL for an employee — the masking view decides that, not
-                        this screen. A dash is honest; ₪0 would not be. */}
-                    <Row k="סכום" v={fmtILS(invoice.amount ?? null)} />
-                  </>
+                {linked.length > 0 ? (
+                  linked.map((inv, i) => (
+                    <div key={inv.id} style={{ paddingTop: i > 0 ? '10px' : 0, marginTop: i > 0 ? '10px' : 0, borderTop: i > 0 ? '1px solid #F3F4F6' : undefined }}>
+                      <Row k="חשבונית" v={inv.invoiceNumber || inv.id} />
+                      <Row k="תאריך" v={inv.date || '—'} />
+                      {/* NULL for an employee — the masking view decides that, not
+                          this screen. A dash is honest; ₪0 would not be. */}
+                      <Row k="סכום" v={fmtILS(inv.amount ?? null)} />
+                      <div className="flex items-center gap-2" style={{ marginTop: '6px' }}>
+                        {inv.driveFileLink ? (
+                          <PdfPreviewButton url={inv.driveFileLink} title="צפייה בחשבונית" />
+                        ) : null}
+                        {onOpenInvoice && (
+                          <button
+                            onClick={() => onOpenInvoice(inv.id)}
+                            className="inline-flex items-center gap-1.5 font-semibold"
+                            style={{ background: 'transparent', border: 'none', color: 'var(--brand-primary)', fontSize: '12px', cursor: 'pointer', padding: 0 }}
+                          ><ExternalLink className="w-3.5 h-3.5" />פתיחה</button>
+                        )}
+                        <button
+                          disabled={busy}
+                          onClick={() => act(() => onUnlink(note.id, inv.id))}
+                          className="inline-flex items-center gap-1.5"
+                          style={{ background: 'transparent', border: 'none', color: '#9CA3AF', fontSize: '12px', cursor: busy ? 'wait' : 'pointer', padding: 0 }}
+                        ><Unlink className="w-3.5 h-3.5" />ניתוק</button>
+                      </div>
+                    </div>
+                  ))
                 ) : (
                   <p style={{ fontSize: '13px', color: '#9CA3AF', margin: 0 }}>עדיין לא הוצמדה חשבונית.</p>
                 )}
@@ -318,9 +356,11 @@ export default function DeliveryPage({
                 </section>
               )}
 
-              {needsInvoice && (
+              {(needsInvoice || showMore) && (
                 <section className="bg-white border" style={{ borderColor: '#E2E4E9', padding: '14px 16px' }}>
-                  <h4 className="font-bold text-gray-700" style={{ fontSize: '13px', margin: '0 0 3px' }}>חשבוניות אפשריות</h4>
+                  <h4 className="font-bold text-gray-700" style={{ fontSize: '13px', margin: '0 0 3px' }}>
+                    {linked.length > 0 ? 'הצמדת חשבונית נוספת' : 'חשבוניות אפשריות'}
+                  </h4>
                   <p style={{ fontSize: '11.5px', color: '#9CA3AF', margin: '0 0 10px' }}>
                     לפי ספק, קרבת תאריך וסכום. ההצמדה רק בלחיצה שלך.
                   </p>
@@ -332,6 +372,9 @@ export default function DeliveryPage({
                     <div className="grid gap-2">
                       {candidates.map(c => {
                         const inv = invoices.find(i => i.id === c.invoice_id)
+                        // Already on this row — offering it again invites a
+                        // duplicate link that resolves to nothing.
+                        if (linked.some(l => l.id === c.invoice_id)) return null
                         return (
                           <div key={c.invoice_id} className="flex items-center justify-between gap-2 border flex-wrap" style={{ borderColor: '#E2E4E9', padding: '10px 12px' }}>
                             <div style={{ fontSize: '12.5px', minWidth: 0 }}>
@@ -408,14 +451,9 @@ export default function DeliveryPage({
                 )
               )}
 
-              {invoice && (
-                <button disabled={busy} onClick={() => act(() => onUnlink(note.id))} style={BTN_BASE}>
-                  <Unlink className="w-4 h-4" />החלפת חשבונית
-                </button>
-              )}
-              {invoice && onOpenInvoice && (
-                <button onClick={() => onOpenInvoice(invoice.id)} style={BTN_BASE}>
-                  <ExternalLink className="w-4 h-4" />פתיחת החשבונית
+              {linked.length > 0 && !showMore && (
+                <button onClick={() => setShowMore(true)} style={BTN_BASE}>
+                  <Link2 className="w-4 h-4" />הצמדת חשבונית נוספת
                 </button>
               )}
               {onMarkDiffers && (

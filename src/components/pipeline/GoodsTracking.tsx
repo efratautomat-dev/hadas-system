@@ -16,6 +16,7 @@ import DeliveryPage from './DeliveryPage'
 import { StatusBadge } from '../StatusBadge'
 import { PipelineStrip } from './PipelineStrip'
 import { useIsWide } from '../../hooks/useIsWide'
+import { useDeliveryLinks } from '../../hooks/useDeliveryLinks'
 import { FilterTabs } from '../ui/FilterTabs'
 import type { OrderLink } from '../../lib/pipelineSteps'
 import type { DeliveryNote, PipelineStage } from '../../data/mockData'
@@ -66,6 +67,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
   const [reassign, setReassign] = useState<string | null>(null)
   const [intake, setIntake] = useState(false)
   const isWide = useIsWide()
+  const { invoicesFor } = useDeliveryLinks()
   // Cards ⇄ rows, in the exact shape the suppliers screen uses and remembered the
   // same way. Two screens offering the same choice through two different controls
   // is how a system stops feeling like one system.
@@ -180,7 +182,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
         note={openNote}
         stage={stageOf(openNote)}
         order={orderByNote.get(openNote.id) ?? 'none'}
-        invoice={invoices.find(i => i.id === openNote.linkedInvoiceId)}
+        linked={invoicesFor(openNote.id).map(id => invoices.find(i => i.id === id)).filter(Boolean) as typeof invoices}
         invoices={invoices}
         isWide={isWide}
         onBack={() => setOpenId(null)}
@@ -188,7 +190,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
             onSetCustomerStatus={setCustomerStatus}
         onLoadCandidates={candidates}
         onLink={async (id, invoiceId) => { await link(id, invoiceId) }}
-        onUnlink={async id => { await unlink(id) }}
+        onUnlink={async (id, invoiceId) => { await unlink(id, invoiceId) }}
         onApprove={ledgerApprove}
         onChangeSupplier={() => setReassign(openNote.id)}
         onDismantle={async () => { await dismantle(openNote.id) }}
@@ -289,6 +291,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
               stageOf={stageOf}
               onOpen={setOpenId}
               customers={customersByNote}
+              invoicesFor={invoicesFor}
             />
           ) : (
           <div className="bg-white border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
@@ -347,7 +350,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
                         <PipelineStrip
                           stage={stageOf(n)}
                           order={orderByNote.get(n.id) ?? 'none'}
-                          hasInvoice={!!n.linkedInvoiceId}
+                          hasInvoice={invoicesFor(n.id).length > 0}
                           compact
                         />
                       </td>
@@ -424,12 +427,14 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
 // two shapes. What changes is density, not information: the strip, the badge and
 // the supplier are in both, so a person moving between views is not re-learning
 // the screen.
-function GoodsCards({ notes, orderByNote, stageOf, onOpen, customers }: {
+function GoodsCards({ notes, orderByNote, stageOf, onOpen, customers, invoicesFor }: {
   notes: DeliveryNote[]
   orderByNote: Map<string, OrderLink>
   stageOf: (n: DeliveryNote) => PipelineStage
   onOpen: (id: string) => void
   customers: Map<string, string[]>
+  /** Passed in rather than re-read: one answer about which invoices a row carries. */
+  invoicesFor: (noteId: string) => string[]
 }) {
   if (notes.length === 0) {
     return (
@@ -459,7 +464,7 @@ function GoodsCards({ notes, orderByNote, stageOf, onOpen, customers }: {
           <PipelineStrip
             stage={stageOf(n)}
             order={orderByNote.get(n.id) ?? 'none'}
-            hasInvoice={!!n.linkedInvoiceId}
+            hasInvoice={invoicesFor(n.id).length > 0}
             compact
             showLabels={false}
           />

@@ -219,11 +219,14 @@ export function useDeliveryNotes() {
     }
   }
 
-  const unlink = async (id: string) => {
-    console.log('[useDeliveryNotes] unlink id:', id)
+  /**
+   * Detach ONE invoice from a delivery, or all of them when none is named.
+   * A row may carry several — a supplier who bills one delivery in parts — so
+   * removing "the" invoice was never a complete instruction.
+   */
+  const unlink = async (id: string, invoiceId?: string) => {
     try {
-      const res = await api.put(`/delivery-notes/${id}/unlink`, {})
-      console.log('[useDeliveryNotes] unlink response:', res)
+      await api.put(`/delivery-notes/${id}/unlink`, invoiceId ? { invoice_id: invoiceId } : {})
       await load()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
