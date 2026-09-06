@@ -31,6 +31,8 @@ export default function GoodsIntake({
   onCreate: (draft: {
     supplierId: string; supplierName: string
     isoDate: string; lineItems: string; noteNumber?: string
+    /** Σ cost from the sheet, or null when it was not fully priced. */
+    amount?: number | null
     adopt?: string; forceNew?: boolean
   }) => Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[] } | void>
   /**
@@ -192,12 +194,14 @@ export default function GoodsIntake({
               supplierName={sheetSupplier.name}
               capturedBy={capturedBy}
               onCancel={() => setMode('choose')}
-              onSave={async lineItems => {
+              onSave={async (lineItems, amount) => {
                 await submit({
                   supplierId: sheetSupplier.id,
                   supplierName: sheetSupplier.name,
+                  // §7.b — stamped from the capture, never written on the page.
                   isoDate: new Date().toISOString().slice(0, 10),
                   lineItems,
+                  amount,
                 })
               }}
             />

@@ -106,6 +106,14 @@ export async function captureDocument(input: {
 export interface HandwrittenLine {
   item: string
   quantity: string
+  /**
+   * Cost price as written, or '' when the sheet carries none.
+   *
+   * Recording it is safe because a delivery's amount never reaches the ledger —
+   * buildLedger reads invoices and payments only. What it buys is the comparison
+   * at approval: goods against bill, which is that screen's whole job.
+   */
+  price: string
   /** The model's own doubt about THIS line. Marked, never dropped. */
   uncertain: boolean
 }
@@ -129,9 +137,9 @@ export async function readHandwrittenSheet(input: {
     // without ever having tested it.
     console.warn('[DEMO MODE] stubbed readHandwrittenSheet — no network call')
     return [
-      { item: 'חלב 3% ארגז', quantity: '2', uncertain: false },
-      { item: 'קוטג׳ ארגז',  quantity: '1', uncertain: false },
-      { item: 'ביצים מגש',   quantity: '4', uncertain: true  },
+      { item: 'חלב 3% ארגז', quantity: '2', price: '128.5', uncertain: false },
+      { item: 'קוטג׳ ארגז',  quantity: '1', price: '96',    uncertain: false },
+      { item: 'ביצים מגש',   quantity: '4', price: '',      uncertain: true  },
     ]
   }
   const { data: { session } } = await supabase.auth.getSession()

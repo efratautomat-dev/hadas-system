@@ -79,6 +79,8 @@ export function useDeliveryNotes() {
   const create = async (body: {
     supplierId: string; supplierName: string; isoDate: string; lineItems: string
     noteNumber?: string; employeeId?: string
+    /** Σ cost read off a handwritten sheet. `null`/absent = not known. */
+    amount?: number | null
     adopt?: string; forceNew?: boolean
   }): Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[]; id?: string }> => {
     try {
@@ -89,7 +91,9 @@ export function useDeliveryNotes() {
         line_items:    body.lineItems,
         note_number:   body.noteNumber || null,
         employee_id:   body.employeeId || null,
-        amount:        0,
+        // null, not 0. "Not known" and "cost nothing" are different claims, and
+        // the ledger never reads this figure either way.
+        amount:        body.amount ?? null,
         delivery_note_id: body.adopt,
         force_new:        body.forceNew,
       }) as { needsChoice?: boolean; candidates?: ArrivalCandidate[]; id?: string }

@@ -3667,6 +3667,15 @@ async function handleNonInvoice(
 interface HandwrittenLine {
   item:     string;
   quantity: string;
+  /**
+   * Cost price, as written — empty when the sheet carries none.
+   *
+   * Safe to record because `delivery_notes.amount` never reaches the ledger:
+   * buildLedger reads invoices and payments only. What a price on the note buys
+   * is the COMPARISON at approval — goods against bill — which is the whole job
+   * that screen exists for.
+   */
+  price:    string;
   /** The model's own doubt about THIS line, surfaced for review. */
   uncertain: boolean;
 }
@@ -3674,7 +3683,7 @@ interface HandwrittenLine {
 async function extractHandwrittenSheet(
   doc: { mimeType: string; bytes: Uint8Array },
 ): Promise<HandwrittenLine[]> {
-  const shape = '{"lines":[{"item":"","quantity":"","uncertain":false}]}';
+  const shape = '{"lines":[{"item":"","quantity":"","price":"","uncertain":false}]}';
   // Written for the PRINTED template, but deliberately tolerant of what actually
   // reaches a counter: a table drawn by hand on a blank page, or a note that just
   // lists what came in. The form gives the best reading, but a scrap of paper must
@@ -3688,6 +3697,8 @@ async function extractHandwrittenSheet(
     "• שורות ריקות — לדלג עליהן לגמרי.\n" +
     "• אל תמציא פריטים שאינם כתובים, ואל תשלים רשימה.\n" +
     "• quantity כמחרוזת בדיוק כפי שנכתבה (גם '2 ארגזים' או '1.5').\n" +
+    "• price = מחיר עלות ליחידה אם נכתב. מספרים בלבד, בלי ₪ ובלי פסיקים. " +
+    "אין מחיר? price ריק — לא להשלים ולא לחשב.\n" +
     "• אין כמות ליד הפריט? quantity ריק — לא להשלים ולא לנחש 1.\n" +
     "• פתק חופשי: כל פריט בשורה נפרדת, גם אם נכתבו כמה בשורה אחת " +
     "(למשל '2 חלב, 1 קוטג׳' → שתי שורות).\n" +
@@ -3721,6 +3732,7 @@ async function extractHandwrittenSheet(
       return {
         item:      String(o.item ?? "").trim(),
         quantity:  String(o.quantity ?? "").trim(),
+        price:     String(o.price ?? "").trim(),
         uncertain: o.uncertain === true,
       };
     })

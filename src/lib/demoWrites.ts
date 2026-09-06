@@ -383,6 +383,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       if (!target) return null
       if (b.line_items)  target.line_items  = b.line_items
       if (b.note_number) target.note_number = b.note_number
+      if (b.amount !== null && b.amount !== undefined) target.amount = b.amount
       target.intake_source = b.intake_source ?? 'manual'
       // Goods have now been seen: an invoice-first chain was only waiting for this.
       if (target.stage === 'awaiting_goods') target.stage = 'awaiting_approval'
@@ -392,7 +393,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       id: `dn_${Date.now()}`,
       supplier_id: supplierId, supplier_name: String(b.supplier_name ?? ''),
       date: b.date ?? nowIso().slice(0, 10),
-      amount: null, amount_before_vat: null, vat_amount: null,
+      amount: b.amount ?? null, amount_before_vat: null, vat_amount: null,
       status: 'pending', stage: 'awaiting_invoice', invoice_id: null,
       line_items: b.line_items ?? null, note_number: b.note_number ?? '',
       intake_source: b.intake_source ?? 'manual',

@@ -658,6 +658,9 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
     };
     if (line_items) patch.line_items = line_items;
     if (note_number) patch.note_number = note_number;
+    // The sheet's cost total, when it had one. Only fills a hole — a figure read
+    // off the supplier's own document outranks one summed at the counter.
+    if (amount !== null && amount !== undefined) patch.amount = amount;
     // Goods have now been seen. An invoice-first chain was only ever waiting for
     // this, so it moves on; a note-first chain is still waiting for its invoice.
     if (target.stage === "awaiting_goods") patch.stage = "awaiting_approval";

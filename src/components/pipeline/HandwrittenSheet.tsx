@@ -39,8 +39,11 @@ export default function HandwrittenSheet({
   supplierName: string
   capturedBy?: string
   onCancel: () => void
-  /** Receives the confirmed lines as the delivery's item list. */
-  onSave: (lineItems: string) => Promise<void>
+  /**
+   * The confirmed lines, and a total ONLY when every line was priced.
+   * `null` means "not known", which is different from zero and must stay so.
+   */
+  onSave: (lineItems: string, amount: number | null) => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -70,13 +73,30 @@ export default function HandwrittenSheet({
     try {
       // Stored the way a typed receipt is stored — one line per item — so nothing
       // downstream needs to know this arrived as a photograph.
-      await onSave(kept.map(r => `${r.item.trim()}${r.quantity.trim() ? ` — ${r.quantity.trim()}` : ''}`).join('\n'))
+      await onSave(
+        kept.map(r => {
+          const q = r.quantity.trim() ? ` — ${r.quantity.trim()}` : ''
+          const p = r.price.trim() ? ` · ₪${r.price.trim()}` : ''
+          return `${r.item.trim()}${q}${p}`
+        }).join('\n'),
+        total,
+      )
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
   }
 
   const uncertain = (rows ?? []).filter(r => r.uncertain).length
+
+  // Σ price × quantity, and ONLY when every line carries a price. A partial total
+  // is a number that looks like the delivery's value and is not — worse than no
+  // number, because nobody re-checks a figure that is already there.
+  const filled = (rows ?? []).filter(r => r.item.trim())
+  const priced = filled.filter(r => r.price.trim() !== '')
+  const complete = filled.length > 0 && priced.length === filled.length
+  const total = complete
+    ? filled.reduce((s, r) => s + (Number(r.price) || 0) * (Number(r.quantity) || 1), 0)
+    : null
 
   return (
     <div className="bg-white border" style={{ borderColor: '#E2E4E9' }}>
@@ -156,10 +176,11 @@ export default function HandwrittenSheet({
             <div className="border" style={{ borderColor: '#E2E4E9' }}>
               <div
                 className="grid"
-                style={{ gridTemplateColumns: '1fr 90px 38px', background: '#F8F8FA', borderBottom: '1px solid #E2E4E9', fontSize: '11.5px', fontWeight: 800, color: '#6B6E73' }}
+                style={{ gridTemplateColumns: '1fr 72px 84px 38px', background: '#F8F8FA', borderBottom: '1px solid #E2E4E9', fontSize: '11.5px', fontWeight: 800, color: '#6B6E73' }}
               >
                 <span style={{ padding: '7px 11px' }}>פריט</span>
                 <span style={{ padding: '7px 11px' }}>כמות</span>
+                <span style={{ padding: '7px 11px' }}>מחיר</span>
                 <span />
               </div>
               {rows.map((r, i) => (
@@ -167,7 +188,7 @@ export default function HandwrittenSheet({
                   key={r.key}
                   className="grid items-center"
                   style={{
-                    gridTemplateColumns: '1fr 90px 38px',
+                    gridTemplateColumns: '1fr 72px 84px 38px',
                     borderBottom: '1px solid #F3F4F6',
                     background: r.uncertain ? '#FFFBEB' : undefined,
                   }}
@@ -182,6 +203,13 @@ export default function HandwrittenSheet({
                     onChange={e => setRows(rows.map((x, j) => j === i ? { ...x, quantity: e.target.value, uncertain: false } : x))}
                     style={{ border: 'none', borderInlineStart: '1px solid #F3F4F6', background: 'transparent', padding: '9px 11px', fontSize: '13.5px', fontFamily: 'inherit', outline: 'none', width: '100%' }}
                   />
+                  <input
+                    value={r.price}
+                    inputMode="decimal"
+                    placeholder="—"
+                    onChange={e => setRows(rows.map((x, j) => j === i ? { ...x, price: e.target.value, uncertain: false } : x))}
+                    style={{ border: 'none', borderInlineStart: '1px solid #F3F4F6', background: 'transparent', padding: '9px 11px', fontSize: '13.5px', fontFamily: 'inherit', outline: 'none', width: '100%', fontVariantNumeric: 'tabular-nums' }}
+                  />
                   <button
                     onClick={() => setRows(rows.filter((_, j) => j !== i))}
                     title="מחיקת שורה"
@@ -190,7 +218,7 @@ export default function HandwrittenSheet({
                 </div>
               ))}
               <button
-                onClick={() => setRows([...rows, { key: uid(), item: '', quantity: '', uncertain: false }])}
+                onClick={() => setRows([...rows, { key: uid(), item: '', quantity: '', price: '', uncertain: false }])}
                 className="inline-flex items-center gap-1.5"
                 style={{ background: 'transparent', border: 'none', color: 'var(--brand-primary)', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', padding: '9px 11px' }}
               ><Plus className="w-3.5 h-3.5" />הוספת שורה</button>
@@ -217,7 +245,11 @@ export default function HandwrittenSheet({
             ><Pencil className="w-3.5 h-3.5" />צילום מחדש</button>
           </div>
           <p style={{ fontSize: '11.5px', color: '#9CA3AF', margin: 0 }}>
-            התעודה תיווצר ללא סכום — הסכום מגיע מהחשבונית, כמו תמיד.
+            {total !== null
+              ? `סה"כ עלות מהדף: ₪${total.toLocaleString('he-IL')}. הוא לא נכנס ליתרה — היתרה זזה מהחשבונית בלבד, וזה המספר שמשווים אליו.`
+              : priced.length > 0
+                ? 'חלק מהשורות בלי מחיר — לא יחושב סכום. אפשר להשלים או להשאיר.'
+                : 'בלי מחירים — התעודה תישמר ללא סכום, והסכום יגיע מהחשבונית.'}
           </p>
         </div>
       )}
