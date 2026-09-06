@@ -138,6 +138,21 @@ export function useInvoices() {
    * Open a pipeline for an invoice that arrived before its goods (§6.6).
    * Idempotent: an invoice already in a chain reports that and opens nothing.
    */
+  /**
+   * Save an invoice note through the narrow route, so an employee may leave one
+   * without gaining the general update permission that also writes amounts.
+   */
+  const saveNotes = async (id: string, notes: string) => {
+    try {
+      await api.put(`/invoices/${id}/notes`, { notes })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בשמירת ההערה: ${msg}`)
+      throw err
+    }
+  }
+
   const openPipeline = async (id: string): Promise<string | null> => {
     try {
       const res = await api.put(`/invoices/${id}/open-pipeline`, {}) as
@@ -193,5 +208,5 @@ export function useInvoices() {
     }
   }
 
-  return { data, loading, error, create, update, updateStatus, remove, ledgerApprove, ledgerUnapprove, openPipeline }
+  return { data, loading, error, create, update, updateStatus, remove, ledgerApprove, ledgerUnapprove, openPipeline, saveNotes }
 }

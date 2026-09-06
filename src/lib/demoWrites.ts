@@ -310,6 +310,15 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
   if (path === '/ingest/parked') return { count: 0, parked: [] } as unknown as Row
   if (path === '/ingest/requeue') return { success: true, parkedBefore: 0, parkedAfter: 0 } as unknown as Row
 
+  // ── PUT /invoices/:id/notes ──────────────────────────────────────────────
+  const invNotes = path.match(/^\/invoices\/([^/]+)\/notes$/)
+  if (method === 'PUT' && invNotes) {
+    const inv = find('invoices', invNotes[1])
+    if (!inv) return null
+    inv.notes = String(b.notes ?? '')
+    return { success: true }
+  }
+
   // ── PUT /invoices/:id/open-pipeline ──────────────────────────────────────
   const openPipe = path.match(/^\/invoices\/([^/]+)\/open-pipeline$/)
   if (method === 'PUT' && openPipe) {

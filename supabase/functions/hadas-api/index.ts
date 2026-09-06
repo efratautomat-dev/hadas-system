@@ -1238,6 +1238,29 @@ async function setCustomerStatus(
   return json({ success: true, customerStatus: next });
 }
 
+/**
+ * Write an invoice's note — and nothing else.
+ *
+ * A narrow route rather than opening `PUT /invoices/:id` to employees: that
+ * handler also writes the amounts, the supplier and the status, and someone who
+ * may leave a remark has no business changing a figure. The permission belongs to
+ * the ACTION.
+ *
+ * She is often the one who knows: she took the delivery, she saw what was short.
+ * A note she cannot leave is knowledge the system loses at the counter.
+ */
+async function setInvoiceNotes(
+  req: Request, supabase: SupabaseClient, id: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const notes = typeof body?.notes === "string" ? body.notes : null;
+  if (notes === null) return json({ error: "notes is required" }, 400);
+
+  const { error } = await supabase.from("invoices").update({ notes }).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
+}
+
 async function reassignDeliverySupplier(
   req: Request, supabase: SupabaseClient, id: string,
 ): Promise<Response> {
@@ -2426,6 +2449,9 @@ const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
   /^\/delivery-notes\/[^/]+\/supplier$/,
   // The customer line is hers to move — she is the one who phones.
   /^\/orders\/[^/]+\/customer-status$/,
+  // A remark on an invoice. She took the delivery and saw what was short; a note
+  // she cannot leave is knowledge lost at the counter.
+  /^\/invoices\/[^/]+\/notes$/,
   /^\/delivery-notes\/[^/]+\/unlink$/,
   /^\/invoices\/[^/]+\/ledger-approve$/,
   /^\/invoices\/[^/]+\/ledger-unapprove$/,
@@ -2654,6 +2680,10 @@ Deno.serve(async (req: Request) => {
     const custStatus = path.match(/^\/orders\/([^/]+)\/customer-status$/);
     if (custStatus && req.method === "PUT")
       return await setCustomerStatus(req, supabase, custStatus[1]);
+
+    const invNotes = path.match(/^\/invoices\/([^/]+)\/notes$/);
+    if (invNotes && req.method === "PUT")
+      return await setInvoiceNotes(req, supabase, invNotes[1]);
 
     const reassign = path.match(/^\/delivery-notes\/([^/]+)\/supplier$/);
     if (reassign && req.method === "PUT")

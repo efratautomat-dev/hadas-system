@@ -6,6 +6,7 @@ import { useReturns } from '../../hooks/useReturns'
 import { useEmployees } from '../../hooks/useEmployees'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import { useOrders } from '../../hooks/useOrders'
+import { useIsWide } from '../../hooks/useIsWide'
 import SectionHeader from '../SectionHeader'
 import { SearchableSelect } from '../SearchableSelect'
 import { PdfPreviewModal } from '../PdfPreviewModal'
@@ -158,11 +159,28 @@ function MetaModal({ title, Icon, rows, note, items, onClose }: MetaModalData & 
   )
 }
 
-// Read-only invoice view for employees: non-financial metadata + the original
-// document (image/PDF). NO before-VAT / VAT / total, NO inputs, NO save — the
-// employee can view the scanned source but never edit the app's invoice data.
-function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: () => void }) {
+// ── The invoice, as a full page ──────────────────────────────────────────────
+//
+// Two panes like the manager's screen: the document on one side and the fields on
+// the other, because reading a scan in a strip beside a list is not reading it.
+//
+// The FIELDS are the curated set, not the manager's form — the owner's rule is
+// same screen, fewer things, and the amounts are absent by permission rather than
+// by layout (the masking view NULLs them long before this renders).
+//
+// One thing she CAN write: a note. She took the delivery and saw what was short,
+// and a remark she cannot leave is knowledge the system loses at the counter. It
+// goes through a narrow route that writes the note and nothing else.
+function EmployeeInvoiceView({ invoice, onBack, onSaveNotes, isWide }: {
+  invoice: Invoice
+  onBack: () => void
+  onSaveNotes?: (id: string, notes: string) => Promise<void>
+  isWide: boolean
+}) {
   const [showDoc, setShowDoc] = useState(false)
+  const [note, setNote] = useState(invoice.notes ?? '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const docUrl = (invoice.driveFileLink || invoice.storage_url || '').trim()
   const statusKey = invoiceStatusKey(invoice, NO_ALERTS)
   const rows = [
@@ -184,6 +202,30 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
         חזרה
       </button>
 
+      <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', flexDirection: isWide ? 'row' : 'column' }}>
+      {docUrl && (
+        <div style={{
+          background: '#F3F4F6', border: '1px solid #DEDFE5', overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
+          ...(isWide
+            ? { flex: '1 1 50%', position: 'sticky' as const, top: '8px', height: 'calc(100vh - 190px)' }
+            : { width: '100%', height: '50vh' }),
+        }}>
+          <div className="flex items-center justify-between" style={{ padding: '8px 12px', background: '#FAFAFC', borderBottom: '1px solid #E2E4E9' }}>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#6B7280' }}>מסמך מקור</span>
+            <button
+              onClick={() => setShowDoc(true)}
+              className="inline-flex items-center gap-1.5"
+              style={{ padding: '5px 10px', border: '1px solid #DEDFE5', background: 'white', color: 'var(--brand-primary)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+            ><Eye size={13} />הגדל</button>
+          </div>
+          <div className="grid place-items-center" style={{ flex: 1, color: '#B7B9C0', fontSize: '13px', padding: '16px', textAlign: 'center' }}>
+            לחצי "הגדל" לצפייה במסמך
+          </div>
+        </div>
+      )}
+
+      <div style={{ flex: isWide && docUrl ? '1 1 50%' : undefined, width: isWide && docUrl ? undefined : '100%', display: 'grid', gap: '16px' }}>
       {/* Non-financial metadata (read-only text, no inputs) */}
       <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
         <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#EEEEF2', background: '#FAFAFC' }}>
@@ -215,22 +257,49 @@ function EmployeeInvoiceView({ invoice, onBack }: { invoice: Invoice; onBack: ()
         </div>
       )}
 
-      {/* Original document (image/PDF) — viewing only, no download of app data */}
-      <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#EEEEF2' }}>
-        {docUrl ? (
-          <button
-            onClick={() => setShowDoc(true)}
-            className="flex items-center gap-2 rounded-xl font-bold text-white w-full justify-center transition-all"
-            style={{ minHeight: '48px', background: 'var(--brand-primary)', fontSize: '15px' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary-dark)')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--brand-primary)')}
-          >
-            <Eye className="w-5 h-5" />
-            צפייה במסמך המקורי
-          </button>
-        ) : (
-          <p className="text-center text-gray-400 py-2" style={{ fontSize: '14px' }}>אין מסמך מצורף</p>
-        )}
+      {/* The note — the one thing she may write here. Placed last, where the
+          buttons that act on it are, exactly as the manager's screen puts it. */}
+      {onSaveNotes && (
+        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
+          <div className="flex items-center gap-2 border-b" style={{ padding: '14px 24px', borderColor: '#EEEEF2', background: '#FAFAFC' }}>
+            <h2 className="font-bold text-gray-800" style={{ fontSize: '15px' }}>הערות</h2>
+            <MessageSquare className="w-4 h-4 text-gray-400" />
+          </div>
+          <div style={{ padding: '14px 24px', display: 'grid', gap: '10px' }}>
+            <textarea
+              value={note}
+              onChange={(e) => { setNote(e.target.value); setSaved(false) }}
+              rows={3}
+              placeholder="למשל: הגיעו 380 מטר במקום 400 — סוכם זיכוי."
+              style={{ width: '100%', border: '1px solid #E2E4E9', padding: '10px 12px', fontSize: '14px', fontFamily: 'inherit', resize: 'vertical', outline: 'none' }}
+            />
+            <div className="flex items-center gap-2">
+              <button
+                disabled={saving || note === (invoice.notes ?? '')}
+                onClick={async () => {
+                  setSaving(true)
+                  try { await onSaveNotes(invoice.id, note); setSaved(true) }
+                  finally { setSaving(false) }
+                }}
+                className="font-semibold text-white"
+                style={{
+                  background: note !== (invoice.notes ?? '') ? 'var(--brand-primary)' : '#D6D7DD',
+                  border: 'none', padding: '9px 18px', fontSize: '13px',
+                  cursor: saving ? 'wait' : note !== (invoice.notes ?? '') ? 'pointer' : 'not-allowed',
+                }}
+              >{saving ? 'שומר…' : 'שמירת הערה'}</button>
+              {/* Saving must NOT leave the screen: she is reading the document and
+                  jotting against it, and navigating away is the opposite of that. */}
+              {saved && <span style={{ fontSize: '12.5px', color: '#166534' }}>נשמר</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!docUrl && (
+        <p className="text-center text-gray-400" style={{ fontSize: '14px', padding: '8px' }}>אין מסמך מצורף</p>
+      )}
+      </div>
       </div>
 
       {showDoc && docUrl && <PdfPreviewModal url={docUrl} onClose={() => setShowDoc(false)} />}
@@ -312,12 +381,13 @@ function ReceiptFormModal({ form, setForm, supplierName, employees, onSave, onCl
 }
 
 export default function EmployeeSupplierView({ supplier, activeSection, onOpenPipeline, userEmail }: Props) {
-  const { data: allInvoices } = useInvoices()
+  const { data: allInvoices, saveNotes: saveInvoiceNotes } = useInvoices()
   const { data: allDeliveries, create: createDeliveryNote } = useDeliveryNotes()
   const { data: allReturns, create: createReturn } = useReturns()
   const { data: employees }        = useEmployees()
   const { data: suppliers }        = useSuppliers()
   const { openForSupplier, create: createOrder } = useOrders()
+  const isWide = useIsWide()
 
   const [invoiceQuery, setInvoiceQuery] = useState('')
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
@@ -441,7 +511,12 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
   // document image/PDF (viewing the scanned source is allowed). When a row is
   // selected it replaces the whole supplier view; its "חזרה" button clears it.
   if (selectedInvoice) {
-    return <EmployeeInvoiceView invoice={selectedInvoice} onBack={() => setSelectedInvoice(null)} />
+    return <EmployeeInvoiceView
+        invoice={selectedInvoice}
+        onBack={() => setSelectedInvoice(null)}
+        onSaveNotes={saveInvoiceNotes}
+        isWide={isWide}
+      />
   }
 
   return (
