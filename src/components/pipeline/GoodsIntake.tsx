@@ -250,13 +250,13 @@ export default function GoodsIntake({
               </div>
               <div>
                 <FieldLabel required>מה התקבל</FieldLabel>
-                <LineItemsEditor lines={lines} onChange={setLines} priceLabel="מחיר" />
+                <LineItemsEditor lines={lines} onChange={setLines} />
                 <p style={{ margin: '5px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
                   {/* The price is optional and never reaches the ledger — it is
                       what the approval screen compares the invoice against. */}
                   {lineTotal(lines) !== null
-                    ? `סה"כ עלות: ₪${lineTotal(lines)!.toLocaleString('he-IL')} — להשוואה מול החשבונית, לא נכנס ליתרה.`
-                    : 'מחיר לא חובה. בלי מחיר בכל השורות לא יחושב סכום — היתרה זזה מהחשבונית בלבד.'}
+                    ? 'הסה"כ מחושב לבד ומשמש להשוואה מול החשבונית — הוא לא נכנס ליתרה.'
+                    : 'מחיר לא חובה. בלי מחיר בכל השורות לא יחושב סה"כ — היתרה זזה מהחשבונית בלבד.'}
                 </p>
               </div>
             </div>

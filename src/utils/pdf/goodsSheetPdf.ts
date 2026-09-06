@@ -57,14 +57,14 @@ export function printGoodsSheet(opts: { supplierName?: string; rows?: number } =
     <div class="sup">ספק: ${supplier ? escHtml(supplier) : '<span class="blank"></span>'}</div>
   </div>
   <p class="note">
-    למלא <b>פריטים, כמויות, ומחיר עלות אם הוא מופיע על הסחורה</b>.
-    עמודת המחיר לא חובה — משאירים ריק כשאין.
+    למלא <b>פריט, כמות, ומחיר ליחידה</b> אם הוא מופיע על הסחורה.
+    <b>אין צורך לחשב סה"כ</b> — המערכת מחשבת. עמודת המחיר לא חובה; משאירים ריק כשאין.
     אין צורך לרשום תאריך — הוא נרשם בצילום${
       supplier ? ', והספק כבר מודפס למעלה' : ''
     }.
   </p>
   <table>
-    <thead><tr><th>פריט</th><th class="qty">כמות</th><th class="price">מחיר עלות</th></tr></thead>
+    <thead><tr><th>פריט</th><th class="qty">כמות</th><th class="price">מחיר ליחידה</th></tr></thead>
     <tbody>${body}</tbody>
   </table>
   <div class="foot">

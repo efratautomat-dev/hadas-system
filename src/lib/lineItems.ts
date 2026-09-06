@@ -8,6 +8,15 @@ export interface Line {
   key: string
   item: string
   quantity: string
+  /**
+   * Cost per UNIT, as written on the goods.
+   *
+   * The owner's decision: three columns to fill by hand — item, quantity, unit
+   * price — and the system does the arithmetic. Which is why the column is
+   * labelled "מחיר ליחידה" and not "מחיר": one word decides whether every total
+   * comes out right or multiplied by the quantity, and a wrong total that looks
+   * plausible is the kind nobody catches.
+   */
   price: string
   /** Set only by the reader — a line it was unsure of. Cleared once edited. */
   uncertain?: boolean
@@ -25,6 +34,12 @@ export const newLine = (): Line => ({
  * number at all: nobody re-checks a figure that is already sitting there. `null`
  * means "not known", which is a different claim from zero.
  */
+/** One line's cost: unit price × quantity. Quantity absent counts as one. */
+export function rowTotal(l: Line): number | null {
+  if (!l.price.trim()) return null
+  return (Number(l.price) || 0) * (Number(l.quantity) || 1)
+}
+
 export function lineTotal(lines: Line[]): number | null {
   const filled = lines.filter(l => l.item.trim())
   if (filled.length === 0) return null

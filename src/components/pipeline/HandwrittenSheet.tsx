@@ -166,7 +166,7 @@ export default function HandwrittenSheet({
                 style={{ width: '100%', border: '1px solid #E2E4E9', objectFit: 'contain', maxHeight: '460px' }}
               />
             )}
-            <LineItemsEditor lines={rows} onChange={setRows} priceLabel="מחיר" />
+            <LineItemsEditor lines={rows} onChange={setRows} />
           </div>
 
           {err && <p style={{ margin: 0, fontSize: '13px', color: '#DC2626' }}>{err}</p>}
@@ -190,7 +190,7 @@ export default function HandwrittenSheet({
           </div>
           <p style={{ fontSize: '11.5px', color: '#9CA3AF', margin: 0 }}>
             {total !== null
-              ? `סה"כ עלות מהדף: ₪${total.toLocaleString('he-IL')}. הוא לא נכנס ליתרה — היתרה זזה מהחשבונית בלבד, וזה המספר שמשווים אליו.`
+              ? 'הסה"כ מחושב לבד ומשמש להשוואה מול החשבונית — הוא לא נכנס ליתרה.'
               : priced.length > 0
                 ? 'חלק מהשורות בלי מחיר — לא יחושב סכום. אפשר להשלים או להשאיר.'
                 : 'בלי מחירים — התעודה תישמר ללא סכום, והסכום יגיע מהחשבונית.'}

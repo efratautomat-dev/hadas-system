@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react'
-import { newLine, type Line } from '../../lib/lineItems'
+import { newLine, rowTotal, lineTotal, type Line } from '../../lib/lineItems'
 
 // ── פריטים, כמויות ומחירים ───────────────────────────────────────────────────
 //
@@ -17,11 +17,10 @@ const CELL: React.CSSProperties = {
 }
 
 export default function LineItemsEditor({
-  lines, onChange, priceLabel = 'מחיר',
+  lines, onChange,
 }: {
   lines: Line[]
   onChange: (next: Line[]) => void
-  priceLabel?: string
 }) {
   const set = (i: number, patch: Partial<Line>) =>
     onChange(lines.map((l, j) => j === i ? { ...l, ...patch, uncertain: false } : l))
@@ -30,11 +29,15 @@ export default function LineItemsEditor({
     <div className="border" style={{ borderColor: '#E2E4E9' }}>
       <div
         className="grid"
-        style={{ gridTemplateColumns: '1fr 72px 84px 38px', background: '#F8F8FA', borderBottom: '1px solid #E2E4E9', fontSize: '11.5px', fontWeight: 800, color: '#6B6E73' }}
+        style={{ gridTemplateColumns: '1fr 66px 92px 84px 38px', background: '#F8F8FA', borderBottom: '1px solid #E2E4E9', fontSize: '11.5px', fontWeight: 800, color: '#6B6E73' }}
       >
         <span style={{ padding: '7px 11px' }}>פריט</span>
         <span style={{ padding: '7px 11px' }}>כמות</span>
-        <span style={{ padding: '7px 11px' }}>{priceLabel}</span>
+        <span style={{ padding: '7px 11px' }}>מחיר ליחידה</span>
+        {/* Computed, never typed. Showing it makes the arithmetic visible, which
+            is how a wrong unit price gets noticed on the line rather than in a
+            grand total nobody can take apart. */}
+        <span style={{ padding: '7px 11px', color: '#9CA3AF' }}>סה"כ</span>
         <span />
       </div>
 
@@ -43,7 +46,7 @@ export default function LineItemsEditor({
           key={l.key}
           className="grid items-center"
           style={{
-            gridTemplateColumns: '1fr 72px 84px 38px',
+            gridTemplateColumns: '1fr 66px 92px 84px 38px',
             borderBottom: '1px solid #F3F4F6',
             background: l.uncertain ? '#FFFBEB' : undefined,
           }}
@@ -62,6 +65,15 @@ export default function LineItemsEditor({
             onChange={e => set(i, { price: e.target.value })}
             style={{ ...CELL, borderInlineStart: '1px solid #F3F4F6', fontVariantNumeric: 'tabular-nums' }}
           />
+          <span
+            style={{
+              padding: '9px 11px', fontSize: '13px', color: '#6B6E73',
+              borderInlineStart: '1px solid #F3F4F6', fontVariantNumeric: 'tabular-nums',
+              background: '#FAFAFC',
+            }}
+          >
+            {rowTotal(l) !== null ? `₪${rowTotal(l)!.toLocaleString('he-IL')}` : '—'}
+          </span>
           <button
             onClick={() => onChange(lines.filter((_, j) => j !== i))}
             title="מחיקת שורה"
@@ -69,6 +81,18 @@ export default function LineItemsEditor({
           ><Trash2 className="w-3.5 h-3.5" /></button>
         </div>
       ))}
+
+      {lineTotal(lines) !== null && (
+        <div
+          className="flex items-center justify-between"
+          style={{ padding: '9px 11px', borderTop: '1px solid #E2E4E9', background: '#FAFAFC', fontSize: '13px', fontWeight: 800 }}
+        >
+          <span style={{ color: '#6B6E73' }}>סה"כ עלות</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+            ₪{lineTotal(lines)!.toLocaleString('he-IL')}
+          </span>
+        </div>
+      )}
 
       <button
         onClick={() => onChange([...lines, newLine()])}
