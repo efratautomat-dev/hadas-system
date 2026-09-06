@@ -326,7 +326,15 @@ export interface DeliveryNote {
   stage?: PipelineStage
   /** How the row came to exist. Recorded now rather than derived, so a typed
    *  receipt and a photographed one are distinguishable (§6.5). */
-  intakeSource?: 'email' | 'manual' | 'photo'
+  /**
+   * Which door this row came through.
+   *
+   * `order` and `invoice` are rows the pipeline opened ITSELF — one when an order
+   * was placed, one when an invoice arrived before its goods. Neither describes a
+   * delivery that happened, and naming the door is what keeps them from being read
+   * as one (their `note_number` is empty for the same reason).
+   */
+  intakeSource?: 'email' | 'manual' | 'photo' | 'order' | 'invoice'
 }
 
 /** The four pipeline states. Mirrors delivery_notes_stage_check in the DB. */
