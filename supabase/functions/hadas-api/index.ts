@@ -1311,6 +1311,66 @@ async function setInvoiceNotes(
   return json({ success: true });
 }
 
+/**
+ * The supplier's note turned up after the goods were already recorded by hand.
+ *
+ * `absorb` — the emailed note wins. It carries the supplier's own document and his
+ *   number, which outrank a page typed at the counter; the manual row keeps only
+ *   what the document does not have (the employee who took it, and her item list
+ *   when the extraction found none). The manual row is then removed, because two
+ *   rows for one delivery is the thing being fixed.
+ *
+ * `keep` — a person looked and said these are different shipments. Recorded rather
+ *   than acted on, so the question stops being asked: a prompt re-raised after it
+ *   was answered is one people learn to click past.
+ *
+ * Never decided automatically. Two deliveries from one supplier in a week are
+ * ordinary, and a silent merge loses a shipment while a duplicate only shows one.
+ */
+async function resolveDeliveryPair(
+  req: Request, supabase: SupabaseClient, manualId: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const arrivedId = String(body?.arrived_id ?? body?.arrivedId ?? "");
+  const action    = body?.action === "keep" ? "keep" : "absorb";
+  if (!arrivedId) return json({ error: "arrived_id is required" }, 400);
+
+  const { data: rows } = await supabase.from("delivery_notes")
+    .select("id, note_number, line_items, drive_file_link, storage_url, employee_id, amount, date, invoice_id, stage")
+    .in("id", [manualId, arrivedId]);
+  const manual  = rows?.find(r => String(r.id) === manualId);
+  const arrived = rows?.find(r => String(r.id) === arrivedId);
+  if (!manual || !arrived) return json({ error: "Delivery not found" }, 404);
+
+  if (action === "keep") {
+    // Both directions, so whichever row the screen opens next already knows.
+    await supabase.from("delivery_notes").update({ paired_note_id: arrivedId }).eq("id", manualId);
+    await supabase.from("delivery_notes").update({ paired_note_id: manualId }).eq("id", arrivedId);
+    return json({ success: true, action: "keep" });
+  }
+
+  // The arrived row absorbs what only the manual row knows, then replaces it.
+  const patch: Record<string, unknown> = {};
+  if (manual.employee_id && !arrived.employee_id) patch.employee_id = manual.employee_id;
+  // Her list is kept only where the document produced none — a supplier's own
+  // itemisation is the better record of what he says he sent.
+  if (manual.line_items && !arrived.line_items) patch.line_items = manual.line_items;
+  if (manual.amount != null && arrived.amount == null) patch.amount = manual.amount;
+  if (Object.keys(patch).length > 0) {
+    const { error } = await supabase.from("delivery_notes").update(patch).eq("id", arrivedId);
+    if (error) return json({ error: error.message }, 500);
+  }
+
+  // Anything hanging off the manual row moves before it goes, or it goes with it.
+  await supabase.from("orders")
+    .update({ delivery_note_id: arrivedId }).eq("delivery_note_id", manualId);
+  await supabase.from("delivery_note_invoices").delete().eq("delivery_note_id", manualId);
+
+  const { error: delErr } = await supabase.from("delivery_notes").delete().eq("id", manualId);
+  if (delErr) return json({ error: delErr.message }, 500);
+  return json({ success: true, action: "absorb", keptId: arrivedId });
+}
+
 async function reassignDeliverySupplier(
   req: Request, supabase: SupabaseClient, id: string,
 ): Promise<Response> {
@@ -2502,6 +2562,9 @@ const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
   // A remark on an invoice. She took the delivery and saw what was short; a note
   // she cannot leave is knowledge lost at the counter.
   /^\/invoices\/[^/]+\/notes$/,
+  // Answering "is the note that just arrived the same delivery you recorded?" —
+  // a judgement about goods she handled, which is hers to make.
+  /^\/delivery-notes\/[^/]+\/pair$/,
   /^\/delivery-notes\/[^/]+\/unlink$/,
   /^\/invoices\/[^/]+\/ledger-approve$/,
   /^\/invoices\/[^/]+\/ledger-unapprove$/,
@@ -2730,6 +2793,10 @@ Deno.serve(async (req: Request) => {
     const custStatus = path.match(/^\/orders\/([^/]+)\/customer-status$/);
     if (custStatus && req.method === "PUT")
       return await setCustomerStatus(req, supabase, custStatus[1]);
+
+    const pair = path.match(/^\/delivery-notes\/([^/]+)\/pair$/);
+    if (pair && req.method === "PUT")
+      return await resolveDeliveryPair(req, supabase, pair[1]);
 
     const invNotes = path.match(/^\/invoices\/([^/]+)\/notes$/);
     if (invNotes && req.method === "PUT")

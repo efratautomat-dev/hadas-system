@@ -335,6 +335,11 @@ export interface DeliveryNote {
    * as one (their `note_number` is empty for the same reason).
    */
   intakeSource?: 'email' | 'manual' | 'photo' | 'order' | 'invoice'
+  /**
+   * Another delivery a PERSON confirmed is a different shipment, despite looking
+   * like a duplicate. Set only by answering "keep both" — never inferred.
+   */
+  pairedNoteId?: string | null
 }
 
 /** The four pipeline states. Mirrors delivery_notes_stage_check in the DB. */

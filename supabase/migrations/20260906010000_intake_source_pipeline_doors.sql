@@ -35,3 +35,38 @@ comment on column public.delivery_notes.intake_source is
   'Which door this row came through. `order` and `invoice` are rows the pipeline '
   'opened ITSELF — neither describes a delivery that happened, which is why their '
   'note_number is empty and why naming the door matters.';
+
+
+-- ── A manual receipt and the supplier's note, side by side ──────────────────
+--
+-- The ordinary sequence has two orders, and both happen:
+--
+--   note first  — the supplier emails it, THEN the goods arrive. The employee has
+--                 nothing to type: she confirms the row that is already there.
+--   goods first — she records what came, and the note turns up in the mailbox a
+--                 day later. Two rows now describe one delivery.
+--
+-- The second case cannot be resolved by the system. Whether the emailed note is
+-- the same shipment as Tuesday's manual receipt is a judgement about physical
+-- goods, and two deliveries from one supplier in a week are ordinary. So it asks,
+-- and this column remembers the answer:
+--
+--   replace → the emailed note wins (it is the supplier's own document) and the
+--             manual row is absorbed. No column needed; the rows merge.
+--   keep    → they are genuinely different deliveries. `paired_note_id` records
+--             that a person looked and said so, which is what stops the question
+--             being asked again every time the screen loads.
+--
+-- A question re-asked after it was answered is how a prompt becomes something
+-- people click past without reading.
+
+alter table public.delivery_notes
+  add column if not exists paired_note_id text;
+
+comment on column public.delivery_notes.paired_note_id is
+  'Another delivery a PERSON confirmed is a different shipment, despite looking '
+  'like a duplicate. Set only by answering "keep both" — never inferred.';
+
+create index if not exists delivery_notes_paired_idx
+  on public.delivery_notes (paired_note_id)
+  where paired_note_id is not null;

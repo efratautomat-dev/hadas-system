@@ -27,6 +27,7 @@ export function useDeliveryNotes() {
           // DB `invoice_id` column → linkedInvoiceId frontend field
           linkedInvoiceId: r.invoice_id   ?? undefined,
           storageUrl:      r.storage_url  ?? undefined,
+          pairedNoteId:    r.paired_note_id ?? null,
           amount:          Number(r.amount ?? 0),
           status:          r.status       ?? 'pending',
           driveFileLink:   r.drive_file_link ?? '',
@@ -148,6 +149,22 @@ export function useDeliveryNotes() {
     }
   }
 
+  /**
+   * Answer "is the note that just arrived the same delivery you recorded?".
+   * `absorb` keeps the supplier's document and removes the hand-typed row;
+   * `keep` records that a person looked and said they are different shipments.
+   */
+  const resolvePair = async (manualId: string, arrivedId: string, action: 'absorb' | 'keep') => {
+    try {
+      await api.put(`/delivery-notes/${manualId}/pair`, { arrived_id: arrivedId, action })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בטיפול בכפילות: ${msg}`)
+      throw err
+    }
+  }
+
   const dismantle = async (id: string) => {
     try {
       await api.delete(`/delivery-notes/${id}/dismantle`)
@@ -230,5 +247,5 @@ export function useDeliveryNotes() {
     }
   }
 
-  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reassignSupplier, reload: load }
+  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reassignSupplier, resolvePair, reload: load }
 }

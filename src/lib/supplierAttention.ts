@@ -38,12 +38,30 @@ const EMPTY: SupplierAttention = { level: 'green', toApprove: 0, waiting: 0, lab
 
 export function supplierAttention(
   stages: (PipelineStage | null | undefined)[],
+  /**
+   * Deliveries whose supplier note arrived after a manual receipt and nobody has
+   * yet said whether they are the same shipment.
+   *
+   * RED, with the approvals: both are "a person must decide", and until someone
+   * does, the supplier's balance is about to be built on either one delivery or
+   * two. Amber would file it under "waiting for the outside world", which is
+   * exactly wrong — the outside world already sent the note.
+   */
+  pendingPairs = 0,
 ): SupplierAttention {
   let toApprove = 0
   let waiting = 0
   for (const s of stages) {
     if (s === 'awaiting_approval') toApprove++
     else if (s === 'awaiting_invoice' || s === 'awaiting_goods') waiting++
+  }
+  if (pendingPairs > 0) {
+    return {
+      level: 'red', toApprove, waiting,
+      label: pendingPairs === 1
+        ? 'הגיעה תעודה — לבדוק כפילות'
+        : `${pendingPairs} תעודות — לבדוק כפילות`,
+    }
   }
   if (toApprove > 0) {
     return {

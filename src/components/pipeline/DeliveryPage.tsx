@@ -52,7 +52,7 @@ export default function DeliveryPage({
   note, stage, order, invoice, invoices, isWide,
   onBack, onLoadCandidates, onLink, onUnlink, onApprove,
   onChangeSupplier, onDismantle, onOpenInvoice, onArrived, onMarkDiffers, customerOrders = [],
-  onSetCustomerStatus,
+  onSetCustomerStatus, pendingPair, onResolvePair,
 }: {
   note: DeliveryNote
   stage: PipelineStage
@@ -94,6 +94,12 @@ export default function DeliveryPage({
    * screen to record it is how it stops being recorded.
    */
   onSetCustomerStatus?: (orderId: string, next: CustomerStatus) => Promise<void>
+  /**
+   * The supplier's own note, arrived after this delivery was typed by hand — and
+   * the answer to whether they are the same shipment. Absent = nothing to ask.
+   */
+  pendingPair?: DeliveryNote | null
+  onResolvePair?: (arrivedId: string, action: 'absorb' | 'keep') => Promise<void>
 }) {
   const [candidates, setCandidates] = useState<InvoiceCandidate[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -227,6 +233,57 @@ export default function DeliveryPage({
                   <p style={{ fontSize: '13px', color: '#9CA3AF', margin: 0 }}>עדיין לא הוצמדה חשבונית.</p>
                 )}
               </section>
+
+              {/* ── The supplier's note turned up ─────────────────────────────
+                  Same block as the customer one below, on purpose: both are
+                  "someone else's fact about this delivery", and a person reading
+                  the page should recognise the shape before reading the words.
+                  Answered here, where the goods and the document are both on
+                  screen — the only place the question can honestly be settled. */}
+              {pendingPair && onResolvePair && (
+                <section
+                  className="border"
+                  style={{ borderColor: '#FDE68A', background: '#FFFBEB', padding: '14px 16px' }}
+                >
+                  <h4 className="font-bold" style={{ fontSize: '11.5px', color: '#92400E', margin: '0 0 6px' }}>
+                    הגיעה תעודת משלוח מהספק
+                  </h4>
+                  <p style={{ fontSize: '13px', color: '#6B6E73', margin: '0 0 4px' }}>
+                    {pendingPair.noteNumber ? `תעודה ${pendingPair.noteNumber}` : 'תעודה ללא מספר'}
+                    {pendingPair.date ? ` · ${pendingPair.date}` : ''}
+                  </p>
+                  <p style={{ fontSize: '12px', color: '#9CA3AF', margin: '0 0 10px' }}>
+                    האם זו אותה סחורה שנקלטה כאן ידנית?
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {(pendingPair.driveFileLink || pendingPair.storageUrl) && (
+                      <button
+                        onClick={() => (pendingPair.driveFileLink
+                          ? setDocView({ url: pendingPair.driveFileLink })
+                          : openStored(pendingPair.storageUrl!))}
+                        className="inline-flex items-center gap-1.5"
+                        style={{ padding: '6px 11px', border: '1px solid #DEDFE5', background: 'white', color: 'var(--brand-primary)', fontSize: '12.5px', cursor: 'pointer', fontFamily: 'inherit' }}
+                      ><Eye size={13} />צפייה בתעודה</button>
+                    )}
+                    <button
+                      disabled={busy}
+                      onClick={() => act(async () => { await onResolvePair(pendingPair.id, 'absorb'); onBack() })}
+                      className="font-semibold text-white"
+                      style={{ background: 'var(--brand-primary)', border: 'none', padding: '6px 13px', fontSize: '12.5px', cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit' }}
+                    >כן — התעודה מחליפה</button>
+                    <button
+                      disabled={busy}
+                      onClick={() => act(() => onResolvePair(pendingPair.id, 'keep'))}
+                      style={{ background: 'white', border: '1px solid #E2E4E9', color: '#6B6E73', padding: '6px 13px', fontSize: '12.5px', fontWeight: 600, cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit' }}
+                    >לא — משלוח אחר</button>
+                  </div>
+                  {/* Said plainly, because "מחליפה" beside a document reads like
+                      deletion and the answer is not obvious from the button. */}
+                  <p style={{ fontSize: '11px', color: '#9CA3AF', margin: '8px 0 0' }}>
+                    "מחליפה" משאירה את התעודה של הספק ואת המסמך שלה, ומוחקת את השורה הידנית.
+                  </p>
+                </section>
+              )}
 
               {customerOrders.length > 0 && (
                 <section

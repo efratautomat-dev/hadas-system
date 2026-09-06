@@ -12,6 +12,7 @@ import SupplierPicker from '../pipeline/SupplierPicker'
 import { useIsWide } from '../../hooks/useIsWide'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { supplierAttention, ATTENTION_COLOR } from '../../lib/supplierAttention'
+import { pendingPairCount, pendingPairFor } from '../../lib/deliveryPairs'
 import { useInvoices } from '../../hooks/useInvoices'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import { tierAllows } from '../../lib/tiers'
@@ -60,7 +61,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   // The SAME panel the manager opens. The role difference is which props are
   // passed, not which component renders: no onDismantle here, and the amounts are
   // already NULL because the masking view decided that long before this screen.
-  const { data: allNotes, link, unlink, candidates, reassignSupplier, reload: reloadNotes } = useDeliveryNotes()
+  const { data: allNotes, link, unlink, candidates, reassignSupplier, resolvePair, reload: reloadNotes } = useDeliveryNotes()
   const { data: allInv, ledgerApprove } = useInvoices()
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
   // The delivery page's two-pane threshold (1100) is NOT the board's (1024):
@@ -138,6 +139,8 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             onUnlink={async id => { await unlink(id); await reloadNotes() }}
             onApprove={async invoiceId => { const n = await ledgerApprove(invoiceId); await reloadNotes(); return n }}
             onChangeSupplier={() => setReassign(openNote.id)}
+            pendingPair={pendingPairFor(openNote, allNotes)}
+            onResolvePair={async (arrivedId, action) => { await resolvePair(openNote.id, arrivedId, action) }}
           />
           {reassign && (
             <SupplierPicker
@@ -265,9 +268,8 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             options={suppliers.map(s => {
               // Derived from STAGES only — how many and at which step, never how
               // much. Safe on a screen where every amount is masked.
-              const a = supplierAttention(
-                allNotes.filter(n => n.supplierId === s.id).map(n => n.stage),
-              )
+              const mine = allNotes.filter(n => n.supplierId === s.id)
+              const a = supplierAttention(mine.map(n => n.stage), pendingPairCount(mine))
               return {
                 value: s.id,
                 label: s.name,

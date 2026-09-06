@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, ChevronRight, X, LayoutGrid, Table2, AlertTriangle, GitMerge, ArrowRightLeft } from 'lucide-react'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { supplierAttention, ATTENTION_COLOR } from '../lib/supplierAttention'
+import { pendingPairCount } from '../lib/deliveryPairs'
 import { useSuppliers, type MergePreview, type MergeResult } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
 import { STATUS } from '../theme/status'
@@ -1162,7 +1163,8 @@ function MergeSuppliersModal({
 // how many and at which step, never how much.
 function AttentionDot({ supplierId }: { supplierId: string }) {
   const { data: notes } = useDeliveryNotes()
-  const a = supplierAttention(notes.filter(n => n.supplierId === supplierId).map(n => n.stage))
+  const mine = notes.filter(n => n.supplierId === supplierId)
+  const a = supplierAttention(mine.map(n => n.stage), pendingPairCount(mine))
   if (a.level === 'green') return null
   return (
     <span

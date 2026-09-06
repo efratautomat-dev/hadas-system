@@ -430,6 +430,28 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return { success: true }
   }
 
+  // ── PUT /delivery-notes/:id/pair ─────────────────────────────────────────
+  const pair = path.match(/^\/delivery-notes\/([^/]+)\/pair$/)
+  if (method === 'PUT' && pair) {
+    const manual  = find('delivery_notes', pair[1])
+    const arrived = find('delivery_notes', String(b.arrived_id ?? ''))
+    if (!manual || !arrived) return null
+    if (b.action === 'keep') {
+      manual.paired_note_id = arrived.id
+      arrived.paired_note_id = manual.id
+      return { success: true, action: 'keep' }
+    }
+    // The supplier's own document wins; the hand-typed row gives up what only it
+    // knew and then goes.
+    if (manual.employee_id && !arrived.employee_id) arrived.employee_id = manual.employee_id
+    if (manual.line_items && !arrived.line_items)   arrived.line_items  = manual.line_items
+    if (manual.amount != null && arrived.amount == null) arrived.amount = manual.amount
+    for (const o of orders) if (String(o.delivery_note_id) === String(manual.id)) o.delivery_note_id = arrived.id
+    const i = notes.findIndex(n => String(n.id) === String(manual.id))
+    if (i >= 0) notes.splice(i, 1)
+    return { success: true, action: 'absorb', keptId: arrived.id }
+  }
+
   // ── PUT /delivery-notes/:id/supplier ─────────────────────────────────────
   const reassign = path.match(/^\/delivery-notes\/([^/]+)\/supplier$/)
   if (method === 'PUT' && reassign) {

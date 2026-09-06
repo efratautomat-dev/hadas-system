@@ -344,6 +344,11 @@ const delivery_notes: Row[] = [
   { id: 'dn_o1', supplier_id: 'sup_05', supplier_name: 'כפתורים ופרטים בע"מ', date: '2026-06-08', amount: null, status: 'pending', invoice_id: null, drive_file_link: null, storage_url: null, note_number: '', stage: 'awaiting_goods', intake_source: 'order', line_items: 'כפתורי צדף לבנים, 3 גדלים + סרט גומי שחור' },
   { id: 'dn_o2', supplier_id: 'sup_06', supplier_name: 'משלוחים מהיר אקספרס',  date: '2026-06-11', amount: null, status: 'pending', invoice_id: null, drive_file_link: null, storage_url: null, note_number: '', stage: 'awaiting_goods', intake_source: 'order', line_items: 'שתי חבילות מהמחסן בחיפה' },
   { id: 'dn_o4', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',            date: '2026-06-10', amount: null, status: 'pending', invoice_id: null, drive_file_link: null, storage_url: null, note_number: '', stage: 'awaiting_goods', intake_source: 'order', line_items: 'חוט כותנה — 6 גוונים' },
+  // A manual receipt and the supplier's own note for the same delivery — the case
+  // the pairing cube exists for. Seeded because a feature the dataset never
+  // produces is a feature that reads as missing.
+  { id: 'dn_08', supplier_id: 'sup_03', supplier_name: 'הדפסות רימון', date: '2026-06-13', amount: null, status: 'pending', invoice_id: null, drive_file_link: null, storage_url: null, note_number: '', stage: 'awaiting_invoice', intake_source: 'manual', line_items: 'מדבקות לוגו — 3 גלילים' },
+  { id: 'dn_09', supplier_id: 'sup_03', supplier_name: 'הדפסות רימון', date: '2026-06-14', amount: 2410, status: 'pending_match', invoice_id: null, drive_file_link: DOC_URL, storage_url: null, note_number: '5512', stage: 'awaiting_invoice', intake_source: 'email' },
   { id: 'dn_07', supplier_id: 'sup_08', supplier_name: 'תוויות פלוס',      date: '2026-06-14', amount: 3120,  status: 'pending',       invoice_id: null,      drive_file_link: null, storage_url: DOC_URL, note_number: '', stage: 'awaiting_goods', intake_source: 'manual' },
 ]
 
