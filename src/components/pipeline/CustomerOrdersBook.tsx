@@ -78,19 +78,15 @@ export default function CustomerOrdersBook({
             }}
           >{dayLabel(key)}</div>
           {items.map(o => (
+            // The row is NOT a link to the pipeline. A notebook line is about the
+            // promise to a person; the goods chain is a different subject, and
+            // sending someone there for a click that looked like "read this
+            // entry" loses the page she was reading. The chain is reachable, but
+            // only from a control that says so.
             <div
               key={o.id}
-              role={o.deliveryNoteId && onOpen ? 'button' : undefined}
-              tabIndex={o.deliveryNoteId && onOpen ? 0 : undefined}
-              onClick={() => o.deliveryNoteId && onOpen?.(o.deliveryNoteId)}
-              onKeyDown={e => {
-                if ((e.key === 'Enter' || e.key === ' ') && o.deliveryNoteId) onOpen?.(o.deliveryNoteId)
-              }}
               className="flex items-start justify-between gap-4 flex-wrap"
-              style={{
-                padding: '13px 18px', borderBottom: '1px solid #F3F4F6',
-                cursor: o.deliveryNoteId && onOpen ? 'pointer' : undefined,
-              }}
+              style={{ padding: '13px 18px', borderBottom: '1px solid #F3F4F6' }}
             >
               <div style={{ minWidth: 0, flex: 1 }}>
                 <p className="flex items-center gap-2 font-bold text-gray-800" style={{ fontSize: '14px', margin: 0 }}>
@@ -111,6 +107,17 @@ export default function CustomerOrdersBook({
                   {o.supplierName}
                   {o.expectedDate ? ` · צפי ${o.expectedDate}` : ''}
                 </p>
+                {o.deliveryNoteId && onOpen && (
+                  <button
+                    onClick={() => onOpen(o.deliveryNoteId!)}
+                    className="inline-flex items-center gap-1"
+                    style={{
+                      background: 'transparent', border: 'none', padding: 0, marginTop: '4px',
+                      color: 'var(--brand-primary)', fontSize: '11.5px', fontWeight: 600,
+                      cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  >הסחורה בפייפליין ←</button>
+                )}
               </div>
               <div onClick={e => e.stopPropagation()} style={{ flex: 'none' }}>
                 <CustomerStatusControl order={o} onSet={onSetStatus} />
