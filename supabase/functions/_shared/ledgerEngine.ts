@@ -212,8 +212,15 @@ export function buildLedgerEntries(
   invoices: InvoiceLike[],
   payments: PaymentLike[],
 ): Omit<LedgerRow, 'balance'>[] {
+  // ⚠️ Invoices are keyed on `supplierId` and payments on `supplier_id` — two
+  // conventions inside one function, because that is how the two hooks map them.
+  // A caller passing the other spelling gets an EMPTY ledger and no error, and a
+  // balance of zero reads as a supplier who paid everything. Accept both rather
+  // than let a silent nothing stand in for a real number.
+  const invSupplier = (i: InvoiceLike) =>
+    i.supplierId ?? (i as { supplier_id?: string }).supplier_id
   const inv = invoices
-    .filter(i => i.supplierId === supplierId)
+    .filter(i => invSupplier(i) === supplierId)
     .map(i => {
       const amount = num(i.total_amount ?? i.amount)
       const credit = isCreditRow(amount)
