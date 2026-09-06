@@ -1124,6 +1124,43 @@ async function createOrder(req: Request, supabase: SupabaseClient, actor?: strin
  * supplier and belonging to another is the defect free-text supplier fields kept
  * producing.
  */
+const CUSTOMER_STATUSES = [
+  "customer_waiting", "customer_ordered", "customer_arrived",
+  "customer_notified", "customer_delivered",
+] as const;
+
+/**
+ * Move a customer order along its own line.
+ *
+ * Every value here except `customer_arrived` describes something that happened in
+ * a conversation — she was called, she collected it. The system was not present
+ * for any of them, so it does not guess: a customer marked "notified" who was
+ * never called is worse than one marked nothing.
+ *
+ * Employees set these. They are the ones on the phone.
+ */
+async function setCustomerStatus(
+  req: Request, supabase: SupabaseClient, id: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const next = String(body?.customer_status ?? body?.customerStatus ?? "");
+  if (!(CUSTOMER_STATUSES as readonly string[]).includes(next))
+    return json({ error: "Unknown customer status" }, 400);
+
+  const { data: order } = await supabase.from("orders")
+    .select("id, customer_name").eq("id", id).maybeSingle();
+  if (!order) return json({ error: "Order not found" }, 404);
+  // Guarded rather than silently accepted: a restock with a customer status is a
+  // promise to nobody, and it would show up in the notebook as a nameless line.
+  if (!order.customer_name)
+    return json({ error: "This order has no customer" }, 409);
+
+  const { error } = await supabase.from("orders")
+    .update({ customer_status: next }).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, customerStatus: next });
+}
+
 async function reassignDeliverySupplier(
   req: Request, supabase: SupabaseClient, id: string,
 ): Promise<Response> {
@@ -1304,7 +1341,7 @@ async function markOrderArrived(
   } catch { /* no body = a full arrival */ }
 
   const { data: order, error: fetchErr } = await supabase.from("orders")
-    .select("id, supplier_id, supplier_name, description, status, delivery_note_id").eq("id", id).maybeSingle();
+    .select("id, supplier_id, supplier_name, description, status, delivery_note_id, customer_name, customer_status").eq("id", id).maybeSingle();
   if (fetchErr) return json({ error: fetchErr.message }, 500);
   if (!order)   return json({ error: "Order not found" }, 404);
   if (order.status !== "order_waiting") {
@@ -1422,7 +1459,15 @@ async function markOrderArrived(
   }
 
   const { error } = await supabase.from("orders")
-    .update({ status: "order_arrived", arrived_at: nowIso, delivery_note_id: note.id })
+    .update({
+      status: "order_arrived", arrived_at: nowIso, delivery_note_id: note.id,
+      // The one step the system can witness. Only forward, and only past the
+      // stages that precede it: an order already marked delivered must not be
+      // dragged back to "arrived" by a late goods record.
+      ...(order.customer_name && ["customer_waiting", "customer_ordered", null, undefined]
+        .includes(order.customer_status as string | null)
+        ? { customer_status: "customer_arrived" } : {}),
+    })
     .eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true, deliveryNoteId: note.id });
@@ -2302,6 +2347,8 @@ const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
   // holding the goods and reading the header. It carries no figure, which is why
   // it is its own route rather than the general update.
   /^\/delivery-notes\/[^/]+\/supplier$/,
+  // The customer line is hers to move — she is the one who phones.
+  /^\/orders\/[^/]+\/customer-status$/,
   /^\/delivery-notes\/[^/]+\/unlink$/,
   /^\/invoices\/[^/]+\/ledger-approve$/,
   /^\/invoices\/[^/]+\/ledger-unapprove$/,
@@ -2527,6 +2574,10 @@ Deno.serve(async (req: Request) => {
     // ── Orders ────────────────────────────────────────────────────────────────
     // Each of the three parts can start the chain (the owner's model): the invoice
     // leg was the one that could not.
+    const custStatus = path.match(/^\/orders\/([^/]+)\/customer-status$/);
+    if (custStatus && req.method === "PUT")
+      return await setCustomerStatus(req, supabase, custStatus[1]);
+
     const reassign = path.match(/^\/delivery-notes\/([^/]+)\/supplier$/);
     if (reassign && req.method === "PUT")
       return await reassignDeliverySupplier(req, supabase, reassign[1]);

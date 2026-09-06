@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import { STATUS, SEMANTIC, type Swatch } from '../theme/status'
+import { CUSTOMER_STATUS_LABEL } from '../lib/customerStatus'
 
 // ── Shared status badge ─────────────────────────────────────────────────────
 // Single source of truth for the unified status taxonomy (spec/06-RULES.md §1).
@@ -46,6 +47,17 @@ const STATUS_MAP: Record<string, StatusStyle> = {
   order_waiting: badge('ממתינה',       SEMANTIC.new),
   order_arrived: badge('הגיעה',        SEMANTIC.done),
   order_partial: badge('הגיעה חלקית',  SEMANTIC.in_progress),
+
+  // ── The customer's line, separate from the goods' ─────────────────────────
+  // An order for a person carries two states at once: where the goods are, and
+  // what the person has been told. Mixing them is how a notebook becomes noise,
+  // so they are different words in different colours and never share a badge.
+  // Only `customer_arrived` is ever set by the system.
+  customer_waiting:   badge(CUSTOMER_STATUS_LABEL.customer_waiting,   SEMANTIC.pending),
+  customer_ordered:   badge(CUSTOMER_STATUS_LABEL.customer_ordered,   SEMANTIC.new),
+  customer_arrived:   badge(CUSTOMER_STATUS_LABEL.customer_arrived,   SEMANTIC.in_progress),
+  customer_notified:  badge(CUSTOMER_STATUS_LABEL.customer_notified,  SEMANTIC.check),
+  customer_delivered: badge(CUSTOMER_STATUS_LABEL.customer_delivered, SEMANTIC.done),
 }
 
 export function StatusBadge({

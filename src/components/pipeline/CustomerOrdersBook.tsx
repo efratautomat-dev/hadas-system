@@ -1,6 +1,8 @@
-import { Phone, User } from 'lucide-react'
+import { useState } from 'react'
+import { Phone, User, Check } from 'lucide-react'
 import { StatusBadge } from '../StatusBadge'
 import type { Order } from '../../hooks/useOrders'
+import { CUSTOMER_STATUS_FLOW, CUSTOMER_STATUS_LABEL, type CustomerStatus } from '../../lib/customerStatus'
 
 // ── מחברת ההזמנות ────────────────────────────────────────────────────────────
 //
@@ -33,11 +35,13 @@ function dayLabel(iso: string) {
 }
 
 export default function CustomerOrdersBook({
-  orders, onOpen,
+  orders, onOpen, onSetStatus,
 }: {
   orders: Order[]
   /** Jump to the goods chain this order became, when it has one. */
   onOpen?: (deliveryNoteId: string) => void
+  /** Move the customer line along. Absent = read-only notebook. */
+  onSetStatus?: (orderId: string, next: CustomerStatus) => Promise<void>
 }) {
   const withCustomer = orders
     .filter(o => !!o.customerName)
@@ -108,11 +112,77 @@ export default function CustomerOrdersBook({
                   {o.expectedDate ? ` · צפי ${o.expectedDate}` : ''}
                 </p>
               </div>
-              <StatusBadge status={o.status} />
+              <div onClick={e => e.stopPropagation()} style={{ flex: 'none' }}>
+                <CustomerStatusControl order={o} onSet={onSetStatus} />
+              </div>
             </div>
           ))}
         </div>
       ))}
+    </div>
+  )
+}
+
+
+// ── Moving the customer line ─────────────────────────────────────────────────
+// A click opens the five steps, in order, with the current one marked. Not a
+// dropdown: there are five, they are a sequence, and seeing the whole line is how
+// you know what has and has not been done for her.
+//
+// `הגיעה לחנות` is offered like the rest — the system sets it when the goods land,
+// but nothing stops a person from correcting it. What the system knows is where
+// the goods are; what it does not know is what was said to her.
+function CustomerStatusControl({ order, onSet }: {
+  order: Order
+  onSet?: (orderId: string, next: CustomerStatus) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const current = order.customerStatus ?? 'customer_waiting'
+
+  if (!onSet) return <StatusBadge status={current} />
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        style={{ background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
+        title="שינוי סטטוס"
+      ><StatusBadge status={current} /></button>
+    )
+  }
+
+  return (
+    <div className="grid gap-1" style={{ minWidth: '170px' }}>
+      {CUSTOMER_STATUS_FLOW.map(k => {
+        const on = k === current
+        return (
+          <button
+            key={k}
+            disabled={busy}
+            onClick={async () => {
+              if (on) { setOpen(false); return }
+              setBusy(true)
+              try { await onSet(order.id, k) } finally { setBusy(false); setOpen(false) }
+            }}
+            className="inline-flex items-center gap-2"
+            style={{
+              padding: '6px 10px', fontSize: '12.5px', fontFamily: 'inherit',
+              border: `1px solid ${on ? 'var(--brand-primary)' : '#E2E4E9'}`,
+              background: 'white', color: on ? 'var(--brand-primary)' : '#4B5563',
+              fontWeight: on ? 700 : 500, cursor: busy ? 'wait' : 'pointer',
+              justifyContent: 'flex-start',
+            }}
+          >
+            {on ? <Check className="w-3.5 h-3.5" /> : <span style={{ width: 14 }} />}
+            {CUSTOMER_STATUS_LABEL[k]}
+          </button>
+        )
+      })}
+      <button
+        onClick={() => setOpen(false)}
+        style={{ background: 'transparent', border: 'none', color: '#9CA3AF', fontSize: '11.5px', cursor: 'pointer', padding: '2px 0' }}
+      >סגירה</button>
     </div>
   )
 }

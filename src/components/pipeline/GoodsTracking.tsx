@@ -55,7 +55,7 @@ function fmtILS(n: number | null | undefined) {
 export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
   const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle, create: createNote, reload: reloadNotes } = useDeliveryNotes()
   const { data: invoices, ledgerApprove } = useInvoices()
-  const { data: orders, create: createOrder, markArrived } = useOrders()
+  const { data: orders, create: createOrder, markArrived, setCustomerStatus } = useOrders()
   const { data: suppliers } = useSuppliers()
   const [newOrder, setNewOrder] = useState(false)
   const [reassign, setReassign] = useState<string | null>(null)
@@ -257,7 +257,7 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
               down the page, customer first, phone in reach — a record you look
               through, not a table you sort. */}
           {filter === 'customer' ? (
-            <CustomerOrdersBook orders={orders} onOpen={setOpenId} />
+            <CustomerOrdersBook orders={orders} onOpen={setOpenId} onSetStatus={setCustomerStatus} />
           ) : view === 'cards' ? (
             <GoodsCards
               notes={shown}

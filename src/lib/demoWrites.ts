@@ -148,6 +148,9 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       delivery_note_id: null,
       customer_name:  b.customer_name  ?? null,
       customer_phone: b.customer_phone ?? null,
+      // A customer order starts at the beginning of its own line; a restock has
+      // no line, because it made no promise.
+      customer_status: b.customer_name ? 'customer_waiting' : null,
     }
     // The order opens its pipeline at once — same as the server. Without this the
     // goods list, which is where the owner looks, never learns the order exists.
@@ -235,6 +238,11 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
         } else {
           order.status = 'order_arrived'
           order.arrived_at = nowIso()
+          // The one automatic step, and only forward.
+          if (order.customer_name && ['customer_waiting', 'customer_ordered', null, undefined]
+              .includes(order.customer_status as string | null)) {
+            order.customer_status = 'customer_arrived'
+          }
         }
         return { success: true, deliveryNoteId: ownRow }
       }
@@ -346,6 +354,15 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       note.invoice_id = null; note.status = 'pending_match'; note.stage = 'awaiting_invoice'
     }
     return { success: true, removedShell: shell }
+  }
+
+  // ── PUT /orders/:id/customer-status ──────────────────────────────────────
+  const custStatus = path.match(/^\/orders\/([^/]+)\/customer-status$/)
+  if (method === 'PUT' && custStatus) {
+    const order = find('orders', custStatus[1])
+    if (!order || !order.customer_name) return null
+    order.customer_status = String(b.customer_status ?? '')
+    return { success: true }
   }
 
   // ── PUT /delivery-notes/:id/supplier ─────────────────────────────────────

@@ -3,6 +3,8 @@ import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight } f
 import { SearchableSelect } from '../SearchableSelect'
 import CaptureDocument from '../CaptureDocument'
 import OrdersRail from '../pipeline/OrdersRail'
+import CustomerOrdersBook from '../pipeline/CustomerOrdersBook'
+import { FilterTabs } from '../ui/FilterTabs'
 import { useOrders, type ArrivalCandidate } from '../../hooks/useOrders'
 import ArrivalChoice from '../pipeline/ArrivalChoice'
 import DeliveryPage from '../pipeline/DeliveryPage'
@@ -42,7 +44,11 @@ const SECTION_CARDS: { key: EmployeeSection; label: string; Icon: typeof FileTex
 
 export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const { data: suppliers } = useSuppliers()
-  const { data: orders, markArrived } = useOrders()
+  const { data: orders, markArrived, setCustomerStatus } = useOrders()
+  // Cards ⇄ notebook. Two ways of reading the same orders: the board is what
+  // you glance at mid-task, the notebook is what you search when a customer
+  // calls. Neither replaces the other, so it is a tab and not a setting.
+  const [board, setBoard] = useState<'cards' | 'book'>('cards')
   // The employee hits this more often than the manager does: the note is almost
   // always already in the inbox by the time the goods reach the counter.
   const [arrival, setArrival] = useState<
@@ -190,11 +196,28 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
       >
         {/* LEFT in RTL — declared last so the reading order stays screen-first. */}
         <div style={{ order: isWide ? 2 : 1 }}>
-          <OrdersRail
-            orders={openOrders}
-            onArrived={id => arrive(id, false)}
-            onArrivedPartial={id => arrive(id, true)}
+          <FilterTabs
+            tabs={[
+              { key: 'cards' as const, label: 'הזמנות בדרך', count: openOrders.length },
+              { key: 'book'  as const, label: 'מחברת לקוחות', count: orders.filter(o => o.customerName).length },
+            ]}
+            value={board}
+            onChange={setBoard}
+            style={{ marginBottom: '12px' }}
           />
+          {board === 'cards' ? (
+            <OrdersRail
+              orders={openOrders}
+              onArrived={id => arrive(id, false)}
+              onArrivedPartial={id => arrive(id, true)}
+            />
+          ) : (
+            <CustomerOrdersBook
+              orders={orders}
+              onOpen={setOpenNoteId}
+              onSetStatus={setCustomerStatus}
+            />
+          )}
         </div>
 
         <div style={{ order: isWide ? 1 : 2, minWidth: 0 }}>

@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { isoToDisplay } from '../lib/dates'
+import type { CustomerStatus } from '../lib/customerStatus'
+
+export type { CustomerStatus }
 
 // ── Orders (spec ch. 7) ──────────────────────────────────────────────────────
 // The board that replaces the WhatsApp group: a supplier, free text, a date.
@@ -12,6 +15,7 @@ import { isoToDisplay } from '../lib/dates'
 // It exists to catch goods early and to answer a waiting customer.
 
 export type OrderStatus = 'order_waiting' | 'order_arrived' | 'order_partial'
+
 
 /** A delivery already waiting for an invoice, offered instead of opening a new row. */
 export interface ArrivalCandidate {
@@ -38,6 +42,7 @@ export interface Order {
   deliveryNoteId: string | null
   customerName: string | null
   customerPhone: string | null
+  customerStatus: CustomerStatus | null
   /** DD/MM/YYYY, or '' when unknown — the common case. */
   expectedDate: string
 }
@@ -71,6 +76,7 @@ export function useOrders() {
           deliveryNoteId: r.delivery_note_id ?? null,
           customerName:   r.customer_name  ?? null,
           customerPhone:  r.customer_phone ?? null,
+          customerStatus: (r.customer_status as CustomerStatus) ?? null,
           expectedDate:   isoToDisplay(r.expected_date ?? ''),
         })))
         setError(null)
@@ -126,6 +132,17 @@ export function useOrders() {
    * opens a fresh one. Deciding here would silently merge two deliveries that
    * happen to share a supplier and a week.
    */
+  const setCustomerStatus = async (id: string, next: CustomerStatus) => {
+    try {
+      await api.put(`/orders/${id}/customer-status`, { customer_status: next })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בעדכון סטטוס הלקוחה: ${msg}`)
+      throw err
+    }
+  }
+
   const markArrived = async (
     id: string,
     partial = false,
@@ -161,5 +178,5 @@ export function useOrders() {
       .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || '')),
     [data])
 
-  return { data, loading, error, create, markArrived, openForSupplier, reload: load }
+  return { data, loading, error, create, markArrived, openForSupplier, setCustomerStatus, reload: load }
 }
