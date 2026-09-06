@@ -99,6 +99,9 @@ export default function HandwrittenSheet({
             הם נרשמים לבד. אם אין לך טפסים מודפסים, אפשר להדפיס כאן — הטופס יוצא
             עם שם הספק כבר עליו.
           </p>
+          <p style={{ fontSize: '12.5px', color: '#9CA3AF', margin: 0 }}>
+            עובד גם על טבלה שסורטטה ביד או על פתק — הטופס המודפס רק נקרא הכי טוב.
+          </p>
           <input
             ref={fileRef}
             type="file"

@@ -3675,13 +3675,22 @@ async function extractHandwrittenSheet(
   doc: { mimeType: string; bytes: Uint8Array },
 ): Promise<HandwrittenLine[]> {
   const shape = '{"lines":[{"item":"","quantity":"","uncertain":false}]}';
+  // Written for the PRINTED template, but deliberately tolerant of what actually
+  // reaches a counter: a table drawn by hand on a blank page, or a note that just
+  // lists what came in. The form gives the best reading, but a scrap of paper must
+  // not lose a delivery — that is the same rule as "never park a document nobody
+  // can see". Anything ambiguous comes back marked rather than dropped.
   const prompt =
-    "בתמונה טופס קליטת סחורה שמולא בכתב יד. הטבלה היא שתי עמודות: פריט וכמות.\n" +
-    "חלץ אך ורק את השורות שנכתבו ביד וחזור ב-JSON בלבד:\n" + shape + "\n" +
+    "בתמונה רשימת סחורה שנכתבה בכתב יד. היא יכולה להיות טופס מודפס שמולא, " +
+    "טבלה שסורטטה ביד על דף חלק, או פתק חופשי שרשומים בו פריטים.\n" +
+    "חלץ את הפריטים והכמויות שנכתבו ביד וחזור ב-JSON בלבד:\n" + shape + "\n" +
     "כללים:\n" +
     "• שורות ריקות — לדלג עליהן לגמרי.\n" +
     "• אל תמציא פריטים שאינם כתובים, ואל תשלים רשימה.\n" +
     "• quantity כמחרוזת בדיוק כפי שנכתבה (גם '2 ארגזים' או '1.5').\n" +
+    "• אין כמות ליד הפריט? quantity ריק — לא להשלים ולא לנחש 1.\n" +
+    "• פתק חופשי: כל פריט בשורה נפרדת, גם אם נכתבו כמה בשורה אחת " +
+    "(למשל '2 חלב, 1 קוטג׳' → שתי שורות).\n" +
     "• uncertain=true לכל שורה שהכתב בה אינו ברור — עדיף לסמן מאשר לנחש.\n" +
     "• להתעלם מכותרות, מלוגו ומכל טקסט מודפס — רק כתב היד.";
 
