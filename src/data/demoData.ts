@@ -89,7 +89,12 @@ const DEMO_AWAITING_APPROVAL = new Set(['inv_018'])
 // inv_001 is the OTHER invoice on טקסטיל הגליל, the supplier that already carries the
 // threshold row (inv_018) — so one ledger shows the orange mark, the violet mark and
 // both banners at once, which is the case worth being able to look at.
-const DEMO_AWAITING_LEDGER = new Set(['inv_001'])
+// Invoices filed but not yet approved into the ledger. Spread across several
+// suppliers ON PURPOSE: with one, the banner and the row mark appear on exactly
+// one supplier card, and every other card looks like the feature is missing.
+// A demo dataset that under-represents a state teaches that the state does not
+// exist.
+const DEMO_AWAITING_LEDGER = new Set(['inv_001', 'inv_006', 'inv_012', 'inv_018'])
 
 // A remark on ONE invoice. Same supplier as the notes/gate demos, so a single
 // supplier screen shows every feature at once — and so the collected feed has an
@@ -356,7 +361,7 @@ const orders: Row[] = [
     customer_name: 'מיכל אברהם', customer_phone: '054-8123390',
     customer_status: 'customer_notified',
     status: 'order_arrived', arrived_at: '2026-06-09T08:20:00', arrived_differs: false,
-    delivery_note_id: null },
+    delivery_note_id: 'dn_05' },
   { id: 'ord_04', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',
     description: 'חוט כותנה — 6 גוונים', date: '2026-06-10',
     status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: 'dn_o4' },

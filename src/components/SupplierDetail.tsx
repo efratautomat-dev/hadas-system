@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react'
-import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw, Package, Plus } from 'lucide-react'
+import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw, Plus, PackageCheck } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { useOrders } from '../hooks/useOrders'
 import OrderForm from './pipeline/OrderForm'
+import GoodsIntake from './pipeline/GoodsIntake'
+import { PipelineStrip } from './pipeline/PipelineStrip'
+import type { PipelineStage } from '../data/mockData'
 import { usePayments } from '../hooks/usePayments'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { useReturns } from '../hooks/useReturns'
@@ -210,10 +213,11 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   // horizontal scrolling, especially on tablet.
   const { openForSupplier, create: createOrder } = useOrders()
   const [newOrder, setNewOrder] = useState(false)
+  const [intake, setIntake] = useState(false)
   const [tab, setTab] = useState<TabKey>('ledger')
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
-  const { data: allNotes } = useDeliveryNotes()
+  const { data: allNotes, create: createDeliveryNote } = useDeliveryNotes()
   const { data: allReturns } = useReturns()
   const { data: allStatements } = useStatements()
   // Invoice status is DERIVED, never read from the stored column (CLAUDE.md:
@@ -230,6 +234,15 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   // Matched by id only — every order is created through the picker, so it always
   // carries one, and matching on name too would attach a namesake's order here.
   const orders     = openForSupplier(supplier.id)
+  // What each delivery row's order says, and who is waiting for it. Both were
+  // only in the separate panel that is now gone.
+  const orderMeta = new Map(orders.filter(o => o.deliveryNoteId)
+    .map(o => [o.deliveryNoteId as string, { description: o.description }]))
+  const customersByNote = new Map<string, string[]>()
+  for (const o of orders) {
+    if (!o.deliveryNoteId || !o.customerName) continue
+    customersByNote.set(o.deliveryNoteId, [...(customersByNote.get(o.deliveryNoteId) ?? []), o.customerName])
+  }
   const returns    = allReturns.filter((r) => r.supplierId === supplier.id)
   const statements = allStatements.filter((s) => s.supplier_id === supplier.id)
   // Statements needing attention drive the warning badge on the card.
@@ -650,40 +663,21 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
           carries everywhere else. The supplier card was the one screen still
           calling this "תעודות משלוח" and still unable to show — or open — an
           order, which made it the last place the two roles disagreed. */}
-      {tab === 'notes' && orders.length > 0 && (
-        <Panel
-          title="הזמנות פתוחות"
-          Icon={Package}
-          action={<span className="text-sm text-gray-400">{orders.length}</span>}
-        >
-          {orders.map(o => (
-            <div
-              key={o.id}
-              className="flex items-center justify-between gap-3 flex-wrap"
-              style={{ borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <p className="text-right text-gray-700" style={{ fontSize: '13.5px', margin: 0, fontWeight: 600 }}>
-                  {o.description || '—'}
-                  {o.customerName && (
-                    <span style={{ color: '#9CA3AF', fontWeight: 400 }}>{` — עבור ${o.customerName}`}</span>
-                  )}
-                </p>
-                <p className="text-right" style={{ fontSize: '12px', color: '#9CA3AF', margin: '2px 0 0' }}>
-                  הוזמן {o.date}{o.expectedDate ? ` · צפי ${o.expectedDate}` : ''}
-                </p>
-              </div>
-              <StatusBadge status={o.status} />
-            </div>
-          ))}
-        </Panel>
-      )}
 
       {tab === 'notes' && (
         <Panel
-          title="סחורה"
+          title="הזמנות וסחורה"
           Icon={Truck}
           action={
+            <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIntake(true)}
+              className="flex items-center gap-1.5 font-bold"
+              style={{ minHeight: '36px', padding: '0 14px', background: 'var(--brand-primary)', color: 'white', border: 'none', fontSize: '13px', cursor: 'pointer' }}
+            >
+              <PackageCheck className="w-4 h-4" />
+              קליטת סחורה
+            </button>
             <button
               onClick={() => setNewOrder(true)}
               className="flex items-center gap-1.5 font-bold"
@@ -692,6 +686,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               <Plus className="w-4 h-4" />
               הזמנה חדשה
             </button>
+            </div>
           }
         >
           {notes.length === 0 ? (
@@ -702,8 +697,8 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                 className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
                 style={{ gridTemplateColumns: '1fr 110px 120px', borderColor: '#E2E4E9', fontSize: '11px', padding: '10px 16px' }}
               >
-                <span className="text-right">תאריך · מספר</span>
-                <span className="text-center">מקור</span>
+                <span className="text-right">מצב · תעודה</span>
+                <span className="text-center">שלב</span>
                 <span className="text-left">סכום</span>
               </div>
               {notes.map((n) => (
@@ -712,17 +707,33 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                   className="grid items-center"
                   style={{ gridTemplateColumns: '1fr 110px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
                 >
-                  <p className="text-right text-gray-600" style={{ fontSize: '13px' }}>
-                    {n.noteNumber || n.id}
-                    <span className="text-gray-400"> · {n.date}</span>
-                  </p>
+                  {/* The pipeline, in the manager's supplier card too. It had the
+                      old source pill and nothing about the chain — so the one
+                      screen she opens per supplier was the one that could not say
+                      where that supplier's goods stood. */}
+                  <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
+                    <PipelineStrip
+                      stage={(n.stage as PipelineStage) ?? 'awaiting_invoice'}
+                      hasInvoice={!!n.linkedInvoiceId}
+                      compact
+                      showLabels={false}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <p className="text-right text-gray-600" style={{ fontSize: '13px', margin: 0 }}>
+                        {orderMeta.get(n.id)?.description || n.noteNumber || n.id}
+                        <span className="text-gray-400"> · {n.date}</span>
+                      </p>
+                      {customersByNote.get(n.id)?.length ? (
+                        <p style={{ fontSize: '11.5px', color: 'var(--brand-primary)', fontWeight: 700, margin: '2px 0 0' }}>
+                          {customersByNote.get(n.id)!.length === 1
+                            ? `עבור ${customersByNote.get(n.id)![0]}`
+                            : `${customersByNote.get(n.id)!.length} לקוחות מחכות`}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
                   <span className="text-center">
-                    <span
-                      className="rounded-lg font-bold"
-                      style={{ fontSize: '11px', padding: '4px 9px', ...(n.source === 'email' ? { background: '#DBEAFE', color: '#1E40AF' } : { background: '#F3F4F6', color: '#6B7280' }) }}
-                    >
-                      {n.source === 'email' ? 'הגיע במייל' : 'קליטה ידנית'}
-                    </span>
+                    <StatusBadge status={(n.stage as string) ?? 'awaiting_invoice'} />
                   </span>
                   <span className="text-left font-black text-gray-800" style={{ fontSize: fs('15px', '14px') }}>
                     {n.amount ? formatILS(n.amount) : '—'}
@@ -968,6 +979,15 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
         </div>
       )}
 
+
+      {intake && (
+        <GoodsIntake
+          suppliers={[]}
+          lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          onClose={() => setIntake(false)}
+          onCreate={async d => { await createDeliveryNote(d) }}
+        />
+      )}
 
       {newOrder && (
         <OrderForm

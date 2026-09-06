@@ -104,6 +104,16 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
     return m
   }, [orders])
 
+  /** Customer names waiting on each delivery row. */
+  const customersByNote = useMemo(() => {
+    const m = new Map<string, string[]>()
+    for (const o of orders) {
+      if (!o.deliveryNoteId || !o.customerName) continue
+      m.set(o.deliveryNoteId, [...(m.get(o.deliveryNoteId) ?? []), o.customerName])
+    }
+    return m
+  }, [orders])
+
   /** What the order behind a row says about itself — description and customer. */
   const orderMeta = useMemo(() => {
     const m = new Map<string, { description: string; customerName: string | null }>()
@@ -170,6 +180,7 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
         isWide={isWide}
         onBack={() => setOpenId(null)}
         customerOrders={orders.filter(o => o.deliveryNoteId === openNote.id && !!o.customerName)}
+            onSetCustomerStatus={setCustomerStatus}
         onLoadCandidates={candidates}
         onLink={async (id, invoiceId) => { await link(id, invoiceId) }}
         onUnlink={async id => { await unlink(id) }}
@@ -265,6 +276,7 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
               orderByNote={orderByNote}
               stageOf={stageOf}
               onOpen={setOpenId}
+              customers={customersByNote}
             />
           ) : (
           <div className="bg-white border overflow-hidden" style={{ borderColor: '#EEEEF2' }}>
@@ -302,6 +314,16 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
                             : n.intakeSource === 'email' ? 'הגיע במייל'
                             : n.intakeSource === 'photo' ? 'צילום' : 'קליטה ידנית'}
                         </div>
+                        {/* Who is waiting for this, on the ROW. Opening every
+                            delivery to find out whether a customer was promised
+                            something in it is not a search anyone performs. */}
+                        {customersByNote.get(n.id)?.length ? (
+                          <div style={{ fontSize: '11.5px', color: 'var(--brand-primary)', fontWeight: 700, marginTop: '2px' }}>
+                            {customersByNote.get(n.id)!.length === 1
+                              ? `עבור ${customersByNote.get(n.id)![0]}`
+                              : `${customersByNote.get(n.id)!.length} לקוחות מחכות`}
+                          </div>
+                        ) : null}
                       </td>
                       <td style={{ padding: '12px 16px', borderBottom: '1px solid #E2E4E9', fontSize: '13.5px', fontVariantNumeric: 'tabular-nums' }}>
                         {n.noteNumber || '—'}
@@ -390,11 +412,12 @@ export default function GoodsTracking({ userEmail }: { userEmail?: string }) {
 // two shapes. What changes is density, not information: the strip, the badge and
 // the supplier are in both, so a person moving between views is not re-learning
 // the screen.
-function GoodsCards({ notes, orderByNote, stageOf, onOpen }: {
+function GoodsCards({ notes, orderByNote, stageOf, onOpen, customers }: {
   notes: DeliveryNote[]
   orderByNote: Map<string, OrderLink>
   stageOf: (n: DeliveryNote) => PipelineStage
   onOpen: (id: string) => void
+  customers: Map<string, string[]>
 }) {
   if (notes.length === 0) {
     return (
@@ -428,6 +451,13 @@ function GoodsCards({ notes, orderByNote, stageOf, onOpen }: {
             compact
             showLabels={false}
           />
+          {customers.get(n.id)?.length ? (
+            <div style={{ fontSize: '11.5px', color: 'var(--brand-primary)', fontWeight: 700, marginTop: '9px' }}>
+              {customers.get(n.id)!.length === 1
+                ? `עבור ${customers.get(n.id)![0]}`
+                : `${customers.get(n.id)!.length} לקוחות מחכות`}
+            </div>
+          ) : null}
           <div style={{ marginTop: '11px' }}>
             <StatusBadge status={stageOf(n)} />
           </div>

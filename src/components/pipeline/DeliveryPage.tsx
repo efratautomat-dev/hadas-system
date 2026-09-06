@@ -10,7 +10,8 @@ import { supabase } from '../../lib/supabase'
 import type { OrderLink } from '../../lib/pipelineSteps'
 import type { DeliveryNote, Invoice, InvoiceCandidate, PipelineStage } from '../../data/mockData'
 import type { Order } from '../../hooks/useOrders'
-import { CUSTOMER_STATUS_LABEL } from '../../lib/customerStatus'
+import type { CustomerStatus } from '../../lib/customerStatus'
+import { CustomerStatusControl } from './CustomerOrdersBook'
 
 // ── One delivery, as a PAGE ──────────────────────────────────────────────────
 //
@@ -51,6 +52,7 @@ export default function DeliveryPage({
   note, stage, order, invoice, invoices, isWide,
   onBack, onLoadCandidates, onLink, onUnlink, onApprove,
   onChangeSupplier, onDismantle, onOpenInvoice, onArrived, customerOrders = [],
+  onSetCustomerStatus,
 }: {
   note: DeliveryNote
   stage: PipelineStage
@@ -78,6 +80,14 @@ export default function DeliveryPage({
    * written her down.
    */
   customerOrders?: Order[]
+  /**
+   * Move a waiting customer's line from HERE.
+   *
+   * She marks "נמסרה הודעה" the moment she puts the phone down, and that moment
+   * is while she is looking at the delivery it arrived in. Sending her to another
+   * screen to record it is how it stops being recorded.
+   */
+  onSetCustomerStatus?: (orderId: string, next: CustomerStatus) => Promise<void>
 }) {
   const [candidates, setCandidates] = useState<InvoiceCandidate[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -237,9 +247,9 @@ export default function DeliveryPage({
                         </p>
                         <p style={{ fontSize: '12.5px', color: '#6B6E73', margin: '2px 0 0' }}>{o.description || '—'}</p>
                       </div>
-                      <span style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--brand-primary)', whiteSpace: 'nowrap' }}>
-                        {CUSTOMER_STATUS_LABEL[o.customerStatus ?? 'customer_waiting']}
-                      </span>
+                      <div style={{ flex: 'none' }}>
+                        <CustomerStatusControl order={o} onSet={onSetCustomerStatus} />
+                      </div>
                     </div>
                   ))}
                 </section>

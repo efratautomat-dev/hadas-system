@@ -188,7 +188,7 @@ export default function CustomerOrdersBook({
 // `הגיעה לחנות` is offered like the rest — the system sets it when the goods land,
 // but nothing stops a person from correcting it. What the system knows is where
 // the goods are; what it does not know is what was said to her.
-function CustomerStatusControl({ order, onSet }: {
+export function CustomerStatusControl({ order, onSet }: {
   order: Order
   onSet?: (orderId: string, next: CustomerStatus) => Promise<void>
 }) {

@@ -130,6 +130,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             isWide={isDocWide}
             onBack={() => setOpenNoteId(null)}
             customerOrders={orders.filter(o => o.deliveryNoteId === openNote.id && !!o.customerName)}
+            onSetCustomerStatus={setCustomerStatus}
             onLoadCandidates={candidates}
             onLink={async (id, invoiceId) => { await link(id, invoiceId); await reloadNotes() }}
             onUnlink={async id => { await unlink(id); await reloadNotes() }}
