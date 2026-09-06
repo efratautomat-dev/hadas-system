@@ -422,6 +422,9 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       if (l.invoice_id !== invoice.id) continue
       const n = find('delivery_notes', String(l.delivery_note_id))
       if (!n) continue
+      // A row still waiting for GOODS is not moved by an invoice decision —
+      // approving does not make a delivery happen. Mirrors the server.
+      if (on && n.stage === 'awaiting_goods') continue
       n.stage = on ? 'in_ledger' : 'awaiting_approval'
       moved++
     }

@@ -831,12 +831,26 @@ async function ledgerApproveInvoice(
     .select("delivery_note_id").eq("invoice_id", id);
   const noteIds = ((links ?? []) as Array<{ delivery_note_id: string }>)
     .map(r => String(r.delivery_note_id));
+
+  // ⚠️ Rows still WAITING FOR GOODS are left where they are.
+  //
+  // This used to move every linked row to `in_ledger`, which said the chain was
+  // complete — of a row whose goods have not arrived. Approving an invoice does
+  // not make goods turn up, and "בכרטסת" on a delivery that never happened is the
+  // system asserting something nobody witnessed.
+  //
+  // The invoice is approved either way; only the rows that were actually waiting
+  // on this decision move.
+  let moved = 0;
   if (noteIds.length > 0) {
-    await supabase.from("delivery_notes")
+    const { data: advanced } = await supabase.from("delivery_notes")
       .update({ stage: "in_ledger", status: "archived" })
-      .in("id", noteIds);
+      .in("id", noteIds)
+      .neq("stage", "awaiting_goods")
+      .select("id");
+    moved = advanced?.length ?? 0;
   }
-  return json({ success: true, notesMoved: noteIds.length });
+  return json({ success: true, notesMoved: moved });
 }
 
 // The reverse (§6.14: "ביטול הצמדה אחרי אישור"). Reversible on purpose — an approval

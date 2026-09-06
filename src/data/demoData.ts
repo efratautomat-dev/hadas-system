@@ -89,12 +89,25 @@ const DEMO_AWAITING_APPROVAL = new Set(['inv_018'])
 // inv_001 is the OTHER invoice on טקסטיל הגליל, the supplier that already carries the
 // threshold row (inv_018) — so one ledger shows the orange mark, the violet mark and
 // both banners at once, which is the case worth being able to look at.
-// Invoices filed but not yet approved into the ledger. Spread across several
-// suppliers ON PURPOSE: with one, the banner and the row mark appear on exactly
-// one supplier card, and every other card looks like the feature is missing.
-// A demo dataset that under-represents a state teaches that the state does not
-// exist.
-const DEMO_AWAITING_LEDGER = new Set(['inv_001', 'inv_006', 'inv_012', 'inv_018'])
+// Invoices filed but not yet approved into the ledger.
+//
+// Spread across several suppliers ON PURPOSE: with one, the banner and the row
+// mark appear on exactly one supplier card and every other card looks like the
+// feature is missing. A dataset that under-represents a state teaches that the
+// state does not exist.
+//
+// ⚠️ DELIVERIES_AWAITING is not decoration — it is the half that kept getting
+// forgotten. A delivery sitting at `awaiting_approval` and an invoice stamped
+// `ledger_approved_at` are two descriptions of ONE fact, and here they were two
+// hand-kept lists: הדפסות רימון showed goods waiting for approval while its
+// ledger showed nothing pending, because dn_04's invoice was not in this set.
+// The API keeps the two in step in production; the seed has to do it on purpose.
+// Listed by delivery so adding a waiting delivery cannot silently skip its invoice.
+const DELIVERIES_AWAITING_APPROVAL = ['inv_025'] as const
+const DEMO_AWAITING_LEDGER = new Set<string>([
+  'inv_001', 'inv_006', 'inv_012', 'inv_018',
+  ...DELIVERIES_AWAITING_APPROVAL,
+])
 
 // A remark on ONE invoice. Same supplier as the notes/gate demos, so a single
 // supplier screen shows every feature at once — and so the collected feed has an
