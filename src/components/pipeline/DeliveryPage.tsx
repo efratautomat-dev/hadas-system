@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
 import { StatusBadge } from '../StatusBadge'
-import { PdfPreviewButton, PdfPreviewModal } from '../PdfPreviewModal'
+import { PdfPreviewButton, PdfPreviewModal, DocumentBody } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
 import type { OrderLink } from '../../lib/pipelineSteps'
 import type { DeliveryNote, Invoice, InvoiceCandidate, PipelineStage } from '../../data/mockData'
@@ -150,6 +150,55 @@ export default function DeliveryPage({
   const invoiceDoc = invoice?.driveFileLink || ''
   const shown      = pane === 'note' ? noteDoc : invoiceDoc
 
+  // ── The pane SHOWS the document ────────────────────────────────────────────
+  //
+  // It used to hold a line of grey text telling the reader to press "הגדל", which
+  // made half the screen an advertisement for a button. The invoice screen renders
+  // the document inline and has done since it was built; this pane exists to be
+  // the same surface for a delivery, so it resolves on mount rather than on click.
+  //
+  // Precedence copied from the invoice pane deliberately: a signed URL from the
+  // private bucket first (it works without Drive permissions), Drive only for
+  // legacy rows that predate Storage. `direct` marks a URL that is already
+  // embeddable so DocumentBody skips the Drive-preview transform.
+  //
+  // One hour, not two minutes: the pane stays mounted for as long as she is
+  // reading, and a short URL expires into a blank frame mid-comparison.
+  const [docSrc, setDocSrc]     = useState<{ url: string; direct: boolean } | null>(null)
+  const [docState, setDocState] = useState<'loading' | 'ready' | 'none'>('loading')
+
+  const paneStoragePath = pane === 'note'
+    ? (note.driveFileLink ? '' : (note.storageUrl ?? ''))
+    : (invoice?.storage_url ?? '')
+  const paneDriveLink = pane === 'note' ? (note.driveFileLink ?? '') : invoiceDoc
+
+  useEffect(() => {
+    let cancelled = false
+    const settle = (src: { url: string; direct: boolean } | null) => {
+      if (cancelled) return
+      setDocSrc(src)
+      setDocState(src ? 'ready' : 'none')
+    }
+    ;(async () => {
+      // Inside the async body, not the effect's: switching panes must clear the
+      // previous document (otherwise the note's scan sits under the חשבונית tab
+      // for a beat and reads as the wrong file), but a synchronous setState in an
+      // effect body is a cascading render.
+      setDocState('loading')
+      const path = paneStoragePath.trim()
+      if (path) {
+        if (/^https?:\/\//i.test(path)) return settle({ url: path, direct: true })
+        const { data, error } = await supabase.storage.from('documents').createSignedUrl(path, 3600)
+        if (!error && data?.signedUrl) return settle({ url: data.signedUrl, direct: true })
+        console.error('[delivery] pane createSignedUrl failed:', error)
+      }
+      const drive = paneDriveLink.trim()
+      if (drive) return settle({ url: drive, direct: false })
+      settle(null)
+    })()
+    return () => { cancelled = true }
+  }, [paneStoragePath, paneDriveLink])
+
   const siblings = useMemo(() => (invoice ? 1 : 0), [invoice])
 
   return (
@@ -214,12 +263,27 @@ export default function DeliveryPage({
               ><Eye size={13} />הגדל</button>
             )}
           </div>
-          <div className="grid place-items-center" style={{ flex: 1, color: '#B7B9C0', fontSize: '13px', padding: '16px', textAlign: 'center' }}>
-            {shown
-              ? <span>לחצי "הגדל" לצפייה במסמך</span>
-              : pane === 'invoice'
-                ? <span>אין חשבונית מוצמדת</span>
-                : <span>לא נשמר מסמך לתעודה הזו</span>}
+          <div style={{ flex: 1, overflow: 'auto', display: 'flex', minHeight: 0 }}>
+            {docState === 'loading' ? (
+              <div style={{ margin: 'auto', fontSize: '13px', color: '#9CA3AF' }}>טוען מסמך…</div>
+            ) : docState === 'none' ? (
+              <div style={{ margin: 'auto', textAlign: 'center', color: '#9CA3AF', padding: '20px' }}>
+                <FileText size={34} style={{ margin: '0 auto 10px', display: 'block', opacity: 0.5 }} />
+                <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
+                  {pane === 'invoice' ? 'אין חשבונית מוצמדת' : 'אין מסמך מצורף'}
+                </div>
+                <div style={{ fontSize: '12px' }}>
+                  {pane === 'invoice'
+                    ? 'לתעודה הזו עוד לא הוצמדה חשבונית'
+                    : 'לתעודה הזו לא נשמר קובץ מקור'}
+                </div>
+              </div>
+            ) : (
+              <DocumentBody
+                url={docSrc!.url}
+                previewSrc={docSrc!.direct ? docSrc!.url : undefined}
+              />
+            )}
           </div>
         </div>
 
