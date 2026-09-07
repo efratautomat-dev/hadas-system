@@ -334,6 +334,14 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
                         {/* Who is waiting for this, on the ROW. Opening every
                             delivery to find out whether a customer was promised
                             something in it is not a search anyone performs. */}
+                        {/* A duplicate says so ON THE ROW. It is the only place
+                            the two rows sit side by side, and the alert that
+                            raised it lives on another screen. */}
+                        {n.isDuplicate && (
+                          <div style={{ fontSize: '11.5px', color: '#B91C1C', fontWeight: 700, marginTop: '2px' }}>
+                            תעודה כפולה — יש לפרק את השגויה
+                          </div>
+                        )}
                         {customersByNote.get(n.id)?.length ? (
                           <div style={{ fontSize: '11.5px', color: 'var(--brand-primary)', fontWeight: 700, marginTop: '2px' }}>
                             {customersByNote.get(n.id)!.length === 1

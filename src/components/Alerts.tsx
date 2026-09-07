@@ -58,6 +58,12 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   invoice_ingest_failed:       b('פענוח נכשל — טיפול ידני', FileWarning,   'urgent'),
   invoice_duplicate:           b('כפילות',                  Copy,          'urgent'),
   duplicate_invoice:           b('כפילות',                  Copy,          'urgent'), // legacy alias
+  // The delivery-note twin, and urgent for a reason of its own: a duplicate note
+  // is not a bad figure, it is a second row that opens its OWN pipeline and waits
+  // for an invoice that will never come — reading for weeks as a real delivery
+  // whose invoice is merely late. Dedup used to key on the Gmail message id, so
+  // the same note arriving in two emails looked new to every check we had.
+  delivery_note_duplicate:     b('תעודת משלוח כפולה',      Copy,          'urgent'),
   return_amount_mismatch:      b('פער בהחזר',               AlertCircle,   'urgent'),
   // Raised for real by the statement reconciliation on ingest — no longer a
   // mock-only type, so it gets a bucket and appears in the type filter.

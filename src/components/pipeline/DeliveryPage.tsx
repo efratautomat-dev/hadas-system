@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
 import { ReceiptSettle } from './ReceiptSettle'
+import { parseLines, parsedTotal, type ParsedLine } from '../../lib/lineItemsFormat'
 import { StatusBadge } from '../StatusBadge'
 import { PdfPreviewButton, PdfPreviewModal, DocumentBody } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
@@ -47,6 +48,59 @@ const BTN_PRIMARY: React.CSSProperties = {
 }
 const BTN_QUIET: React.CSSProperties = {
   ...BTN_BASE, border: 'none', background: 'transparent', color: '#9CA3AF', fontWeight: 500,
+}
+
+// ── The note's table, as a table ─────────────────────────────────────────────
+//
+// "יש בכל תעודה טבלה מסודרת של פריט מחיר עלות וכמות למה זה לא עולה?" — it did not
+// come up because the extractor was told to flatten it. Now that the three columns
+// survive, showing them as a paragraph would waste them a second time.
+//
+// The total is computed, not read: it is the only figure here nobody printed, and
+// it appears ONLY when every line carries a price. A partial sum looks like the
+// delivery's value and is not — and nobody re-checks a number already sitting there.
+function LineItemsTable({ lines }: { lines: ParsedLine[] }) {
+  const total = parsedTotal(lines)
+  const anyFigures = lines.some(l => l.quantity || l.price)
+  return (
+    <div style={{ marginTop: '11px', overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+        <thead>
+          <tr style={{ color: '#9CA3AF', fontSize: '11px', fontWeight: 700 }}>
+            <th style={{ textAlign: 'start', padding: '0 0 5px' }}>פריט</th>
+            {anyFigures && <th style={{ textAlign: 'start', padding: '0 0 5px', width: '58px' }}>כמות</th>}
+            {anyFigures && <th style={{ textAlign: 'start', padding: '0 0 5px', width: '74px' }}>מחיר ליחידה</th>}
+            {anyFigures && <th style={{ textAlign: 'start', padding: '0 0 5px', width: '74px' }}>סה"כ</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l, i) => {
+            const row = l.price ? (Number(l.price) || 0) * (Number(l.quantity) || 1) : null
+            return (
+              <tr key={i} style={{ borderTop: '1px solid #EEEEF2' }}>
+                <td style={{ padding: '5px 0', color: '#4B5563' }}>{l.item || '—'}</td>
+                {anyFigures && <td style={{ padding: '5px 0', color: '#6B6E73', fontVariantNumeric: 'tabular-nums' }}>{l.quantity || '—'}</td>}
+                {anyFigures && <td style={{ padding: '5px 0', color: '#6B6E73', fontVariantNumeric: 'tabular-nums' }}>{l.price ? fmtILS(Number(l.price)) : '—'}</td>}
+                {anyFigures && <td style={{ padding: '5px 0', color: '#4B5563', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{row == null ? '—' : fmtILS(row)}</td>}
+              </tr>
+            )
+          })}
+        </tbody>
+        {total != null && (
+          <tfoot>
+            <tr style={{ borderTop: '1.5px solid #E2E4E9' }}>
+              <td colSpan={3} style={{ padding: '6px 0', color: '#9CA3AF', fontSize: '11.5px', fontWeight: 700 }}>
+                סה"כ לפי הפריטים
+              </td>
+              <td style={{ padding: '6px 0', fontWeight: 800, color: 'var(--brand-primary)', fontVariantNumeric: 'tabular-nums' }}>
+                {fmtILS(total)}
+              </td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
+    </div>
+  )
 }
 
 export default function DeliveryPage({
@@ -154,6 +208,12 @@ export default function DeliveryPage({
     const { data } = await supabase.storage.from('documents').createSignedUrl(path, 3600)
     if (data?.signedUrl) setDocView({ url: path, previewSrc: data.signedUrl })
   }
+
+  // The note's own table. `parseLines` is forgiving by design: a row written
+  // before the extractor asked for the columns comes back as an item with no
+  // figures, which is exactly what it is — the panel degrades to the list it used
+  // to be instead of going blank.
+  const parsedLines = useMemo(() => parseLines(note.lineItems), [note.lineItems])
 
   const noteDoc    = note.driveFileLink || note.storageUrl || ''
   const invoiceDoc = invoice?.driveFileLink || ''
@@ -305,9 +365,7 @@ export default function DeliveryPage({
                 <Row k="תעודה" v={note.noteNumber || '—'} />
                 <Row k="תאריך" v={note.date || '—'} />
                 <Row k="סכום" v={fmtILS(note.amount || null)} />
-                {note.lineItems && (
-                  <p style={{ fontSize: '12.5px', color: '#6B6E73', marginTop: '9px', whiteSpace: 'pre-wrap' }}>{note.lineItems}</p>
-                )}
+                {parsedLines.length > 0 && <LineItemsTable lines={parsedLines} />}
               </section>
 
               <section className="bg-white border" style={{ borderColor: '#E2E4E9', padding: '14px 16px' }}>

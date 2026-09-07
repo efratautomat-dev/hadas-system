@@ -143,6 +143,7 @@ const ALERT_PAGE: Record<string, string> = {
   delivery_note_ingest_failed:     'deliveries',
   delivery_note_no_file:           'deliveries',
   delivery_note_amount_unreadable: 'deliveries',
+  delivery_note_duplicate:         'deliveries',
   statement_ingest_failed:         'reconciliation',
   statement_no_file:               'reconciliation',
   return_ingest_failed:            'returns',

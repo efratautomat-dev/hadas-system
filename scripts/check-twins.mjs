@@ -62,6 +62,11 @@ const PAIRS = [
     what: 'the supplier ledger engine (balance = opening + Σ invoices − Σ payments)',
   },
   {
+    a: 'src/lib/lineItemsFormat.ts',
+    b: 'supabase/functions/_shared/lineItemsFormat.ts',
+    what: 'the line-item text format (item — quantity · ₪unit price)',
+  },
+  {
     a: 'src/lib/vat.ts',
     b: 'supabase/functions/_shared/vat.ts',
     what: 'Israeli VAT bands + amount completion',
