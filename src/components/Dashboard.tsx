@@ -12,6 +12,7 @@ import { brand } from '../brand.config'
 import { tierAllows } from '../lib/tiers'
 import { STATUS } from '../theme/status'
 import { deriveInvoiceStatus, STATUS_WAITING } from '../lib/invoiceStatus'
+import { newestFirst } from '../lib/recency'
 
 const ALERT_STATUS: Record<string, { bg: string; color: string; label: string }> = {
   new:      { bg: STATUS.blue.bg, color: STATUS.blue.fg, label: 'חדש'  },   // fixed: new = blue
@@ -427,12 +428,7 @@ export default function Dashboard({
           {invLoading ? <Spinner /> : (
             <div className="divide-y">
               {[...invoices]
-                .sort((a, b) => {
-                  // Newest-received first by system received date (received_at).
-                  const da = a.emailReceivedAt || ''
-                  const db = b.emailReceivedAt || ''
-                  return da === db ? 0 : da < db ? 1 : -1
-                })
+                .sort(newestFirst)
                 .slice(0, 10)
                 .map((inv) => {
                 const st = statusStyle[inv.status] ?? { bg: '#F3F4F6', color: '#6B7280' }
@@ -570,15 +566,9 @@ export default function Dashboard({
             {dnLoading ? <Spinner /> : (
               <div className="divide-y">
                 {[...deliveryNotes]
-                  // Same precedence as the goods screen and the invoice list:
-                  // when the row entered, then the document's own date. A card
-                  // headed "the latest" that sorts differently from the screen it
-                  // links to is showing a different five.
-                  .sort((a, b) => {
-                    const da = a.createdAt || a.receivedAt || a.isoDate || ''
-                    const db = b.createdAt || b.receivedAt || b.isoDate || ''
-                    return da === db ? 0 : da < db ? 1 : -1
-                  })
+                  // A card headed "the latest" must sort the same way as the
+                  // screen it links to, or it is showing a different five.
+                  .sort(newestFirst)
                   .slice(0, 5)
                   .map((dn) => {
                   const st = statusStyle[dn.status === 'pending' ? 'ממתין' : 'הושלם'] ?? { bg: '#F3F4F6', color: '#6B7280' }

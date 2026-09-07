@@ -18,6 +18,7 @@ import { PipelineStrip } from './PipelineStrip'
 import { useIsWide } from '../../hooks/useIsWide'
 import { useDeliveryLinks } from '../../hooks/useDeliveryLinks'
 import { FilterTabs } from '../ui/FilterTabs'
+import { newestFirst } from '../../lib/recency'
 import type { OrderLink } from '../../lib/pipelineSteps'
 import type { DeliveryNote, PipelineStage } from '../../data/mockData'
 
@@ -157,16 +158,9 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
         filter === 'all' ? true
         : filter === 'customer' ? !!orderMeta.get(n.id)?.customerName
         : stageOf(n) === filter)
-      // Newest FIRST, and "newest" means when the row entered the system — the
-      // same precedence the invoice list has always used (createdAt →
-      // received → the document's own date). Sorting by the document date alone
-      // put an order opened this morning for an old invoice into the middle of
-      // the list, which reads as the row not having been created at all.
-      .sort((a, b) => {
-        const da = a.createdAt || a.receivedAt || a.isoDate || ''
-        const db = b.createdAt || b.receivedAt || b.isoDate || ''
-        return da === db ? 0 : da < db ? 1 : -1
-      }),
+      // Newest first, by WHEN THE ROW ENTERED — see src/lib/recency.ts for why
+      // that is not the same as the date on the document.
+      .sort(newestFirst),
     [notes, filter, orderMeta],
   )
 
