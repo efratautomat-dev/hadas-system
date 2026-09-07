@@ -29,6 +29,8 @@ export function useDeliveryNotes() {
           storageUrl:      r.storage_url  ?? undefined,
           pairedNoteId:    r.paired_note_id ?? null,
           receiptSettledAt: r.receipt_settled_at ?? null,
+          isDuplicate:     r.is_duplicate ?? false,
+          duplicateOf:     r.duplicate_of ?? null,
           amount:          Number(r.amount ?? 0),
           status:          r.status       ?? 'pending',
           driveFileLink:   r.drive_file_link ?? '',

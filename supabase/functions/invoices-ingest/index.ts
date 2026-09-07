@@ -14,6 +14,9 @@ import { vatRateFor, completeAmounts, round2 } from "../_shared/vat.ts";
 // engine the screen uses, or the server and the screen disagree — which is the
 // exact failure spec/06-RULES.md §9 exists to prevent.
 import { buildLedger, statementDiff, statementVerdict, type ResetLike } from "../_shared/ledgerEngine.ts";
+// The line-item text format, byte-locked twin of src/lib/lineItemsFormat.ts.
+// This function WRITES the format; the screens parse it back into a table.
+import { linesToText, type ParsedLine } from "../_shared/lineItemsFormat.ts";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -2591,16 +2594,45 @@ interface ExtractedDeliveryNote {
   amount:            number;
   amount_before_vat: number;
   vat_amount:        number;
-  line_items:        string[];
+  /**
+   * The note's own table, one entry per printed row.
+   *
+   * Structured rather than `string[]`, because the three columns are the whole
+   * content of a delivery note and joining them into a sentence here is what
+   * threw them away. Serialised into `delivery_notes.line_items` through
+   * `linesToText`, which the screens parse back into a table.
+   */
+  line_items:        ParsedLine[];
 }
 
 async function extractDeliveryNote(
   doc: { mimeType: string; bytes: Uint8Array },
 ): Promise<ExtractedDeliveryNote> {
+  // ── The table IS the delivery note ─────────────────────────────────────────
+  //
+  // This prompt used to ask for `"line_items":[]` with no word about what a line
+  // item is, and the invoice prompt beside it still says "רשימת פריטים כטקסט
+  // פשוט" — an instruction to FLATTEN. So the model returned bare product names
+  // and every quantity and price on the page was thrown away, on the one document
+  // type whose entire content is a priced table.
+  //
+  // Now it is asked for the three columns by name. `unit_price` is spelled out as
+  // per-unit in the rules because that single word decides whether a total comes
+  // out right or multiplied by the quantity — and a wrong total that looks
+  // plausible is the kind nobody catches (the same trap `Line.price` documents on
+  // the UI side).
+  //
+  // Empty string, never a guess: a quantity the note does not print is not 1.
   const prompt =
     "אתה מנתח תעודות משלוח. חלץ את הפרטים מהמסמך וחזור ב-JSON בלבד, ללא הסברים.\n" +
-    '{"vendor_name":"","hp":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}\n' +
-    "כללים: תאריך YYYY-MM-DD, סכומים ללא סימני מטבע, hp = מספר ח.פ/עוסק של הספק (ספרות בלבד, ריק אם אינו מופיע).";
+    '{"vendor_name":"","hp":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,' +
+    '"line_items":[{"item":"","quantity":"","unit_price":""}]}\n' +
+    "כללים: תאריך YYYY-MM-DD, סכומים ללא סימני מטבע, hp = מספר ח.פ/עוסק של הספק (ספרות בלבד, ריק אם אינו מופיע).\n" +
+    "line_items: לכל שורה בטבלת הפריטים שבמסמך — שורה אחת במערך.\n" +
+    "- item = שם הפריט כפי שהוא כתוב\n" +
+    "- quantity = הכמות בלבד, מספר. אם אין כמות בשורה — מחרוזת ריקה, לא 1\n" +
+    "- unit_price = מחיר ליחידה בלבד. אם מופיע רק סכום כולל לשורה, חלק אותו בכמות. אם אין מחיר — מחרוזת ריקה\n" +
+    "אל תמציא ערכים. שורה שאינה פריט (כותרת, סיכום, הערה) לא נכללת.";
   // EXTRACTION_MAX_TOKENS, not a tight cap: `line_items` is an UNBOUNDED array and a
   // delivery note is precisely the document that lists every item. At 1024 the reply
   // was cut mid-array, the JSON never closed, parseJsonRobust returned null, the retry
@@ -2620,7 +2652,8 @@ async function extractDeliveryNote(
       [{ role: "user", content: [
         buildDocumentBlock(doc.mimeType, doc.bytes),
         { type: "text", text: "ענה ב-JSON בלבד ללא markdown וללא הסבר:\n" +
-          '{"vendor_name":"","hp":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,"line_items":[]}' },
+          '{"vendor_name":"","hp":"","note_number":"","date":"","amount":0,"amount_before_vat":0,"vat_amount":0,' +
+          '"line_items":[{"item":"","quantity":"","unit_price":""}]}' },
       ] }],
       EXTRACTION_MAX_TOKENS,
     );
@@ -2652,8 +2685,32 @@ async function extractDeliveryNote(
     amount:            filled.gross,
     amount_before_vat: filled.net,
     vat_amount:        filled.vat,
-    line_items:        Array.isArray(p.line_items) ? p.line_items.map(String) : [],
+    // Objects now; plain strings still accepted, because a model that ignores the
+    // schema must not cost us the document. A bare string becomes an item with no
+    // figures — exactly what every row written before today already looks like.
+    line_items:        readLineItems(p.line_items),
   };
+}
+
+/** Whatever the extractor returned, as lines. Never throws, never drops one. */
+function readLineItems(raw: unknown): ParsedLine[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry): ParsedLine => {
+      if (entry && typeof entry === "object") {
+        const o = entry as Record<string, unknown>;
+        return {
+          item:     String(o.item ?? o.name ?? o.description ?? "").trim(),
+          // A quantity the note did not print is NOT 1. `String(0)` would be a
+          // figure nobody wrote, so falsy-but-real 0 is kept and null/undefined
+          // becomes empty.
+          quantity: o.quantity == null ? "" : String(o.quantity).trim(),
+          price:    o.unit_price == null ? "" : String(o.unit_price).trim(),
+        };
+      }
+      return { item: String(entry ?? "").trim(), quantity: "", price: "" };
+    })
+    .filter(l => l.item || l.quantity || l.price);
 }
 
 interface ExtractedReturn {
@@ -3251,6 +3308,50 @@ async function handleNonInvoice(
       return true; // already saved
     }
 
+    // ── The SAME note, from a DIFFERENT email ────────────────────────────────
+    //
+    // Everything above this point keys on `gmail_message_id`, so it only ever
+    // caught one message being processed twice. A supplier who resends the note,
+    // a note that arrives once directly and once forwarded, the legacy N8N flow
+    // running alongside this one during cutover — each produces a second message,
+    // a new id, and a second row that looked new to every check we had.
+    //
+    // Two rows for one delivery is worse here than elsewhere, because each one
+    // opens its OWN pipeline: one gets the invoice and closes, the other waits
+    // forever for a document that is never coming and is indistinguishable from a
+    // real delivery whose invoice is genuinely late.
+    //
+    // Invoices have had this check since the beginning — same shape, same alert,
+    // same keep-and-mark. This is that rule reaching the table it missed.
+    //
+    // KEEP AND MARK, never skip. Which of the two rows is the real delivery is a
+    // judgement about physical goods, and two deliveries from one supplier in a
+    // week are ordinary. Dropping the second silently would lose a document,
+    // which is the one outcome the owner has ruled out. She sees both and the
+    // pipeline's "פירוק" removes whichever is wrong.
+    let dnDuplicateOf: string | null = null;
+    if (supplierId && extracted.note_number) {
+      const { data: dupDN } = await supabase
+        .from("delivery_notes").select("id")
+        .eq("supplier_id", supplierId)
+        .eq("note_number", extracted.note_number)
+        .limit(1);
+      if (dupDN && dupDN.length > 0) {
+        dnDuplicateOf = String(dupDN[0].id);
+        await log("warn", "duplicate delivery-note number for supplier",
+          { existingId: dnDuplicateOf, noteNumber: extracted.note_number }, msgId);
+        await insertAlertOnce(supabase, log, msgId, {
+          type:    "delivery_note_duplicate",
+          title:   "תעודת משלוח כפולה",
+          message: `קיימת כבר תעודה מספר ${extracted.note_number} לספק זה. שתי השורות מוצגות — יש להשאיר את הנכונה ולפרק את השנייה.`,
+          payload: {
+            gmailMessageId: msgId, subject: ctx.subject, messageLink: ctx.messageLink,
+            supplierId, noteNumber: extracted.note_number, existingDeliveryNoteId: dnDuplicateOf,
+          },
+        });
+      }
+    }
+
     const dateForPath = new Date(extracted.date || ctx.emailTs);
 
     let storagePath = "";
@@ -3287,7 +3388,9 @@ async function handleNonInvoice(
       note_number:       extracted.note_number,
       date:              extracted.date || null,
       ...money.values,
-      line_items:        extracted.line_items.join("\n"),
+      line_items:        linesToText(extracted.line_items),
+      is_duplicate:      dnDuplicateOf !== null,
+      duplicate_of:      dnDuplicateOf,
       status:            "pending_match",
       invoice_id:        null,
       source_email:      ctx.from,

@@ -315,6 +315,13 @@ export interface DeliveryNote {
    * one. The delivery stops waiting and its payments stop counting.
    */
   receiptSettledAt?: string | null
+  /**
+   * A note with this number already existed for this supplier, from a different
+   * email. Marked, never dropped — which of the two is the real delivery is a
+   * judgement about goods, and losing a document is the one outcome ruled out.
+   */
+  isDuplicate?: boolean
+  duplicateOf?: string | null
   // 'email' = arrived by email (has gmail_message_id); 'manual' = goods receipt
   // entered by hand. Derived in useDeliveryNotes; splits the two views.
   source?: 'email' | 'manual'
