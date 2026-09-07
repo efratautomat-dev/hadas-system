@@ -546,11 +546,16 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
             className="grid border-b font-semibold text-gray-400 uppercase tracking-wider"
             style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', borderColor: '#E2E4E9', fontSize: '11px', minWidth: '480px', padding: '10px 16px' }}
           >
-            <span className="text-right">יתרה</span>
-            <span className="text-right">תיאור</span>
-            <span className="text-center">זכות</span>
-            <span className="text-center">חובה</span>
+            {/* Reading order, right to left: when it happened → what it was →
+                what moved → where the balance stood after it. The columns used to
+                run the other way, which put the answer before the question and
+                disagreed with the ledger SCREEN and the printed statement — three
+                renderings of one table, two of which agreed. */}
             <span className="text-right">תאריך</span>
+            <span className="text-right">תיאור</span>
+            <span className="text-center">חובה</span>
+            <span className="text-center">זכות</span>
+            <span className="text-right">יתרה</span>
           </div>
           {ledgerDisplay.map((entry) => (
             <div
@@ -558,9 +563,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               className="grid items-center"
               style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', minHeight: '56px', padding: '12px 16px', borderBottom: '1px solid #E2E4E9' }}
             >
-              <span className="font-bold text-gray-800 text-right" style={{ fontSize: fs('15px', '13px') }}>
-                {formatILS(entry.balance)}
-              </span>
+              <span className="text-right text-gray-400" style={{ fontSize: '12px' }}>{fmtDate(entry.date)}</span>
               <span className="text-gray-600 text-right" style={{ fontSize: fs('14px', '13px') }}>
                 {entry.description}
                 {entry.pendingApproval && (
@@ -582,15 +585,17 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                   >כפילות/שגיאה — לא נספרת</span>
                 )}
               </span>
-              <span className="text-center font-medium" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>
-                {entry.credit > 0 ? formatILS(entry.credit) : '—'}
-              </span>
               <span className="text-center font-medium" style={{ color: '#A16207', fontSize: fs('14px', '13px') }}>
                 {entry.excluded && entry.movement > 0
                   ? <s style={{ color: '#B7B9C0' }}>{formatILS(entry.movement)}</s>
                   : entry.debit > 0 ? formatILS(entry.debit) : '—'}
               </span>
-              <span className="text-right text-gray-400" style={{ fontSize: '12px' }}>{fmtDate(entry.date)}</span>
+              <span className="text-center font-medium" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>
+                {entry.credit > 0 ? formatILS(entry.credit) : '—'}
+              </span>
+              <span className="font-bold text-gray-800 text-right" style={{ fontSize: fs('15px', '13px') }}>
+                {formatILS(entry.balance)}
+              </span>
             </div>
           ))}
           {/* Summary / total row — final running balance matches the headline. */}
@@ -598,17 +603,17 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
             className="grid items-center"
             style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', padding: '12px 16px', borderTop: '2px solid var(--brand-primary)', background: 'var(--brand-active-bg)' }}
           >
-            <span className="font-black text-right" style={{ color: 'var(--brand-primary)', fontSize: fs('16px', '14px') }}>
-              {formatILS(currentBalance)}
-            </span>
+            <span />
             <span className="font-bold text-right text-gray-600" style={{ fontSize: fs('13px', '12px') }}>סה"כ · יתרה עדכנית</span>
-            <span className="text-center font-semibold" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>
-              {totalCredit > 0 ? formatILS(totalCredit) : '—'}
-            </span>
             <span className="text-center font-semibold" style={{ color: '#A16207', fontSize: fs('14px', '13px') }}>
               {totalDebit > 0 ? formatILS(totalDebit) : '—'}
             </span>
-            <span />
+            <span className="text-center font-semibold" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>
+              {totalCredit > 0 ? formatILS(totalCredit) : '—'}
+            </span>
+            <span className="font-black text-right" style={{ color: 'var(--brand-primary)', fontSize: fs('16px', '14px') }}>
+              {formatILS(currentBalance)}
+            </span>
           </div>
           </div>
         </div>
