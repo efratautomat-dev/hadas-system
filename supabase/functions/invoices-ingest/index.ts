@@ -3470,15 +3470,8 @@ async function handleNonInvoice(
         dnDuplicateOf = String(dupDN[0].id);
         await log("warn", "duplicate delivery-note number for supplier",
           { existingId: dnDuplicateOf, noteNumber: extracted.note_number }, msgId);
-        await insertAlertOnce(supabase, log, msgId, {
-          type:    "delivery_note_duplicate",
-          title:   "תעודת משלוח כפולה",
-          message: `קיימת כבר תעודה מספר ${extracted.note_number} לספק זה. שתי השורות מוצגות — יש להשאיר את הנכונה ולפרק את השנייה.`,
-          payload: {
-            gmailMessageId: msgId, subject: ctx.subject, messageLink: ctx.messageLink,
-            supplierId, noteNumber: extracted.note_number, existingDeliveryNoteId: dnDuplicateOf,
-          },
-        });
+        // The ALERT is raised after the insert, below — it has to name the row
+        // that just arrived, because that is the one she decides about.
       }
     }
 
@@ -3512,7 +3505,10 @@ async function handleNonInvoice(
       vat_amount:        extracted.vat_amount,
     });
 
-    const { error } = await supabase.from("delivery_notes").insert({
+    // `.select("id")` is not decoration: an alert about a delivery has to be able
+    // to OPEN that delivery, and until now the id was never captured, so every
+    // delivery-note alert landed in the feed with nothing to click through to.
+    const { data: insertedDN, error } = await supabase.from("delivery_notes").insert({
       supplier_id:       supplierId,
       supplier_name:     extracted.vendor_name,
       note_number:       extracted.note_number,
@@ -3530,11 +3526,27 @@ async function handleNonInvoice(
       gmail_message_id:  msgId,
       email_subject:     ctx.subject,
       message_link:      ctx.messageLink,
-    });
+    }).select("id").single();
     if (error) {
       await log("error", `delivery_note insert failed: ${error.message}`,
         { code: error.code, filename: ctx.doc.filename }, msgId);
       return false; // DB write failed — leave email for retry
+    }
+    // The duplicate alert, now that the new row has an id. It points at the NEW
+    // note rather than at the one it repeats: the older row is already linked to
+    // whatever it was linked to, and the arrival is what needs a decision.
+    if (dnDuplicateOf !== null) {
+      await insertAlertOnce(supabase, log, msgId, {
+        type:    "delivery_note_duplicate",
+        title:   "תעודת משלוח כפולה",
+        message: `קיימת כבר תעודה מספר ${extracted.note_number} לספק זה. שתי השורות מוצגות — יש להשאיר את הנכונה ולפרק את השנייה.`,
+        payload: {
+          gmailMessageId: msgId, subject: ctx.subject, messageLink: ctx.messageLink,
+          supplierId, noteNumber: extracted.note_number,
+          deliveryNoteId:         insertedDN?.id ? String(insertedDN.id) : undefined,
+          existingDeliveryNoteId: dnDuplicateOf,
+        },
+      }, ["noteNumber"]);
     }
     if (money.dropped.length > 0) {
       await log("warn", "delivery_note amount was not storable — filed without it",
@@ -3547,6 +3559,7 @@ async function handleNonInvoice(
         payload: {
           gmailMessageId: msgId,
           supplierId,
+          deliveryNoteId: insertedDN?.id ? String(insertedDN.id) : undefined,
           noteNumber: extracted.note_number,
           fields:     money.dropped,
           filename:   ctx.doc.filename,

@@ -1411,12 +1411,19 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
           className="bg-white rounded-2xl shadow-sm border overflow-hidden"
           style={{ borderColor: '#E2E4E9' }}
         >
+          {/* One header style across the system: a bold title on white with a
+              single hairline under it. The grey band and the emoji made this one
+              card louder than the screens it sits beside, for no information. */}
           <div
-            className="px-5 py-3 border-b font-bold text-gray-700 flex items-center justify-start gap-2"
-            style={{ borderColor: '#F5EEEE', background: '#F8F9FA', fontSize: isTablet ? '16px' : '14px' }}
+            className="px-5 py-4 border-b flex items-baseline gap-3"
+            style={{ borderColor: '#E2E4E9' }}
           >
-            תשלומים עתידיים — לפי תאריך ערך
-            <span className="text-xl">🗓️</span>
+            <span className="font-bold text-gray-800" style={{ fontSize: isTablet ? '16px' : '15px' }}>
+              תשלומים עתידיים
+            </span>
+            <span style={{ fontSize: '12.5px', color: '#9CA3AF' }}>
+              לפי תאריך ערך · הקרוב ביותר למעלה
+            </span>
           </div>
 
           <div className="p-5 space-y-6">
@@ -1436,7 +1443,6 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
                       style={{ borderColor: '#FEE2E2', color: '#DC2626', fontSize: '12px' }}
                     >
                       דחוף — תוך 7 ימים ({urgentList.length})
-                      <span>🔴</span>
                     </div>
                     <div className="space-y-2.5">
                       {urgentList.map((p) => (
