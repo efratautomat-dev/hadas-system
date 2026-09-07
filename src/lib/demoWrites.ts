@@ -133,6 +133,76 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return { candidates: list } as unknown as Row
   }
 
+  // ── POST /suppliers/:id/ledger-reset · DELETE /ledger-resets/:id ─────────
+  //
+  // Applied for the same reason the pipeline gestures are: pressing "אפס כרטסת"
+  // and watching the balance fall to 0 IS the feature. A demo where that button
+  // closes its panel and changes nothing shows the opposite of what it should —
+  // and this is the screen the owner puts in front of clients.
+  //
+  // The undo is applied too, and it is the more persuasive half: the point of the
+  // whole design is that the movements are still there and the line can be lifted.
+  const resets = demoTables.ledger_resets
+  const resetPost = path.match(/^\/suppliers\/([^/]+)\/ledger-reset$/)
+  if (method === 'POST' && resetPost && resets) {
+    const reason = String(b.reason ?? '').trim()
+    // The server refuses a reset with no reason (400). The demo refuses it the
+    // same way, so nobody demonstrates a behaviour production does not have.
+    if (!reason) return null
+    const row: Row = {
+      id: `reset_${Date.now()}`,
+      supplier_id: resetPost[1],
+      reset_on: nowIso().slice(0, 10),
+      reason,
+      author_email: DEMO_AUTHOR,
+      created_at: nowIso(),
+    }
+    resets.push(row)
+    return row
+  }
+  const resetDel = path.match(/^\/ledger-resets\/([^/]+)$/)
+  if (method === 'DELETE' && resetDel && resets) {
+    const i = resets.findIndex(r => String(r.id) === resetDel[1])
+    if (i >= 0) resets.splice(i, 1)
+    return { success: true }
+  }
+
+  // ── POST · DELETE /delivery-notes/:id/receipt ────────────────────────────
+  //
+  // Closing a delivery with a receipt instead of an invoice. Both halves land in
+  // memory: the payments stop counting and the delivery leaves awaiting_invoice,
+  // which is exactly the movement the demo is meant to show.
+  const receipt = path.match(/^\/delivery-notes\/([^/]+)\/receipt$/)
+  if (receipt) {
+    const payments = demoTables.payments
+    if (!payments) return null
+    const noteId = receipt[1]
+    const note = find('delivery_notes', noteId)
+    if (method === 'POST') {
+      const ids = (Array.isArray(b.paymentIds) ? b.paymentIds : []).map(String)
+      if (ids.length === 0) return null
+      const stamp = nowIso()
+      for (const p of payments) {
+        if (ids.includes(String(p.id))) {
+          p.receipt_settled_at = stamp
+          p.receipt_delivery_note_id = noteId
+        }
+      }
+      if (note) { note.receipt_settled_at = stamp; note.stage = 'in_ledger' }
+      return { success: true, paymentsSettled: ids.length }
+    }
+    if (method === 'DELETE') {
+      for (const p of payments) {
+        if (String(p.receipt_delivery_note_id ?? '') === noteId) {
+          p.receipt_settled_at = null
+          p.receipt_delivery_note_id = null
+        }
+      }
+      if (note) { note.receipt_settled_at = null; note.stage = 'awaiting_invoice' }
+      return { success: true }
+    }
+  }
+
   // ── POST /orders ─────────────────────────────────────────────────────────
   if (method === 'POST' && path === '/orders') {
     const row: Row = {
