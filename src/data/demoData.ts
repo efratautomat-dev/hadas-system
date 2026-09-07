@@ -431,6 +431,12 @@ export const demoTables: Record<string, Row[]> = {
   suppliers,
   invoices,
   payments,
+  // Empty on purpose, and REGISTERED on purpose. A ledger reset is a gesture the
+  // walkthrough performs rather than a state it starts in — the demo supplier's
+  // ledger should open with its real movements, not with a line already drawn
+  // under them. Registering the table is what lets the gesture apply: an
+  // unregistered name returns [] from demoClient and the write has nowhere to go.
+  ledger_resets: [] as Row[],
   returns,
   vendor_statements,
   alerts,
