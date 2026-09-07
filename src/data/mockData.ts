@@ -310,6 +310,11 @@ export interface DeliveryNote {
    * Needs a signed URL before it can be displayed.
    */
   storageUrl?: string
+  /**
+   * Closed by a receipt instead of an invoice, for the suppliers who never issue
+   * one. The delivery stops waiting and its payments stop counting.
+   */
+  receiptSettledAt?: string | null
   // 'email' = arrived by email (has gmail_message_id); 'manual' = goods receipt
   // entered by hand. Derived in useDeliveryNotes; splits the two views.
   source?: 'email' | 'manual'

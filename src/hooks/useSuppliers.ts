@@ -2,11 +2,34 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { mockSuppliers } from '../data/mockData'
-import { computeSupplierBalance } from '../lib/supplierBalance'
-import { isExcludedFromBalance } from '../lib/supplierLedger'
+import { buildLedger } from '../lib/supplierLedger'
+import type { ResetLike } from '../lib/ledgerEngine'
 import { subscribe } from '../lib/dataBus'
 
 export type SupplierRow = typeof mockSuppliers[number]
+
+// The shapes this hook hands the ledger engine. Deliberately the raw VIEW column
+// names — the engine accepts both spellings precisely because this hook reads
+// `invoices_v` / `payments` directly, with no camelCase mapping in between.
+type LedgerInvoiceRow = {
+  id: string
+  supplier_id?: string | null
+  total_amount?: number | string | null
+  invoice_date?: string | null
+  is_duplicate?: boolean | null
+  has_error?: boolean | null
+  awaiting_approval?: boolean | null
+  ledger_approved_at?: string | null
+}
+type LedgerPaymentRow = {
+  id: string | number
+  supplier_id?: string | null
+  amount?: number | string | null
+  date?: string | null
+  payment_date?: string | null
+  status?: string | null
+  receipt_settled_at?: string | null
+}
 
 // Result of a create call. `duplicate` + `existing` are set when the backend dedup
 // matched an existing supplier and did NOT create (the UI then prompts the user).
@@ -48,51 +71,63 @@ export function useSuppliers() {
         { data: rows,        error: err },
         { data: invoiceRows },
         { data: paymentRows },
+        { data: resetRows },
       ] = await Promise.all([
         supabase.from('suppliers_v').select('*'),
-        supabase.from('invoices_v').select('supplier_id, total_amount, is_duplicate, has_error'),
-        supabase.from('payments').select('supplier_id, amount, status'),
+        // `invoice_date` and the payment `date` are new to this read: a ledger
+        // reset zeroes the balance AS OF A DAY, so the list can no longer answer
+        // "what is owed" from undated sums. `id` comes along because the engine
+        // keys rows by it.
+        supabase.from('invoices_v').select('id, supplier_id, total_amount, invoice_date, is_duplicate, has_error, awaiting_approval, ledger_approved_at'),
+        supabase.from('payments').select('id, supplier_id, amount, payment_date, status, receipt_settled_at'),
+        supabase.from('ledger_resets').select('id, supplier_id, reset_on, reason'),
       ])
 
       if (!err && rows && rows.length > 0) {
         // Group invoices/payments per supplier by SUPPLIER_ID (the business-number
-        // -derived FK), never by name (spec/06-RULES.md §2b). The balance itself is
-        // computed via the shared computeSupplierBalance helper so the list and the
-        // detail page can never diverge.
-        // Count ALL invoices per supplier (the card's invoice count is unchanged),
-        // but EXCLUDE is_duplicate / has_error rows from the BALANCE sum — a possible
-        // duplicate or errored invoice must not move the supplier's balance.
+        // -derived FK), never by name (spec/06-RULES.md §2b). Count ALL invoices per
+        // supplier — the card's invoice count is unchanged — while the BALANCE is
+        // the engine's, which is what keeps this card and the supplier page from
+        // answering differently.
         //
-        // That exclusion used to live ONLY here, which is exactly why this card kept
-        // showing a different figure from the supplier page and the ledger for any
-        // supplier holding such a row. The test now comes from the shared ledger
-        // module (isExcludedFromBalance), so the rule is written once and every
-        // screen answers the same.
-        const invById: Record<string, { total_amount: number }[]> = {}
+        // ⚠️ The balance here is built by the ENGINE, not by summing.
+        // `computeSupplierBalance` adds figures with no dates, and a reset zeroes a
+        // ledger AS OF A DAY — a sum cannot express that, so the list would have
+        // gone on showing the pre-reset figure while every other screen showed the
+        // new one. That is precisely the three-different-balances failure of
+        // spec/06-RULES.md §9, and it would have arrived the same week the guard
+        // against it was written.
+        //
+        // Excluded rows are no longer filtered out here either: the engine zeroes
+        // them itself. Two places applying one rule is how they drift.
+        const invById: Record<string, LedgerInvoiceRow[]> = {}
         const invCountById: Record<string, number> = {}
         for (const inv of invoiceRows ?? []) {
           const sid = inv.supplier_id as string | null
           if (!sid) continue
           invCountById[sid] = (invCountById[sid] ?? 0) + 1
-          if (isExcludedFromBalance(inv)) continue
-          const list = (invById[sid] ??= [])
-          list.push({ total_amount: Number(inv.total_amount ?? 0) })
+          ;(invById[sid] ??= []).push(inv as LedgerInvoiceRow)
         }
         setInvoiceCounts(invCountById)
-        const payById: Record<string, { amount: number; status: string }[]> = {}
+        const payById: Record<string, LedgerPaymentRow[]> = {}
         for (const pay of paymentRows ?? []) {
           const sid = pay.supplier_id as string | null
-          if (sid) (payById[sid] ??= []).push({ amount: Number(pay.amount ?? 0), status: String(pay.status ?? '') })
+          // `payment_date` → `date`: the engine reads `date`, and an unmapped
+          // payment would arrive UNDATED — which after a reset means zeroed,
+          // silently, for every payment in the system.
+          if (sid) (payById[sid] ??= []).push({ ...pay, date: pay.payment_date } as LedgerPaymentRow)
         }
+        const resets = (resetRows ?? []) as ResetLike[]
 
         setData(rows.map(r => {
           const openingBalance = Number(r.opening_balance ?? 0)
           // "בהסדר תשלום": display-only exclusion — balance forced to 0 via the shared
           // helper, real invoices/payments untouched (spec: reversible by unchecking).
           const paymentArrangement = r.payment_arrangement ?? false
-          const currentBalance = computeSupplierBalance(
-            openingBalance, invById[r.id] ?? [], payById[r.id] ?? [], { paymentArrangement },
-          )
+          const currentBalance = buildLedger(
+            r.id, invById[r.id] ?? [], payById[r.id] ?? [], openingBalance,
+            { paymentArrangement, resets },
+          ).closingBalance
           return {
             ...r,
             hp:             r.hp      ?? '',
@@ -129,7 +164,7 @@ export function useSuppliers() {
   useEffect(() => { load() }, [load])
 
 
-  useEffect(() => subscribe(['suppliers', 'invoices', 'payments'], load), [load])
+  useEffect(() => subscribe(['suppliers', 'invoices', 'payments', 'ledger_resets'], load), [load])
 
   // Returns the raw create result. On a dedup hit the backend does NOT create and
   // returns { duplicate:true, existing:{...} } so the UI can ask the user; pass

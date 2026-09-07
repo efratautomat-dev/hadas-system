@@ -5,7 +5,7 @@ import { round2 } from "../_shared/vat.ts";
 // scripts/check-twins.mjs). Reconciling a statement here MUST use the same engine
 // the screen and invoices-ingest use, or this function becomes a FOURTH copy of the
 // balance rule — the exact failure spec/06-RULES.md §9 exists to prevent.
-import { buildLedger, statementDiff, statementVerdict } from "../_shared/ledgerEngine.ts";
+import { buildLedger, statementDiff, statementVerdict, type ResetLike } from "../_shared/ledgerEngine.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -1903,6 +1903,7 @@ async function computeStatementLedger(
     { data: sup, error: supErr },
     { data: invRows, error: invErr },
     { data: payRows, error: payErr },
+    { data: resetRows, error: resetErr },
   ] = await Promise.all([
     supabase.from("suppliers")
       .select("name, opening_balance, payment_arrangement")
@@ -1912,15 +1913,22 @@ async function computeStatementLedger(
       .select("id, supplier_id, total_amount, invoice_date, invoice_number, is_duplicate, has_error")
       .eq("supplier_id", supplierId),
     supabase.from("payments")
-      .select("id, supplier_id, amount, payment_date, payment_type, status")
+      .select("id, supplier_id, amount, payment_date, payment_type, status, receipt_settled_at")
+      .eq("supplier_id", supplierId),
+    // A statement is compared against OUR balance, so it has to be the same
+    // balance the screens show. Reading the ledger here without the resets would
+    // reconcile against a figure nobody sees any more and raise a mismatch alert
+    // for every supplier whose ledger was ever zeroed.
+    supabase.from("ledger_resets")
+      .select("id, supplier_id, reset_on, reason")
       .eq("supplier_id", supplierId),
   ]);
   if (supErr) {
     console.error("[reconcileStatement] supplier read failed:", supErr.message);
     return null;
   }
-  if (invErr || payErr) {
-    console.error("[reconcileStatement] ledger read failed:", invErr?.message ?? payErr?.message);
+  if (invErr || payErr || resetErr) {
+    console.error("[reconcileStatement] ledger read failed:", invErr?.message ?? payErr?.message ?? resetErr?.message);
     return null;
   }
 
@@ -1946,12 +1954,15 @@ async function computeStatementLedger(
     date:        (r.payment_date as string | null) ?? "",
     type:        (r.payment_type as string | null) ?? "",
     status:      String(r.status ?? "pending"),
+    receipt_settled_at: (r.receipt_settled_at as string | null) ?? null,
   }));
 
   // NOTE: `paymentArrangement` is deliberately NOT passed to buildLedger here — see
   // the caller. What is stored is the TRUE ledger figure; the flag decides whether a
   // VERDICT may be drawn from it.
-  const ledger = buildLedger(supplierId, invoices, payments, sup?.opening_balance ?? 0);
+  const ledger = buildLedger(supplierId, invoices, payments, sup?.opening_balance ?? 0, {
+    resets: (resetRows ?? []) as ResetLike[],
+  });
   return {
     ourBalance:         round2(ledger.closingBalance),
     paymentArrangement: !!sup?.payment_arrangement,
@@ -2436,6 +2447,107 @@ async function createSupplierNote(
   return json(data, 201);
 }
 
+// ── Ledger resets ────────────────────────────────────────────────────────────
+//
+// A declared zero point for one supplier. See 20260907000000 for why this is a
+// row and not a rewrite; the arithmetic lives in ledgerEngine's buildLedger.
+//
+// MANAGER-ONLY. Not listed in employeeMayAccess, and it must stay that way: an
+// employee never sees a balance, so there is nothing here she could be asked to
+// judge — and `reason` is free text that will contain figures.
+async function createLedgerReset(
+  req: Request, supabase: SupabaseClient, supplierId: string, authorEmail?: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const reason = String(body.reason ?? "").trim();
+  // The reason is the feature. A zero with no explanation is a worse artefact
+  // than the tangle it replaced, so this is a hard 400 and not a default string.
+  if (!reason) return json({ error: "חובה לרשום סיבה לאיפוס" }, 400);
+
+  // Back-dating is allowed (a reset "as of the end of last quarter" is a real
+  // request), but a malformed date is not: it would silently land the zero line
+  // somewhere nobody chose. Absent → today.
+  const raw = String(body.resetOn ?? body.reset_on ?? "").trim();
+  if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw))
+    return json({ error: "תאריך איפוס לא תקין" }, 400);
+  const resetOn = raw || new Date().toISOString().slice(0, 10);
+
+  const { data, error } = await supabase
+    .from("ledger_resets")
+    .insert({ supplier_id: supplierId, reset_on: resetOn, reason, author_email: authorEmail ?? null })
+    .select()
+    .single();
+  if (error) return json({ error: error.message }, 500);
+  return json(data, 201);
+}
+
+// Undo. The reset is additive, so removing the row restores the balance exactly —
+// which is the whole reason it was modelled as a row.
+async function deleteLedgerReset(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { error } = await supabase.from("ledger_resets").delete().eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
+}
+
+// ── A receipt closes a payment, and with it the delivery ─────────────────────
+//
+// For the handful of suppliers who never issue an invoice. Marking the receipt
+// does two things at once because they are one event: the payment stops counting
+// (there is no invoice on the other side of it either), and the delivery stops
+// waiting for a document that is not coming.
+//
+// The payments are named EXPLICITLY by the caller. Guessing which payment a
+// receipt covers — by amount, by date, by being the only open one — is the kind
+// of inference that is right until the week it is not, and it would be silently
+// moving money.
+async function settleByReceipt(
+  req: Request, supabase: SupabaseClient, noteId: string, authorEmail?: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const raw = Array.isArray(body.paymentIds) ? body.paymentIds : [];
+  const paymentIds = raw.map((v: unknown) => String(v)).filter(Boolean);
+  if (paymentIds.length === 0)
+    return json({ error: "יש לבחור לפחות תשלום אחד" }, 400);
+
+  const stamp = new Date().toISOString();
+  const { error: payErr } = await supabase
+    .from("payments")
+    .update({
+      receipt_settled_at: stamp,
+      receipt_settled_by: authorEmail ?? null,
+      receipt_delivery_note_id: noteId,
+    })
+    .in("id", paymentIds);
+  if (payErr) return json({ error: payErr.message }, 500);
+
+  // The delivery is closed only after the payments actually took the mark. The
+  // other order would leave a pipeline row reporting "settled" over payments that
+  // are still counted — a lie that reads as a reconciliation.
+  const { error: noteErr } = await supabase
+    .from("delivery_notes")
+    .update({ receipt_settled_at: stamp, stage: "in_ledger" })
+    .eq("id", noteId);
+  if (noteErr) return json({ error: noteErr.message, paymentsSettled: paymentIds.length }, 500);
+
+  return json({ success: true, paymentsSettled: paymentIds.length });
+}
+
+// Undo, for the same reason the reset has one: the mark is reversible by
+// construction, so refusing to reverse it would be a choice, not a limitation.
+async function unsettleByReceipt(supabase: SupabaseClient, noteId: string): Promise<Response> {
+  const { error: payErr } = await supabase
+    .from("payments")
+    .update({ receipt_settled_at: null, receipt_settled_by: null, receipt_delivery_note_id: null })
+    .eq("receipt_delivery_note_id", noteId);
+  if (payErr) return json({ error: payErr.message }, 500);
+  const { error: noteErr } = await supabase
+    .from("delivery_notes")
+    .update({ receipt_settled_at: null, stage: "awaiting_invoice" })
+    .eq("id", noteId);
+  if (noteErr) return json({ error: noteErr.message }, 500);
+  return json({ success: true });
+}
+
 // Editing changes the TEXT only. The tag records where the note was born and the
 // author who wrote it — rewriting either on edit would falsify the record.
 async function updateSupplierNote(req: Request, supabase: SupabaseClient, id: string): Promise<Response> {
@@ -2894,6 +3006,21 @@ Deno.serve(async (req: Request) => {
     if (noteIdMatch) {
       if (req.method === "PUT")    return await updateSupplierNote(req, supabase, noteIdMatch[1]);
       if (req.method === "DELETE") return await deleteSupplierNote(supabase, noteIdMatch[1]);
+    }
+
+    // ── Ledger resets (manager-only) ──────────────────────────────────────────
+    const resetMatch = path.match(/^\/suppliers\/([^/]+)\/ledger-reset$/);
+    if (resetMatch && req.method === "POST")
+      return await createLedgerReset(req, supabase, resetMatch[1], auth.email);
+    const resetIdMatch = path.match(/^\/ledger-resets\/([^/]+)$/);
+    if (resetIdMatch && req.method === "DELETE")
+      return await deleteLedgerReset(supabase, resetIdMatch[1]);
+
+    // ── A receipt instead of an invoice (manager-only) ────────────────────────
+    const receiptMatch = path.match(/^\/delivery-notes\/([^/]+)\/receipt$/);
+    if (receiptMatch) {
+      if (req.method === "POST")   return await settleByReceipt(req, supabase, receiptMatch[1], auth.email);
+      if (req.method === "DELETE") return await unsettleByReceipt(supabase, receiptMatch[1]);
     }
 
     // ── Employees ─────────────────────────────────────────────────────────────
