@@ -157,7 +157,16 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
         filter === 'all' ? true
         : filter === 'customer' ? !!orderMeta.get(n.id)?.customerName
         : stageOf(n) === filter)
-      .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || '')),
+      // Newest FIRST, and "newest" means when the row entered the system — the
+      // same precedence the invoice list has always used (createdAt →
+      // received → the document's own date). Sorting by the document date alone
+      // put an order opened this morning for an old invoice into the middle of
+      // the list, which reads as the row not having been created at all.
+      .sort((a, b) => {
+        const da = a.createdAt || a.receivedAt || a.isoDate || ''
+        const db = b.createdAt || b.receivedAt || b.isoDate || ''
+        return da === db ? 0 : da < db ? 1 : -1
+      }),
     [notes, filter, orderMeta],
   )
 

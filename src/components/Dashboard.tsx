@@ -570,7 +570,15 @@ export default function Dashboard({
             {dnLoading ? <Spinner /> : (
               <div className="divide-y">
                 {[...deliveryNotes]
-                  .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''))  // newest first
+                  // Same precedence as the goods screen and the invoice list:
+                  // when the row entered, then the document's own date. A card
+                  // headed "the latest" that sorts differently from the screen it
+                  // links to is showing a different five.
+                  .sort((a, b) => {
+                    const da = a.createdAt || a.receivedAt || a.isoDate || ''
+                    const db = b.createdAt || b.receivedAt || b.isoDate || ''
+                    return da === db ? 0 : da < db ? 1 : -1
+                  })
                   .slice(0, 5)
                   .map((dn) => {
                   const st = statusStyle[dn.status === 'pending' ? 'ממתין' : 'הושלם'] ?? { bg: '#F3F4F6', color: '#6B7280' }

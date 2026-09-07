@@ -131,7 +131,14 @@ export default function DeliveryNotes() {
       if (showAll && filterStat !== 'all' && normalizeStatus(n.status) !== filterStat) return false
       return true
     })
-    .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''))
+    // Same precedence as the goods screen and the invoice list: when the row
+    // entered, then the document's own date. Two lists of the same table sorted
+    // by different keys is two answers to "what came in last".
+    .sort((a, b) => {
+      const da = a.createdAt || a.receivedAt || a.isoDate || ''
+      const db = b.createdAt || b.receivedAt || b.isoDate || ''
+      return da === db ? 0 : da < db ? 1 : -1
+    })
 
   const pendingCount  = notes.filter(n => normalizeStatus(n.status) === 'pending').length
   const archivedCount = notes.filter(n => normalizeStatus(n.status) === 'archived').length

@@ -3,6 +3,7 @@ import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Dow
 import { SearchableSelect } from '../components/SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from '../components/StatusBadge'
 import { SummaryCards } from '../components/ui/SummaryCards'
+import { FilterTabs } from '../components/ui/FilterTabs'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { usePayments as usePaymentsData } from '../hooks/usePayments'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow } from '../components/ui/tableStyles'
@@ -854,47 +855,19 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
       />
 
       {/* ── Tabs ──────────────────────────────────────────────────────────── */}
-      <div
-        className="flex gap-1 p-1 rounded-xl"
-        style={{ background: '#F3F4F6', width: 'fit-content' }}
-      >
-        {(
-          [
-            { id: 'all', label: 'כל התשלומים', count: null },
-            { id: 'future', label: 'תשלומים עתידיים', count: futurePayments.length },
-          ] as const
-        ).map(({ id, label, count }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            className="flex items-center gap-2 rounded-lg font-semibold transition-all"
-            style={{
-              padding: isTablet ? '10px 18px' : '8px 16px',
-              fontSize: isTablet ? '15px' : '14px',
-              minHeight: isTablet ? '44px' : '38px',
-              background: activeTab === id ? 'white' : 'transparent',
-              color: activeTab === id ? 'var(--brand-primary-dark)' : '#6B7280',
-              boxShadow: activeTab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
-            }}
-          >
-            {label}
-            {count !== null && count > 0 && (
-              <span
-                className="rounded-full font-bold text-white"
-                style={{
-                  background: '#E8A020',
-                  fontSize: '11px',
-                  padding: '1px 7px',
-                  minWidth: '20px',
-                  textAlign: 'center',
-                }}
-              >
-                {count}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* The segmented pill control is gone: it was the last place in the system
+          still using a raised white chip on a grey tray, which reads as a button
+          you press rather than a view you are in. FilterTabs is the same row the
+          goods, invoice, supplier and alert screens use — text with a rule under
+          it that thickens on the one in use. */}
+      <FilterTabs
+        tabs={[
+          { key: 'all',    label: 'כל התשלומים' },
+          { key: 'future', label: 'תשלומים עתידיים', count: futurePayments.length },
+        ]}
+        value={activeTab}
+        onChange={setActiveTab}
+      />
 
       {/* ── TAB: ALL ─────────────────────────────────────────────────────── */}
       {activeTab === 'all' && (

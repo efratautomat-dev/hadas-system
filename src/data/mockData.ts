@@ -322,6 +322,14 @@ export interface DeliveryNote {
    */
   isDuplicate?: boolean
   duplicateOf?: string | null
+  /**
+   * When the ROW entered the system, as distinct from the date on the document.
+   * Every list of deliveries sorts on this: a pipeline opened just now for an
+   * invoice dated last month is the newest thing that happened, and ordering by
+   * the document's own date buried it mid-list.
+   */
+  createdAt?: string
+  receivedAt?: string
   // 'email' = arrived by email (has gmail_message_id); 'manual' = goods receipt
   // entered by hand. Derived in useDeliveryNotes; splits the two views.
   source?: 'email' | 'manual'
