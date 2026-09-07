@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Printer, BookOpen } from 'lucide-react'
+import { Printer, BookOpen, RotateCcw } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
 import { usePayments } from '../hooks/usePayments'
@@ -8,6 +8,8 @@ import { SearchableSelect } from './SearchableSelect'
 import SectionHeader from './SectionHeader'
 import { isoToDisplay } from '../lib/dates'
 import { buildLedger } from '../lib/supplierLedger'
+import { useLedgerResets } from '../hooks/useLedgerResets'
+import { LedgerResetControl } from './LedgerResetControl'
 import { DateField } from './ui/form'
 
 type EntryType = 'חשבונית' | 'תשלום' | 'זיכוי'
@@ -28,6 +30,11 @@ interface TableRow {
   excluded: boolean
   /** The real amount, which `debit`/`credit` zero when excluded. */
   movement: number
+  /** A declared zero point, drawn as a rule rather than as a movement. */
+  isReset: boolean
+  resetReason: string
+  /** A payment closed by a receipt: real, documented, and counting nothing. */
+  settledByReceipt: boolean
 }
 
 function formatILS(n: number | null | undefined) {
@@ -61,6 +68,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   const { data: suppliersData, loading } = useSuppliers()
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
+  const { asEngineInput: resets, create: createReset, remove: removeReset } = useLedgerResets()
   const { logoUrl } = useAppLogo()
   const [selectedSupplierId, setSelectedSupplierId] = useState(initialSupplierId ?? '')
   const [fromDate, setFromDate] = useState('2026-01-01')
@@ -89,8 +97,8 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   // movement and therefore always agrees with the supplier screen.
   const ledger = useMemo(
     () => buildLedger(selectedSupplierId, allInvoices, allPayments, baseOpening,
-      { from: fromDate, to: toDate, paymentArrangement }),
-    [selectedSupplierId, allInvoices, allPayments, baseOpening, fromDate, toDate, paymentArrangement],
+      { from: fromDate, to: toDate, paymentArrangement, resets }),
+    [selectedSupplierId, allInvoices, allPayments, baseOpening, fromDate, toDate, paymentArrangement, resets],
   )
 
   const rows: TableRow[] = [
@@ -106,6 +114,9 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       awaitingLedgerApproval: false,
       excluded: false,
       movement: 0,
+      isReset: false,
+      resetReason: '',
+      settledByReceipt: false,
     },
     ...ledger.rows.map(r => ({
       id: r.id,
@@ -120,6 +131,9 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       awaitingLedgerApproval: r.awaitingLedgerApproval,
       excluded: r.excluded,
       movement: r.movement,
+      isReset: r.isReset,
+      resetReason: r.resetReason,
+      settledByReceipt: r.settledByReceipt,
     })),
   ]
 
@@ -143,7 +157,26 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
     const today      = new Date().toLocaleDateString('he-IL', { year: 'numeric', month: 'long', day: 'numeric' })
     const fromDisp   = isoToDisplay(fromDate)
     const toDisp     = isoToDisplay(toDate)
-    const rowsHtml = rows.map(row => {
+    // ── What the printed ledger shows after a reset ─────────────────────────
+    //
+    // The owner: "כמובן שבהדפסת כרטסת זה לא יופיע." The reset line is internal —
+    // it says the shop's own records got tangled, which is nobody else's business.
+    //
+    // But dropping only the LINE and keeping the rows above it would print a
+    // running balance that jumps for no visible reason: worse than showing the
+    // reset, because it looks like an arithmetic error in a document that goes to
+    // a supplier or an accountant.
+    //
+    // So the print starts AFTER the last reset, opening at 0. That is exactly what
+    // the reset declared — this is where the account begins — and it is a
+    // consistent document rather than a redacted one. `printRows` is chronological
+    // like `rows`, so "after the last reset" is a suffix.
+    const lastReset = rows.map(r => r.isReset).lastIndexOf(true)
+    const printRows = lastReset === -1 ? rows : rows.slice(lastReset + 1)
+    const printDebit  = printRows.reduce((sum, r) => sum + r.debit, 0)
+    const printCredit = printRows.reduce((sum, r) => sum + r.credit, 0)
+
+    const rowsHtml = printRows.map(row => {
       const bs = typeBadge[row.type] ?? typeBadge['פתיחה']
       const isOpening = row.type === 'פתיחה'
       return `<tr style="border-bottom:1px solid #EEEEF2;background:${isOpening ? 'var(--brand-active-bg)' : 'white'}">
@@ -201,8 +234,8 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   <tfoot>
     <tr class="foot-row">
       <td colspan="3" style="color:#6B7280;font-size:13px">סיכום תקופה</td>
-      <td style="text-align:left;color:#A16207">${formatILS(totalDebit)}</td>
-      <td style="text-align:left;color:#166534">${formatILS(totalCredit)}</td>
+      <td style="text-align:left;color:#A16207">${formatILS(printDebit)}</td>
+      <td style="text-align:left;color:#166534">${formatILS(printCredit)}</td>
       <td style="text-align:left;color:var(--brand-primary);font-size:15px">${formatILS(finalBalance)}</td>
     </tr>
   </tfoot>
@@ -313,6 +346,11 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           action={<><BookOpen className="w-4 h-4 text-gray-400" /><span className="text-gray-400" style={{ fontSize: '13px' }}>{inPeriod.length} תנועות בתקופה</span></>}
           title={<><span className="font-bold text-gray-800" style={{ fontSize: '16px' }}>{supplier.name}</span><BookOpen className="w-4 h-4 text-gray-400" /></>}
         />
+        {/* The SAME control as the supplier card's, not a second copy of it — one
+            component, so the question, the wording and the guard cannot drift. */}
+        <div className="flex justify-end" style={{ padding: '10px 20px 0' }}>
+          <LedgerResetControl onConfirm={reason => createReset(selectedSupplierId, reason)} />
+        </div>
 
         {paymentArrangement && (
           <div className="text-right border-b" style={{ padding: '10px 20px', background: '#DBEAFE', color: '#1E40AF', borderColor: '#BFDBFE', fontSize: '13px', fontWeight: 600 }}>
@@ -358,6 +396,35 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
           {displayRows.map((row) => {
             const badge     = typeBadge[row.type] ?? typeBadge['פתיחה']
             const isOpening = row.type === 'פתיחה'
+            // The reset is a rule across the ledger, not a line in its table. It
+            // breaks out of the column grid on purpose: fitting it into חובה/זכות
+            // would make it look like a movement, and it is the opposite of one.
+            if (row.isReset) return (
+              <div
+                key={row.id}
+                className="flex items-center gap-3"
+                style={{
+                  minWidth: isMobile ? '300px' : '660px', padding: '9px 16px',
+                  borderBottom: '1px solid #EEEEF2',
+                  borderTop: '1px dashed var(--brand-primary)',
+                  background: '#FFF8F9',
+                }}
+              >
+                <RotateCcw size={13} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />
+                <span style={{ fontSize: '12px', color: 'var(--brand-primary)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                  {row.displayDate} · הכרטסת אופסה
+                </span>
+                <span style={{ fontSize: '12px', color: '#63656C', flex: 1, minWidth: 0 }}>{row.resetReason}</span>
+                <button
+                  onClick={() => removeReset(row.id.replace(/^reset:/, ''))}
+                  style={{
+                    background: 'transparent', border: 'none', color: '#9598A1',
+                    fontSize: '11.5px', cursor: 'pointer', fontFamily: 'inherit',
+                    textDecoration: 'underline', padding: 0, flexShrink: 0,
+                  }}
+                >בטל איפוס</button>
+              </div>
+            )
             return (
               <div
                 key={row.id}

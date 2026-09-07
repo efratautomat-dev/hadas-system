@@ -12,6 +12,8 @@ import { useReturns } from '../hooks/useReturns'
 import { useStatements } from '../hooks/useStatements'
 import { sumNonCancelledPayments } from '../lib/supplierBalance'
 import { buildLedger, isExcludedFromBalance } from '../lib/supplierLedger'
+import { useLedgerResets } from '../hooks/useLedgerResets'
+import { LedgerResetControl } from './LedgerResetControl'
 import { useNotesTarget } from '../lib/notesTargetContext'
 import { useAlerts } from '../hooks/useAlerts'
 import { invoiceStatusKey } from '../lib/invoiceStatus'
@@ -268,7 +270,12 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   // and statement panel all read it. Computing the headline separately is exactly
   // how the list card and this page drifted apart: the helper counts EVERY invoice,
   // while the list (and now the ledger) leave flagged duplicate/errored rows out.
-  const ledgerResult = buildLedger(supplier.id, invoices, payments, openingBalance, { paymentArrangement })
+  // Declared zero points. Passed into the engine rather than applied here: the
+  // ledger screen and the suppliers list read the same hook and the same engine,
+  // which is the only reason all three can agree about a reset supplier.
+  const { asEngineInput: resets, create: createReset, remove: removeReset } = useLedgerResets()
+  const ledgerResult = buildLedger(supplier.id, invoices, payments, openingBalance,
+    { paymentArrangement, resets })
   const currentBalance = ledgerResult.closingBalance
 
   // Σ invoices for the KPI card excludes flagged rows for the same reason — a
@@ -286,7 +293,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
 
   const ledger = [
     ...(openingBalance !== 0
-      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false, awaitingLedgerApproval: false, excluded: false, movement: 0 }]
+      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false, awaitingLedgerApproval: false, excluded: false, movement: 0, isReset: false, resetReason: '', settledByReceipt: false }]
       : []),
     ...ledgerResult.rows.map(r => ({
       id: r.id,
@@ -301,6 +308,12 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
       undated: r.undated,
       pendingApproval: r.pendingApproval,
       awaitingLedgerApproval: r.awaitingLedgerApproval,
+      // `reset:<uuid>` — the engine's id for a declared zero point. Carried through
+      // so the row can be drawn as a line rather than as a movement, and so the
+      // undo knows which reset to remove.
+      isReset: r.isReset,
+      resetReason: r.resetReason,
+      settledByReceipt: r.settledByReceipt,
     })),
   ]
   const txEntries = ledgerResult.rows
@@ -514,6 +527,12 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
             title={<><h2 className="font-bold text-gray-800">כרטסת</h2><CreditCard className="w-4 h-4 text-gray-400" /></>}
             action={onViewLedger ? <span className="text-sm font-semibold" style={{ color: 'var(--brand-primary)' }}>פתח כרטסת ←</span> : undefined}
           />
+          {/* The reset lives WITH the ledger, not among the supplier's edit
+              controls: it is a statement about these rows, and putting it beside
+              "שמור" would file it as another field of the card. */}
+          <div className="flex justify-end" style={{ padding: '10px 20px 0' }}>
+            <LedgerResetControl onConfirm={reason => createReset(supplier.id, reason)} />
+          </div>
           {paymentArrangement && (
             <div className="text-right" style={{ padding: '10px 20px', background: '#DBEAFE', color: '#1E40AF', fontSize: '13px', fontWeight: 600 }}>
               ספק בהסדר תשלום — היתרה מסולקת (0) ומוחרגת ממעקב. התנועות מוצגות למידע בלבד; לא בוצע שינוי בנתונים.
@@ -557,7 +576,38 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
             <span className="text-center">זכות</span>
             <span className="text-right">יתרה</span>
           </div>
-          {ledgerDisplay.map((entry) => (
+          {ledgerDisplay.map((entry) => entry.isReset ? (
+            /* A LINE, not a row. It carries no debit and no credit of its own to
+               show — the figure it holds is the arithmetic of everything above it,
+               and printing that as a movement would invite someone to read it as a
+               transaction. Thin rule, the date, the reason, and the way back. */
+            <div
+              key={entry.id}
+              className="flex items-center gap-3"
+              style={{
+                minWidth: '480px', padding: '9px 16px',
+                borderBottom: '1px solid #E2E4E9',
+                borderTop: '1px dashed var(--brand-primary)',
+                background: '#FFF8F9',
+              }}
+            >
+              <RotateCcw size={13} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />
+              <span style={{ fontSize: '12px', color: 'var(--brand-primary)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                {fmtDate(entry.date)} · הכרטסת אופסה
+              </span>
+              <span style={{ fontSize: '12px', color: '#6B6E73', flex: 1, minWidth: 0 }}>
+                {entry.resetReason}
+              </span>
+              <button
+                onClick={() => removeReset(entry.id.replace(/^reset:/, ''))}
+                style={{
+                  background: 'transparent', border: 'none', color: '#9CA3AF',
+                  fontSize: '11.5px', cursor: 'pointer', fontFamily: 'inherit',
+                  textDecoration: 'underline', padding: 0, flexShrink: 0,
+                }}
+              >בטל איפוס</button>
+            </div>
+          ) : (
             <div
               key={entry.id}
               className="grid items-center"
@@ -583,6 +633,15 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                     className="rounded-md font-bold"
                     style={{ fontSize: '10.5px', padding: '2px 6px', background: '#FEE2E2', color: '#B91C1C', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
                   >כפילות/שגיאה — לא נספרת</span>
+                )}
+                {/* A receipted payment shows ₪0 in the credit column, which without
+                    this tag reads as a payment of nothing rather than a payment
+                    that was closed by a receipt. */}
+                {entry.settledByReceipt && (
+                  <span
+                    className="rounded-md font-bold"
+                    style={{ fontSize: '10.5px', padding: '2px 6px', background: '#DCFCE7', color: '#166534', marginInlineStart: '6px', whiteSpace: 'nowrap' }}
+                  >נסגר בקבלה — לא נספר</span>
                 )}
               </span>
               <span className="text-center font-medium" style={{ color: '#A16207', fontSize: fs('14px', '13px') }}>

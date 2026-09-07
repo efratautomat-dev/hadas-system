@@ -28,6 +28,7 @@ export function useDeliveryNotes() {
           linkedInvoiceId: r.invoice_id   ?? undefined,
           storageUrl:      r.storage_url  ?? undefined,
           pairedNoteId:    r.paired_note_id ?? null,
+          receiptSettledAt: r.receipt_settled_at ?? null,
           amount:          Number(r.amount ?? 0),
           status:          r.status       ?? 'pending',
           driveFileLink:   r.drive_file_link ?? '',
@@ -176,6 +177,30 @@ export function useDeliveryNotes() {
     }
   }
 
+  // A receipt instead of an invoice. Named payments only — see ReceiptSettle for
+  // why guessing which payment a receipt covers is not on offer.
+  const settleByReceipt = async (id: string, paymentIds: string[]) => {
+    try {
+      await api.post(`/delivery-notes/${id}/receipt`, { paymentIds })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בסגירת התעודה בקבלה: ${msg}`)
+      throw err
+    }
+  }
+
+  const undoReceipt = async (id: string) => {
+    try {
+      await api.delete(`/delivery-notes/${id}/receipt`)
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בביטול הסגירה בקבלה: ${msg}`)
+      throw err
+    }
+  }
+
   const update = async (id: string, body: Partial<DeliveryNote> & { invoiceId?: string }) => {
     console.log('[useDeliveryNotes] update payload:', { id, ...body })
     try {
@@ -250,5 +275,5 @@ export function useDeliveryNotes() {
     }
   }
 
-  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reassignSupplier, resolvePair, reload: load }
+  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reassignSupplier, resolvePair, settleByReceipt, undoReceipt, reload: load }
 }

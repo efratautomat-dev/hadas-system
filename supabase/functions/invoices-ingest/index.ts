@@ -13,7 +13,7 @@ import { vatRateFor, completeAmounts, round2 } from "../_shared/vat.ts";
 // scripts/check-twins.mjs). Reconciling a statement on arrival MUST use the same
 // engine the screen uses, or the server and the screen disagree — which is the
 // exact failure spec/06-RULES.md §9 exists to prevent.
-import { buildLedger, statementDiff, statementVerdict } from "../_shared/ledgerEngine.ts";
+import { buildLedger, statementDiff, statementVerdict, type ResetLike } from "../_shared/ledgerEngine.ts";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -3087,6 +3087,7 @@ async function computeStatementLedger(
     { data: sup, error: supErr },
     { data: invRows, error: invErr },
     { data: payRows, error: payErr },
+    { data: resetRows, error: resetErr },
   ] = await Promise.all([
     supabase.from("suppliers")
       .select("opening_balance, payment_arrangement")
@@ -3096,16 +3097,23 @@ async function computeStatementLedger(
       .select("id, supplier_id, total_amount, invoice_date, invoice_number, is_duplicate, has_error")
       .eq("supplier_id", supplierId),
     supabase.from("payments")
-      .select("id, supplier_id, amount, payment_date, payment_type, status")
+      .select("id, supplier_id, amount, payment_date, payment_type, status, receipt_settled_at")
+      .eq("supplier_id", supplierId),
+    // The statement is compared against OUR balance, which means the balance the
+    // screens actually show. Omitting the resets here would reconcile against a
+    // figure nobody sees any more and raise a mismatch for every zeroed ledger.
+    supabase.from("ledger_resets")
+      .select("id, supplier_id, reset_on, reason")
       .eq("supplier_id", supplierId),
   ]);
   if (supErr) {
     await log("warn", `statement reconcile: supplier read failed: ${supErr.message}`, { supplierId }, msgId);
     return null;
   }
-  if (invErr || payErr) {
+  if (invErr || payErr || resetErr) {
     await log("warn",
-      `statement reconcile: ledger read failed: ${invErr?.message ?? payErr?.message}`, { supplierId }, msgId);
+      `statement reconcile: ledger read failed: ${invErr?.message ?? payErr?.message ?? resetErr?.message}`,
+      { supplierId }, msgId);
     return null;
   }
 
@@ -3131,12 +3139,15 @@ async function computeStatementLedger(
     date:        (r.payment_date as string | null) ?? "",
     type:        (r.payment_type as string | null) ?? "",
     status:      String(r.status ?? "pending"),
+    receipt_settled_at: (r.receipt_settled_at as string | null) ?? null,
   }));
 
   // NOTE: `paymentArrangement` is deliberately NOT passed to buildLedger here — see
   // the caller. What is stored is the TRUE ledger figure; the flag decides whether a
   // VERDICT may be drawn from it.
-  const ledger = buildLedger(supplierId, invoices, payments, sup?.opening_balance ?? 0);
+  const ledger = buildLedger(supplierId, invoices, payments, sup?.opening_balance ?? 0, {
+    resets: (resetRows ?? []) as ResetLike[],
+  });
   return {
     ourBalance:         round2(ledger.closingBalance),
     paymentArrangement: !!sup?.payment_arrangement,

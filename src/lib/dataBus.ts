@@ -27,6 +27,7 @@ export type Resource =
   | 'statements'
   | 'alerts'
   | 'supplier_notes'
+  | 'ledger_resets'
 
 type Listener = () => void
 
@@ -67,15 +68,22 @@ export function resourcesFor(path: string): Resource[] {
   const all: Resource[] = []
   const add = (...rs: Resource[]) => { for (const r of rs) if (!all.includes(r)) all.push(r) }
 
-  if (path.startsWith('/delivery-notes')) add('delivery_notes', 'orders', 'invoices')
+  // A receipt closes a delivery AND stops its payments counting, so the ledger
+  // everywhere has to be rebuilt — hence `payments` and `suppliers` on a path that
+  // looks like it only touches goods.
+  if (path.startsWith('/delivery-notes')) add('delivery_notes', 'orders', 'invoices', 'payments', 'suppliers')
   if (path.startsWith('/orders'))         add('orders', 'delivery_notes')
   if (path.startsWith('/invoices'))       add('invoices', 'delivery_notes', 'alerts')
   if (path.startsWith('/suppliers'))      add('suppliers', 'invoices', 'delivery_notes')
+  if (/^\/suppliers\/[^/]+\/ledger-reset$/.test(path)) add('ledger_resets')
   if (path.startsWith('/payments'))       add('payments', 'suppliers')
   if (path.startsWith('/returns'))        add('returns', 'suppliers')
   if (path.startsWith('/statements') || path.startsWith('/vendor-statements')) add('statements')
   if (path.startsWith('/alerts'))         add('alerts')
   if (path.startsWith('/supplier-notes')) add('supplier_notes')
+  // A reset moves the balance on every screen that shows one, which is why it
+  // announces `suppliers` as well as itself.
+  if (path.startsWith('/ledger-resets')) add('ledger_resets', 'suppliers')
   if (path.startsWith('/ingest'))         add('delivery_notes', 'invoices', 'alerts')
   return all
 }

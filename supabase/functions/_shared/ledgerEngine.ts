@@ -51,7 +51,7 @@ export function statementDiff(ourBalance: number, vendorBalance: number): number
   return round2(ourBalance - vendorBalance)
 }
 
-export type LedgerEntryType = 'פתיחה' | 'חשבונית' | 'זיכוי' | 'תשלום'
+export type LedgerEntryType = 'פתיחה' | 'חשבונית' | 'זיכוי' | 'תשלום' | 'איפוס'
 
 export interface LedgerRow {
   id: string
@@ -108,6 +108,31 @@ export interface LedgerRow {
    * more dangerous of the two errors. The mark is what stops it being invisible.
    */
   awaitingLedgerApproval: boolean
+  /**
+   * A LINE DRAWN, not a movement: the owner declared this supplier's balance
+   * settled as of a date, and this row is the correction that makes the running
+   * total 0 there.
+   *
+   * It is a row and not a rewrite for the same reason `excluded` is a flag and not
+   * a delete: the invoices and payments before it are still true, still visible,
+   * still add up to what they always did. What changed is that somebody decided to
+   * stop carrying the argument forward, and said why. `resetReason` is that why,
+   * and it is required — a balance that jumps to zero with no explanation is worse
+   * than the mess it was meant to clean up.
+   */
+  isReset: boolean
+  resetReason: string
+  /**
+   * A payment the supplier settled with a RECEIPT rather than an invoice.
+   *
+   * These suppliers never send an invoice at all, so the debit side of the pair
+   * simply does not exist. Left alone the payment stands as a lone credit and the
+   * ledger reads as if we were owed money we are not. Marked, it contributes
+   * nothing — the same count-zero treatment `excluded` gets, but NOT `excluded`,
+   * because that word means "suspected duplicate or error" and this is neither.
+   * Naming it apart is what keeps `excludedCount` honest.
+   */
+  settledByReceipt: boolean
 }
 
 interface InvoiceLike {
@@ -116,6 +141,7 @@ interface InvoiceLike {
   amount?: AmountLike
   total_amount?: AmountLike
   invoiceDate?: string | null
+  invoice_date?: string | null
   date?: string | null
   invoiceNumber?: string | null
   // Flags set by ingest. Both accepted in snake_case too, because the suppliers
@@ -186,6 +212,37 @@ interface PaymentLike {
   date?: string | null
   type?: string | null
   status?: string | null
+  // Set when a receipt was recorded against this payment (see settledByReceipt).
+  // Both spellings, for the same reason the invoice predicates accept both: the
+  // suppliers list reads the view directly, without a camelCase mapping.
+  receipt_settled_at?: string | null
+  receiptSettledAt?: string | null
+}
+
+/**
+ * One declared reset of a supplier's ledger.
+ *
+ * `resetOn` is the day the balance is declared 0. Everything dated on or before it
+ * is zeroed; everything after accumulates from there. A reset with no usable date
+ * is IGNORED rather than guessed at — placing it wrongly would zero movements
+ * nobody meant to zero, and a silently misplaced line is the one failure a ledger
+ * cannot survive.
+ */
+export interface ResetLike {
+  id: string | number
+  supplier_id?: string | null
+  supplierId?: string | null
+  reset_on?: string | null
+  resetOn?: string | null
+  reason?: string | null
+}
+
+/** Has this payment been accounted for by a receipt? (see settledByReceipt) */
+export function isReceiptSettled(p: {
+  receipt_settled_at?: string | null
+  receiptSettledAt?: string | null
+}): boolean {
+  return !!(p.receiptSettledAt ?? p.receipt_settled_at)
 }
 
 /** A credit note is a NEGATIVE invoice — the amount is what drives the balance. */
@@ -194,7 +251,12 @@ export function isCreditRow(amount: AmountLike): boolean {
 }
 
 function invoiceIso(inv: InvoiceLike): string {
-  const iso = (inv.invoiceDate ?? '').trim()
+  // Both spellings, for the reason stated on isExcludedFromBalance: the suppliers
+  // list reads `invoices_v` directly, with no camelCase mapping in between. Before
+  // resets existed a missing date only cost a row its place in the sort; now it
+  // decides whether the row falls before or after a zero line, so reading the
+  // wrong field would move money.
+  const iso = (inv.invoiceDate ?? inv.invoice_date ?? '').trim()
   if (/^\d{4}-\d{2}-\d{2}/.test(iso)) return iso.slice(0, 10)
   // Fall back to the display field if it is day-first DD/MM/YYYY.
   const d = (inv.date ?? '').trim()
@@ -240,6 +302,9 @@ export function buildLedgerEntries(
         undated: !iso,
         pendingApproval: isAwaitingApproval(i),
         awaitingLedgerApproval: isAwaitingLedgerApproval(i),
+        isReset: false,
+        resetReason: '',
+        settledByReceipt: false,
       }
     })
 
@@ -247,13 +312,17 @@ export function buildLedgerEntries(
     .filter(p => p.supplier_id === supplierId && p.status !== 'cancelled')
     .map(p => {
       const iso = (p.date ?? '').slice(0, 10)
+      const settled = isReceiptSettled(p)
       return {
         id: String(p.id),
         isoDate: iso,
         description: `תשלום · ${p.type ?? ''}`.trim(),
         type: 'תשלום' as LedgerEntryType,
         debit: 0,
-        credit: num(p.amount),
+        // A receipted payment contributes ZERO, exactly like an excluded invoice —
+        // and like one, its real figure survives on `movement` so the row can still
+        // show what was paid.
+        credit: settled ? 0 : num(p.amount),
         excluded: false,
         movement: -num(p.amount),
         undated: !iso,
@@ -261,6 +330,9 @@ export function buildLedgerEntries(
         // already moved, and there is nothing to hold back.
         pendingApproval: false,
         awaitingLedgerApproval: false,
+        isReset: false,
+        resetReason: '',
+        settledByReceipt: settled,
       }
     })
 
@@ -315,11 +387,72 @@ export function buildLedger(
   invoices: InvoiceLike[],
   payments: PaymentLike[],
   openingBalance: AmountLike,
-  opts?: { from?: string; to?: string; paymentArrangement?: boolean },
+  opts?: { from?: string; to?: string; paymentArrangement?: boolean; resets?: ResetLike[] },
 ): LedgerResult {
-  const entries = buildLedgerEntries(supplierId, invoices, payments)
+  const movements = buildLedgerEntries(supplierId, invoices, payments)
   const opening = num(openingBalance)
   const { from, to } = opts ?? {}
+
+  // ── Resets, folded in ─────────────────────────────────────────────────────
+  //
+  // A reset is not a movement, which is why it is not built by
+  // buildLedgerEntries: its amount is not a figure anybody entered, it is
+  // whatever it takes to make the running total 0 on that day. So it can only be
+  // computed HERE, walking the movements in order.
+  //
+  // A reset dated D sits AFTER every movement dated D — otherwise resetting on the
+  // day an invoice arrived would zero the balance and then immediately un-zero it,
+  // which is not what anyone means by "as of today". Undated movements sort first
+  // and are therefore always zeroed by any reset, which is right: they are the mess
+  // the reset is usually there to end.
+  const entries = (() => {
+    const pending = (opts?.resets ?? [])
+      .filter(r => (r.supplierId ?? r.supplier_id) === supplierId)
+      .map(r => ({
+        id: `reset:${r.id}`,
+        isoDate: String(r.resetOn ?? r.reset_on ?? '').trim().slice(0, 10),
+        reason: (r.reason ?? '').trim(),
+      }))
+      .filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.isoDate))
+      .sort((a, b) => a.isoDate.localeCompare(b.isoDate))
+
+    if (pending.length === 0) return movements
+
+    const out: Omit<LedgerRow, 'balance'>[] = []
+    let running = opening
+    let ri = 0
+    // `before === null` means "everything that is left", used once at the end.
+    const flush = (before: string | null) => {
+      while (ri < pending.length && (before === null || pending[ri].isoDate < before)) {
+        const r = pending[ri++]
+        const correction = round2(-running)
+        out.push({
+          id: r.id,
+          isoDate: r.isoDate,
+          description: r.reason ? `איפוס כרטסת · ${r.reason}` : 'איפוס כרטסת',
+          type: 'איפוס',
+          debit:  correction > 0 ?  correction : 0,
+          credit: correction < 0 ? -correction : 0,
+          excluded: false,
+          movement: correction,
+          undated: false,
+          pendingApproval: false,
+          awaitingLedgerApproval: false,
+          isReset: true,
+          resetReason: r.reason,
+          settledByReceipt: false,
+        })
+        running = 0
+      }
+    }
+    for (const e of movements) {
+      if (!e.undated) flush(e.isoDate)
+      out.push(e)
+      running = round2(running + e.debit - e.credit)
+    }
+    flush(null)
+    return out
+  })()
 
   // The TRUE closing balance always counts every movement.
   const closing = entries.reduce((s, e) => s + e.debit - e.credit, opening)

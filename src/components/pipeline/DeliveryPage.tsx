@@ -4,6 +4,7 @@ import {
   Truck, Eye, ExternalLink, PackageCheck, TriangleAlert,
 } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
+import { ReceiptSettle } from './ReceiptSettle'
 import { StatusBadge } from '../StatusBadge'
 import { PdfPreviewButton, PdfPreviewModal, DocumentBody } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
@@ -52,7 +53,7 @@ export default function DeliveryPage({
   note, stage, order, linked, invoices, isWide,
   onBack, onLoadCandidates, onLink, onUnlink, onApprove,
   onChangeSupplier, onDismantle, onOpenInvoice, onArrived, onMarkDiffers, customerOrders = [],
-  onSetCustomerStatus, pendingPair, onResolvePair,
+  onSetCustomerStatus, pendingPair, onResolvePair, onSettleByReceipt, onUndoReceipt,
 }: {
   note: DeliveryNote
   stage: PipelineStage
@@ -78,6 +79,14 @@ export default function DeliveryPage({
   onChangeSupplier?: () => void
   /** Manager only. Absent = the control is not rendered at all. */
   onDismantle?: () => Promise<void>
+  /**
+   * For the suppliers who never issue an invoice: a receipt closes the payment and
+   * with it this delivery. Absent = the control is not rendered — the same
+   * convention onDismantle uses, and the reason both are optional rather than
+   * role-checked inside this component.
+   */
+  onSettleByReceipt?: (paymentIds: string[]) => Promise<void>
+  onUndoReceipt?: () => Promise<void>
   onOpenInvoice?: (invoiceId: string) => void
   /** Present only while the goods have not arrived — an order still waiting. */
   onArrived?: (partial: boolean) => Promise<void>
@@ -513,6 +522,20 @@ export default function DeliveryPage({
                     <Check className="w-4 h-4" />אישור — הכנס לכרטסת
                   </button>
                 )
+              )}
+
+              {/* Only while the delivery is still waiting for a document, or once
+                  it has been closed this way. Offering it beside "אישור — הכנס
+                  לכרטסת" on a delivery that HAS its invoice would be offering two
+                  different endings to the same story. */}
+              {onSettleByReceipt && onUndoReceipt && (stage === 'awaiting_invoice' || note.receiptSettledAt) && (
+                <ReceiptSettle
+                  supplierId={note.supplierId ?? ''}
+                  settledAt={note.receiptSettledAt}
+                  onSettle={onSettleByReceipt}
+                  onUndo={onUndoReceipt}
+                  btnStyle={BTN_BASE}
+                />
               )}
 
               {linked.length > 0 && !showMore && (
