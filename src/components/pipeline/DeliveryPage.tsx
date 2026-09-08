@@ -4,6 +4,7 @@ import {
   Truck, Eye, ExternalLink, PackageCheck, TriangleAlert,
 } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
+import { intakeLong, noDocumentReason, documentExpected } from '../../lib/intakeSource'
 import { ReceiptSettle } from './ReceiptSettle'
 import { parseLines, parsedTotal, type ParsedLine } from '../../lib/lineItemsFormat'
 import { StatusBadge } from '../StatusBadge'
@@ -284,6 +285,17 @@ export default function DeliveryPage({
           {note.supplierName}{note.noteNumber ? ` · תעודה ${note.noteNumber}` : ''}
         </h1>
         <StatusBadge status={stage} />
+        {/* Which door this row came through, beside its name. The owner asked for
+            it after meeting a delivery whose items were on screen and whose
+            document was not: with four intakes writing one word, nothing on the
+            page said whether that was a typed receipt (no document ever existed)
+            or a reading whose photograph had been lost. */}
+        <span
+          style={{
+            padding: '4px 10px', fontSize: '12px', background: '#F3F4F6',
+            border: '1px solid #E2E4E9', color: '#4B5563', fontWeight: 600,
+          }}
+        >{intakeLong(note.intakeSource)}</span>
       </div>
 
       <PipelineStrip stage={stage} order={order} hasInvoice={!!invoice} />
@@ -341,11 +353,18 @@ export default function DeliveryPage({
                 <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
                   {pane === 'invoice' ? 'אין חשבונית מוצמדת' : 'אין מסמך מצורף'}
                 </div>
-                <div style={{ fontSize: '12px' }}>
+                <div style={{ fontSize: '12px', maxWidth: '260px', margin: '0 auto' }}>
                   {pane === 'invoice'
                     ? 'לתעודה הזו עוד לא הוצמדה חשבונית'
-                    : 'לתעודה הזו לא נשמר קובץ מקור'}
+                    : noDocumentReason(note.intakeSource)}
                 </div>
+                {/* A missing file on a row that was MADE from a document is a
+                    loss, not a state, and it is said in the colour of one. */}
+                {pane === 'note' && documentExpected(note.intakeSource) && (
+                  <div style={{ fontSize: '12px', color: '#B45309', fontWeight: 700, marginTop: '6px' }}>
+                    הפענוח נשמר בלי המסמך שממנו נקרא
+                  </div>
+                )}
               </div>
             ) : (
               <DocumentBody

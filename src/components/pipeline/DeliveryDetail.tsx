@@ -3,6 +3,7 @@ import { UserCog, Check, Link2, Unlink, X, FileText, Truck, Scissors, ExternalLi
 import { PdfPreviewButton, PdfPreviewModal } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
 import { PipelineStrip } from './PipelineStrip'
+import { intakeLong } from '../../lib/intakeSource'
 import { StatusBadge } from '../StatusBadge'
 import type { OrderLink } from '../../lib/pipelineSteps'
 import type { DeliveryNote, Invoice, InvoiceCandidate, PipelineStage } from '../../data/mockData'
@@ -126,11 +127,7 @@ export default function DeliveryDetail({
               border: '1px solid #E2E4E9', color: '#4B5563',
             }}
           >
-            {note.intakeSource === 'email'
-              ? <>הגיע <strong style={{ fontWeight: 800 }}>במייל</strong> מהספק</>
-              : note.intakeSource === 'photo'
-                ? <>נקלט <strong style={{ fontWeight: 800 }}>מצילום</strong></>
-                : <>נקלט <strong style={{ fontWeight: 800 }}>בהקלדה ידנית</strong></>}
+            <strong style={{ fontWeight: 800 }}>{intakeLong(note.intakeSource)}</strong>
             {note.date ? ` · ${note.date}` : ''}
           </span>
           {onChangeSupplier && (

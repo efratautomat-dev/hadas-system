@@ -40,6 +40,8 @@ export default function GoodsIntake({
     amount?: number | null
     /** Where the photographed page was filed, so the row keeps its source. */
     storageUrl?: string | null
+    /** Which of the doors below produced this — typed, or read off a photo. */
+    intakeSource?: 'manual' | 'sheet'
     /** Who took the delivery — §6.5. */
     employeeId?: string
     adopt?: string; forceNew?: boolean
@@ -100,6 +102,7 @@ export default function GoodsIntake({
       amount: lineTotal(lines),
       noteNumber: noteNumber.trim() || undefined,
       employeeId: employeeId || undefined,
+      intakeSource: 'manual',
     })
   }
 
@@ -229,6 +232,11 @@ export default function GoodsIntake({
                   amount,
                   storageUrl,
                   employeeId: employeeId || undefined,
+                  // The lines look exactly like typed ones, and they are not: a
+                  // model read them off a photograph. The row has to say so, or
+                  // "items with no document" cannot be told from an honest typed
+                  // receipt — and only one of the two is a lost file.
+                  intakeSource: 'sheet',
                 })
               }}
             />

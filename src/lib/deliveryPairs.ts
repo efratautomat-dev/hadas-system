@@ -22,8 +22,11 @@ import type { DeliveryNote } from '../data/mockData'
 /** How far apart two records of one delivery can plausibly be. */
 const PAIR_WINDOW_DAYS = 14
 
+// Everything recorded HERE, whichever way: typed at the counter, photographed, or
+// read off a handwritten page. `sheet` belongs with them and not with `email` —
+// what makes a row pairable is that WE made it, not how much of it a model read.
 const typedByHand = (n: DeliveryNote) =>
-  n.intakeSource === 'manual' || n.intakeSource === 'photo'
+  n.intakeSource === 'manual' || n.intakeSource === 'photo' || n.intakeSource === 'sheet'
 
 const cameFromSupplier = (n: DeliveryNote) =>
   n.intakeSource === 'email'

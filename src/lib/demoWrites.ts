@@ -284,17 +284,21 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
           candidates: waiting.map(n => ({
             id: String(n.id), note_number: n.note_number ?? null,
             date: n.date ?? null, supplier_name: n.supplier_name ?? null,
+            intake_source: n.intake_source ?? null,
           })),
         } as unknown as Row
       }
     }
     const ownRow = order.delivery_note_id ? String(order.delivery_note_id) : null
-    if (!adoptId && !forceNew && ownRow) {
+    // `forceNew` means "not the note you found" — never "not the row this order
+    // already opened". Mirrors the server: answering the duplicate question must
+    // not itself open a second line.
+    if (!adoptId && ownRow) {
       const claimed2 = new Set(orders.map(o => String(o.delivery_note_id ?? '')))
       const others = notes.filter(n =>
         n.supplier_id === order.supplier_id && n.stage === 'awaiting_invoice' &&
         String(n.id) !== ownRow && !claimed2.has(String(n.id)))
-      if (others.length === 0) {
+      if (others.length === 0 || forceNew) {
         // Nothing to merge with — the goods arrived into the row this order opened.
         const own = find('delivery_notes', ownRow)
         if (own) { own.stage = 'awaiting_invoice'; own.date = nowIso().slice(0, 10) }
@@ -401,7 +405,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       supplier_id: invoice.supplier_id, supplier_name: invoice.supplier_name,
       date: invoice.invoice_date ?? nowIso().slice(0, 10),
       amount: null, amount_before_vat: null, vat_amount: null,
-      status: 'pending', stage: 'awaiting_goods', invoice_id: String(invoice.id),
+      status: 'linked', stage: 'awaiting_goods', invoice_id: String(invoice.id),
       line_items: null, intake_source: 'invoice',
       drive_file_link: null, storage_url: null, note_number: null,
     }
@@ -453,6 +457,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
           candidates: waiting.map(n => ({
             id: String(n.id), note_number: n.note_number ?? null,
             date: n.date ?? null, supplier_name: n.supplier_name ?? null,
+            intake_source: n.intake_source ?? null,
           })),
         } as unknown as Row
       }
@@ -460,10 +465,19 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     if (adoptId) {
       const target = find('delivery_notes', adoptId)
       if (!target) return null
-      if (b.line_items)  target.line_items  = b.line_items
-      if (b.note_number) target.note_number = b.note_number
-      if (b.amount !== null && b.amount !== undefined) target.amount = b.amount
-      target.intake_source = b.intake_source ?? 'manual'
+      // Holes only where the target holds a document of its own — mirrors the
+      // server. A shell opened by an order or an invoice holds a placeholder, so
+      // what actually arrived replaces it.
+      const hasDoc = ['email', 'photo', 'sheet'].includes(String(target.intake_source ?? ''))
+        || !!target.storage_url
+      const canFill = (cur: unknown) =>
+        !hasDoc || cur === null || cur === undefined || cur === ''
+      if (b.line_items  && canFill(target.line_items))  target.line_items  = b.line_items
+      if (b.note_number && canFill(target.note_number)) target.note_number = b.note_number
+      if (b.amount !== null && b.amount !== undefined && canFill(target.amount)) target.amount = b.amount
+      // The door stays the door the ROW came through — joining an emailed note at
+      // the counter does not make it a typed receipt. Mirrors the server.
+      if (!target.intake_source) target.intake_source = b.intake_source ?? 'manual'
       // Goods have now been seen: an invoice-first chain was only waiting for this.
       if (target.stage === 'awaiting_goods') target.stage = 'awaiting_approval'
       return { id: target.id, adopted: true }

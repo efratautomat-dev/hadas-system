@@ -1087,7 +1087,10 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
           lockedSupplier={{ id: supplier.id, name: supplier.name }}
           onOpenDelivery={onOpenDelivery}
           onClose={() => setIntake(false)}
-          onCreate={async d => { await createDeliveryNote(d) }}
+          // RETURNS the result. Dropping it swallowed the server's
+          // "there is already a delivery waiting" question, and the dialog then
+          // closed as though it had saved — the goods were never written.
+          onCreate={d => createDeliveryNote(d)}
         />
       )}
 

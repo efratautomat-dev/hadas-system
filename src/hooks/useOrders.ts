@@ -24,6 +24,10 @@ export interface ArrivalCandidate {
   note_number: string | null
   date: string | null
   supplier_name: string | null
+  /** Which door the candidate came through — a supplier's own note and a row an
+   *  order opened are answered differently, and the question is unanswerable
+   *  without knowing which one you are looking at. */
+  intake_source?: string | null
 }
 
 export interface Order {

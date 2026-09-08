@@ -158,6 +158,17 @@ export default function HandwrittenSheet({
                 style={{ fontSize: '11.5px', fontWeight: 700, padding: '3px 9px', background: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E' }}
               >{uncertain} שורות לא בוודאות — כדאי לבדוק</span>
             )}
+            {/* The upload is allowed to fail without failing the read — losing an
+                extraction because the filing broke is the larger loss. But saving
+                on top of that silently produces the one row nobody can check: a
+                model's reading of a page that no longer exists. So it is said
+                here, before she saves, while re-photographing still costs
+                nothing. */}
+            {!stored && (
+              <span
+                style={{ fontSize: '11.5px', fontWeight: 700, padding: '3px 9px', background: '#FFF7ED', border: '1px solid #FDBA74', color: '#9A3412' }}
+              >הצילום לא נשמר — התעודה תישמר בלי המסמך שממנו נקראה</span>
+            )}
           </div>
 
           <div className="grid gap-3" style={{ gridTemplateColumns: photo ? '1fr 1fr' : '1fr' }}>

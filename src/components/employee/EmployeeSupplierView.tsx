@@ -12,7 +12,8 @@ import { SearchableSelect } from '../SearchableSelect'
 import { PdfPreviewModal } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
 import { STATUS } from '../../theme/status'
-import type { Invoice, PipelineStage } from '../../data/mockData'
+import type { Invoice, PipelineStage, DeliveryNote } from '../../data/mockData'
+import { intakeShort } from '../../lib/intakeSource'
 import {
   FormModal as ReturnFormModal,
   emptyForm,
@@ -651,7 +652,9 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
           // therefore lands on the delivery itself, exactly as it does for the
           // manager, instead of closing back to a list she then has to search.
           onOpenDelivery={id => { setIntake(false); onOpenPipeline?.(id) }}
-          onCreate={async d => { await createDeliveryNote(d) }}
+          // Returned, not swallowed — the duplicate question has to reach the
+          // door that asked, or nothing is written and nothing says so.
+          onCreate={d => createDeliveryNote(d)}
         />
       )}
 
@@ -707,7 +710,7 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
             <EmptyRow text="אין סחורה עבור ספק זה" />
           ) : (
             deliveries.map((dn) => {
-              const d = dn as unknown as { id: string; date: string; status: string; stage?: PipelineStage; driveFileLink?: string; storage_url?: string; noteNumber?: string; lineItems?: string }
+              const d = dn as unknown as { id: string; date: string; status: string; stage?: PipelineStage; driveFileLink?: string; storage_url?: string; noteNumber?: string; lineItems?: string; intakeSource?: DeliveryNote['intakeSource'] }
               const hasDoc = !!(d.driveFileLink || d.storage_url)
               // The pipeline stage, in the SAME words the manager sees. This row used
               // to say ממתין / בארכיון — a fourth status vocabulary, unrelated to the
@@ -730,6 +733,11 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
                   <div style={{ minWidth: 0 }}>
                     <p className="text-right text-gray-600" style={{ fontSize: '13px', margin: 0 }}>
                       {orderMeta.get(d.id)?.description || d.noteNumber || d.id} · {d.date}
+                    </p>
+                    {/* Where the row came from, in the employee's list too — she is
+                        the one who photographed or typed it. */}
+                    <p className="text-right" style={{ fontSize: '11px', color: '#9CA3AF', margin: '2px 0 0' }}>
+                      {intakeShort(d.intakeSource)}
                     </p>
                     {orderMeta.get(d.id)?.customerName && (
                       <p className="text-right" style={{ fontSize: '11.5px', color: 'var(--brand-primary)', margin: '2px 0 0', fontWeight: 600 }}>

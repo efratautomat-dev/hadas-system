@@ -5,6 +5,7 @@ import {
   type NoteTag, type FeedNote,
 } from '../hooks/useSupplierNotes'
 import { NOTE_SOURCES, type NoteOpenIntent } from '../lib/noteSources'
+import { CopyButton } from './ui/CopyButton'
 
 /** The panel's width when open. Layout reads it too — it shifts the page by
  *  exactly this much — so it lives here, next to the thing it measures. */
@@ -63,6 +64,9 @@ function OwnNoteRow({ note, onSave, onDelete }: {
         )}
         {!editing && (
           <span className="flex items-center gap-1" style={{ marginInlineStart: 'auto' }}>
+            {/* First of the three, because it is the one that leaves the note
+                exactly as it is. */}
+            <CopyButton text={note.body} title="העתקת ההערה" size={14} />
             <button
               onClick={() => { setDraft(note.body); setEditing(true) }}
               title="עריכה"
@@ -130,10 +134,17 @@ function DerivedNoteRow({ note, onOpen }: {
       <div className="flex items-center gap-2 flex-wrap" style={{ marginBottom: '5px' }}>
         <Tag style={note.style}>{note.label}</Tag>
         <span style={{ fontSize: '11px', color: '#9CA3AF' }}>{noteDate(note.date)}</span>
-        <span className="font-bold" style={{
-          marginInlineStart: 'auto', fontSize: '10px', color: '#9CA3AF',
-          border: '1px solid #E8E6EA', borderRadius: '5px', padding: '1px 5px',
-        }}>נאסף אוטומטית</span>
+        <span className="flex items-center gap-1.5" style={{ marginInlineStart: 'auto' }}>
+          {/* Read-only here, and copyable: taking the text is not editing it. This
+              is the row that matters most for the ask — a note written on an
+              invoice or on a statement reaches this panel whichever screen it was
+              written on, so the copy is one click from wherever she is. */}
+          <CopyButton text={note.body} title="העתקת ההערה" size={13} />
+          <span className="font-bold" style={{
+            fontSize: '10px', color: '#9CA3AF',
+            border: '1px solid #E8E6EA', borderRadius: '5px', padding: '1px 5px',
+          }}>נאסף אוטומטית</span>
+        </span>
       </div>
 
       <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', color: '#1F2125' }}>

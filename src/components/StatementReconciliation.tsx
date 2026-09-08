@@ -15,6 +15,7 @@ import { useInvoices } from '../hooks/useInvoices'
 import { usePayments } from '../hooks/usePayments'
 import { buildLedger, type LedgerResult } from '../lib/supplierLedger'
 import { useNotesTarget } from '../lib/notesTargetContext'
+import { CopyButton } from './ui/CopyButton'
 import { statementDiff, statementVerdict } from '../lib/ledgerEngine'
 import { printStatementPDF } from '../utils/pdf'
 import { openStoredFile } from '../lib/storage'
@@ -528,7 +529,13 @@ function DetailPage({
 
           {/* Notes + actions — always visible */}
           <div className="border-t" style={{ borderColor: '#E2E4E9', padding: '10px 12px' }}>
-            <label style={fieldLabel}>הערות התאמה</label>
+            <div className="flex items-center gap-2">
+              <label style={fieldLabel}>הערות התאמה</label>
+              {/* The same control the invoice note carries, in the same place:
+                  the send buttons beside it are not wired yet, and copying is
+                  what gets the sentence into a mail meanwhile. */}
+              <CopyButton text={notes} title="העתקת ההערה" />
+            </div>
             <textarea
               value={notes}
               onChange={(e) => { setNotes(e.target.value); setNoteState('idle') }}

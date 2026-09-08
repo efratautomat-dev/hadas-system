@@ -353,8 +353,14 @@ export interface DeliveryNote {
    * was placed, one when an invoice arrived before its goods. Neither describes a
    * delivery that happened, and naming the door is what keeps them from being read
    * as one (their `note_number` is empty for the same reason).
+   *
+   * `email`, `photo` and `sheet` were each made FROM a document, so a row of those
+   * three with no file attached has LOST something; `manual` never had one. That
+   * distinction is the whole reason `sheet` is separate from `manual` — both are
+   * lines in a grid, but one of them is a model's reading of a photograph and is
+   * worth nothing without the photograph. See `src/lib/intakeSource.ts`.
    */
-  intakeSource?: 'email' | 'manual' | 'photo' | 'order' | 'invoice'
+  intakeSource?: 'email' | 'manual' | 'photo' | 'sheet' | 'order' | 'invoice'
   /**
    * Another delivery a PERSON confirmed is a different shipment, despite looking
    * like a duplicate. Set only by answering "keep both" — never inferred.
