@@ -218,6 +218,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
             : undefined
         }
         capturedBy={userEmail}
+        onReload={reloadNotes}
         onRecordGoods={async d => {
           const res = await createNote(d)
           await reloadNotes()

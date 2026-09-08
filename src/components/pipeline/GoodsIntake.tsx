@@ -187,12 +187,11 @@ export default function GoodsIntake({
                 ? 'רשמי מה הגיע — זה נכנס לשורה הזו, ולא נפתחת שורה שנייה.'
                 : 'שתי הדרכים מייצרות את אותה שורה, שממתינה לחשבונית. בחרי מה שנוח עכשיו.'}
             </p>
-            {/* The camera door is NOT offered when recording into an existing row.
-                It files through ingest, which opens a row of its own — the exact
-                duplicate this block exists to avoid. A supplier's own note that
-                turns up later is photographed the ordinary way and answered by the
-                "הגיעה תעודת משלוח מהספק" question on this same page. */}
-            {!adoptNoteId && (
+            {/* The camera door, and when recording into a row it ATTACHES rather
+                than files: the commonest sequence in the shop is the invoice by
+                mail and the supplier's note arriving on the pallet, so the note is
+                photographed into the row that is already waiting for it. Filing a
+                second row for it would split one delivery in two. */}
             <button
               onClick={() => setMode('photo')}
               className="flex items-start gap-3 text-right"
@@ -200,11 +199,16 @@ export default function GoodsIntake({
             >
               <Camera className="w-5 h-5" style={{ color: 'var(--brand-primary)', flex: 'none', marginTop: 2 }} />
               <span>
-                <b style={{ fontSize: '13.5px', display: 'block' }}>צילום</b>
-                <span style={{ fontSize: '12px', color: '#9CA3AF' }}>תעודה של הספק, או דף פריטים בכתב יד.</span>
+                <b style={{ fontSize: '13.5px', display: 'block' }}>
+                  {adoptNoteId ? 'צילום תעודת המשלוח' : 'צילום'}
+                </b>
+                <span style={{ fontSize: '12px', color: '#9CA3AF' }}>
+                  {adoptNoteId
+                    ? 'תעודת המשלוח שהגיעה עם הסחורה — נצמדת לשורה הזו.'
+                    : 'תעודה של הספק, או דף פריטים בכתב יד.'}
+                </span>
               </span>
             </button>
-            )}
             {/* Offered ALWAYS. It used to be hidden unless a supplier was locked,
                 so opening intake from the goods screen simply had one fewer option
                 than opening it from a card — with nothing saying why. An option
@@ -240,7 +244,12 @@ export default function GoodsIntake({
         {mode === 'photo' && (
           <div className="px-5 py-4">
             <div style={{ marginBottom: '10px' }}>{back}</div>
-            <CaptureDocument capturedBy={capturedBy} onOpenDelivery={onOpenDelivery} />
+            <CaptureDocument
+              capturedBy={capturedBy}
+              onOpenDelivery={onOpenDelivery}
+              attachToNoteId={adoptNoteId}
+              onAttached={onClose}
+            />
           </div>
         )}
 

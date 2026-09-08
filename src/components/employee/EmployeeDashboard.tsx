@@ -144,6 +144,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             pendingPair={pendingPairFor(openNote, allNotes)}
             onResolvePair={async (arrivedId, action) => { await resolvePair(openNote.id, arrivedId, action) }}
             capturedBy={userEmail}
+            onReload={reloadNotes}
             onRecordGoods={async d => {
               const res = await createDelivery(d)
               await reloadNotes()

@@ -110,7 +110,7 @@ export default function DeliveryPage({
   onBack, onLoadCandidates, onLink, onUnlink, onApprove,
   onChangeSupplier, onDismantle, onOpenInvoice, onArrived, onMarkDiffers, customerOrders = [],
   onSetCustomerStatus, pendingPair, onResolvePair, onSettleByReceipt, onUndoReceipt,
-  onRecordGoods, capturedBy,
+  onRecordGoods, capturedBy, onReload,
 }: {
   note: DeliveryNote
   stage: PipelineStage
@@ -169,6 +169,9 @@ export default function DeliveryPage({
   }) => Promise<{ needsChoice?: boolean } | void>
   /** Who is looking at this — passed to the handwritten reader for its log. */
   capturedBy?: string
+  /** Re-read the row after the camera wrote straight into it (that path does not
+   *  go through `onRecordGoods`, so nothing else would know it changed). */
+  onReload?: () => Promise<void> | void
   /**
    * §7.j — mark that what came differs from what was ordered. Documentation only;
    * the difference is settled against the invoice. Offered where the person is
@@ -417,7 +420,7 @@ export default function DeliveryPage({
                   lockedSupplier={{ id: note.supplierId, name: note.supplierName }}
                   capturedBy={capturedBy}
                   onCreate={onRecordGoods}
-                  onClose={() => { /* lives in the page; nothing to close */ }}
+                  onClose={() => { void onReload?.() }}
                 />
               )}
 

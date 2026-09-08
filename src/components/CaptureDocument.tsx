@@ -11,6 +11,16 @@ interface Props {
    * Absent = the message still appears; only the button does not.
    */
   onOpenDelivery?: (deliveryNoteId: string) => void
+  /**
+   * Photograph INTO this delivery row rather than filing a new one.
+   *
+   * Set from the delivery page. The type picker disappears with it: the row is
+   * waiting for the supplier's note and nothing else, and offering "חשבונית" or
+   * "זיכוי" there would file a document against a row that cannot hold it.
+   */
+  attachToNoteId?: string
+  /** Called after a successful attach, so the page can reload and close this. */
+  onAttached?: () => void
 }
 
 // UI offers four choices; חזרה and זיכוי both run the return_doc pathway (identical
@@ -41,8 +51,13 @@ function readAsDataUrl(file: File): Promise<string> {
   })
 }
 
-export default function CaptureDocument({ capturedBy, onOpenDelivery }: Props) {
-  const [selected, setSelected] = useState<TypeOption | null>(null)
+export default function CaptureDocument({
+  capturedBy, onOpenDelivery, attachToNoteId, onAttached,
+}: Props) {
+  // Attaching has exactly one meaning, so the type is not a question.
+  const [selected, setSelected] = useState<TypeOption | null>(
+    attachToNoteId ? TYPE_OPTIONS.find(o => o.key === 'delivery') ?? null : null,
+  )
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -93,6 +108,7 @@ export default function CaptureDocument({ capturedBy, onOpenDelivery }: Props) {
         mimeType:    file.type,
         filename:    file.name,
         capturedBy,
+        deliveryNoteId: attachToNoteId,
       })
       setResult(res)
       if (res.ok) {
@@ -117,12 +133,20 @@ export default function CaptureDocument({ capturedBy, onOpenDelivery }: Props) {
           <Camera className="w-6 h-6" style={{ color: ACCENT }} />
         </div>
         <div>
-          <h1 className="text-xl font-semibold" style={{ color: '#1A1A2E' }}>צילום מסמך</h1>
-          <p className="text-sm" style={{ color: '#9CA3AF' }}>בחרי סוג מסמך, צלמי והעלי למערכת</p>
+          <h1 className="text-xl font-semibold" style={{ color: '#1A1A2E' }}>
+            {attachToNoteId ? 'צילום תעודת המשלוח' : 'צילום מסמך'}
+          </h1>
+          <p className="text-sm" style={{ color: '#9CA3AF' }}>
+            {attachToNoteId
+              ? 'התעודה תיצמד לשורה הזו — לא תיפתח שורה חדשה'
+              : 'בחרי סוג מסמך, צלמי והעלי למערכת'}
+          </p>
         </div>
       </div>
 
-      {/* Step 1 — type picker */}
+      {/* Step 1 — type picker. Not offered when attaching: the row is waiting for
+          the supplier's delivery note, and it is the only thing that fits. */}
+      {!attachToNoteId && (
       <div className="mb-6">
         <p className="text-sm font-medium mb-3" style={{ color: '#6B7280' }}>1. סוג המסמך</p>
         <div className="grid grid-cols-2 gap-3">
@@ -149,6 +173,7 @@ export default function CaptureDocument({ capturedBy, onOpenDelivery }: Props) {
           })}
         </div>
       </div>
+      )}
 
       {/* Step 2 — capture / preview */}
       {selected && (
@@ -235,17 +260,33 @@ export default function CaptureDocument({ capturedBy, onOpenDelivery }: Props) {
           <CheckCircle2 className="w-6 h-6 flex-shrink-0" style={{ color: '#0E9F6E' }} />
           <div>
             <p style={{ color: '#03543F', fontSize: '15px', fontWeight: 600 }}>
-              {result.outcome === 'exists' || result.outcome === 'skipped'
+              {result.outcome === 'attached'
+                ? 'התעודה נצמדה לשורה'
+                : result.outcome === 'exists' || result.outcome === 'skipped'
                 ? 'המסמך כבר קיים במערכת'
                 : 'המסמך נקלט בהצלחה'}
             </p>
             <p style={{ color: '#057A55', fontSize: '13px', marginTop: '2px' }}>
-              {result.outcome === 'exists'
+              {result.outcome === 'attached'
+                ? `${result.noteNumber ? `תעודה ${result.noteNumber} · ` : ''}הפריטים והמסמך נכנסו לשורה הקיימת.`
+                : result.outcome === 'exists'
                 ? `תעודה ${result.noteNumber || ''} כבר נקלטה מהמייל — לא נוצרה שורה שנייה.`.replace('  ', ' ')
                 : result.outcome === 'alerted'
                 ? 'נשמר, אך נדרשת בדיקה ידנית — בדקי בהתראות.'
                 : 'הופעל אותו תהליך חילוץ והעלאה כמו במסמכים שמגיעים במייל.'}
             </p>
+            {/* Two things she is TOLD rather than left to discover. Neither stops
+                the attach — she picked the row, and that decision stands. */}
+            {result.outcome === 'attached' && result.supplierMismatch && (
+              <p style={{ color: '#92400E', fontSize: '12.5px', marginTop: '6px', fontWeight: 700 }}>
+                שימי לב: על התעודה מופיע <b>{result.supplierMismatch}</b>, ולא הספק של השורה.
+              </p>
+            )}
+            {result.outcome === 'attached' && result.duplicateOf && (
+              <p style={{ color: '#92400E', fontSize: '12.5px', marginTop: '4px', fontWeight: 700 }}>
+                שימי לב: כבר קיימת שורה אחרת עם מספר התעודה הזה אצל הספק.
+              </p>
+            )}
             <div className="flex gap-2 mt-3 flex-wrap">
               {/* The way ONWARD comes first and carries the colour: when the note
                   is already on file, the next thing she wants is the delivery
@@ -259,13 +300,23 @@ export default function CaptureDocument({ capturedBy, onOpenDelivery }: Props) {
                   פתחי את דף הסחורה
                 </button>
               )}
-              <button
-                onClick={() => setResult(null)}
-                className="rounded-xl"
-                style={{ background: '#FFFFFF', color: ACCENT, border: `1px solid ${ACCENT}`, padding: '8px 16px', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}
-              >
-                צילום מסמך נוסף
-              </button>
+              {result.outcome === 'attached' && onAttached ? (
+                <button
+                  onClick={onAttached}
+                  className="rounded-xl"
+                  style={{ background: ACCENT, color: '#FFFFFF', border: `1px solid ${ACCENT}`, padding: '8px 16px', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  חזרה לשורה
+                </button>
+              ) : (
+                <button
+                  onClick={() => setResult(null)}
+                  className="rounded-xl"
+                  style={{ background: '#FFFFFF', color: ACCENT, border: `1px solid ${ACCENT}`, padding: '8px 16px', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  צילום מסמך נוסף
+                </button>
+              )}
             </div>
           </div>
         </div>
