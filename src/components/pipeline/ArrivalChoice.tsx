@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Truck, Plus, X } from 'lucide-react'
 import type { ArrivalCandidate } from '../../hooks/useOrders'
+import { intakeShort, type IntakeSource } from '../../lib/intakeSource'
 
 // ── "הגיע" met a delivery that is already here ───────────────────────────────
 //
@@ -70,6 +71,14 @@ export default function ArrivalChoice({
                 <span style={{ fontSize: '13.5px' }}>
                   <b>{c.note_number || 'ללא מספר תעודה'}</b>
                   <span style={{ color: '#9CA3AF' }}>{c.date ? ` · ${c.date}` : ''}</span>
+                  {/* WHICH row this is. Half these candidates are the supplier's
+                      own emailed note and half are a shell an order or an invoice
+                      opened, and they are answered differently — a shell has no
+                      number, so without this line several candidates read as one
+                      indistinguishable "ללא מספר תעודה". */}
+                  <span style={{ display: 'block', fontSize: '11.5px', color: '#9CA3AF', marginTop: '2px' }}>
+                    {intakeShort(c.intake_source as IntakeSource | null | undefined)}
+                  </span>
                 </span>
                 <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
                   זו היא

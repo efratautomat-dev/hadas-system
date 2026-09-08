@@ -635,7 +635,7 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
   if (!adoptId && !forceNew) {
     const since = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
     const { data: waiting } = await supabase.from("delivery_notes")
-      .select("id, note_number, date, stage, supplier_name")
+      .select("id, note_number, date, stage, supplier_name, intake_source")
       .eq("supplier_id", supplierId)
       .in("stage", ["awaiting_invoice", "awaiting_goods"])
       .gte("date", since)
@@ -649,25 +649,53 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
 
   if (adoptId) {
     const { data: target } = await supabase.from("delivery_notes")
-      .select("id, stage").eq("id", String(adoptId)).maybeSingle();
+      .select("id, stage, intake_source, line_items, note_number, amount, storage_url")
+      .eq("id", String(adoptId)).maybeSingle();
     if (!target) return json({ error: "That delivery no longer exists" }, 409);
 
-    const patch: Record<string, unknown> = {
-      // What the employee saw, added to what the document said. Only filled where
-      // the row is empty — a note number read off the supplier's own paper is
-      // better than one typed at the counter.
-      employee_id:   body.employee_id ?? body.employeeId ?? null,
-      intake_source: body.intake_source ?? body.intakeSource ?? "manual",
-    };
-    if (line_items) patch.line_items = line_items;
-    if (note_number) patch.note_number = note_number;
-    // The sheet's cost total, when it had one. Only fills a hole — a figure read
-    // off the supplier's own document outranks one summed at the counter.
+    // What the employee saw, added to what the document said. ONLY what she
+    // actually sent: the previous version wrote `?? null` and `?? "manual"` into
+    // both columns on every adopt, so confirming that an emailed note was the
+    // delivery in hand erased the two things the row knew about itself — who took
+    // it, and that it came from the supplier's own document. The row then read
+    // "הקלדה" while holding a document, which is precisely the provenance the
+    // owner asked to be able to see.
+    const patch: Record<string, unknown> = {};
+    const adoptEmployee = body.employee_id ?? body.employeeId ?? null;
+    if (adoptEmployee) patch.employee_id = adoptEmployee;
+    // The door stays the door the ROW came through. Joining an emailed note at
+    // the counter does not turn it into a typed receipt — the supplier's document
+    // is still what the row is made of. Filled only when the target never named a
+    // door at all.
+    const adoptSource = body.intake_source ?? body.intakeSource ?? "manual";
+    if (!target.intake_source) patch.intake_source = adoptSource;
+    // ── What the counter may overwrite ──────────────────────────────────────
+    //
+    // The comments here always said "only fills a hole" and the code wrote every
+    // field unconditionally. So confirming that the emailed note was the delivery
+    // in hand replaced the supplier's own item table, his figure and his file
+    // with a reading taken beside the pallet: the row kept its number and lost
+    // its evidence.
+    //
+    // The line is whether the target holds a DOCUMENT.
+    // An emailed or photographed note does, so what it says wins and the counter
+    // only fills gaps. A shell — the row an order or an invoice opened — holds a
+    // placeholder: the order's description and a zero, written before anyone had
+    // seen the goods. There, what actually arrived is the better record and
+    // replaces it.
+    const targetHasDocument =
+      ["email", "photo", "sheet"].includes(String(target.intake_source ?? "")) ||
+      !!target.storage_url;
+    const canFill = (current: unknown) =>
+      !targetHasDocument || current === null || current === undefined || current === "";
+
+    if (line_items  && canFill(target.line_items))  patch.line_items  = line_items;
+    if (note_number && canFill(target.note_number)) patch.note_number = note_number;
     const safeAmount = storableAmount(amount);
-    if (safeAmount !== null) patch.amount = safeAmount;
-    // Only fills a hole: an emailed note already carries the supplier's own
-    // document, which outranks a photograph of a handwritten page.
-    if (storageUrl) patch.storage_url = storageUrl;
+    if (safeAmount !== null && canFill(target.amount)) patch.amount = safeAmount;
+    // The document itself is the one field that is hole-only in every case: a
+    // photograph never displaces a file that is already on the row.
+    if (storageUrl && !target.storage_url) patch.storage_url = storageUrl;
     // Goods have now been seen. An invoice-first chain was only ever waiting for
     // this, so it moves on; a note-first chain is still waiting for its invoice.
     if (target.stage === "awaiting_goods") patch.stage = "awaiting_approval";
@@ -1499,10 +1527,22 @@ async function openPipelineForInvoice(
     note_number:   "",
     date:          inv.invoice_date ?? new Date().toISOString().slice(0, 10),
     amount:        0,
-    status:        "pending",
     // The invoice is in and the goods are not — the mirror image of the usual start.
     stage:         "awaiting_goods" satisfies PipelineStage,
     intake_source: "invoice",
+    // ── The mirror, written here too ────────────────────────────────────────
+    //
+    // `delivery_notes.invoice_id` is the legacy single-link column, and the
+    // header comment above `linkDeliveryNote` is explicit that it is still
+    // WRITTEN as a mirror because screens still read it. This handler wrote only
+    // the link table — so the row it opened existed, was correctly linked, and
+    // was invisible to the one screen that asks the question: the invoice panel
+    // reads `linkedInvoiceId`, found nothing, and went on offering "פתיחת
+    // הפייפליין" as though the press had done nothing. Pressing again answered
+    // `alreadyLinked` and still showed nothing. That is the owner's "החשבוניות
+    // לא פותחות פייפליין": it opened one every time and never said so.
+    invoice_id:    invoiceId,
+    status:        "linked",
   }).select("id").single();
   if (error || !note) return json({ error: "Failed to open pipeline", details: error?.message }, 500);
 
@@ -1612,7 +1652,7 @@ async function markOrderArrived(
   let noteId: string | null = null;
 
   const { data: waiting } = await supabase.from("delivery_notes")
-    .select("id, note_number, date, supplier_name")
+    .select("id, note_number, date, supplier_name, intake_source")
     .eq("supplier_id", order.supplier_id)
     .eq("stage", "awaiting_invoice")
     .gte("date", since)
@@ -1646,9 +1686,16 @@ async function markOrderArrived(
       await supabase.from("delivery_note_invoices").delete().eq("delivery_note_id", ownRow);
       await supabase.from("delivery_notes").delete().eq("id", ownRow).eq("intake_source", "order");
     }
-  } else if (ownRow && candidates.length === 0) {
+  } else if (ownRow && (candidates.length === 0 || forceNew)) {
     // Nothing else to merge with: this row IS the delivery, and the goods just
     // turned up in it.
+    //
+    // `forceNew` lands here too, and that is the fix for the worst thing this
+    // handler did. "לא, זו סחורה אחרת" means "not the note you found" — it does
+    // NOT mean "not the order I am standing on". Inserting a fresh row for it
+    // left the order's own row behind, empty and orphaned, so answering the
+    // duplicate question opened the duplicate it was asked to prevent: the popup
+    // appeared and a new line appeared right behind it.
     await supabase.from("delivery_notes")
       .update({ stage: "awaiting_invoice" satisfies PipelineStage, date: today })
       .eq("id", ownRow);

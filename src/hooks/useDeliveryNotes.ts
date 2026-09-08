@@ -40,9 +40,13 @@ export function useDeliveryNotes() {
           amount:          Number(r.amount ?? 0),
           status:          r.status       ?? 'pending',
           driveFileLink:   r.drive_file_link ?? '',
-          // Two-view split: rows with a gmail_message_id arrived by email; the rest
-          // are manual goods-receipt entries (mirrors the Returns derivation).
-          source:          r.gmail_message_id ? 'email' : 'manual',
+          // Two-view split: what the SUPPLIER sent vs what was recorded here. Read
+          // off the door the row came through, and only guessed from the message
+          // id when no door was recorded — the camera path issues itself a
+          // `capture-…` id, so guessing filed every photographed delivery under
+          // "arrived by email".
+          source:          (r.intake_source ?? (r.gmail_message_id ? 'email' : 'manual')) === 'email'
+            ? 'email' : 'manual',
           lineItems:       r.line_items ?? '',
           noteNumber:      r.note_number ?? '',
           employeeId:      r.employee_id ?? '',
@@ -50,7 +54,10 @@ export function useDeliveryNotes() {
           // DB column carries — so a row written before the migration still reads as a
           // delivery waiting for its invoice rather than as an undefined state.
           stage:           (r.stage as PipelineStage) ?? 'awaiting_invoice',
-          intakeSource:    r.intake_source ?? (r.gmail_message_id ? 'email' : 'manual'),
+          intakeSource:    r.intake_source
+            ?? (String(r.gmail_message_id ?? '').startsWith('capture-')
+              ? 'photo'
+              : r.gmail_message_id ? 'email' : 'manual'),
           // notes field doesn't exist in DB; omit it
         })) as DeliveryNote[])
         setError(null)
@@ -93,6 +100,13 @@ export function useDeliveryNotes() {
     amount?: number | null
     /** The filed photo of that sheet — the document the reading came from. */
     storageUrl?: string | null
+    /**
+     * Which door this came through — `manual` typed, `sheet` read off a
+     * photographed page. Sent, not defaulted: the endpoint's default is 'manual',
+     * so a sheet that stays silent files itself as a typed receipt and its reading
+     * loses the one fact that says a photograph should exist for it.
+     */
+    intakeSource?: 'manual' | 'sheet' | 'photo'
     adopt?: string; forceNew?: boolean
   }): Promise<{ needsChoice?: boolean; candidates?: ArrivalCandidate[]; id?: string }> => {
     try {
@@ -107,6 +121,7 @@ export function useDeliveryNotes() {
         // the ledger never reads this figure either way.
         amount:        body.amount ?? null,
         storage_url:   body.storageUrl ?? null,
+        intake_source: body.intakeSource ?? 'manual',
         delivery_note_id: body.adopt,
         force_new:        body.forceNew,
       }) as { needsChoice?: boolean; candidates?: ArrivalCandidate[]; id?: string }

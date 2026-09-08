@@ -366,6 +366,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenInvoice={(id) => pushNav({ page: 'invoices', invoiceSelectedId: id })}
         onCloseInvoice={goBack}
         onOpenSupplier={(id) => pushNav({ page: 'suppliers', supplierViewId: id })}
+        onOpenDelivery={(id) => pushNav({ page: 'deliveries', deliverySelectedId: id })}
         onDuplicateResolved={handleDuplicateResolved}
         onDuplicateDismissed={goBack}
       />
@@ -379,6 +380,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenInvoice={(id) => pushNav({ page: 'invoices-duplicates', invoiceSelectedId: id })}
         onCloseInvoice={goBack}
         onOpenSupplier={(id) => pushNav({ page: 'suppliers', supplierViewId: id })}
+        onOpenDelivery={(id) => pushNav({ page: 'deliveries', deliverySelectedId: id })}
         onDuplicateResolved={handleDuplicateResolved}
         onDuplicateDismissed={goBack}
       />

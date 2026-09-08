@@ -8,6 +8,7 @@ import OrderForm from './OrderForm'
 import SupplierPicker from './SupplierPicker'
 import ArrivalChoice from './ArrivalChoice'
 import GoodsIntake from './GoodsIntake'
+import { intakeShort } from '../../lib/intakeSource'
 import CustomerOrdersBook from './CustomerOrdersBook'
 import { pendingPairFor } from '../../lib/deliveryPairs'
 
@@ -89,6 +90,11 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
     const res = await markArrived(id, partial, choice)
     if (res.needsChoice) { setArrival({ orderId: id, partial, candidates: res.candidates ?? [] }); return }
     setArrival(null)
+    // The delivery list is this screen's own copy and arrival rewrote it — a row
+    // moved stage, or an order's empty shell was absorbed into an emailed note.
+    // Without this the list keeps showing both for the rest of the visit, which
+    // reads exactly like the duplicate the merge just prevented.
+    await reloadNotes()
     // Land ON the goods, not back on a list the order just left. Marking arrival
     // is the moment the order becomes work, and leaving her to find the row it
     // turned into is a step the system can take for her.
@@ -327,12 +333,9 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
                           {/* An order-opened row says so, and names its customer:
                               with the orders tab gone this row is the only place
                               that information now lives. */}
-                          {n.intakeSource === 'order'
-                            ? (orderMeta.get(n.id)?.customerName
-                                ? `הזמנה · עבור ${orderMeta.get(n.id)!.customerName}`
-                                : 'הזמנה')
-                            : n.intakeSource === 'email' ? 'הגיע במייל'
-                            : n.intakeSource === 'photo' ? 'צילום' : 'קליטה ידנית'}
+                          {n.intakeSource === 'order' && orderMeta.get(n.id)?.customerName
+                            ? `הזמנה · עבור ${orderMeta.get(n.id)!.customerName}`
+                            : intakeShort(n.intakeSource)}
                         </div>
                         {/* Who is waiting for this, on the ROW. Opening every
                             delivery to find out whether a customer was promised
@@ -403,7 +406,15 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
           suppliers={suppliers.map(s => ({ id: s.id, name: s.name, hp: (s as { hp?: string }).hp }))}
           capturedBy={userEmail}
           onClose={() => setIntake(false)}
-          onCreate={async d => { await createNote(d); await reloadNotes() }}
+          // The answer travels back to the door. A `needsChoice` reply means
+          // NOTHING was written, so reloading on it would report a save that
+          // never happened.
+          onCreate={async d => {
+            const res = await createNote(d)
+            if (res?.needsChoice) return res
+            await reloadNotes()
+            return res
+          }}
         />
       )}
 
@@ -473,6 +484,9 @@ function GoodsCards({ notes, orderByNote, stageOf, onOpen, customers, invoicesFo
           </h3>
           <p style={{ fontSize: '12px', color: '#9CA3AF', margin: '0 0 11px' }}>
             {n.noteNumber ? `תעודה ${n.noteNumber} · ` : ''}{n.date}
+            {/* The door, on the card as well as on the row. Two views of one list
+                that describe a record differently are two lists. */}
+            {' · '}{intakeShort(n.intakeSource)}
           </p>
           <PipelineStrip
             stage={stageOf(n)}

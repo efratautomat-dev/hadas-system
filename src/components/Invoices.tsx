@@ -3,6 +3,7 @@ import { FileText, Search, ChevronRight, ChevronDown, ExternalLink, Eye, Save, A
 import { type Invoice, type Alert, type PipelineStage } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
+import { useDeliveryLinks } from '../hooks/useDeliveryLinks'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
 import { PdfPreviewButton, PdfPreviewModal, DocumentBody } from './PdfPreviewModal'
@@ -10,12 +11,14 @@ import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge } from './StatusBadge'
 import { FilterTabs } from './ui/FilterTabs'
 import { Button } from './ui/Button'
+import { CopyButton } from './ui/CopyButton'
 import { supabase } from '../lib/supabase'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { SummaryCards } from './ui/SummaryCards'
 import { STATUS } from '../theme/status'
 import { STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING, deriveInvoiceStatus, INVOICE_STATUS_INTERNAL } from '../lib/invoiceStatus'
 import { isCreditInvoice, applyCreditSign, convertInvoice } from '../lib/creditNote'
+import { tierAllows } from '../lib/tiers'
 import { vatRateFor, vatPercentFor, completeAmounts, type EditedAmount } from '../lib/vat'
 import { useDateField } from './ui/form'
 import { newestFirst } from '../lib/recency'
@@ -860,6 +863,9 @@ export function InvoiceDetail({
           <div className="flex items-center gap-2" style={{ marginBottom: '7px' }}>
             <StickyNote size={15} style={{ color: 'var(--brand-primary)' }} />
             <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--brand-primary)' }}>הערות לחשבונית</h3>
+            {/* Until the two send buttons below are wired, this is how the text
+                gets out of the system: copy, and paste into the mail. */}
+            <CopyButton text={form.notes ?? ''} title="העתקת ההערה" />
             <span style={{ marginInlineStart: 'auto', fontSize: '11.5px', color: '#9CA3AF' }}>
               מופיעה גם בהערות הספק
             </span>
@@ -1019,6 +1025,9 @@ interface InvoicesProps {
   onOpenInvoice?: (id: string) => void
   onCloseInvoice?: () => void
   onOpenSupplier?: (supplierId: string) => void
+  /** Land on the goods row this invoice belongs to — the other end of "פתיחת
+   *  הפייפליין". Absent (basic tier has no goods screen) = the badge alone. */
+  onOpenDelivery?: (deliveryNoteId: string) => void
   // Fired after a duplicate pair is resolved (deleted / marked primary / approved)
   // so the parent can clean up the alert(s) that referenced the pair and, when
   // the modal was opened from a duplicate alert, navigate back to where we came from.
@@ -1040,7 +1049,8 @@ export interface DuplicateResolution {
 
 export default function Invoices({
   initialFilter = 'all', alerts = [], controlledSelectedId, initialDuplicateInvoiceId,
-  onOpenInvoice, onCloseInvoice, onOpenSupplier, onDuplicateResolved, onDuplicateDismissed,
+  onOpenInvoice, onCloseInvoice, onOpenSupplier, onOpenDelivery,
+  onDuplicateResolved, onDuplicateDismissed,
 }: InvoicesProps) {
   const { data: serverInvoices, loading, error, update: updateInvoice, updateStatus, remove: removeInvoice, openPipeline } = useInvoices()
   // Read-only: which pipeline (if any) this invoice already belongs to.
@@ -1048,6 +1058,7 @@ export default function Invoices({
   // re-reading here the button appeared to do nothing — this screen holds its own
   // copy of the list, separate from the goods screen's.
   const { data: pipelineNotes, reload: reloadNotes } = useDeliveryNotes()
+  const { deliveriesFor, reload: reloadLinks } = useDeliveryLinks()
   // Suppliers flagged "בהסדר תשלום" → their invoices get an informational tag (display-only).
   const { data: suppliersData } = useSuppliers()
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -1208,6 +1219,12 @@ export default function Invoices({
   }
 
   if (selected) {
+    // BOTH sides of the link are read: the mirror column `invoice_id` and the
+    // many-to-many table that is the actual truth. Reading only the mirror is what
+    // made a freshly opened pipeline look like nothing had happened.
+    const linkedNoteIds = deliveriesFor(selected.id)
+    const pipelineNote = pipelineNotes.find(n =>
+      n.linkedInvoiceId === selected.id || linkedNoteIds.includes(n.id))
     return (
       <InvoiceDetail
         invoice={selected}
@@ -1222,8 +1239,18 @@ export default function Invoices({
         }}
         onBack={closeInvoice}
         onOpenSupplier={onOpenSupplier}
-        pipelineStage={pipelineNotes.find(n => n.linkedInvoiceId === selected.id)?.stage ?? null}
-        onOpenPipeline={async () => { await openPipeline(selected.id); await reloadNotes() }}
+        pipelineStage={pipelineNote?.stage ?? null}
+        // Guarded, not merely absent: a link into a screen the viewer's tier does
+        // not include advertises a feature that cannot be opened.
+        onOpenPipelineView={
+          pipelineNote && onOpenDelivery && tierAllows('deliveries')
+            ? () => onOpenDelivery(pipelineNote.id)
+            : undefined
+        }
+        onOpenPipeline={async () => {
+          await openPipeline(selected.id)
+          await Promise.all([reloadNotes(), reloadLinks()])
+        }}
         onDelete={async (id) => {
           closeInvoice()
           try {

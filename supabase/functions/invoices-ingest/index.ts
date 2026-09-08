@@ -2139,9 +2139,117 @@ async function handleInvoiceFile(
     }
   }
 
+  // The third leg of the chain, opened by the invoice itself — see
+  // `openPipelineForInvoice` below. Never for a credit note (nothing arrived) and
+  // never for a duplicate (the original already carries the chain).
+  if (insertedId && supplierId && !isDuplicate && !ctx.isCreditNote) {
+    await openPipelineForInvoice(supabase, log, msgId, {
+      invoiceId:     String(insertedId),
+      supplierId,
+      supplierName:  supplierDisplayName || extracted.vendor_name || "",
+      invoiceDate:   extracted.invoice_date ?? null,
+    });
+  }
+
   await log("info", "invoice ingested",
     { supplierId, isNewSupplier, isDuplicate, category: finalCategory, filename: file.filename }, msgId);
   return "created";
+}
+
+/**
+ * An invoice that arrived before its goods opens a pipeline of its own.
+ *
+ * The model the owner settled on: order, delivery and invoice are three parts of
+ * one chain and EACH can start it. Two of the three did. The invoice leg existed
+ * only as a BUTTON on the invoice card — so an invoice that reached the mailbox
+ * before its delivery note sat outside the chain until somebody happened to open
+ * it and press. "החשבוניות לא פותחות פייפליין", and they did not.
+ *
+ * Two guards, and both are the owner's decision (08.09.2026):
+ *
+ *   goods suppliers only — a row opened for the accountant's fee or the rent is a
+ *     delivery that will never arrive, and a goods screen filling with invoices
+ *     that have no goods behind them is a screen she stops reading. "Sends goods"
+ *     is asked of the history, not guessed: a delivery note or an order on file.
+ *
+ *   nothing already waiting — if a delivery of his is waiting for an invoice, this
+ *     invoice probably belongs to IT, and that is a match a person confirms (§6.f).
+ *     The delivery page already offers it as a candidate. Opening a shell beside
+ *     it would put two rows on the screen for one shipment, which is the exact
+ *     duplication the whole arrival flow exists to prevent.
+ *
+ * Silent when it declines: the invoice is filed either way, and the button on the
+ * card still opens a chain by hand for the case the history could not predict.
+ */
+async function openPipelineForInvoice(
+  supabase: SupabaseClient,
+  log: Logger,
+  msgId: string,
+  inv: { invoiceId: string; supplierId: string; supplierName: string; invoiceDate: string | null },
+): Promise<void> {
+  try {
+    // Does this supplier send goods at all? One delivery note or one order on
+    // file is enough — both mean somebody has handled physical goods from him.
+    const [noteRes, orderRes] = await Promise.all([
+      supabase.from("delivery_notes").select("id", { count: "exact", head: true })
+        .eq("supplier_id", inv.supplierId),
+      supabase.from("orders").select("id", { count: "exact", head: true })
+        .eq("supplier_id", inv.supplierId),
+    ]);
+    if ((noteRes.count ?? 0) === 0 && (orderRes.count ?? 0) === 0) {
+      await log("info", "invoice pipeline not opened — supplier has no goods history",
+        { invoiceId: inv.invoiceId, supplierId: inv.supplierId }, msgId);
+      return;
+    }
+
+    // Is one of his deliveries already waiting for an invoice? Then this invoice
+    // is a CANDIDATE for it, not the start of something new.
+    const { data: waiting } = await supabase.from("delivery_notes")
+      .select("id").eq("supplier_id", inv.supplierId)
+      .eq("stage", "awaiting_invoice").limit(1);
+    if (waiting && waiting.length > 0) {
+      await log("info", "invoice pipeline not opened — a delivery is already waiting for one",
+        { invoiceId: inv.invoiceId, deliveryNoteId: waiting[0].id }, msgId);
+      return;
+    }
+
+    const { data: note, error } = await supabase.from("delivery_notes").insert({
+      supplier_id:   inv.supplierId,
+      supplier_name: inv.supplierName || null,
+      note_number:   "",
+      date:          inv.invoiceDate || new Date().toISOString().slice(0, 10),
+      amount:        0,
+      status:        "linked",
+      // The invoice is in and the goods are not — the mirror image of the usual
+      // start. `note_number` stays empty and the door is named, so a row that
+      // never carried goods is never read as a delivery that happened.
+      stage:         "awaiting_goods",
+      intake_source: "invoice",
+      // The legacy single-link column, written alongside the link table because
+      // screens still read it — the invoice card among them.
+      invoice_id:    inv.invoiceId,
+    }).select("id").single();
+    if (error || !note) {
+      await log("warn", `invoice pipeline insert failed: ${error?.message ?? "no row"}`,
+        { invoiceId: inv.invoiceId }, msgId);
+      return;
+    }
+    const { error: linkErr } = await supabase.from("delivery_note_invoices")
+      .insert({ delivery_note_id: note.id, invoice_id: inv.invoiceId });
+    if (linkErr) {
+      await log("warn", `invoice pipeline link failed: ${linkErr.message}`,
+        { invoiceId: inv.invoiceId, deliveryNoteId: note.id }, msgId);
+      return;
+    }
+    await log("info", "invoice opened a pipeline",
+      { invoiceId: inv.invoiceId, deliveryNoteId: note.id }, msgId);
+  } catch (e) {
+    // Never fails the ingest. The invoice is filed and the chain can be opened by
+    // hand from its card — losing the document over a bookkeeping row would be
+    // the larger loss by far.
+    await log("warn", `invoice pipeline step failed: ${e instanceof Error ? e.message : String(e)}`,
+      { invoiceId: inv.invoiceId }, msgId);
+  }
 }
 
 async function ingestInvoices(
@@ -3560,6 +3668,13 @@ async function handleNonInvoice(
       gmail_message_id:  msgId,
       email_subject:     ctx.subject,
       message_link:      ctx.messageLink,
+      // Name the door. This column was never written here, so every ingested
+      // delivery carried NULL and the screen guessed from the message id — which
+      // is a synthetic `capture-…` on the camera path, so a document photographed
+      // at the counter has been reading as "הגיע במייל" ever since capture
+      // shipped. The two are not interchangeable: one is the supplier's own
+      // filing, the other is a photograph an employee took and can retake.
+      intake_source:     ctx.captureMode ? "photo" : "email",
     }).select("id").single();
     if (error) {
       await log("error", `delivery_note insert failed: ${error.message}`,
