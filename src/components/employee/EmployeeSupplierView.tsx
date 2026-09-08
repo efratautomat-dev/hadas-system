@@ -646,6 +646,10 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
           lockedSupplier={{ id: supplier.id, name: supplier.name }}
           capturedBy={userEmail}
           onClose={() => setIntake(false)}
+          // No detail page to open on this side yet, so the photo door reports
+          // "already on file" and closes back to the deliveries list — where the
+          // row it is talking about is already sitting.
+          onOpenDelivery={() => setIntake(false)}
           onCreate={async d => { await createDeliveryNote(d) }}
         />
       )}

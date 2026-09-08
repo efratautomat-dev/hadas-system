@@ -4,6 +4,13 @@ import { captureDocument, type CaptureDocType, type CaptureResult } from '../lib
 
 interface Props {
   capturedBy?: string
+  /**
+   * Open a delivery that already exists. Offered when a photographed note turns
+   * out to be one the mailbox already delivered — the reply then has somewhere to
+   * send her, instead of telling her it is on file and leaving her to find it.
+   * Absent = the message still appears; only the button does not.
+   */
+  onOpenDelivery?: (deliveryNoteId: string) => void
 }
 
 // UI offers four choices; חזרה and זיכוי both run the return_doc pathway (identical
@@ -34,7 +41,7 @@ function readAsDataUrl(file: File): Promise<string> {
   })
 }
 
-export default function CaptureDocument({ capturedBy }: Props) {
+export default function CaptureDocument({ capturedBy, onOpenDelivery }: Props) {
   const [selected, setSelected] = useState<TypeOption | null>(null)
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -228,20 +235,38 @@ export default function CaptureDocument({ capturedBy }: Props) {
           <CheckCircle2 className="w-6 h-6 flex-shrink-0" style={{ color: '#0E9F6E' }} />
           <div>
             <p style={{ color: '#03543F', fontSize: '15px', fontWeight: 600 }}>
-              {result.outcome === 'skipped' ? 'המסמך כבר קיים במערכת' : 'המסמך נקלט בהצלחה'}
+              {result.outcome === 'exists' || result.outcome === 'skipped'
+                ? 'המסמך כבר קיים במערכת'
+                : 'המסמך נקלט בהצלחה'}
             </p>
             <p style={{ color: '#057A55', fontSize: '13px', marginTop: '2px' }}>
-              {result.outcome === 'alerted'
+              {result.outcome === 'exists'
+                ? `תעודה ${result.noteNumber || ''} כבר נקלטה מהמייל — לא נוצרה שורה שנייה.`.replace('  ', ' ')
+                : result.outcome === 'alerted'
                 ? 'נשמר, אך נדרשת בדיקה ידנית — בדקי בהתראות.'
                 : 'הופעל אותו תהליך חילוץ והעלאה כמו במסמכים שמגיעים במייל.'}
             </p>
-            <button
-              onClick={() => setResult(null)}
-              className="rounded-xl mt-3"
-              style={{ background: '#FFFFFF', color: ACCENT, border: `1px solid ${ACCENT}`, padding: '8px 16px', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}
-            >
-              צילום מסמך נוסף
-            </button>
+            <div className="flex gap-2 mt-3 flex-wrap">
+              {/* The way ONWARD comes first and carries the colour: when the note
+                  is already on file, the next thing she wants is the delivery
+                  itself, not another photograph. */}
+              {result.outcome === 'exists' && result.deliveryNoteId && onOpenDelivery && (
+                <button
+                  onClick={() => onOpenDelivery(result.deliveryNoteId!)}
+                  className="rounded-xl"
+                  style={{ background: ACCENT, color: '#FFFFFF', border: `1px solid ${ACCENT}`, padding: '8px 16px', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  פתחי את דף הסחורה
+                </button>
+              )}
+              <button
+                onClick={() => setResult(null)}
+                className="rounded-xl"
+                style={{ background: '#FFFFFF', color: ACCENT, border: `1px solid ${ACCENT}`, padding: '8px 16px', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                צילום מסמך נוסף
+              </button>
+            </div>
           </div>
         </div>
       )}

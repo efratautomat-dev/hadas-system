@@ -3358,8 +3358,15 @@ async function handleNonInvoice(
     /** Gmail access token — absent on the camera-capture path, which has no
      *  mailbox to ask about (the sender there is the person holding the phone). */
     token?:      string;
+    /**
+     * The document was PHOTOGRAPHED by someone standing in front of the goods,
+     * not pulled from a mailbox. Changes exactly one behaviour: a delivery note
+     * whose number this supplier already has is reported back instead of being
+     * filed a second time. See the check itself for why the two paths differ.
+     */
+    captureMode?: boolean;
   },
-): Promise<boolean> {
+): Promise<boolean | { existing: { deliveryNoteId: string; noteNumber: string; supplierName: string } }> {
   // Returns true when the document was fully handled (DB row written, or
   // deliberately escalated to the user via an alert) — the caller may then label
   // the email processed. Returns false ONLY when a DB write (insert/update/read)
@@ -3473,6 +3480,33 @@ async function handleNonInvoice(
         // The ALERT is raised after the insert, below — it has to name the row
         // that just arrived, because that is the one she decides about.
       }
+    }
+
+    // ── The employee is holding the note, and we already have it ─────────────
+    //
+    // "אם הסחורה מגיעה עם תעודת משלוח והעובדת מצלמת את התעודה והתעודה כבר קיימת
+    //  אצל הספק הזה כי הגיע מהמייל — שזה לא יקלוט פעם שניה."
+    //
+    // The camera is a DIFFERENT situation from the mailbox and it earns a
+    // different answer. Two emails carrying one note number can genuinely be two
+    // deliveries, so that path keeps both rows and marks them for a person to
+    // judge later. Here the person is ALREADY judging: she is standing in front
+    // of the goods with the paper in her hand, asking the system a question and
+    // waiting for the reply. The honest answer is "we have it" — not a second row
+    // for someone to clean up afterwards.
+    //
+    // Nothing is filed: no row, no Storage upload, no alert. She is pointed at the
+    // delivery that already exists, which is where the work actually is.
+    if (ctx.captureMode && dnDuplicateOf !== null) {
+      await log("info", "capture: delivery note already on file — not filed again",
+        { existingId: dnDuplicateOf, noteNumber: extracted.note_number }, msgId);
+      return {
+        existing: {
+          deliveryNoteId: dnDuplicateOf,
+          noteNumber:     extracted.note_number,
+          supplierName:   extracted.vendor_name,
+        },
+      };
     }
 
     const dateForPath = new Date(extracted.date || ctx.emailTs);
@@ -4189,9 +4223,18 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
     // delivery_note / return_doc — same handler the email path uses.
     const ok = await handleNonInvoice(supabase, log, captureId, suppliers, {
       docType, subject, from, emailTs: nowIso, messageLink: "", doc,
+      captureMode: true,
     });
+    // Already on file: nothing was written, and the reply names the row she
+    // should be looking at instead. `ok: true` on purpose — from where she is
+    // standing this is a success, not a failure to file.
+    if (typeof ok === "object" && ok.existing) {
+      return json({
+        ok: true, outcome: "exists", docType, captureId, ...ok.existing,
+      });
+    }
     await log("info", "capture non-invoice complete", { docType, ok }, captureId);
-    return json({ ok, outcome: ok ? "created" : "error", docType, captureId });
+    return json({ ok: ok === true, outcome: ok === true ? "created" : "error", docType, captureId });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await log("error", `capture failed: ${msg}`, { docType }, captureId);

@@ -1081,6 +1081,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
         <GoodsIntake
           suppliers={[]}
           lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          onOpenDelivery={onOpenDelivery}
           onClose={() => setIntake(false)}
           onCreate={async d => { await createDeliveryNote(d) }}
         />
