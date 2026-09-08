@@ -696,9 +696,16 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
     // The document itself is the one field that is hole-only in every case: a
     // photograph never displaces a file that is already on the row.
     if (storageUrl && !target.storage_url) patch.storage_url = storageUrl;
-    // Goods have now been seen. An invoice-first chain was only ever waiting for
-    // this, so it moves on; a note-first chain is still waiting for its invoice.
-    if (target.stage === "awaiting_goods") patch.stage = "awaiting_approval";
+    // Goods have now been seen, so a row that was waiting for them moves on — but
+    // to WHERE depends on what it already holds. An invoice-first chain has its
+    // invoice and is now ready for a person; an order's shell holds nothing yet
+    // and is still waiting for one. Reading the link table rather than assuming:
+    // sending an order to `awaiting_approval` would ask someone to approve a
+    // delivery against an invoice that does not exist.
+    if (target.stage === "awaiting_goods") {
+      const attached = await linkedInvoiceIds(supabase, String(adoptId));
+      patch.stage = attached.length > 0 ? "awaiting_approval" : "awaiting_invoice";
+    }
 
     const { error: updErr } = await supabase.from("delivery_notes")
       .update(patch).eq("id", String(adoptId));

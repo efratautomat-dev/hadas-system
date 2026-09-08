@@ -217,6 +217,12 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
             ? (partial: boolean) => arrive(orderIdByNote.get(openNote.id)!, partial)
             : undefined
         }
+        capturedBy={userEmail}
+        onRecordGoods={async d => {
+          const res = await createNote(d)
+          await reloadNotes()
+          return res
+        }}
       />
       {reassign && (
         <SupplierPicker

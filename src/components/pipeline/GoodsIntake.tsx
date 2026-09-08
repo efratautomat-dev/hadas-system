@@ -25,11 +25,26 @@ import { FormShell } from './FormShell'
 type Mode = 'choose' | 'photo' | 'sheet' | 'manual'
 
 export default function GoodsIntake({
-  suppliers, lockedSupplier, capturedBy, onClose, onCreate, onOpenDelivery, inline = false,
+  suppliers, lockedSupplier, capturedBy, onClose, onCreate, onOpenDelivery,
+  inline = false, adoptNoteId,
 }: {
   suppliers: { id: string; name: string; hp?: string }[]
   lockedSupplier?: { id: string; name: string }
   capturedBy?: string
+  /**
+   * Record INTO an existing pipeline row instead of opening one.
+   *
+   * The owner's rule, and she is right: "כל דבר שמגיע פותח פייפליין והעבודה הלאה
+   * היא משם". A row already waiting for goods — an invoice that came first, an
+   * order not yet delivered — knows its supplier and knows which chain this
+   * belongs to. Asking for a supplier and then asking "is this the delivery you
+   * already have?" is asking a question whose answer is on the screen.
+   *
+   * So every save here carries `adopt`, the server merges into that row instead
+   * of inserting, and no duplicate question is raised because there is no
+   * ambiguity to raise it about.
+   */
+  adoptNoteId?: string
   /** Passed to the photo door: a note already on file opens instead of filing. */
   onOpenDelivery?: (deliveryNoteId: string) => void
   onClose: () => void
@@ -68,6 +83,7 @@ export default function GoodsIntake({
   // route. §6.5 is built on it.
   const [employeeId, setEmployeeId] = useState('')
   const [busy, setBusy] = useState(false)
+  const [err, setErr]   = useState<string | null>(null)
   // The server answers "there is already a delivery waiting for this supplier"
   // instead of writing. The draft is held so answering resumes the same save.
   const [choice, setChoice] = useState<
@@ -82,13 +98,21 @@ export default function GoodsIntake({
 
   const submit = async (draft: Parameters<typeof onCreate>[0]) => {
     setBusy(true)
+    setErr(null)
     try {
-      const res = await onCreate(draft)
+      // Into the row that sent us, when there is one.
+      const res = await onCreate(adoptNoteId ? { ...draft, adopt: adoptNoteId } : draft)
       if (res && res.needsChoice) {
         setChoice({ candidates: res.candidates ?? [], draft })
         return
       }
       onClose()
+    } catch (e) {
+      // A failed save used to be COMPLETELY silent here: the hook logged, set its
+      // own error state that nothing on this screen renders, and re-threw into a
+      // click handler. The dialog stayed open with no message, which reads as
+      // "the button does nothing" — and that is what it was.
+      setErr(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
   }
 
@@ -133,20 +157,42 @@ export default function GoodsIntake({
         <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: '#EEEEF2' }}>
           <span className="font-bold text-gray-800 inline-flex items-center gap-2" style={{ fontSize: '15px' }}>
             <PackageCheck className="w-4 h-4" style={{ color: 'var(--brand-primary)' }} />
-            קליטת סחורה{lockedSupplier ? ` — ${lockedSupplier.name}` : ''}
+            {adoptNoteId
+              ? 'הסחורה הגיעה?'
+              : `קליטת סחורה${lockedSupplier ? ` — ${lockedSupplier.name}` : ''}`}
           </span>
-          <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF' }}
-            title="סגירה"
-          ><X className="w-5 h-5" /></button>
+          {/* No X on a block that lives INSIDE the page it belongs to — there is
+              nothing to close, and a close icon on a section reads as "remove". */}
+          {!(adoptNoteId && inline) && (
+            <button
+              onClick={onClose}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF' }}
+              title="סגירה"
+            ><X className="w-5 h-5" /></button>
+          )}
         </div>
+
+        {/* Said once, under the header, so it is seen whichever door is open. */}
+        {err && (
+          <p style={{
+            margin: 0, padding: '9px 20px', background: '#FFF0EF', color: '#B23B3B',
+            fontSize: '12.5px', borderBottom: '1px solid #F6D9D6',
+          }}>{err}</p>
+        )}
 
         {mode === 'choose' && (
           <div className="px-5 py-4 grid gap-3">
             <p style={{ fontSize: '12.5px', color: '#9CA3AF', margin: 0 }}>
-              שתי הדרכים מייצרות את אותה שורה, שממתינה לחשבונית. בחרי מה שנוח עכשיו.
+              {adoptNoteId
+                ? 'רשמי מה הגיע — זה נכנס לשורה הזו, ולא נפתחת שורה שנייה.'
+                : 'שתי הדרכים מייצרות את אותה שורה, שממתינה לחשבונית. בחרי מה שנוח עכשיו.'}
             </p>
+            {/* The camera door is NOT offered when recording into an existing row.
+                It files through ingest, which opens a row of its own — the exact
+                duplicate this block exists to avoid. A supplier's own note that
+                turns up later is photographed the ordinary way and answered by the
+                "הגיעה תעודת משלוח מהספק" question on this same page. */}
+            {!adoptNoteId && (
             <button
               onClick={() => setMode('photo')}
               className="flex items-start gap-3 text-right"
@@ -158,6 +204,7 @@ export default function GoodsIntake({
                 <span style={{ fontSize: '12px', color: '#9CA3AF' }}>תעודה של הספק, או דף פריטים בכתב יד.</span>
               </span>
             </button>
+            )}
             {/* Offered ALWAYS. It used to be hidden unless a supplier was locked,
                 so opening intake from the goods screen simply had one fewer option
                 than opening it from a card — with nothing saying why. An option
@@ -301,7 +348,7 @@ export default function GoodsIntake({
                 </p>
               </div>
             </div>
-            <div className="px-5 pb-5 flex items-center gap-2">
+            <div className="px-5 pb-5 flex items-center gap-2 flex-wrap">
               <button
                 disabled={!ready || busy}
                 onClick={save}
@@ -311,7 +358,16 @@ export default function GoodsIntake({
                   padding: '9px 18px', fontSize: '13px',
                   cursor: !ready ? 'not-allowed' : busy ? 'wait' : 'pointer',
                 }}
-              ><Check className="w-4 h-4" />{busy ? 'שומר…' : 'שמירה'}</button>
+              ><Check className="w-4 h-4" />{busy ? 'שומר…' : adoptNoteId ? 'שמירה לשורה הזו' : 'שמירה'}</button>
+              {/* WHY it will not save, on the screen. A disabled button is
+                  indistinguishable from a broken one: the click does nothing, the
+                  console says nothing, and the reasonable conclusion is that the
+                  system is broken. It cost a live testing session to learn that. */}
+              {!ready && !busy && (
+                <span style={{ fontSize: '12px', color: '#B45309', fontWeight: 600 }}>
+                  {!supplierId ? 'עוד לא נבחר ספק' : 'עוד לא נרשם אף פריט'}
+                </span>
+              )}
             </div>
           </>
         )}
