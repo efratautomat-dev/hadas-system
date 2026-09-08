@@ -25,16 +25,35 @@ import { RotateCcw, X } from 'lucide-react'
 export function LedgerResetControl({
   onConfirm,
   disabled,
+  open,
+  onDismiss,
 }: {
   onConfirm: (reason: string) => Promise<void>
   disabled?: boolean
+  /**
+   * CONTROLLED mode, used when the action is reached from a menu rather than
+   * from a button of its own: the idle button is not rendered at all and the
+   * panel opens straight at the question. Undefined = the original standalone
+   * button, which is still how the ledger SCREEN uses it.
+   */
+  open?: boolean
+  onDismiss?: () => void
 }) {
-  const [stage, setStage] = useState<'idle' | 'ask' | 'reason'>('idle')
+  const controlled = open !== undefined
+  const [stage, setStage] = useState<'idle' | 'ask' | 'reason'>(
+    controlled && open ? 'ask' : 'idle',
+  )
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const close = () => { setStage('idle'); setReason(''); setError(null) }
+  const close = () => { setStage('idle'); setReason(''); setError(null); onDismiss?.() }
+
+  // No effect syncing `stage` to `open`, deliberately: the caller UNMOUNTS this
+  // component when it closes it ({resetOpen && <LedgerResetControl open .../>}),
+  // so every opening is a fresh mount and the initial state above is already the
+  // question. An effect here would be a second source of truth for the same
+  // thing, and a cascading render for nothing.
 
   const save = async () => {
     const text = reason.trim()
@@ -50,6 +69,9 @@ export function LedgerResetControl({
       setBusy(false)
     }
   }
+
+  // Controlled and closed: nothing at all. The menu item IS the button.
+  if (controlled && stage === 'idle') return null
 
   if (stage === 'idle') {
     return (
