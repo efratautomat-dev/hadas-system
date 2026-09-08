@@ -28,6 +28,7 @@ truth for a rebuild.
 | [06-DESIGN-SYSTEM.md](./06-DESIGN-SYSTEM.md) | Colors, fonts, spacing/radius/shadow tokens, status & alert palettes, RTL conventions, logo. |
 | [07-OPEN-ISSUES.md](./07-OPEN-ISSUES.md) | Bugs, dead code, stubs, "temporary" hacks, inconsistencies, and items needing owner confirmation. |
 | [08-DEMO-DEPLOYMENT.md](./08-DEMO-DEPLOYMENT.md) | The public demo system (`incontrol.ctrlplusf.com`): what it is, the server and proxy it runs on, the standalone build flag, the password gate, and **the rule that every change ships to both deployment targets**. Written in Hebrew. |
+| [09-ANDROID-APP.md](./09-ANDROID-APP.md) | The Android app the shop's tablets install: one generic APK for every customer, the store code that points it at a system, why the native bridge binds to a single origin, what the WebView cannot do (printing, PDFs, downloads) and where each is handled, the WebView-compatibility floor, signing, and the permanent download link. Written in Hebrew. |
 
 ## Reading order for a rebuild
 1. **01-ARCHITECTURE** — the lay of the land.

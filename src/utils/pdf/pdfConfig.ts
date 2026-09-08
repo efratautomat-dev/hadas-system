@@ -1,4 +1,5 @@
 import { brand } from '../../brand.config'
+import { printHtml } from '../../lib/native'
 
 // PDFs render as standalone HTML in a print window where CSS variables aren't
 // available, so they read the brand color as a REAL hex straight from the config
@@ -52,9 +53,10 @@ export function escHtml(s: string | null | undefined): string {
     .replace(/>/g, '&gt;')
 }
 
+// Every generated document in the app prints through here — returns, statements,
+// the goods sheet and the supplier ledger. In the browser that is still the popup
+// window it always was; on the tablet the Android WebView cannot print at all, so
+// `printHtml` hands the document to Chrome instead. Callers are unchanged.
 export function openPrintWindow(html: string): void {
-  const w = window.open('', '_blank', 'width=950,height=800')
-  if (!w) return
-  w.document.write(html)
-  w.document.close()
+  printHtml(html)
 }

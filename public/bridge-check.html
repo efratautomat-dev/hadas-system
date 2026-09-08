@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>בדיקת גשר — InControl</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; padding: 28px 20px; font-family: system-ui, sans-serif;
+           background: #F6F8FC; color: #0E1A2B; }
+    main { max-width: 460px; margin: 0 auto; display: grid; gap: 16px; }
+    h1 { font-size: 18px; margin: 0; }
+    .verdict { padding: 16px; border-radius: 14px; font-weight: 700; font-size: 16px; text-align: center; }
+    .yes { background: #DCFCE7; color: #14532D; }
+    .no  { background: #FEE2E2; color: #7F1D1D; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; }
+    td { padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #E7ECF4; }
+    td:first-child { color: #64748B; white-space: nowrap; }
+    td:last-child { font-family: ui-monospace, monospace; direction: ltr; text-align: left; word-break: break-all; }
+    p { font-size: 13px; color: #43536B; line-height: 1.6; margin: 0; }
+    button { font-size: 14px; font-weight: 600; padding: 11px; border: 0; border-radius: 10px;
+             background: #2563EB; color: #fff; font-family: inherit; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>בדיקת גשר Capacitor</h1>
+  <p>
+    הדף הזה נטען מהאתר החי, בדיוק כמו כל שאר המערכת. הוא בודק דבר אחד:
+    האם עטיפת האנדרואיד מצליחה לדבר עם דף מרוחק. כל השכבה הנייטיבית — הדפסה,
+    כפתור אחורי, קוד חנות — תלויה בתשובה.
+  </p>
+  <div class="verdict" id="verdict">בודק…</div>
+  <table id="facts"></table>
+  <button id="ping">בדיקת קריאה נייטיבית (Preferences)</button>
+  <p id="pingout"></p>
+  <button id="reset" style="background:#64748B">חזרה למסך קוד החנות</button>
+  <button id="quit" style="background:none;color:#64748B;border:1px solid #C6D2E4">יציאה מהאפליקציה</button>
+  <p style="font-size:12px;color:#8494AB">אם הכפתורים האלה לא מגיבים, אין גשר — אז היציאה היא דרך הגדרות → אפליקציות → InControl → אחסון → ניקוי נתונים.</p>
+</main>
+<script>
+(function () {
+  'use strict'
+  var C = window.Capacitor
+  var native = !!(C && typeof C.isNativePlatform === 'function' && C.isNativePlatform())
+
+  var verdict = document.getElementById('verdict')
+  verdict.className = 'verdict ' + (native ? 'yes' : 'no')
+  verdict.textContent = native
+    ? '✓ הגשר מוזרק — הטעינה המרוחקת עובדת'
+    : '✗ אין גשר — נטען כדפדפן רגיל'
+
+  var rows = [
+    ['window.Capacitor', C ? 'קיים' : 'לא קיים'],
+    ['isNativePlatform()', native ? 'true' : 'false'],
+    ['getPlatform()', C && C.getPlatform ? C.getPlatform() : '—'],
+    ['פלאגינים רשומים', C && C.Plugins ? Object.keys(C.Plugins).join(', ') || 'אין' : '—'],
+    ['origin', window.location.origin],
+    ['userAgent', navigator.userAgent]
+  ]
+  document.getElementById('facts').innerHTML = rows
+    .map(function (r) { return '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>' })
+    .join('')
+
+  // This page can be reached as if it were a store, so it needs the same way out
+  // that Settings will have: forget the stored address and come back through the gate.
+  document.getElementById('reset').addEventListener('click', async function () {
+    var P = C && C.Plugins && C.Plugins.Preferences
+    var SG = C && C.Plugins && C.Plugins.StoreGate
+    if (!P || !SG) { alert('אין גשר — אי אפשר לאפס מכאן.'); return }
+    await P.remove({ key: 'incontrol.storeUrl' })
+    await P.remove({ key: 'incontrol.storeCode' })
+    await SG.restart()
+  })
+
+  document.getElementById('quit').addEventListener('click', async function () {
+    var A = C && C.Plugins && C.Plugins.App
+    if (A && A.exitApp) await A.exitApp()
+  })
+
+  document.getElementById('ping').addEventListener('click', async function () {
+    var out = document.getElementById('pingout')
+    var P = C && C.Plugins && C.Plugins.Preferences
+    if (!P) { out.textContent = '✗ הפלאגין Preferences אינו זמין מהדף הזה.'; return }
+    try {
+      await P.set({ key: 'incontrol.bridgeCheck', value: String(Date.now()) })
+      var back = await P.get({ key: 'incontrol.bridgeCheck' })
+      out.textContent = '✓ כתיבה וקריאה נייטיבית הצליחו — הערך שחזר: ' + back.value
+    } catch (e) {
+      out.textContent = '✗ הקריאה נכשלה: ' + (e && e.message ? e.message : e)
+    }
+  })
+})()
+</script>
+</body>
+</html>
