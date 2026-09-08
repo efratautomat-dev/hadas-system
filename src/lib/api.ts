@@ -74,12 +74,16 @@ export interface CaptureResult {
    * it — the mailbox keeps both rows and marks them, because two emails carrying
    * one number can genuinely be two deliveries and nobody is standing there to say.
    */
-  outcome:   'created' | 'alerted' | 'skipped' | 'exists' | 'error'
+  outcome:   'created' | 'alerted' | 'skipped' | 'exists' | 'attached' | 'error'
   docType:   CaptureDocType
   captureId: string
   deliveryNoteId?: string
   noteNumber?:     string
   supplierName?:   string
+  /** `attached` only: another row of this supplier already carries this number. */
+  duplicateOf?:    string
+  /** `attached` only: the document names a different supplier than the row. */
+  supplierMismatch?: string
   error?:    string
   errors?:   string[]
 }
@@ -92,6 +96,15 @@ export async function captureDocument(input: {
   mimeType:    string
   filename?:   string
   capturedBy?: string
+  /**
+   * Attach to an existing delivery row instead of opening one.
+   *
+   * The sequence the shop actually runs on: the invoice arrives by email and is
+   * ingested on its own, and the supplier's delivery note arrives on the pallet.
+   * Photographing it into the waiting row is the whole point — filing it as a
+   * new row would split one delivery across two.
+   */
+  deliveryNoteId?: string
 }): Promise<CaptureResult> {
   if (DEMO_MODE) {
     console.warn('[DEMO MODE] stubbed captureDocument — no network call')

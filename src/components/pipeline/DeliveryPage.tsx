@@ -4,6 +4,7 @@ import {
   Truck, Eye, ExternalLink, PackageCheck, TriangleAlert,
 } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
+import GoodsIntake from './GoodsIntake'
 import { intakeLong, noDocumentReason, documentExpected } from '../../lib/intakeSource'
 import { ReceiptSettle } from './ReceiptSettle'
 import { parseLines, parsedTotal, type ParsedLine } from '../../lib/lineItemsFormat'
@@ -109,6 +110,7 @@ export default function DeliveryPage({
   onBack, onLoadCandidates, onLink, onUnlink, onApprove,
   onChangeSupplier, onDismantle, onOpenInvoice, onArrived, onMarkDiffers, customerOrders = [],
   onSetCustomerStatus, pendingPair, onResolvePair, onSettleByReceipt, onUndoReceipt,
+  onRecordGoods, capturedBy, onReload,
 }: {
   note: DeliveryNote
   stage: PipelineStage
@@ -145,6 +147,31 @@ export default function DeliveryPage({
   onOpenInvoice?: (invoiceId: string) => void
   /** Present only while the goods have not arrived — an order still waiting. */
   onArrived?: (partial: boolean) => Promise<void>
+  /**
+   * Record what arrived INTO this row, from this page.
+   *
+   * The owner's rule: every part that arrives opens a pipeline, and the work
+   * continues FROM the row. A chain opened by an invoice knew its supplier and
+   * knew it was waiting for goods, and the only way to feed it was to leave the
+   * page, open קליטת סחורה, choose the supplier again, and then answer a
+   * duplicate question about the row you were just standing on. The answer to
+   * that question is on the screen, so it should not be asked.
+   *
+   * Same component the intake door uses, saving with `adopt` — so a delivery
+   * recorded here and one recorded there are the same record, not two shapes of
+   * one thing.
+   */
+  onRecordGoods?: (draft: {
+    supplierId: string; supplierName: string
+    isoDate: string; lineItems: string; noteNumber?: string
+    amount?: number | null; storageUrl?: string | null
+    employeeId?: string; adopt?: string; forceNew?: boolean
+  }) => Promise<{ needsChoice?: boolean } | void>
+  /** Who is looking at this — passed to the handwritten reader for its log. */
+  capturedBy?: string
+  /** Re-read the row after the camera wrote straight into it (that path does not
+   *  go through `onRecordGoods`, so nothing else would know it changed). */
+  onReload?: () => Promise<void> | void
   /**
    * §7.j — mark that what came differs from what was ordered. Documentation only;
    * the difference is settled against the invoice. Offered where the person is
@@ -379,6 +406,24 @@ export default function DeliveryPage({
         <div style={{ flex: isWide ? '1 1 50%' : undefined, width: isWide ? undefined : '100%', display: 'grid', gap: '14px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 180px', gap: '14px' }}>
             <div style={{ display: 'grid', gap: '14px', minWidth: 0 }}>
+              {/* ── The goods are what this row is missing ──────────────────
+                  Only while it is actually waiting for them, and only when the
+                  caller offers the write. `onArrived` is NOT the same thing: that
+                  one belongs to an ORDER and moves the order's own state. This is
+                  for any row waiting on goods — most often one an invoice opened,
+                  where nothing else on the page could feed it. */}
+              {stage === 'awaiting_goods' && onRecordGoods && (
+                <GoodsIntake
+                  inline
+                  adoptNoteId={note.id}
+                  suppliers={[]}
+                  lockedSupplier={{ id: note.supplierId, name: note.supplierName }}
+                  capturedBy={capturedBy}
+                  onCreate={onRecordGoods}
+                  onClose={() => { void onReload?.() }}
+                />
+              )}
+
               <section className="bg-white border" style={{ borderColor: '#E2E4E9', padding: '14px 16px' }}>
                 <h4 className="font-bold" style={{ fontSize: '11.5px', color: '#9CA3AF', margin: '0 0 9px' }}>מה הגיע</h4>
                 <Row k="תעודה" v={note.noteNumber || '—'} />

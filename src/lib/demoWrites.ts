@@ -478,8 +478,14 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       // The door stays the door the ROW came through — joining an emailed note at
       // the counter does not make it a typed receipt. Mirrors the server.
       if (!target.intake_source) target.intake_source = b.intake_source ?? 'manual'
-      // Goods have now been seen: an invoice-first chain was only waiting for this.
-      if (target.stage === 'awaiting_goods') target.stage = 'awaiting_approval'
+      // Goods have now been seen — but a shell an ORDER opened still has no
+      // invoice, and sending it to "ממתין לאישור" asks for an approval against a
+      // document nobody has. Mirrors the server: the link table decides.
+      if (target.stage === 'awaiting_goods') {
+        const hasInvoice = links.some(l => String(l.delivery_note_id) === String(target.id))
+          || !!target.invoice_id
+        target.stage = hasInvoice ? 'awaiting_approval' : 'awaiting_invoice'
+      }
       return { id: target.id, adopted: true }
     }
     const row: Row = {

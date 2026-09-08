@@ -3473,8 +3473,35 @@ async function handleNonInvoice(
      * filed a second time. See the check itself for why the two paths differ.
      */
     captureMode?: boolean;
+    /**
+     * ATTACH this photograph to a delivery row that already exists, instead of
+     * opening one.
+     *
+     * The owner's shape for the whole pipeline: "לכל שורה תהיה הזמנה, תיעוד של מה
+     * הגיע, וחשבונית — לא משנה הסדר". The commonest real sequence is the invoice
+     * by email first and the supplier's note arriving physically with the goods,
+     * so an employee standing at the counter photographs the note INTO the row
+     * that is already waiting for it. Filing it as a new row instead would split
+     * one delivery in two and leave both halves incomplete.
+     *
+     * Set only from the delivery page, where a person picked the row.
+     */
+    attachToNoteId?: string;
   },
-): Promise<boolean | { existing: { deliveryNoteId: string; noteNumber: string; supplierName: string } }> {
+): Promise<boolean | {
+  existing?: { deliveryNoteId: string; noteNumber: string; supplierName: string };
+  attached?: {
+    deliveryNoteId: string;
+    noteNumber:     string;
+    supplierName:   string;
+    /** Another row of this supplier already carries this number. Attached anyway
+     *  — a person chose this row — and said out loud rather than guessed at. */
+    duplicateOf?:   string;
+    /** The document names a DIFFERENT supplier than the row it was attached to.
+     *  The row is not moved: she picked it. But she is told. */
+    supplierMismatch?: string;
+  };
+}> {
   // Returns true when the document was fully handled (DB row written, or
   // deliberately escalated to the user via an alert) — the caller may then label
   // the email processed. Returns false ONLY when a DB write (insert/update/read)
@@ -3605,7 +3632,7 @@ async function handleNonInvoice(
     //
     // Nothing is filed: no row, no Storage upload, no alert. She is pointed at the
     // delivery that already exists, which is where the work actually is.
-    if (ctx.captureMode && dnDuplicateOf !== null) {
+    if (ctx.captureMode && dnDuplicateOf !== null && !ctx.attachToNoteId) {
       await log("info", "capture: delivery note already on file — not filed again",
         { existingId: dnDuplicateOf, noteNumber: extracted.note_number }, msgId);
       return {
@@ -3646,6 +3673,78 @@ async function handleNonInvoice(
       amount_before_vat: extracted.amount_before_vat,
       vat_amount:        extracted.vat_amount,
     });
+
+    // ── Into a row a person chose ────────────────────────────────────────────
+    //
+    // Everything above ran exactly as it does for a new note — the extraction,
+    // the supplier resolve, the duplicate look-up, the Storage upload — because
+    // the document is the same document. Only the destination differs: this one
+    // fills a row that is already in the chain instead of starting a second one.
+    if (ctx.attachToNoteId) {
+      const attachId = String(ctx.attachToNoteId);
+      const { data: target, error: tErr } = await supabase.from("delivery_notes")
+        .select("id, supplier_id, supplier_name, stage, intake_source, note_number, " +
+                "date, amount, amount_before_vat, vat_amount, line_items, storage_url")
+        .eq("id", attachId).maybeSingle();
+      if (tErr || !target) {
+        await log("error", `attach target missing: ${tErr?.message ?? attachId}`, {}, msgId);
+        return false;
+      }
+
+      // Same rule the counter follows: a row that already holds a DOCUMENT keeps
+      // what its document said and only gets its holes filled. A shell opened by
+      // an order or an invoice holds placeholders — an empty number, a zero — and
+      // the supplier's own note outranks every one of them.
+      const targetHasDoc = ["email", "photo", "sheet"].includes(String(target.intake_source ?? ""))
+        || !!target.storage_url;
+      const canFill = (cur: unknown) =>
+        !targetHasDoc || cur === null || cur === undefined || cur === "" || cur === 0;
+
+      const patch: Record<string, unknown> = {};
+      if (extracted.note_number && canFill(target.note_number)) patch.note_number = extracted.note_number;
+      if (extracted.date        && canFill(target.date))        patch.date        = extracted.date;
+      const lines = linesToText(extracted.line_items);
+      if (lines && canFill(target.line_items)) patch.line_items = lines;
+      for (const [k, v] of Object.entries(money.values)) {
+        if (v !== null && v !== undefined && canFill((target as Record<string, unknown>)[k])) patch[k] = v;
+      }
+      // The document itself never displaces one already on the row.
+      if (storagePath && !target.storage_url) patch.storage_url = storagePath;
+      // The row now HOLDS a photographed document, so it says so — which is what
+      // makes a later "no document" on it read as a loss instead of a fact.
+      if (!targetHasDoc) patch.intake_source = "photo";
+
+      // Waiting for goods is over the moment their note is on the row. Where it
+      // goes next depends on what it already carries, read and not assumed.
+      if (target.stage === "awaiting_goods") {
+        const { data: links } = await supabase.from("delivery_note_invoices")
+          .select("invoice_id").eq("delivery_note_id", attachId).limit(1);
+        patch.stage = (links && links.length > 0) ? "awaiting_approval" : "awaiting_invoice";
+      }
+
+      const { error: updErr } = await supabase.from("delivery_notes")
+        .update(patch).eq("id", attachId);
+      if (updErr) {
+        await log("error", `attach update failed: ${updErr.message}`, { attachId }, msgId);
+        return false;
+      }
+      await log("info", "delivery note photographed into an existing row",
+        { attachId, noteNumber: extracted.note_number, fields: Object.keys(patch) }, msgId);
+
+      return {
+        attached: {
+          deliveryNoteId: attachId,
+          noteNumber:     extracted.note_number ?? "",
+          supplierName:   String(target.supplier_name ?? ""),
+          // Both said, never silently swallowed: she is entitled to know that the
+          // paper in her hand disagrees with the row she attached it to.
+          duplicateOf:      dnDuplicateOf && dnDuplicateOf !== attachId ? dnDuplicateOf : undefined,
+          supplierMismatch: supplierId && target.supplier_id && supplierId !== String(target.supplier_id)
+            ? (extracted.vendor_name || "ספק אחר")
+            : undefined,
+        },
+      };
+    }
 
     // `.select("id")` is not decoration: an alert about a delivery has to be able
     // to OPEN that delivery, and until now the id was never captured, so every
@@ -4168,6 +4267,9 @@ interface CaptureRequest {
   mimeType?:   string;
   imageBase64: string;     // raw base64 or a full data: URL
   capturedBy?: string;     // employee/manager email, for audit + the `from` field
+  /** Attach to THIS delivery row instead of opening one. Sent only from the
+   *  delivery page, where a person is looking at the row she means. */
+  deliveryNoteId?: string;
 }
 
 const MAX_CAPTURE_BYTES = 15 * 1024 * 1024; // 15MB guard — phone photos are ~1-5MB
@@ -4336,9 +4438,11 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
     }
 
     // delivery_note / return_doc — same handler the email path uses.
+    const attachToNoteId = typeof body.deliveryNoteId === "string" && body.deliveryNoteId
+      ? body.deliveryNoteId : undefined;
     const ok = await handleNonInvoice(supabase, log, captureId, suppliers, {
       docType, subject, from, emailTs: nowIso, messageLink: "", doc,
-      captureMode: true,
+      captureMode: true, attachToNoteId,
     });
     // Already on file: nothing was written, and the reply names the row she
     // should be looking at instead. `ok: true` on purpose — from where she is
@@ -4346,6 +4450,15 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
     if (typeof ok === "object" && ok.existing) {
       return json({
         ok: true, outcome: "exists", docType, captureId, ...ok.existing,
+      });
+    }
+    // Filed INTO the row she was standing on. Same success, different sentence —
+    // and it carries the two things she needs to be told rather than discover:
+    // that another row already had this number, or that the paper names a
+    // different supplier than the row it just joined.
+    if (typeof ok === "object" && ok.attached) {
+      return json({
+        ok: true, outcome: "attached", docType, captureId, ...ok.attached,
       });
     }
     await log("info", "capture non-invoice complete", { docType, ok }, captureId);
