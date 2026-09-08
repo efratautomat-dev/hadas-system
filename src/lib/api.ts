@@ -67,9 +67,19 @@ export type CaptureDocType = 'invoice' | 'delivery_note' | 'return_doc'
 
 export interface CaptureResult {
   ok:        boolean
-  outcome:   'created' | 'alerted' | 'skipped' | 'error'
+  /**
+   * `exists` is the camera's own answer, and it is a SUCCESS: this delivery note
+   * is already on file (it arrived by email), so nothing was written and the
+   * fields below name the row to open instead. Only the photo path can return
+   * it — the mailbox keeps both rows and marks them, because two emails carrying
+   * one number can genuinely be two deliveries and nobody is standing there to say.
+   */
+  outcome:   'created' | 'alerted' | 'skipped' | 'exists' | 'error'
   docType:   CaptureDocType
   captureId: string
+  deliveryNoteId?: string
+  noteNumber?:     string
+  supplierName?:   string
   error?:    string
   errors?:   string[]
 }

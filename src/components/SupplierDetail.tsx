@@ -14,6 +14,7 @@ import { sumNonCancelledPayments } from '../lib/supplierBalance'
 import { buildLedger, isExcludedFromBalance } from '../lib/supplierLedger'
 import { useLedgerResets } from '../hooks/useLedgerResets'
 import { LedgerResetControl } from './LedgerResetControl'
+import { newestFirst } from '../lib/recency'
 import { useNotesTarget } from '../lib/notesTargetContext'
 import { useAlerts } from '../hooks/useAlerts'
 import { invoiceStatusKey } from '../lib/invoiceStatus'
@@ -238,9 +239,14 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
 
   // Everything links to this supplier by SUPPLIER_ID, not by name
   // (spec/06-RULES.md §2b). Cancelled payments are excluded from the balance.
-  const invoices = allInvoices.filter((inv) => inv.supplierId === supplier.id)
-  const payments = allPayments.filter((pay) => pay.supplier_id === supplier.id && pay.status !== 'cancelled')
-  const notes      = allNotes.filter((n) => n.supplierId === supplier.id)
+  // ⚠️ These four lists were not sorted AT ALL — they showed whatever order the
+  // database returned, which for deliveries is physical row order and for
+  // payments was oldest-first (the hook orders by value_date ascending for the
+  // future-payments view). The owner asked whether the supplier card had been
+  // checked too; it had not, and it was the worse of the two cases.
+  const invoices = allInvoices.filter((inv) => inv.supplierId === supplier.id).sort(newestFirst)
+  const payments = allPayments.filter((pay) => pay.supplier_id === supplier.id && pay.status !== 'cancelled').sort(newestFirst)
+  const notes      = allNotes.filter((n) => n.supplierId === supplier.id).sort(newestFirst)
   // Matched by id only — every order is created through the picker, so it always
   // carries one, and matching on name too would attach a namesake's order here.
   const orders     = openForSupplier(supplier.id)
@@ -253,8 +259,8 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
     if (!o.deliveryNoteId || !o.customerName) continue
     customersByNote.set(o.deliveryNoteId, [...(customersByNote.get(o.deliveryNoteId) ?? []), o.customerName])
   }
-  const returns    = allReturns.filter((r) => r.supplierId === supplier.id)
-  const statements = allStatements.filter((s) => s.supplier_id === supplier.id)
+  const returns    = allReturns.filter((r) => r.supplierId === supplier.id).sort(newestFirst)
+  const statements = allStatements.filter((s) => s.supplier_id === supplier.id).sort(newestFirst)
   // Statements needing attention drive the warning badge on the card.
   const statementAlerts = statements.filter((s) => s.status === 'mismatch' || s.status === 'needs_review').length
 
@@ -1075,6 +1081,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
         <GoodsIntake
           suppliers={[]}
           lockedSupplier={{ id: supplier.id, name: supplier.name }}
+          onOpenDelivery={onOpenDelivery}
           onClose={() => setIntake(false)}
           onCreate={async d => { await createDeliveryNote(d) }}
         />

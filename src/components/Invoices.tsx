@@ -18,6 +18,7 @@ import { STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING, deriveInvoiceStatus,
 import { isCreditInvoice, applyCreditSign, convertInvoice } from '../lib/creditNote'
 import { vatRateFor, vatPercentFor, completeAmounts, type EditedAmount } from '../lib/vat'
 import { useDateField } from './ui/form'
+import { newestFirst } from '../lib/recency'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -1263,11 +1264,7 @@ export default function Invoices({
     // timestamp / YYYY-MM-DD), so a string compare sorts chronologically;
     // reverse it for descending (newest at the top). Note: this is row ORDER
     // only — the displayed date column still shows invoiceDate.
-    .sort((a, b) => {
-      const da = a.createdAt || a.emailReceivedAt || a.invoiceDate || ''
-      const db = b.createdAt || b.emailReceivedAt || b.invoiceDate || ''
-      return da === db ? 0 : da < db ? 1 : -1
-    })
+    .sort(newestFirst)
 
   // Mirrors the Returns table: multiple flexible columns so extra width is
   // shared between them, never absorbed by a single column. That kills the

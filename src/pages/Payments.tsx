@@ -3,6 +3,7 @@ import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Dow
 import { SearchableSelect } from '../components/SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from '../components/StatusBadge'
 import { SummaryCards } from '../components/ui/SummaryCards'
+import { FilterTabs } from '../components/ui/FilterTabs'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { usePayments as usePaymentsData } from '../hooks/usePayments'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow } from '../components/ui/tableStyles'
@@ -854,47 +855,19 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
       />
 
       {/* ── Tabs ──────────────────────────────────────────────────────────── */}
-      <div
-        className="flex gap-1 p-1 rounded-xl"
-        style={{ background: '#F3F4F6', width: 'fit-content' }}
-      >
-        {(
-          [
-            { id: 'all', label: 'כל התשלומים', count: null },
-            { id: 'future', label: 'תשלומים עתידיים', count: futurePayments.length },
-          ] as const
-        ).map(({ id, label, count }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            className="flex items-center gap-2 rounded-lg font-semibold transition-all"
-            style={{
-              padding: isTablet ? '10px 18px' : '8px 16px',
-              fontSize: isTablet ? '15px' : '14px',
-              minHeight: isTablet ? '44px' : '38px',
-              background: activeTab === id ? 'white' : 'transparent',
-              color: activeTab === id ? 'var(--brand-primary-dark)' : '#6B7280',
-              boxShadow: activeTab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
-            }}
-          >
-            {label}
-            {count !== null && count > 0 && (
-              <span
-                className="rounded-full font-bold text-white"
-                style={{
-                  background: '#E8A020',
-                  fontSize: '11px',
-                  padding: '1px 7px',
-                  minWidth: '20px',
-                  textAlign: 'center',
-                }}
-              >
-                {count}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* The segmented pill control is gone: it was the last place in the system
+          still using a raised white chip on a grey tray, which reads as a button
+          you press rather than a view you are in. FilterTabs is the same row the
+          goods, invoice, supplier and alert screens use — text with a rule under
+          it that thickens on the one in use. */}
+      <FilterTabs
+        tabs={[
+          { key: 'all',    label: 'כל התשלומים' },
+          { key: 'future', label: 'תשלומים עתידיים', count: futurePayments.length },
+        ]}
+        value={activeTab}
+        onChange={setActiveTab}
+      />
 
       {/* ── TAB: ALL ─────────────────────────────────────────────────────── */}
       {activeTab === 'all' && (
@@ -1411,12 +1384,19 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
           className="bg-white rounded-2xl shadow-sm border overflow-hidden"
           style={{ borderColor: '#E2E4E9' }}
         >
+          {/* One header style across the system: a bold title on white with a
+              single hairline under it. The grey band and the emoji made this one
+              card louder than the screens it sits beside, for no information. */}
           <div
-            className="px-5 py-3 border-b font-bold text-gray-700 flex items-center justify-start gap-2"
-            style={{ borderColor: '#F5EEEE', background: '#F8F9FA', fontSize: isTablet ? '16px' : '14px' }}
+            className="px-5 py-4 border-b flex items-baseline gap-3"
+            style={{ borderColor: '#E2E4E9' }}
           >
-            תשלומים עתידיים — לפי תאריך ערך
-            <span className="text-xl">🗓️</span>
+            <span className="font-bold text-gray-800" style={{ fontSize: isTablet ? '16px' : '15px' }}>
+              תשלומים עתידיים
+            </span>
+            <span style={{ fontSize: '12.5px', color: '#9CA3AF' }}>
+              לפי תאריך ערך · הקרוב ביותר למעלה
+            </span>
           </div>
 
           <div className="p-5 space-y-6">
@@ -1436,7 +1416,6 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
                       style={{ borderColor: '#FEE2E2', color: '#DC2626', fontSize: '12px' }}
                     >
                       דחוף — תוך 7 ימים ({urgentList.length})
-                      <span>🔴</span>
                     </div>
                     <div className="space-y-2.5">
                       {urgentList.map((p) => (

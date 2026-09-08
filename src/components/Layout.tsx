@@ -325,6 +325,9 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenSupplierByName={(name)       => pushNav({ page: 'suppliers', supplierViewName:   name })}
         onOpenReturn={(id)                 => pushNav({ page: 'returns',   returnsEditId:      id   })}
         onOpenStatement={(id)              => pushNav({ page: 'reconciliation', statementViewId: id })}
+        // Same nav intent the supplier card uses, so an alert and a supplier row
+        // land on exactly the same page rather than on two versions of it.
+        onOpenDeliveryNote={(id)           => pushNav({ page: 'deliveries', deliverySelectedId: id })}
         onPageChange={handlePageChange}
         savedScrollY={alertsScrollY.current}
         onScrollSave={(y) => { alertsScrollY.current = y }}

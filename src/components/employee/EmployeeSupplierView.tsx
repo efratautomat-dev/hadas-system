@@ -25,6 +25,7 @@ import { PipelineStrip } from '../pipeline/PipelineStrip'
 import OrderForm from '../pipeline/OrderForm'
 import GoodsIntake from '../pipeline/GoodsIntake'
 import { DateField } from '../ui/form'
+import { newestFirst } from '../../lib/recency'
 
 export type EmployeeSection = 'invoices' | 'deliveries' | 'returns'
 
@@ -424,12 +425,15 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
 
   // Scope every dataset to this supplier (match by id, fall back to name —
   // ingested rows sometimes carry only one of the two).
+  // Sorted, like every other list — this view had none either. The employee is
+  // the one standing in front of the goods, so "what came in last" is the
+  // question she asks most often here.
   const invoices = allInvoices.filter(
     (inv) => inv.supplierId === supplier.id || inv.supplier === supplier.name,
-  )
+  ).sort(newestFirst)
   const deliveries = allDeliveries.filter(
     (dn) => dn.supplierId === supplier.id || dn.supplierName === supplier.name,
-  )
+  ).sort(newestFirst)
   // Orders match by id ONLY — unlike the datasets above there is no name
   // fallback, because every order is created through the supplier picker and so
   // always carries an id. Matching on name too would attach an order to a
@@ -642,6 +646,10 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
           lockedSupplier={{ id: supplier.id, name: supplier.name }}
           capturedBy={userEmail}
           onClose={() => setIntake(false)}
+          // No detail page to open on this side yet, so the photo door reports
+          // "already on file" and closes back to the deliveries list — where the
+          // row it is talking about is already sitting.
+          onOpenDelivery={() => setIntake(false)}
           onCreate={async d => { await createDeliveryNote(d) }}
         />
       )}

@@ -25,11 +25,13 @@ import { FormShell } from './FormShell'
 type Mode = 'choose' | 'photo' | 'sheet' | 'manual'
 
 export default function GoodsIntake({
-  suppliers, lockedSupplier, capturedBy, onClose, onCreate, inline = false,
+  suppliers, lockedSupplier, capturedBy, onClose, onCreate, onOpenDelivery, inline = false,
 }: {
   suppliers: { id: string; name: string; hp?: string }[]
   lockedSupplier?: { id: string; name: string }
   capturedBy?: string
+  /** Passed to the photo door: a note already on file opens instead of filing. */
+  onOpenDelivery?: (deliveryNoteId: string) => void
   onClose: () => void
   onCreate: (draft: {
     supplierId: string; supplierName: string
@@ -188,7 +190,7 @@ export default function GoodsIntake({
         {mode === 'photo' && (
           <div className="px-5 py-4">
             <div style={{ marginBottom: '10px' }}>{back}</div>
-            <CaptureDocument capturedBy={capturedBy} />
+            <CaptureDocument capturedBy={capturedBy} onOpenDelivery={onOpenDelivery} />
           </div>
         )}
 

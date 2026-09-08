@@ -29,6 +29,12 @@ export function useDeliveryNotes() {
           storageUrl:      r.storage_url  ?? undefined,
           pairedNoteId:    r.paired_note_id ?? null,
           receiptSettledAt: r.receipt_settled_at ?? null,
+          // WHEN THE ROW ENTERED THE SYSTEM, kept apart from the document's own
+          // date. The goods list sorts on this: an order opened just now for an
+          // invoice dated last month is the newest thing that happened, and
+          // sorting by the document date buried it mid-list.
+          createdAt:       r.created_at ?? '',
+          receivedAt:      r.received_at ?? '',
           isDuplicate:     r.is_duplicate ?? false,
           duplicateOf:     r.duplicate_of ?? null,
           amount:          Number(r.amount ?? 0),

@@ -2607,6 +2607,10 @@ interface ExtractedDeliveryNote {
 
 async function extractDeliveryNote(
   doc: { mimeType: string; bytes: Uint8Array },
+  // The one-time re-analysis passes { retry: false }: the owner asked for a
+  // single attempt per document, and a retry inside the call would quietly make
+  // it two model calls on exactly the documents least likely to ever parse.
+  opts?: { retry?: boolean },
 ): Promise<ExtractedDeliveryNote> {
   // ── The table IS the delivery note ─────────────────────────────────────────
   //
@@ -2646,6 +2650,9 @@ async function extractDeliveryNote(
     EXTRACTION_MAX_TOKENS,
   );
   let parsed = parseJsonRobust(raw);
+  if (parsed === null && opts?.retry === false) {
+    throw new Error(`extractDeliveryNote failed (single-attempt mode). Raw: ${raw.slice(0, 300)}`);
+  }
   if (parsed === null) {
     const retryRaw = await anthropicMessage(
       ANTHROPIC_MODEL_EXTRACTOR,
@@ -3211,6 +3218,129 @@ async function computeStatementLedger(
   };
 }
 
+// ─── The one-time re-analysis of historical delivery notes ─────────────────
+//
+// "אני גם רוצה להריץ את כל התעודות משלוח הקיימות לפענוח כמובן עם הגבלת נסיון אחד
+//  מה שיצליח יצליח."
+//
+// Every note filed before the pipeline existed is in the table with its document
+// attached and nothing read out of it. Now that the prompt asks for the priced
+// table there is something worth going back for.
+//
+// FOUR RULES, and each one is the answer to a way this could go wrong:
+//
+// 1. HOLES ONLY. A figure already on the row was read by a human or by an earlier
+//    run; a model looking at a two-year-old scan is not better evidence than that.
+//    The one exception is `line_items`, replaced only when the new reading
+//    actually carries figures — which is the entire reason for the run.
+//
+// 2. THE SUPPLIER IS NEVER TOUCHED. Re-resolving it could move a note to another
+//    supplier's card and with it a balance, silently, in a batch job nobody is
+//    watching. If the link is wrong, that is a decision for a person.
+//
+// 3. ONE ATTEMPT, STAMPED EITHER WAY. `reparsed_at` is written even when the
+//    extraction throws, so a corrupt document costs one model call and never
+//    comes back. Without that the run converges on its own failures.
+//
+// 4. NO ALERTS, NO DUPLICATE CHECK. These rows are already filed; running the
+//    duplicate rule over history would flag pairs the owner has long since sorted
+//    out, and a hundred alerts about the past is a feed nobody reads again.
+//
+// UPDATE-only: this endpoint cannot create a row, and cannot delete one.
+async function reparseDeliveryNotes(
+  supabase: SupabaseClient,
+  log: Logger,
+  limit: number,
+): Promise<Record<string, unknown>> {
+  // Newest first: the recent past is what the owner is actually working with,
+  // and if the run is stopped halfway the useful half is the half that ran.
+  const { data: rows, error } = await supabase
+    .from("delivery_notes")
+    .select("id, storage_url, note_number, date, amount, amount_before_vat, vat_amount, line_items")
+    .is("reparsed_at", null)
+    .not("storage_url", "is", null)
+    .order("received_at", { ascending: false })
+    .limit(limit);
+  if (error) return { ok: false, error: error.message };
+
+  const queue = rows ?? [];
+  let read = 0, filled = 0, failed = 0;
+
+  for (const row of queue) {
+    const id = String(row.id);
+    const path = String(row.storage_url ?? "");
+    const stamp = new Date().toISOString();
+    try {
+      const { data: blob, error: dlErr } = await supabase.storage
+        .from(STORAGE_BUCKET).download(path);
+      if (dlErr || !blob) throw new Error(`download failed: ${dlErr?.message ?? "no body"}`);
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const mimeType = blob.type && blob.type !== "application/octet-stream"
+        ? blob.type
+        : mimeFromPath(path);
+
+      const extracted = await extractDeliveryNote({ mimeType, bytes }, { retry: false });
+      read++;
+
+      // Holes only. `??=` is not enough here because the columns hold 0 and ''
+      // rather than null for "never read", so each field states its own test.
+      const patch: Record<string, unknown> = { reparsed_at: stamp };
+      const hasFigures = extracted.line_items.some(l => l.quantity || l.price);
+      if (hasFigures) patch.line_items = linesToText(extracted.line_items);
+      else if (!String(row.line_items ?? "").trim() && extracted.line_items.length)
+        patch.line_items = linesToText(extracted.line_items);
+
+      if (!String(row.note_number ?? "").trim() && extracted.note_number)
+        patch.note_number = extracted.note_number;
+      if (!row.date && extracted.date) patch.date = extracted.date;
+
+      // The same overflow guard the live path uses: a barcode read as a total
+      // must not take the whole update down with a 22003.
+      const money = storableAmounts({
+        amount:            extracted.amount,
+        amount_before_vat: extracted.amount_before_vat,
+        vat_amount:        extracted.vat_amount,
+      });
+      if (!Number(row.amount) && money.values.amount != null)
+        patch.amount = money.values.amount;
+      if (!Number(row.amount_before_vat) && money.values.amount_before_vat != null)
+        patch.amount_before_vat = money.values.amount_before_vat;
+      if (!Number(row.vat_amount) && money.values.vat_amount != null)
+        patch.vat_amount = money.values.vat_amount;
+
+      // More than the stamp = something was actually learned.
+      if (Object.keys(patch).length > 1) filled++;
+      await supabase.from("delivery_notes").update(patch).eq("id", id);
+    } catch (e) {
+      failed++;
+      await log("warn", `reparse failed for delivery_note ${id}: ${e instanceof Error ? e.message : e}`,
+        { deliveryNoteId: id, storagePath: path });
+      // The stamp goes on ANYWAY. This is rule 3, and it is the whole difference
+      // between "one attempt" and "one attempt per run, forever".
+      await supabase.from("delivery_notes").update({ reparsed_at: stamp }).eq("id", id);
+    }
+  }
+
+  const { count: remaining } = await supabase
+    .from("delivery_notes")
+    .select("id", { count: "exact", head: true })
+    .is("reparsed_at", null)
+    .not("storage_url", "is", null);
+
+  await log("info", `reparse batch done: ${read} read, ${filled} updated, ${failed} failed, ${remaining ?? "?"} left`);
+  return { ok: true, attempted: queue.length, read, filled, failed, remaining: remaining ?? null };
+}
+
+/** Content type from the stored path, for the rows whose blob does not say. */
+function mimeFromPath(path: string): string {
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  if (ext === "gif") return "image/gif";
+  return "image/jpeg";
+}
+
 // ─── Non-invoice doc handlers ──────────────────────────────────────────────
 
 async function handleNonInvoice(
@@ -3228,8 +3358,15 @@ async function handleNonInvoice(
     /** Gmail access token — absent on the camera-capture path, which has no
      *  mailbox to ask about (the sender there is the person holding the phone). */
     token?:      string;
+    /**
+     * The document was PHOTOGRAPHED by someone standing in front of the goods,
+     * not pulled from a mailbox. Changes exactly one behaviour: a delivery note
+     * whose number this supplier already has is reported back instead of being
+     * filed a second time. See the check itself for why the two paths differ.
+     */
+    captureMode?: boolean;
   },
-): Promise<boolean> {
+): Promise<boolean | { existing: { deliveryNoteId: string; noteNumber: string; supplierName: string } }> {
   // Returns true when the document was fully handled (DB row written, or
   // deliberately escalated to the user via an alert) — the caller may then label
   // the email processed. Returns false ONLY when a DB write (insert/update/read)
@@ -3340,16 +3477,36 @@ async function handleNonInvoice(
         dnDuplicateOf = String(dupDN[0].id);
         await log("warn", "duplicate delivery-note number for supplier",
           { existingId: dnDuplicateOf, noteNumber: extracted.note_number }, msgId);
-        await insertAlertOnce(supabase, log, msgId, {
-          type:    "delivery_note_duplicate",
-          title:   "תעודת משלוח כפולה",
-          message: `קיימת כבר תעודה מספר ${extracted.note_number} לספק זה. שתי השורות מוצגות — יש להשאיר את הנכונה ולפרק את השנייה.`,
-          payload: {
-            gmailMessageId: msgId, subject: ctx.subject, messageLink: ctx.messageLink,
-            supplierId, noteNumber: extracted.note_number, existingDeliveryNoteId: dnDuplicateOf,
-          },
-        });
+        // The ALERT is raised after the insert, below — it has to name the row
+        // that just arrived, because that is the one she decides about.
       }
+    }
+
+    // ── The employee is holding the note, and we already have it ─────────────
+    //
+    // "אם הסחורה מגיעה עם תעודת משלוח והעובדת מצלמת את התעודה והתעודה כבר קיימת
+    //  אצל הספק הזה כי הגיע מהמייל — שזה לא יקלוט פעם שניה."
+    //
+    // The camera is a DIFFERENT situation from the mailbox and it earns a
+    // different answer. Two emails carrying one note number can genuinely be two
+    // deliveries, so that path keeps both rows and marks them for a person to
+    // judge later. Here the person is ALREADY judging: she is standing in front
+    // of the goods with the paper in her hand, asking the system a question and
+    // waiting for the reply. The honest answer is "we have it" — not a second row
+    // for someone to clean up afterwards.
+    //
+    // Nothing is filed: no row, no Storage upload, no alert. She is pointed at the
+    // delivery that already exists, which is where the work actually is.
+    if (ctx.captureMode && dnDuplicateOf !== null) {
+      await log("info", "capture: delivery note already on file — not filed again",
+        { existingId: dnDuplicateOf, noteNumber: extracted.note_number }, msgId);
+      return {
+        existing: {
+          deliveryNoteId: dnDuplicateOf,
+          noteNumber:     extracted.note_number,
+          supplierName:   extracted.vendor_name,
+        },
+      };
     }
 
     const dateForPath = new Date(extracted.date || ctx.emailTs);
@@ -3382,7 +3539,10 @@ async function handleNonInvoice(
       vat_amount:        extracted.vat_amount,
     });
 
-    const { error } = await supabase.from("delivery_notes").insert({
+    // `.select("id")` is not decoration: an alert about a delivery has to be able
+    // to OPEN that delivery, and until now the id was never captured, so every
+    // delivery-note alert landed in the feed with nothing to click through to.
+    const { data: insertedDN, error } = await supabase.from("delivery_notes").insert({
       supplier_id:       supplierId,
       supplier_name:     extracted.vendor_name,
       note_number:       extracted.note_number,
@@ -3400,11 +3560,27 @@ async function handleNonInvoice(
       gmail_message_id:  msgId,
       email_subject:     ctx.subject,
       message_link:      ctx.messageLink,
-    });
+    }).select("id").single();
     if (error) {
       await log("error", `delivery_note insert failed: ${error.message}`,
         { code: error.code, filename: ctx.doc.filename }, msgId);
       return false; // DB write failed — leave email for retry
+    }
+    // The duplicate alert, now that the new row has an id. It points at the NEW
+    // note rather than at the one it repeats: the older row is already linked to
+    // whatever it was linked to, and the arrival is what needs a decision.
+    if (dnDuplicateOf !== null) {
+      await insertAlertOnce(supabase, log, msgId, {
+        type:    "delivery_note_duplicate",
+        title:   "תעודת משלוח כפולה",
+        message: `קיימת כבר תעודה מספר ${extracted.note_number} לספק זה. שתי השורות מוצגות — יש להשאיר את הנכונה ולפרק את השנייה.`,
+        payload: {
+          gmailMessageId: msgId, subject: ctx.subject, messageLink: ctx.messageLink,
+          supplierId, noteNumber: extracted.note_number,
+          deliveryNoteId:         insertedDN?.id ? String(insertedDN.id) : undefined,
+          existingDeliveryNoteId: dnDuplicateOf,
+        },
+      }, ["noteNumber"]);
     }
     if (money.dropped.length > 0) {
       await log("warn", "delivery_note amount was not storable — filed without it",
@@ -3417,6 +3593,7 @@ async function handleNonInvoice(
         payload: {
           gmailMessageId: msgId,
           supplierId,
+          deliveryNoteId: insertedDN?.id ? String(insertedDN.id) : undefined,
           noteNumber: extracted.note_number,
           fields:     money.dropped,
           filename:   ctx.doc.filename,
@@ -4046,9 +4223,18 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
     // delivery_note / return_doc — same handler the email path uses.
     const ok = await handleNonInvoice(supabase, log, captureId, suppliers, {
       docType, subject, from, emailTs: nowIso, messageLink: "", doc,
+      captureMode: true,
     });
+    // Already on file: nothing was written, and the reply names the row she
+    // should be looking at instead. `ok: true` on purpose — from where she is
+    // standing this is a success, not a failure to file.
+    if (typeof ok === "object" && ok.existing) {
+      return json({
+        ok: true, outcome: "exists", docType, captureId, ...ok.existing,
+      });
+    }
     await log("info", "capture non-invoice complete", { docType, ok }, captureId);
-    return json({ ok, outcome: ok ? "created" : "error", docType, captureId });
+    return json({ ok: ok === true, outcome: ok === true ? "created" : "error", docType, captureId });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await log("error", `capture failed: ${msg}`, { docType }, captureId);
@@ -4123,6 +4309,16 @@ Deno.serve(async (req: Request) => {
       // 14-day window, and never earned the FAILED label the requeue looks for.
       : source === "sweep"
       ? await ingestInvoices(supabase, { lookbackDays: days ?? 120 })
+      // POST { source: "reparse", limit: N } — the one-time re-analysis of
+      // delivery notes ALREADY IN THE DATABASE. It reads no email at all. Capped
+      // at 20 per call because each row is a model call against a scan and the
+      // function has a wall clock; `remaining` in the reply says whether to run
+      // it again.
+      : source === "reparse"
+      ? await reparseDeliveryNotes(
+          supabase, makeLogger(supabase),
+          Math.min(20, Math.max(1, Number((body as { limit?: number } | null)?.limit) || 8)),
+        )
       : await ingestInvoices(supabase);
     return json(result);
   } catch (err) {

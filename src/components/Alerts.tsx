@@ -323,6 +323,7 @@ interface AlertsProps {
   onOpenSupplierByName?:           (supplierName: string) => void
   onOpenReturn?:                   (returnId: string)     => void
   onOpenStatement?:                (statementId: string)  => void
+  onOpenDeliveryNote?:             (deliveryNoteId: string) => void
   onPageChange?:                   (page: string)         => void
   // Scroll restoration: parent remembers the list position across navigation.
   // onScrollSave is called right before we navigate away (alert click);
@@ -346,6 +347,7 @@ export function resolveAlertDestination(
     onOpenSupplierByName?:          (name: string) => void
     onOpenReturn?:                  (id: string)   => void
     onOpenStatement?:               (id: string)   => void
+    onOpenDeliveryNote?:            (id: string)   => void
     onPageChange?:                  (page: string) => void
     onCreateSupplierFromAlert?:     (alert: Alert) => void
   },
@@ -359,6 +361,12 @@ export function resolveAlertDestination(
   const returnId       = p.returnId       as string | undefined
   const statementId    = p.statementId    as string | undefined
   const storagePath    = p.storagePath    as string | undefined
+  // The delivery a note-alert is about. `deliveryNoteId` is the row that just
+  // arrived (the one there is a decision to make about); `existingDeliveryNoteId`
+  // is the row it repeats, and is the fallback for an alert raised before the id
+  // was captured.
+  const deliveryNoteId = (p.deliveryNoteId as string | undefined)
+                      ?? (p.existingDeliveryNoteId as string | undefined)
 
   // Duplicate invoice → open the side-by-side review popup, not the detail view
   if (t === 'duplicate_invoice' || t === 'invoice_duplicate') {
@@ -422,6 +430,23 @@ export function resolveAlertDestination(
     return
   }
 
+  // ── Delivery-note alerts → open THAT delivery ────────────────────────────
+  //
+  // Until now there was no route here at all: the resolver knew how to open an
+  // invoice, a supplier, a return and a statement, and a delivery-note alert fell
+  // through to the bottom and did nothing. The owner found it the way anyone
+  // would — she clicked one and nothing happened.
+  //
+  // The screen it opens is the same one the goods list opens, so the document,
+  // the amounts and "פירוק" are all where they already are. Falling back to the
+  // list rather than to the alerts page: the alert names a supplier and a note
+  // number, so even without an id she is one glance from the row.
+  if (t === 'delivery_note_duplicate' || t === 'delivery_note_amount_unreadable') {
+    if (deliveryNoteId && handlers.onOpenDeliveryNote) { handlers.onOpenDeliveryNote(deliveryNoteId); return }
+    handlers.onPageChange?.('deliveries')
+    return
+  }
+
   // Supplier needs attention (missing details / pending review) → open that
   // supplier's page so the details can be completed/verified.
   if (t === 'supplier_incomplete' || t === 'supplier_details_review') {
@@ -475,7 +500,7 @@ export function resolveAlertDestination(
 export default function Alerts({
   alerts, onMarkRead, onMarkResolved, onDelete,
   onOpenInvoice, onOpenInvoiceDuplicate, onOpenInvoiceByGmailMessageId,
-  onOpenSupplier, onOpenSupplierByName, onOpenReturn, onOpenStatement, onPageChange,
+  onOpenSupplier, onOpenSupplierByName, onOpenReturn, onOpenStatement, onOpenDeliveryNote, onPageChange,
   savedScrollY, onScrollSave,
 }: AlertsProps) {
   const [typeFilter,   setTypeFilter]   = useState<TypeFilter>('all')
@@ -599,6 +624,7 @@ export default function Alerts({
                   onOpenSupplier,
                   onOpenSupplierByName,
                   onOpenReturn,
+                  onOpenDeliveryNote,
                   onOpenStatement,
                   onPageChange,
                 })

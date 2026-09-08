@@ -12,6 +12,7 @@ import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from '.
 import { Button } from './ui/Button'
 import { SummaryCards } from './ui/SummaryCards'
 import { DateField } from './ui/form'
+import { newestFirst } from '../lib/recency'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -131,7 +132,7 @@ export default function DeliveryNotes() {
       if (showAll && filterStat !== 'all' && normalizeStatus(n.status) !== filterStat) return false
       return true
     })
-    .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''))
+    .sort(newestFirst)
 
   const pendingCount  = notes.filter(n => normalizeStatus(n.status) === 'pending').length
   const archivedCount = notes.filter(n => normalizeStatus(n.status) === 'archived').length
