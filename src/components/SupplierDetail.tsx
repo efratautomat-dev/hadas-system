@@ -14,6 +14,7 @@ import { sumNonCancelledPayments } from '../lib/supplierBalance'
 import { buildLedger, isExcludedFromBalance } from '../lib/supplierLedger'
 import { useLedgerResets } from '../hooks/useLedgerResets'
 import { LedgerResetControl } from './LedgerResetControl'
+import { ActionsMenu } from './ui/ActionsMenu'
 import { newestFirst } from '../lib/recency'
 import { useNotesTarget } from '../lib/notesTargetContext'
 import { useAlerts } from '../hooks/useAlerts'
@@ -226,6 +227,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   const [newOrder, setNewOrder] = useState(false)
   const [intake, setIntake] = useState(false)
   const [tab, setTab] = useState<TabKey>('ledger')
+  const [resetOpen, setResetOpen] = useState(false)
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
   const { data: allNotes, create: createDeliveryNote } = useDeliveryNotes()
@@ -348,41 +350,44 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
       <div className={isMobile ? 'flex flex-col gap-3' : 'flex items-center justify-between gap-4'}>
         {/* RIGHT (first in RTL): action buttons */}
         <div className={isMobile ? 'flex items-center gap-2 overflow-x-auto pb-1' : 'flex items-center gap-2 flex-shrink-0'}>
-          {onViewLedger && (
-            <Button variant="secondary" onClick={onViewLedger}>
-              <BookOpen className="w-4 h-4" />
-              כרטסת ספק
-            </Button>
-          )}
-          {onToggleActive && (() => {
-            const isActive = supplier.status === 'פעיל'
-            // Clear active⇄inactive toggle: colored switch + current-state label.
-            // Click flips the `active` column via hadas-api.
-            return (
-              <button
-                onClick={() => onToggleActive(!isActive)}
-                title={isActive ? 'לחצי כדי להשבית את הספק' : 'לחצי כדי להפעיל את הספק מחדש'}
-                className="flex items-center gap-2 rounded-xl font-semibold transition-all"
-                style={{
-                  minHeight: '44px', padding: '0 14px', fontSize: fs('16px', '14px'),
-                  background: isActive ? '#DCFCE7' : '#F3F4F6',
-                  color: isActive ? '#15803D' : '#6B7280',
-                  border: `1px solid ${isActive ? '#BBF7D0' : '#E5E7EB'}`,
-                }}
-              >
-                <Power className="w-4 h-4" />
-                <span>{isActive ? 'פעיל' : 'לא פעיל'}</span>
-                {/* switch track (green=active / gray=inactive); knob slides on toggle */}
-                <span style={{ position: 'relative', width: '38px', height: '22px', borderRadius: '999px', flexShrink: 0, transition: 'background .2s', background: isActive ? '#16A34A' : '#CBD5E1' }}>
-                  <span style={{ position: 'absolute', top: '2px', left: '2px', width: '18px', height: '18px', borderRadius: '50%', background: 'white', transition: 'transform .2s', transform: isActive ? 'translateX(16px)' : 'translateX(0)' }} />
-                </span>
-              </button>
-            )
-          })()}
+          {/* ── עריכה · ⋮ · חזרה ───────────────────────────────────────────
+              Seven controls in three places became one menu and one button. Two
+              of the old header buttons are simply GONE rather than moved:
+
+              · "כרטסת ספק" — the owner's own observation, and she is right: the
+                ledger is the first panel this screen opens on, with its own
+                "פתח כרטסת ←". A button at the top was a third route to a place
+                already on screen.
+              · the active/inactive switch — its STATE is the pill beside the
+                name, two centimetres away. Only the act of switching moved into
+                the menu; showing the state twice was the redundancy, not the
+                switch. */}
           <Button variant="primary" onClick={onEdit}>
             <Pencil className="w-4 h-4" />
             עריכה
           </Button>
+          <ActionsMenu
+            items={[
+              {
+                key: 'reset', label: 'איפוס כרטסת', Icon: RotateCcw,
+                onSelect: () => setResetOpen(true),
+              },
+              ...(onMerge ? [{
+                key: 'merge', label: 'מזג עם ספק אחר', Icon: GitMerge,
+                onSelect: onMerge,
+              }] : []),
+              ...(onToggleActive ? [{
+                key: 'active',
+                label: supplier.status === 'פעיל' ? 'השבת ספק' : 'הפעל ספק מחדש',
+                Icon: Power,
+                onSelect: () => onToggleActive(supplier.status !== 'פעיל'),
+              }] : []),
+              {
+                key: 'delete', label: 'מחק ספק', Icon: Trash2,
+                danger: true, onSelect: handleDeleteClick,
+              },
+            ]}
+          />
           <button
             onClick={onBack}
             className="rounded-xl font-semibold transition-all"
@@ -425,6 +430,20 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
           </div>
         </div>
       </div>
+
+      {/* The reset panel, when the menu asks for it. Under the header rather
+          than back down beside the ledger: it was opened from up here, and a
+          panel that appears somewhere the reader is not looking has not
+          appeared. */}
+      {resetOpen && (
+        <div className="flex justify-end">
+          <LedgerResetControl
+            open
+            onDismiss={() => setResetOpen(false)}
+            onConfirm={reason => createReset(supplier.id, reason)}
+          />
+        </div>
+      )}
 
       {/* ── Details + money, in TWO compact strips ────────────────────────
           This used to be ~700px of chrome before the section cards: a
@@ -533,12 +552,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
             title={<><h2 className="font-bold text-gray-800">כרטסת</h2><CreditCard className="w-4 h-4 text-gray-400" /></>}
             action={onViewLedger ? <span className="text-sm font-semibold" style={{ color: 'var(--brand-primary)' }}>פתח כרטסת ←</span> : undefined}
           />
-          {/* The reset lives WITH the ledger, not among the supplier's edit
-              controls: it is a statement about these rows, and putting it beside
-              "שמור" would file it as another field of the card. */}
-          <div className="flex justify-end" style={{ padding: '10px 20px 0' }}>
-            <LedgerResetControl onConfirm={reason => createReset(supplier.id, reason)} />
-          </div>
+
           {paymentArrangement && (
             <div className="text-right" style={{ padding: '10px 20px', background: '#DBEAFE', color: '#1E40AF', fontSize: '13px', fontWeight: 600 }}>
               ספק בהסדר תשלום — היתרה מסולקת (0) ומוחרגת ממעקב. התנועות מוצגות למידע בלבד; לא בוצע שינוי בנתונים.
@@ -995,19 +1009,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
         </Panel>
       )}
 
-      {/* ── Delete / merge buttons ── */}
-      <div className="flex justify-start gap-2 pt-1 pb-2">
-        <Button variant="danger" onClick={handleDeleteClick}>
-          <Trash2 className="w-4 h-4" />
-          מחק ספק
-        </Button>
-        {onMerge && (
-          <Button variant="outline" onClick={onMerge}>
-            <GitMerge className="w-4 h-4" />
-            מזג עם ספק אחר
-          </Button>
-        )}
-      </div>
+      {/* The delete and merge buttons used to live down here, past every panel —
+          the two most consequential actions on the screen, reachable only by
+          scrolling to the end of it. They are in the menu now. */}
 
       {/* ── Modal ── */}
       {modal && (
