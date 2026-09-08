@@ -646,10 +646,11 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
           lockedSupplier={{ id: supplier.id, name: supplier.name }}
           capturedBy={userEmail}
           onClose={() => setIntake(false)}
-          // No detail page to open on this side yet, so the photo door reports
-          // "already on file" and closes back to the deliveries list — where the
-          // row it is talking about is already sitting.
-          onOpenDelivery={() => setIntake(false)}
+          // The employee HAS the delivery page — it is the same one the row in the
+          // list below opens. A photographed note that turns out to be on file
+          // therefore lands on the delivery itself, exactly as it does for the
+          // manager, instead of closing back to a list she then has to search.
+          onOpenDelivery={id => { setIntake(false); onOpenPipeline?.(id) }}
           onCreate={async d => { await createDeliveryNote(d) }}
         />
       )}
