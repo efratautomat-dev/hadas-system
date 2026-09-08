@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ChevronRight, Check, Link2, Unlink, UserCog, Scissors, FileText,
+  ChevronRight, ChevronDown, Check, Link2, Unlink, UserCog, Scissors, FileText,
   Truck, Eye, ExternalLink, PackageCheck, TriangleAlert,
 } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
@@ -206,6 +206,11 @@ export default function DeliveryPage({
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<'approve' | 'dismantle' | 'arrived' | null>(null)
   const [docView, setDocView] = useState<{ url: string; previewSrc?: string } | null>(null)
+  // Shut until asked for. The block is the widest thing on the page and most
+  // visits to a row are to READ it — what arrived, what it was billed against —
+  // not to add to it. An open form at the top pushes the row's own facts down
+  // the screen on every visit to serve the one visit that came to write.
+  const [intakeOpen, setIntakeOpen] = useState(false)
   const [pane, setPane] = useState<'note' | 'invoice'>('note')
   // A supplier who bills one delivery in parts is ordinary, so attaching another
   // invoice stays possible — behind a click, because it is not the common case and
@@ -413,15 +418,46 @@ export default function DeliveryPage({
                   for any row waiting on goods — most often one an invoice opened,
                   where nothing else on the page could feed it. */}
               {stage === 'awaiting_goods' && onRecordGoods && (
-                <GoodsIntake
-                  inline
-                  adoptNoteId={note.id}
-                  suppliers={[]}
-                  lockedSupplier={{ id: note.supplierId, name: note.supplierName }}
-                  capturedBy={capturedBy}
-                  onCreate={onRecordGoods}
-                  onClose={() => { void onReload?.() }}
-                />
+                intakeOpen ? (
+                  <div>
+                    <GoodsIntake
+                      inline
+                      adoptNoteId={note.id}
+                      suppliers={[]}
+                      lockedSupplier={{ id: note.supplierId, name: note.supplierName }}
+                      capturedBy={capturedBy}
+                      onCreate={onRecordGoods}
+                      onClose={() => { setIntakeOpen(false); void onReload?.() }}
+                    />
+                    <button
+                      onClick={() => setIntakeOpen(false)}
+                      className="inline-flex items-center gap-1"
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF',
+                        fontSize: '12px', fontWeight: 600, fontFamily: 'inherit', padding: '6px 2px 0',
+                      }}
+                    ><ChevronDown className="w-3.5 h-3.5" style={{ transform: 'rotate(180deg)' }} />סגירה</button>
+                  </div>
+                ) : (
+                  // The closed state is still an INVITATION, not a bare arrow: a
+                  // row waiting for goods is waiting for exactly this, and the
+                  // line has to say so or the triangle is a control nobody opens.
+                  <button
+                    onClick={() => setIntakeOpen(true)}
+                    className="bg-white border flex items-center gap-2 w-full text-right"
+                    style={{
+                      borderColor: '#E2E4E9', padding: '11px 14px', cursor: 'pointer',
+                      font: 'inherit', color: '#1F2125',
+                    }}
+                  >
+                    <ChevronDown className="w-4 h-4" style={{ color: 'var(--brand-primary)', flex: 'none' }} />
+                    <PackageCheck className="w-4 h-4" style={{ color: 'var(--brand-primary)', flex: 'none' }} />
+                    <span style={{ fontSize: '13.5px', fontWeight: 700 }}>הסחורה הגיעה?</span>
+                    <span style={{ fontSize: '12px', color: '#9CA3AF' }}>
+                      הקלדה · דף בכתב יד · צילום התעודה
+                    </span>
+                  </button>
+                )
               )}
 
               <section className="bg-white border" style={{ borderColor: '#E2E4E9', padding: '14px 16px' }}>
