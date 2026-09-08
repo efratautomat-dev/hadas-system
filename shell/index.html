@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>InControl</title>
+  <style>
+    /* No web font here on purpose: this page has to render before the tablet has
+       proven it can reach anything at all. The system's own Heebo loads later. */
+    :root {
+      --ink: #0E1A2B;
+      --ink-soft: #43536B;
+      --ink-faint: #8494AB;
+      --line: #C6D2E4;
+      --field: #FFFFFF;
+      --ground: #F6F8FC;
+      --brand: #2563EB;
+      --brand-lo: #3B82F6;
+      --brand-hi: #1E40AF;
+      --brand-wash: #DCE7FD;
+      --danger: #C2410C;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ink: #E8EEF9; --ink-soft: #A3B1C6; --ink-faint: #6E7E96;
+        --line: #26344A; --field: #141E2E; --ground: #0A111C;
+        --brand: #5B8DEF; --brand-wash: #1A2A47; --danger: #E9A178;
+        color-scheme: dark;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100dvh;
+      display: flex; align-items: center; justify-content: center;
+      padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+      background: var(--ground); color: var(--ink);
+      font-family: system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    main { width: min(380px, 100%); display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
+    .mark { width: 66px; height: 66px; border-radius: 15px; display: block; }
+    h1 { font-size: 19px; font-weight: 800; margin: 0; letter-spacing: -.01em; }
+    .prompt { font-size: 14px; color: var(--ink-soft); line-height: 1.6; margin: 0; }
+    input {
+      /* 20px also keeps Android from zooming the page the moment it is focused. */
+      width: 100%; border: 1.5px solid var(--line); background: var(--field); border-radius: 12px;
+      padding: 13px 14px; font-size: 20px; font-weight: 600; letter-spacing: .18em;
+      text-align: center; color: var(--ink); direction: ltr; font-family: inherit;
+    }
+    input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-wash); }
+    input.err { border-color: var(--danger); }
+    button.cta {
+      /* A shop counter is used with a thumb, standing up. 48px is the floor. */
+      width: 100%; min-height: 48px; border: 0; border-radius: 12px; padding: 14px;
+      background: linear-gradient(150deg, var(--brand-lo), var(--brand-hi)); color: #fff;
+      font-family: inherit; font-size: 15px; font-weight: 700;
+    }
+    button.cta:disabled { opacity: .5; }
+    .err { color: var(--danger); font-size: 13px; font-weight: 500; margin: 0; min-height: 18px; }
+    .fine { font-size: 11.5px; color: var(--ink-faint); line-height: 1.55; margin: 0; }
+    .links { display: flex; gap: 14px; justify-content: center; margin: 0; }
+    .links a { color: var(--brand); font-size: 12px; text-decoration: none; padding: 8px; }
+    .links a.quiet { color: var(--ink-faint); }
+    #boot { font-size: 14px; color: var(--ink-soft); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main id="boot">רגע…</main>
+
+  <main id="gate" hidden>
+    <img class="mark" src="icon.png" alt="">
+    <div>
+      <h1>InControl</h1>
+      <p class="prompt" style="margin-top:6px">הזיני את קוד החנות<br>שקיבלת בהתקנה</p>
+    </div>
+    <input id="code" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="text" aria-label="קוד חנות">
+    <p class="err" id="err"></p>
+    <button class="cta" id="go">המשך</button>
+    <p class="fine">הקוד נשמר במכשיר. אפשר להחליף אותו בכל רגע מתוך ההגדרות.</p>
+    <!-- An app has no address bar, so the page that answers "does the native
+         bridge reach a remote page?" needs a way in — and so does leaving. -->
+    <p class="links">
+      <a href="#" id="diag">בדיקת חיבור</a>
+      <a href="#" id="quit" class="quiet">יציאה</a>
+    </p>
+  </main>
+
+<script>
+// InControl shell — the only code that ships inside the APK.
+//
+// It answers one question ("which customer is this tablet?") and then gets out of
+// the way. The store code is kept in NATIVE storage rather than localStorage on
+// purpose: the shell and the customer's site are two different origins, and the
+// "switch store" button lives on the site. Only native storage is visible to both.
+(function () {
+  'use strict'
+
+  // Where the vendor keeps the code→address list. A new customer is a line in this
+  // file — never a new build. The copy bundled beside this page is the fallback for
+  // the first boot on a flaky connection.
+  var REGISTRY_URL = 'https://incontrol.ctrlplusf.com/app/stores.json'
+  var KEY_CODE = 'incontrol.storeCode'
+  var KEY_URL  = 'incontrol.storeUrl'
+  var KEY_FAILED = 'incontrol.lastFailedUrl'
+
+  var boot = document.getElementById('boot')
+  var gate = document.getElementById('gate')
+  var codeEl = document.getElementById('code')
+  var errEl = document.getElementById('err')
+  var goEl = document.getElementById('go')
+
+  function plugins() {
+    var C = window.Capacitor
+    return (C && C.Plugins) || {}
+  }
+
+  async function get(key) {
+    var p = plugins().Preferences
+    if (p) { var r = await p.get({ key: key }); return r && r.value }
+    try { return window.localStorage.getItem(key) } catch (_e) { return null }
+  }
+
+  async function set(key, value) {
+    var p = plugins().Preferences
+    if (p) return p.set({ key: key, value: value })
+    try { window.localStorage.setItem(key, value) } catch (_e) { /* private mode */ }
+  }
+
+  async function loadRegistry() {
+    // Remote first so a newly added store works without an APK update; the bundled
+    // copy is what keeps the app usable when the vendor host is unreachable.
+    try {
+      var res = await fetch(REGISTRY_URL, { cache: 'no-store' })
+      if (res.ok) return await res.json()
+    } catch (_e) { /* fall through */ }
+    try {
+      var local = await fetch('stores.json', { cache: 'no-store' })
+      if (local.ok) return await local.json()
+    } catch (_e) { /* fall through */ }
+    return null
+  }
+
+  function resolve(registry, code) {
+    if (!registry || !registry.stores) return null
+    var entry = registry.stores[code]
+    return (entry && entry.url) || null
+  }
+
+  function showGate(message) {
+    boot.hidden = true
+    gate.hidden = false
+    errEl.textContent = message || ''
+    if (message) codeEl.classList.add('err')
+    codeEl.focus()
+  }
+
+  // Applying a store means restarting the activity, not navigating: the native
+  // bridge is bound to the address the app STARTED on, so a navigation would reach
+  // the system with no bridge — no printing, no back button, no downloads. See
+  // MainActivity.java. The navigation below is only the browser's path (and an
+  // old build's), where there is no bridge to lose.
+  async function enter(url, viaRestart) {
+    var SG = plugins().StoreGate
+    if (viaRestart && SG && SG.restart) { await SG.restart(); return }
+    window.location.replace(url)
+  }
+
+  goEl.addEventListener('click', async function () {
+    var code = (codeEl.value || '').trim().toLowerCase()
+    if (!code) return
+    goEl.disabled = true
+    errEl.textContent = ''
+    codeEl.classList.remove('err')
+    var url = resolve(await loadRegistry(), code)
+    goEl.disabled = false
+    if (!url) { showGate('קוד לא מזוהה. בדקי את הקוד שקיבלת.'); return }
+    await set(KEY_CODE, code)
+    await set(KEY_URL, url)
+    enter(url, true)
+  })
+
+  codeEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') goEl.click() })
+
+  document.getElementById('quit').addEventListener('click', async function (e) {
+    e.preventDefault()
+    var A = plugins().App
+    if (A && A.exitApp) await A.exitApp()
+  })
+
+  document.getElementById('diag').addEventListener('click', function (e) {
+    e.preventDefault()
+    window.location.href = 'https://incontrol.ctrlplusf.com/bridge-check.html'
+  })
+
+  ;(async function start() {
+    // Set by the native watchdog when the system loaded but never came up.
+    var failed = await get(KEY_FAILED)
+    if (failed) {
+      await set(KEY_FAILED, '')
+      return showGate('המערכת לא נטענה. בדקי חיבור לאינטרנט ונסי שוב.')
+    }
+
+    // A stored address normally never reaches this point — MainActivity boots
+    // straight to it. Getting here means the native path did not apply, so fall
+    // back to navigating rather than restarting into the same state forever.
+    var url = await get(KEY_URL)
+    if (url) return enter(url, false)
+
+    var code = await get(KEY_CODE)
+    if (code) {
+      var resolved = resolve(await loadRegistry(), code)
+      if (resolved) { await set(KEY_URL, resolved); return enter(resolved, true) }
+    }
+    showGate('')
+  })()
+})()
+</script>
+</body>
+</html>

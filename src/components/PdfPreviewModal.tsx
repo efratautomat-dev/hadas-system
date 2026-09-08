@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { isNative, openExternal } from '../lib/native'
+import PdfCanvas from './PdfCanvas'
 import { Eye, X, ExternalLink } from 'lucide-react'
 
 // Convert any Drive URL form (/view, /edit, /open, ?usp=...) into a /preview URL
@@ -29,7 +31,21 @@ function isImageUrl(u?: string): boolean {
 // The document itself — a constrained <img> for image files, an iframe (browser /
 // Drive viewer, which handles multi-page PDFs) otherwise. Shared by the modal and
 // by the side-by-side pane on the invoice screen so both render identically.
+// A Drive link cannot be fetched for its bytes (no CORS, and it wants a Google
+// session), so it never goes down the canvas path.
+function isDriveUrl(u: string): boolean {
+  return /drive\.google\.com|docs\.google\.com/i.test(u || '')
+}
+
+// Only an actual PDF goes to the canvas renderer. Not everything that fails the
+// image test is a PDF — the demo's documents are HTML, and an <iframe> renders
+// those perfectly well even inside the WebView.
+function isPdfUrl(u: string): boolean {
+  return /\.pdf(\?|#|$)/i.test(u || '')
+}
+
 export function DocumentBody({ url, previewSrc }: { url: string; previewSrc?: string }) {
+  const [drivePreviewFailed, setDrivePreviewFailed] = useState(false)
   const previewUrl = previewSrc ?? toDrivePreview(url)
   const isImage = isImageUrl(previewSrc) || isImageUrl(url)
   const [zoomed, setZoomed] = useState(false)
@@ -67,6 +83,36 @@ export function DocumentBody({ url, previewSrc }: { url: string; previewSrc?: st
       />
     )
   }
+  // The Android WebView has no PDF renderer, so this iframe is a blank rectangle
+  // on the tablet. pdf.js draws the document instead — reviewing an invoice should
+  // not mean leaving the app for Chrome and coming back. It needs the file's bytes,
+  // which a Drive link will not give us, so that case still opens externally, and
+  // any other failure falls back to the same button.
+  if (isNative() && !drivePreviewFailed && !isDriveUrl(url) && isPdfUrl(previewUrl)) {
+    return <PdfCanvas url={previewUrl} onFail={() => setDrivePreviewFailed(true)} />
+  }
+
+  // A PDF the WebView cannot draw (a Drive link, or one pdf.js choked on) leaves
+  // for Chrome. Anything else — HTML, text — the WebView renders in the iframe
+  // below exactly as the browser does.
+  if (isNative() && (isDriveUrl(url) || isPdfUrl(previewUrl))) {
+    return (
+      <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '20px' }}>
+        <p style={{ margin: 0, fontSize: '14px', color: '#6B7280', textAlign: 'center' }}>
+          מסמך PDF נפתח בדפדפן של הטאבלט
+        </p>
+        <button
+          onClick={() => void openExternal(previewUrl)}
+          style={{ padding: '11px 20px', borderRadius: '10px', border: 'none', fontSize: '15px',
+                   fontWeight: 700, color: 'white', background: 'var(--brand-primary)' }}
+        >
+          פתיחת המסמך
+        </button>
+      </div>
+    )
+  }
+
   return (
     <iframe
       src={previewUrl}

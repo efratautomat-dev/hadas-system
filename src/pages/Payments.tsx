@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { saveOrShareFile } from '../lib/native'
 import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download, Trash2, Wallet, CalendarDays, Clock } from 'lucide-react'
 import { SearchableSelect } from '../components/SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from '../components/StatusBadge'
@@ -419,14 +420,10 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
       // (הסדר ההפוך היה מסכן כפילויות בביזבוקס אם החתימה נכשלת אחרי ההורדה)
       await markBizboxExported(rows.map(p => p.id))
 
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = fileName
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      // Browser: the same download as always. Tablet: the WebView ignores a
+      // blob download, so the file is written and offered through Android's
+      // share sheet — which is how it reaches Drive, Gmail or a PC from here.
+      await saveOrShareFile(fileName, blob)
       setShowBizbox(false)
       setShowBizboxValidation(false)
       showToast(`✅ ${fileName} הורד (${rows.length} תשלומים)`)

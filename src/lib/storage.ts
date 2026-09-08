@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { openExternal } from './native'
 
 // Opens a stored document. A value in the private "documents" bucket is a PATH
 // (e.g. "statements/2026/06/foo.pdf"), so we mint a short-lived signed URL on
@@ -9,7 +10,7 @@ import { supabase } from './supabase'
 export async function openStoredFile(pathOrUrl: string | null | undefined) {
   if (!pathOrUrl) return
   if (/^https?:\/\//i.test(pathOrUrl)) {
-    window.open(pathOrUrl, '_blank', 'noopener')
+    await openExternal(pathOrUrl)
     return
   }
   const { data, error } = await supabase.storage.from('documents').createSignedUrl(pathOrUrl, 120)
@@ -18,5 +19,5 @@ export async function openStoredFile(pathOrUrl: string | null | undefined) {
     alert('לא ניתן לפתוח את הקובץ כעת')
     return
   }
-  window.open(data.signedUrl, '_blank', 'noopener')
+  await openExternal(data.signedUrl)
 }

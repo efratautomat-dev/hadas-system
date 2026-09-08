@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { checkForUpdate, isNative, openExternal, resetStoreCode, saveOrShareFile, type AppUpdate } from '../lib/native'
 import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw, Tag, GitMerge, X, FileSpreadsheet, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
@@ -223,6 +224,12 @@ function BizboxTemplateManager() {
           <a
             href={BUNDLED_TEMPLATE_URL}
             download
+            onClick={(e) => {
+              // `download` is ignored inside the app's WebView; Chrome handles it.
+              if (!isNative()) return
+              e.preventDefault()
+              void openExternal(new URL(BUNDLED_TEMPLATE_URL, window.location.origin).href)
+            }}
             className="inline-flex items-center gap-1.5 rounded-xl font-semibold"
             style={{ border: '1px solid #E2E4E9', padding: '10px 16px', fontSize: '14px', color: '#6B7280', background: 'white' }}
           >
@@ -568,11 +575,21 @@ export default function Settings() {
     reader.readAsDataURL(file)
   }
 
+  const [appUpdate, setAppUpdate] = useState<AppUpdate | null>(null)
+  useEffect(() => { void checkForUpdate().then(setAppUpdate) }, [])
+
   function handleExportAll() {
-    import('xlsx').then(XLSX => {
+    import('xlsx').then(async XLSX => {
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['גיבוי מלא', new Date().toLocaleDateString('he-IL')]]), 'גיבוי')
-      XLSX.writeFile(wb, `hadas_backup_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      // XLSX.writeFile() ends in a blob download, which an Android WebView drops
+      // on the floor. Building the blob here lets both platforms take the file
+      // the way each one can — see saveOrShareFile.
+      const bytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer
+      const blob = new Blob([bytes], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      await saveOrShareFile(`hadas_backup_${new Date().toISOString().slice(0, 10)}.xlsx`, blob)
     })
   }
 
@@ -824,6 +841,49 @@ export default function Settings() {
             </div>
           </div>
         </SectionCard>
+
+        {isNative() && (
+          <SectionCard title="גרסת האפליקציה">
+            {appUpdate ? (
+              <>
+                <p className="text-sm text-gray-500 mb-3" style={{ lineHeight: 1.7 }}>
+                  מותקן: <b>{appUpdate.current}</b>
+                  {appUpdate.outdated ? <> · זמין: <b>{appUpdate.latest}</b></> : ' · זו הגרסה העדכנית'}
+                  <br />
+                  עדכוני המערכת עצמה מגיעים לבד — זה נוגע רק לאפליקציה.
+                </p>
+                {appUpdate.outdated && (
+                  <>
+                    {appUpdate.notes && (
+                      <p className="text-sm mb-3" style={{ color: '#374151' }}>{appUpdate.notes}</p>
+                    )}
+                    <Button variant="primary" onClick={() => void openExternal(appUpdate.url)}>
+                      הורדת העדכון
+                    </Button>
+                    <p className="text-xs text-gray-400 mt-2">
+                      ההורדה נפתחת בדפדפן, ואז לוחצים על הקובץ ומתקינים מעל הקיים.
+                      הנתונים והחנות המחוברת נשמרים.
+                    </p>
+                  </>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-400">לא ניתן לבדוק גרסה כרגע.</p>
+            )}
+          </SectionCard>
+        )}
+
+        {isNative() && (
+          <SectionCard title="החנות המחוברת">
+            <p className="text-sm text-gray-500 mb-3" style={{ lineHeight: 1.7 }}>
+              האפליקציה מחוברת למערכת אחת, לפי הקוד שהוזן בהתקנה. איפוס מחזיר את
+              מסך הקוד — אין צורך להתקין מחדש.
+            </p>
+            <Button variant="outline" onClick={() => void resetStoreCode()}>
+              החלפת חנות
+            </Button>
+          </SectionCard>
+        )}
 
         <NotAvailable />
         {SHOW_LEGACY && (<>

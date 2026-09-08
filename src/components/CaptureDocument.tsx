@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Camera, FileText, Truck, RotateCcw, Upload, X, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react'
 import { captureDocument, type CaptureDocType, type CaptureResult } from '../lib/api'
+import { isNative, takePhoto } from '../lib/native'
 
 interface Props {
   capturedBy?: string
@@ -64,9 +65,7 @@ export default function CaptureDocument({ capturedBy, onOpenDelivery }: Props) {
     reset()
   }
 
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]
-    if (!f) return
+  const accept = (f: File) => {
     const isImage = f.type.startsWith('image/')
     const isPdf   = f.type === 'application/pdf'
     if (!isImage && !isPdf) {
@@ -78,6 +77,26 @@ export default function CaptureDocument({ capturedBy, onOpenDelivery }: Props) {
     setFile(f)
     if (previewUrl) URL.revokeObjectURL(previewUrl)
     setPreviewUrl(URL.createObjectURL(f))
+  }
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (f) accept(f)
+  }
+
+  // In the app the file input opens a document picker, never the camera — the
+  // accepted types include PDF, so Android picks the chooser that covers both.
+  // Photographing an invoice is the main job at the counter, so it gets its own
+  // button and the native camera.
+  const onTakePhoto = async () => {
+    try {
+      const f = await takePhoto()
+      if (f) accept(f)
+    } catch (e) {
+      setError(e instanceof Error && /denied|permission/i.test(e.message)
+        ? 'אין הרשאת מצלמה. אפשר לאשר בהגדרות המכשיר.'
+        : 'הצילום נכשל. אפשר לנסות שוב או לבחור קובץ.')
+    }
   }
 
   const onUpload = async () => {
@@ -164,17 +183,32 @@ export default function CaptureDocument({ capturedBy, onOpenDelivery }: Props) {
           />
 
           {!previewUrl ? (
-            <button
-              onClick={() => inputRef.current?.click()}
-              className="w-full flex flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-all"
-              style={{ borderColor: '#E5D5DA', background: '#FFFFFF', padding: '40px 20px', color: ACCENT, cursor: 'pointer' }}
-            >
-              <Camera className="w-9 h-9 mb-2" />
-              <span style={{ fontSize: '15px', fontWeight: 600 }}>צלמי או בחרי קובץ</span>
-              <span style={{ fontSize: '13px', color: '#9CA3AF', marginTop: '4px' }}>
-                תמונה או קובץ PDF
-              </span>
-            </button>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => (isNative() ? void onTakePhoto() : inputRef.current?.click())}
+                className="w-full flex flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-all"
+                style={{ borderColor: '#E5D5DA', background: '#FFFFFF', padding: '40px 20px', color: ACCENT, cursor: 'pointer' }}
+              >
+                <Camera className="w-9 h-9 mb-2" />
+                <span style={{ fontSize: '15px', fontWeight: 600 }}>
+                  {isNative() ? 'צילום המסמך' : 'צלמי או בחרי קובץ'}
+                </span>
+                <span style={{ fontSize: '13px', color: '#9CA3AF', marginTop: '4px' }}>
+                  {isNative() ? 'המצלמה נפתחת ישירות' : 'תמונה או קובץ PDF'}
+                </span>
+              </button>
+
+              {isNative() && (
+                <button
+                  onClick={() => inputRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-2 rounded-2xl border"
+                  style={{ borderColor: '#E2E4E9', background: '#FFFFFF', padding: '14px', color: '#6B7280', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  <FileText className="w-4 h-4" />
+                  בחירת קובץ מהמכשיר (גם PDF)
+                </button>
+              )}
+            </div>
           ) : (
             <div className="relative rounded-2xl overflow-hidden border" style={{ borderColor: '#EEEEF2' }}>
               {file?.type === 'application/pdf' ? (

@@ -5,13 +5,30 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/favicon.png" />
     <meta name="theme-color" content="#A91D3A" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>מערכת הדס</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   </head>
   <body>
+    <!-- The one API the system uses that an older tablet WebView lacks (Chrome 93+).
+         Everything else the bundle needs exists from Chrome 73, which is what
+         vite.config.ts compiles down to. Inline and first, so it is defined before
+         any module runs — a missing Object.hasOwn shows up as a blank screen, not
+         as an error message. -->
+    <script>
+      if (!Object.hasOwn) {
+        Object.defineProperty(Object, 'hasOwn', {
+          value: function (object, property) {
+            if (object == null) throw new TypeError('Cannot convert undefined or null to object')
+            return Object.prototype.hasOwnProperty.call(Object(object), property)
+          },
+          configurable: true,
+          writable: true,
+        })
+      }
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

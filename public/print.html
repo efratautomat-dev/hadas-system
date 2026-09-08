@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>הדפסה</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; }
+    #msg { padding: 40px 24px; text-align: center; color: #43536B; font-size: 15px; line-height: 1.7; }
+  </style>
+</head>
+<body>
+<div id="msg">מכין את המסמך להדפסה…</div>
+<script>
+// print.html — the printer's end of the Android shell.
+//
+// The Android WebView cannot print, so `printHtml()` in src/lib/native.ts sends the
+// generated document here, in the URL FRAGMENT, and opens it in the tablet's Chrome.
+// A fragment never travels to the server: the supplier figures in a ledger stay on
+// the device even though the page they land on is served from the site.
+//
+// The document arrives with its own `window.print()` inside (every generator embeds
+// one after `document.fonts.ready`), so once it is written the print dialog opens by
+// itself — the same sequence as the popup window in the browser.
+(function () {
+  'use strict'
+  var out = document.getElementById('msg')
+
+  function fail(text) { out.textContent = text }
+
+  function fromBase64url(s) {
+    var b64 = s.replace(/-/g, '+').replace(/_/g, '/')
+    while (b64.length % 4) b64 += '='
+    var bin = atob(b64)
+    var bytes = new Uint8Array(bin.length)
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    return bytes
+  }
+
+  async function run() {
+    var hash = window.location.hash || ''
+    var marker = hash.indexOf('#h=')
+    if (marker !== 0) return fail('אין מסמך להדפסה.')
+
+    var payload = hash.slice(3)
+    var gzipped = /\.gz$/.test(payload)
+    payload = payload.replace(/\.(gz|raw)$/, '')
+
+    var bytes
+    try { bytes = fromBase64url(payload) } catch (_e) { return fail('המסמך לא נקרא כראוי.') }
+
+    if (gzipped) {
+      if (!window.DecompressionStream) return fail('הדפדפן הזה לא תומך בפתיחת המסמך.')
+      var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
+      bytes = new Uint8Array(await new Response(stream).arrayBuffer())
+    }
+
+    var html = new TextDecoder().decode(bytes)
+    document.open()
+    document.write(html)
+    document.close()
+  }
+
+  run().catch(function () { fail('לא הצלחנו להכין את המסמך להדפסה.') })
+})()
+</script>
+</body>
+</html>

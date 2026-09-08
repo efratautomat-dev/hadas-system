@@ -1,0 +1,7 @@
+{
+  "_note": "The shell version the tablets should be running. Written automatically by scripts/release-apk.mjs on every signed build — do not edit by hand. The app compares versionCode against its own and offers the download; Android will not install a sideloaded app silently, so the last tap is always the owner's.",
+  "versionCode": 10,
+  "versionName": "1.0.9",
+  "url": "https://vabfsbrrxfwgdzrbznln.supabase.co/storage/v1/object/public/app-releases/incontrol.apk",
+  "notes": "צילום ישירות מהמצלמה, תצוגת PDF בתוך האפליקציה, והחלפת חנות מההגדרות."
+}

@@ -257,6 +257,41 @@ demo that shows a system nobody uses, or a business running code nobody can demo
 The demo half only works **on the server that hosts it** (`/home/runner/hadas-demo`), since
 publishing is a local file sync. Runbook and troubleshooting: `docs/08-DEMO-DEPLOYMENT.md`.
 
+## The Android app — a third place the same code runs
+
+`android/` is a Capacitor shell the shop's tablets install as an APK (sideloaded,
+not a store app). **It does not contain the system.** It ships one local page
+(`shell/`) that turns a short store code into an address and hands the WebView to
+the customer's live site, so `npm run deploy` updates the tablets too and an APK
+build is only needed when the shell itself changes. Full picture:
+`docs/09-ANDROID-APP.md`.
+
+Three rules that are invisible until they bite:
+
+- **Capacitor injects its native bridge into exactly ONE origin**, fixed when the
+  app starts (`Bridge.java` → `addDocumentStartJavaScript`). That is why
+  `MainActivity.onCreate` reads the stored address and builds a `CapConfig`
+  *before* `super.onCreate`, and why applying a store code **restarts** the
+  activity instead of navigating. A navigation would land on a page with no
+  bridge, where printing, the Back button and downloads fail silently. A
+  programmatic config also REPLACES `capacitor.config.json` wholesale — anything
+  set there must be repeated in `MainActivity`.
+- **Everything platform-specific goes through `src/lib/native.ts`, and nothing
+  else.** The same bundle serves the browser and the tablet, so the module has no
+  static `@capacitor/*` import: plugins load via `import()` inside an `isNative()`
+  branch. A screen that reaches for `window.print()`, `window.open`, an
+  `<iframe>` of a PDF or a blob download works in the browser and does nothing at
+  all on the tablet. Add the case to the module, not to the screen.
+- **A deploy deletes whatever is not in the build.** The store registry therefore
+  lives in `public/app/stores.json` (so every build carries it) and the APK lives
+  in Supabase Storage — never in the demo's html directory. Both were wiped
+  mid-testing before this rule existed.
+
+`vite.config.ts` compiles to `chrome73` and `index.html` polyfills `Object.hasOwn`
+because a tablet's WebView is whatever its owner last updated; syntax it cannot
+parse is a **white screen with no error**. Re-check the built bundle before
+raising that target.
+
 ## Environment
 
 Frontend (`import.meta.env`, build-time, set in Vercel — not committed): `VITE_SUPABASE_URL`,

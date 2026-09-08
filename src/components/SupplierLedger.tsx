@@ -10,6 +10,7 @@ import { isoToDisplay } from '../lib/dates'
 import { buildLedger } from '../lib/supplierLedger'
 import { useLedgerResets } from '../hooks/useLedgerResets'
 import { LedgerResetControl } from './LedgerResetControl'
+import { openPrintWindow, PDF_BRAND, PDF_BRAND_LIGHT } from '../utils/pdf/pdfConfig'
 import { DateField } from './ui/form'
 
 type EntryType = 'חשבונית' | 'תשלום' | 'זיכוי'
@@ -179,7 +180,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
     const rowsHtml = printRows.map(row => {
       const bs = typeBadge[row.type] ?? typeBadge['פתיחה']
       const isOpening = row.type === 'פתיחה'
-      return `<tr style="border-bottom:1px solid #EEEEF2;background:${isOpening ? 'var(--brand-active-bg)' : 'white'}">
+      return `<tr style="border-bottom:1px solid #EEEEF2;background:${isOpening ? PDF_BRAND_LIGHT : 'white'}">
         <td style="padding:9px 12px">${row.displayDate}</td>
         <td style="padding:9px 12px">${row.description}</td>
         <td style="padding:9px 6px;text-align:center">
@@ -199,13 +200,13 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   <style>
     *{box-sizing:border-box;font-family:Arial,sans-serif}
     body{margin:24px;color:#1F2937;direction:rtl}
-    .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;margin-bottom:20px;border-bottom:2px solid var(--brand-primary)}
+    .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;margin-bottom:20px;border-bottom:2px solid ${PDF_BRAND}}
     .logo{height:56px;object-fit:contain}
     table{width:100%;border-collapse:collapse}
-    thead tr{background:var(--brand-primary)}
+    thead tr{background:${PDF_BRAND}}
     th{padding:10px 12px;color:white;font-size:13px;text-align:right;font-weight:600}
     th.num{text-align:left}
-    .foot-row{background:var(--brand-active-bg);border-top:2px solid var(--brand-primary)}
+    .foot-row{background:${PDF_BRAND_LIGHT};border-top:2px solid ${PDF_BRAND}}
     .foot-row td{padding:10px 12px;font-weight:700}
     @media print{@page{margin:1cm}}
   </style>
@@ -218,7 +219,7 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   </div>
   <div style="text-align:right">
     <div style="font-size:12px;color:#9CA3AF;margin-bottom:4px">כרטסת ספק</div>
-    <div style="font-size:22px;font-weight:900;color:var(--brand-primary)">${supplier.name}</div>
+    <div style="font-size:22px;font-weight:900;color:${PDF_BRAND}">${supplier.name}</div>
     <div style="font-size:12px;color:#6B7280;margin-top:2px">${supplier.contact} · ${supplier.phone}</div>
   </div>
   <img src="${logoUrl}" class="logo" alt="לוגו" onerror="this.style.display='none'"/>
@@ -236,17 +237,16 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
       <td colspan="3" style="color:#6B7280;font-size:13px">סיכום תקופה</td>
       <td style="text-align:left;color:#A16207">${formatILS(printDebit)}</td>
       <td style="text-align:left;color:#166534">${formatILS(printCredit)}</td>
-      <td style="text-align:left;color:var(--brand-primary);font-size:15px">${formatILS(finalBalance)}</td>
+      <td style="text-align:left;color:${PDF_BRAND};font-size:15px">${formatILS(finalBalance)}</td>
     </tr>
   </tfoot>
 </table>
+<script>
+    document.fonts.ready.then(function() { setTimeout(function() { window.print() }, 400) })
+  </script>
 </body></html>`
 
-    const w = window.open('', '_blank', 'width=1000,height=750')
-    if (!w) return
-    w.document.write(html)
-    w.document.close()
-    setTimeout(() => { w.focus(); w.print() }, 400)
+    openPrintWindow(html)
   }
 
   // ── Render ────────────────────────────────────────────────────────────────

@@ -1,0 +1,9 @@
+{
+  "_note": "code -> address, served to the InControl Android shell (shell/index.html reads it at every launch). It lives in public/ so every build carries it: a deploy syncs the built site and deletes what is not in it, and a registry that vanishes on deploy strands every installed tablet. A new customer is a line here, never a new APK. Codes are lowercase.",
+  "updated": "2026-09-08",
+  "stores": {
+    "hadas": { "name": "הדס", "url": "https://hadas-system.vercel.app" },
+    "demo":  { "name": "InControl — הדגמה", "url": "https://incontrol.ctrlplusf.com" },
+    "check": { "name": "בדיקת גשר", "url": "https://incontrol.ctrlplusf.com/bridge-check.html" }
+  }
+}
