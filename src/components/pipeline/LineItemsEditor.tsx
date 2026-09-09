@@ -1,5 +1,6 @@
 import { Plus, Trash2 } from 'lucide-react'
-import { newLine, rowTotal, lineTotal, type Line } from '../../lib/lineItems'
+import { newLine, rowTotal, lineAmounts, type Line } from '../../lib/lineItems'
+import { vatPercentFor } from '../../lib/vat'
 
 // ── פריטים, כמויות ומחירים ───────────────────────────────────────────────────
 //
@@ -17,11 +18,14 @@ const CELL: React.CSSProperties = {
 }
 
 export default function LineItemsEditor({
-  lines, onChange,
+  lines, onChange, isoDate,
 }: {
   lines: Line[]
   onChange: (next: Line[]) => void
+  /** The delivery's date — the VAT rate is keyed on it, never on today. */
+  isoDate?: string | null
 }) {
+  const amounts = lineAmounts(lines, isoDate)
   const set = (i: number, patch: Partial<Line>) =>
     onChange(lines.map((l, j) => j === i ? { ...l, ...patch, uncertain: false } : l))
 
@@ -33,7 +37,10 @@ export default function LineItemsEditor({
       >
         <span style={{ padding: '7px 11px' }}>פריט</span>
         <span style={{ padding: '7px 11px' }}>כמות</span>
-        <span style={{ padding: '7px 11px' }}>מחיר ליחידה</span>
+        {/* Said on the header, because it decides what the total means. The
+            supplier's own note prints the price this way and the owner asked for
+            the same: the column is pre-VAT and the total adds it. */}
+        <span style={{ padding: '7px 11px' }}>מחיר ליחידה<span style={{ fontWeight: 600, color: '#9CA3AF' }}> (לפני מע"מ)</span></span>
         {/* Computed, never typed. Showing it makes the arithmetic visible, which
             is how a wrong unit price gets noticed on the line rather than in a
             grand total nobody can take apart. */}
@@ -82,15 +89,26 @@ export default function LineItemsEditor({
         </div>
       ))}
 
-      {lineTotal(lines) !== null && (
-        <div
-          className="flex items-center justify-between"
-          style={{ padding: '9px 11px', borderTop: '1px solid #E2E4E9', background: '#FAFAFC', fontSize: '13px', fontWeight: 800 }}
-        >
-          <span style={{ color: '#6B6E73' }}>סה"כ עלות</span>
-          <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-            ₪{lineTotal(lines)!.toLocaleString('he-IL')}
-          </span>
+      {amounts && (
+        <div style={{ borderTop: '1px solid #E2E4E9', background: '#FAFAFC', padding: '8px 11px' }}>
+          {/* All three, and in this order: the column she filled, what the state
+              adds, and what the delivery is actually worth. A single number
+              labelled "total" is the ambiguity this whole change is about. */}
+          <div className="flex items-center justify-between" style={{ fontSize: '12.5px', color: '#6B6E73' }}>
+            <span>סה"כ לפני מע"מ</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>₪{amounts.net.toLocaleString('he-IL')}</span>
+          </div>
+          <div className="flex items-center justify-between" style={{ fontSize: '12.5px', color: '#6B6E73', marginTop: '2px' }}>
+            <span>מע"מ {vatPercentFor(isoDate)}%</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>₪{amounts.vat.toLocaleString('he-IL')}</span>
+          </div>
+          <div
+            className="flex items-center justify-between"
+            style={{ fontSize: '13px', fontWeight: 800, marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #E9E9EE' }}
+          >
+            <span>סה"כ כולל מע"מ</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>₪{amounts.gross.toLocaleString('he-IL')}</span>
+          </div>
         </div>
       )}
 

@@ -96,8 +96,14 @@ export function useDeliveryNotes() {
   const create = async (body: {
     supplierId: string; supplierName: string; isoDate: string; lineItems: string
     noteNumber?: string; employeeId?: string
-    /** Σ cost read off a handwritten sheet. `null`/absent = not known. */
+    /**
+     * What the delivery is worth. `amount` is WITH VAT — the typed column is per
+     * unit and pre-VAT, the same way the supplier's own note is printed — and the
+     * other two say how it was reached. `null`/absent = not known.
+     */
     amount?: number | null
+    amountBeforeVat?: number | null
+    vatAmount?: number | null
     /** The filed photo of that sheet — the document the reading came from. */
     storageUrl?: string | null
     /**
@@ -119,7 +125,9 @@ export function useDeliveryNotes() {
         employee_id:   body.employeeId || null,
         // null, not 0. "Not known" and "cost nothing" are different claims, and
         // the ledger never reads this figure either way.
-        amount:        body.amount ?? null,
+        amount:            body.amount ?? null,
+        amount_before_vat: body.amountBeforeVat ?? null,
+        vat_amount:        body.vatAmount ?? null,
         storage_url:   body.storageUrl ?? null,
         intake_source: body.intakeSource ?? 'manual',
         delivery_note_id: body.adopt,
@@ -169,6 +177,25 @@ export function useDeliveryNotes() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setError(`שגיאה בשינוי הספק: ${msg}`)
+      throw err
+    }
+  }
+
+  /**
+   * "הסחורה הגיעה עם החשבונית" — the attached invoice IS the record of what came.
+   *
+   * Most deliveries in the shop arrive with the supplier's invoice in the box,
+   * and typing a grid that describes a document already on the row is copying it
+   * out by hand. A person says it in one click; the system never infers it, and
+   * the approval that follows stays a separate, deliberate act.
+   */
+  const goodsWithInvoice = async (id: string) => {
+    try {
+      await api.put(`/delivery-notes/${id}/goods-with-invoice`, {})
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בסימון הסחורה: ${msg}`)
       throw err
     }
   }
@@ -298,5 +325,5 @@ export function useDeliveryNotes() {
     }
   }
 
-  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reassignSupplier, resolvePair, settleByReceipt, undoReceipt, reload: load }
+  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reassignSupplier, resolvePair, settleByReceipt, undoReceipt, goodsWithInvoice, reload: load }
 }

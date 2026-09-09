@@ -81,9 +81,12 @@ export default function OrderForm({
   // Filtered HERE rather than by each caller: the manager picks the supplier
   // inside this form, so only this component knows which orders are relevant.
   const siblings = openOrders.filter(o => o.supplierId === supplierId)
-  // Both are required: a supplier with no description is a row nobody can act on,
-  // and a description with no supplier cannot reach the supplier's own page.
-  const ready = !!supplierId && description.trim().length > 0 &&
+  // The SUPPLIER is required and nothing else: an order that cannot reach a
+  // supplier's page is a row nobody can act on. What was ordered is often a phone
+  // call away from being known — "תזמיני מה שחסר" is a real order — and the
+  // owner's decision is that a required field you cannot fill is a field people
+  // put a dash in, which teaches nothing and blocks the row from existing.
+  const ready = !!supplierId &&
     // A customer order with no customer cannot be handed back to anyone.
     (!customerOnly || customerName.trim().length > 0)
 
@@ -178,7 +181,7 @@ export default function OrderForm({
           )}
 
           <div>
-            <FieldLabel required>מה הוזמן</FieldLabel>
+            <FieldLabel>מה הוזמן</FieldLabel>
             <Textarea
               rows={3}
               value={description}
@@ -186,7 +189,8 @@ export default function OrderForm({
               placeholder="2 ארגזי חלב 3%, 1 ארגז קוטג׳"
             />
             <p style={{ margin: '3px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
-              טקסט חופשי — בדיוק כפי שנרשם היום בקבוצה.
+              טקסט חופשי — בדיוק כפי שנרשם היום בקבוצה. אפשר גם להשאיר ריק ולהשלים
+              כשהסחורה מגיעה.
             </p>
           </div>
 

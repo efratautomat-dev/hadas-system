@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw, Plus, PackageCheck } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
+import { computedAmountNotes } from '../lib/computedAmount'
 import { useOrders } from '../hooks/useOrders'
 import OrderForm from './pipeline/OrderForm'
 import GoodsIntake from './pipeline/GoodsIntake'
@@ -231,6 +232,10 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
   const { data: allNotes, create: createDeliveryNote } = useDeliveryNotes()
+  // Computed once per card, from the rows already in hand.
+  const computedRows = computedAmountNotes(
+    allNotes.filter(n => n.supplierId === supplier.id),
+  )
   const { data: allReturns } = useReturns()
   const { data: allStatements } = useStatements()
   // Invoice status is DERIVED, never read from the stored column (CLAUDE.md:
@@ -418,6 +423,23 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               title="ספק בהסדר תשלום — מוחרג ממעקב יתרה, חשבוניות מוצגות כמשולמות"
             >
               בהסדר תשלום
+            </span>
+          )}
+          {/* ── לפני שמעבירים תשלום ────────────────────────────────────────
+              A flag, not a figure: this supplier has deliveries whose total the
+              SYSTEM produced — a grid typed at the counter, or a note that
+              arrived with priced lines and no total of its own. The owner asked
+              for it because the one thing such a number never says out loud is
+              whether it is before VAT or after, and that question has to be
+              settled before money moves, not after. */}
+          {computedRows.length > 0 && (
+            <span
+              className="rounded-lg font-bold flex-shrink-0 inline-flex items-center gap-1.5"
+              style={{ fontSize: '13px', padding: '5px 12px', background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' }}
+              title={`${computedRows.length} תעודות שהסכום בהן חושב על ידי המערכת ולא נקרא ממסמך — כדאי לאמת מול הספק לפני תשלום`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              סכום מחושב · {computedRows.length}
             </span>
           )}
           <div className="text-right min-w-0">

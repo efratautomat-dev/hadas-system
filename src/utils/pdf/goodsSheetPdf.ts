@@ -41,6 +41,7 @@ export function printGoodsSheet(opts: { supplierName?: string; rows?: number } =
   .sup .blank { display: inline-block; min-width: 220px; border-bottom: 1px solid #9CA3AF; }
   .note { font-size: 12px; color: #6B6E73; margin: 6px 0 14px; }
   .note b { color: #1F2125; }
+  th .sub { font-weight: 400; font-size: 10px; color: #4B5563; }
   table { width: 100%; border-collapse: collapse; }
   th { font-size: 12px; text-align: right; padding: 7px 10px; background: #F3F4F6;
        border: 1px solid #9CA3AF; }
@@ -57,14 +58,17 @@ export function printGoodsSheet(opts: { supplierName?: string; rows?: number } =
     <div class="sup">ספק: ${supplier ? escHtml(supplier) : '<span class="blank"></span>'}</div>
   </div>
   <p class="note">
-    למלא <b>פריט, כמות, ומחיר ליחידה</b> אם הוא מופיע על הסחורה.
-    <b>אין צורך לחשב סה"כ</b> — המערכת מחשבת. עמודת המחיר לא חובה; משאירים ריק כשאין.
+    למלא <b>פריט, כמות, ומחיר ליחידה לפני מע"מ</b> אם הוא מופיע על הסחורה.
+    <b>אין צורך לחשב סה"כ</b> — המערכת מסכמת ומוסיפה מע"מ בעצמה. עמודת המחיר לא
+    חובה; משאירים ריק כשאין.
     אין צורך לרשום תאריך — הוא נרשם בצילום${
-      supplier ? ', והספק כבר מודפס למעלה' : ''
+      supplier
+        ? ', והספק כבר מודפס למעלה'
+        : '. את שם הספק אפשר לרשום למעלה לנוחות בלבד — <b>הספק נקבע לפי כרטיס הספק שממנו מצלמים</b>, ולא לפי מה שכתוב על הדף'
     }.
   </p>
   <table>
-    <thead><tr><th>פריט</th><th class="qty">כמות</th><th class="price">מחיר ליחידה</th></tr></thead>
+    <thead><tr><th>פריט</th><th class="qty">כמות</th><th class="price">מחיר ליחידה<br><span class="sub">לפני מע"מ</span></th></tr></thead>
     <tbody>${body}</tbody>
   </table>
   <div class="foot">

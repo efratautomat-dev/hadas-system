@@ -59,6 +59,11 @@ export default function CustomerOrdersBook({
     .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''))
 
   const isDone = (o: Order) => o.customerStatus === 'customer_delivered'
+  /** Ordered from the supplier — or anywhere past it on the line. */
+  const ordered = (o: Order) =>
+    (o.customerStatus ?? 'customer_waiting') !== 'customer_waiting'
+  /** Only the step she just took can be taken back; the rest already happened. */
+  const canUntick = (o: Order) => (o.customerStatus ?? 'customer_waiting') === 'customer_ordered'
   const withCustomer = all.filter(o => !isDone(o))
   const done = delivered === 'bottom' ? all.filter(isDone) : []
 
@@ -103,6 +108,43 @@ export default function CustomerOrdersBook({
               className="flex items-start justify-between gap-4 flex-wrap"
               style={{ padding: '13px 18px', borderBottom: '1px solid #F3F4F6' }}
             >
+              {/* Read-only notebook (no setter) gets no tick — the same rule the
+                  status control beside it already follows. */}
+              {onSetStatus && (
+              /* ── One click: "I ordered it" ──────────────────────────────
+                  The full status line lives on the right and stays there — five
+                  states, each one a real thing that happened. But ONE of them is
+                  the owner's own action rather than someone else's: she picked up
+                  the phone and ordered it. Making her open a picker to record her
+                  own step is a tax on the step she takes most.
+                  Once the goods have moved past it the tick locks: unticking then
+                  would rewrite something that already happened. */
+              <label
+                onClick={e => e.stopPropagation()}
+                title={
+                  ordered(o) && (o.customerStatus ?? 'customer_waiting') !== 'customer_ordered'
+                    ? 'ההזמנה כבר התקדמה — הסימון נשמר'
+                    : ordered(o) ? 'בטלי את הסימון' : 'סמני שהזמנת מהספק'
+                }
+                style={{
+                  flex: 'none', display: 'flex', alignItems: 'center', gap: '6px',
+                  cursor: canUntick(o) || !ordered(o) ? 'pointer' : 'default',
+                  paddingTop: '2px',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={ordered(o)}
+                  disabled={ordered(o) && !canUntick(o)}
+                  onChange={() => { void onSetStatus(o.id, ordered(o) ? 'customer_waiting' : 'customer_ordered') }}
+                  style={{ width: '17px', height: '17px', accentColor: 'var(--brand-primary)', cursor: 'inherit' }}
+                />
+                <span style={{ fontSize: '11.5px', color: ordered(o) ? 'var(--brand-primary)' : '#9CA3AF', fontWeight: 700 }}>
+                  הוזמנה
+                </span>
+              </label>
+              )}
+
               <div style={{ minWidth: 0, flex: 1 }}>
                 <p className="flex items-center gap-2 font-bold text-gray-800" style={{ fontSize: '14px', margin: 0 }}>
                   <User className="w-3.5 h-3.5" style={{ color: 'var(--brand-primary)', flex: 'none' }} />

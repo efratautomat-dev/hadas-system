@@ -649,7 +649,8 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
 
   if (adoptId) {
     const { data: target } = await supabase.from("delivery_notes")
-      .select("id, stage, intake_source, line_items, note_number, amount, storage_url")
+      .select("id, stage, intake_source, line_items, note_number, amount, " +
+              "amount_before_vat, vat_amount, storage_url")
       .eq("id", String(adoptId)).maybeSingle();
     if (!target) return json({ error: "That delivery no longer exists" }, 409);
 
@@ -691,8 +692,16 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
 
     if (line_items  && canFill(target.line_items))  patch.line_items  = line_items;
     if (note_number && canFill(target.note_number)) patch.note_number = note_number;
+    // All three, not just the total: the typed grid is priced per unit and BEFORE
+    // VAT, so a row that keeps only `amount` cannot say whether the figure on it
+    // includes the tax — which is precisely the question the owner asks before
+    // she pays. Same hole rule as everything else here.
     const safeAmount = storableAmount(amount);
     if (safeAmount !== null && canFill(target.amount)) patch.amount = safeAmount;
+    const safeNet = storableAmount(amount_before_vat);
+    if (safeNet !== null && canFill(target.amount_before_vat)) patch.amount_before_vat = safeNet;
+    const safeVat = storableAmount(vat_amount);
+    if (safeVat !== null && canFill(target.vat_amount)) patch.vat_amount = safeVat;
     // The document itself is the one field that is hole-only in every case: a
     // photograph never displaces a file that is already on the row.
     if (storageUrl && !target.storage_url) patch.storage_url = storageUrl;
@@ -877,6 +886,49 @@ async function linkDeliveryNote(
     .eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true, stage });
+}
+
+/**
+ * "הסחורה הגיעה עם החשבונית" — the invoice IS the record of what arrived.
+ *
+ * The owner's rule, and it removes real friction from the counter: "אם משלוח
+ * הגיע עם חשבונית זה נחשב כקליטת סחורה, אין צורך לקלוט בנוסף, זה מעיק עליהם. רק
+ * אם יש בעיה הן רושמות הערה." Most deliveries in the shop arrive with the
+ * supplier's invoice in the box; asking someone to type a grid describing a
+ * document that is already attached is asking her to copy it out by hand.
+ *
+ * A PERSON says it, and that is the whole design. `ledgerApproveInvoice`
+ * deliberately refuses to move a row that is still waiting for goods, because
+ * approving an invoice does not make goods appear and "בכרטסת" on a delivery
+ * nobody witnessed is the system asserting something it cannot know. That stays
+ * exactly as it is. This route is the witness — one click that says the goods
+ * came with the invoice — and only then does the row become approvable.
+ *
+ * Employees may call it: it is a statement about goods, made by whoever took
+ * them in, and it carries no figure.
+ */
+async function goodsArrivedWithInvoice(
+  supabase: SupabaseClient, noteId: string,
+): Promise<Response> {
+  const { data: note } = await supabase.from("delivery_notes")
+    .select("id, stage").eq("id", noteId).maybeSingle();
+  if (!note) return json({ error: "Delivery not found" }, 404);
+
+  // Only from "waiting for goods". Anywhere else the goods are already recorded,
+  // and re-stating it would drag a row backwards or forwards past a step.
+  if (note.stage !== "awaiting_goods")
+    return json({ error: "השורה כבר אינה ממתינה לסחורה" }, 409);
+
+  // An invoice must actually be attached — the claim is that THIS document is
+  // the record, so without one there is nothing to stand on.
+  const attached = await linkedInvoiceIds(supabase, noteId);
+  if (attached.length === 0)
+    return json({ error: "אין חשבונית מוצמדת לשורה הזו" }, 409);
+
+  const { error } = await supabase.from("delivery_notes")
+    .update({ stage: "awaiting_approval", status: "linked" }).eq("id", noteId);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, stage: "awaiting_approval" });
 }
 
 // Unlink one invoice, or all of them. With many-to-many, "unlink" is ambiguous:
@@ -2750,6 +2802,10 @@ const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
   // holding the goods and reading the header. It carries no figure, which is why
   // it is its own route rather than the general update.
   /^\/delivery-notes\/[^/]+\/supplier$/,
+  // "the goods came with the invoice" — a statement about goods, made by whoever
+  // took them in, carrying no figure. The approval that follows is still the
+  // owner's, and still separate.
+  /^\/delivery-notes\/[^/]+\/goods-with-invoice$/,
   // The customer line is hers to move — she is the one who phones.
   /^\/orders\/[^/]+\/customer-status$/,
   // A remark on an invoice. She took the delivery and saw what was short; a note
@@ -2961,6 +3017,9 @@ Deno.serve(async (req: Request) => {
     }
     const linkMatch   = path.match(/^\/delivery-notes\/([^/]+)\/link$/);
     const unlinkMatch = path.match(/^\/delivery-notes\/([^/]+)\/unlink$/);
+    const goodsWithInv = path.match(/^\/delivery-notes\/([^/]+)\/goods-with-invoice$/);
+    if (goodsWithInv && req.method === "PUT")
+      return await goodsArrivedWithInvoice(supabase, goodsWithInv[1]);
     if (linkMatch   && req.method === "PUT") return await linkDeliveryNote(req, supabase, linkMatch[1], auth.email);
     if (unlinkMatch && req.method === "PUT") return await unlinkDeliveryNote(req, supabase, unlinkMatch[1]);
 

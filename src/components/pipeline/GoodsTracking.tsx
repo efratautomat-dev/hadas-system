@@ -61,7 +61,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
   /** Land straight on one delivery — the supplier card's rows link here. */
   initialNoteId?: string | null
 }) {
-  const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle, create: createNote, resolvePair, settleByReceipt, undoReceipt, reload: reloadNotes } = useDeliveryNotes()
+  const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle, create: createNote, resolvePair, settleByReceipt, undoReceipt, goodsWithInvoice, reload: reloadNotes } = useDeliveryNotes()
   const { data: invoices, ledgerApprove } = useInvoices()
   const { data: orders, create: createOrder, markArrived, setCustomerStatus, markDiffers } = useOrders()
   const { data: suppliers } = useSuppliers()
@@ -219,6 +219,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
         }
         capturedBy={userEmail}
         onReload={reloadNotes}
+        onGoodsWithInvoice={async () => { await goodsWithInvoice(openNote.id) }}
         onRecordGoods={async d => {
           const res = await createNote(d)
           await reloadNotes()

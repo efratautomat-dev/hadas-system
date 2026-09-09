@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
 import GoodsIntake from './GoodsIntake'
+import { completeAmounts, vatRateFor, vatPercentFor } from '../../lib/vat'
 import { intakeLong, noDocumentReason, documentExpected } from '../../lib/intakeSource'
 import { ReceiptSettle } from './ReceiptSettle'
 import { parseLines, parsedTotal, type ParsedLine } from '../../lib/lineItemsFormat'
@@ -61,8 +62,13 @@ const BTN_QUIET: React.CSSProperties = {
 // The total is computed, not read: it is the only figure here nobody printed, and
 // it appears ONLY when every line carries a price. A partial sum looks like the
 // delivery's value and is not — and nobody re-checks a number already sitting there.
-function LineItemsTable({ lines }: { lines: ParsedLine[] }) {
+function LineItemsTable({ lines, isoDate }: { lines: ParsedLine[]; isoDate?: string | null }) {
   const total = parsedTotal(lines)
+  // The price column on a supplier's note is printed BEFORE VAT, and so is the
+  // one an employee types. Showing their sum alone as "סה‏ה‏כ" leaves the
+  // reader to guess whether the delivery is worth that or 18% more — which is
+  // exactly the guess the owner asked to stop making before she pays.
+  const withVat = total == null ? null : completeAmounts({ net: total }, { rate: vatRateFor(isoDate), edited: 'net' })
   const anyFigures = lines.some(l => l.quantity || l.price)
   return (
     <div style={{ marginTop: '11px', overflowX: 'auto' }}>
@@ -88,14 +94,30 @@ function LineItemsTable({ lines }: { lines: ParsedLine[] }) {
             )
           })}
         </tbody>
-        {total != null && (
+        {withVat != null && (
           <tfoot>
             <tr style={{ borderTop: '1.5px solid #E2E4E9' }}>
               <td colSpan={3} style={{ padding: '6px 0', color: '#9CA3AF', fontSize: '11.5px', fontWeight: 700 }}>
-                סה"כ לפי הפריטים
+                סה"כ לפי הפריטים · לפני מע"מ
               </td>
-              <td style={{ padding: '6px 0', fontWeight: 800, color: 'var(--brand-primary)', fontVariantNumeric: 'tabular-nums' }}>
-                {fmtILS(total)}
+              <td style={{ padding: '6px 0', fontWeight: 700, color: '#4B5563', fontVariantNumeric: 'tabular-nums' }}>
+                {fmtILS(withVat.net)}
+              </td>
+            </tr>
+            <tr>
+              <td colSpan={3} style={{ padding: '2px 0', color: '#9CA3AF', fontSize: '11.5px', fontWeight: 700 }}>
+                מע"מ {vatPercentFor(isoDate)}%
+              </td>
+              <td style={{ padding: '2px 0', color: '#6B6E73', fontVariantNumeric: 'tabular-nums' }}>
+                {fmtILS(withVat.vat)}
+              </td>
+            </tr>
+            <tr>
+              <td colSpan={3} style={{ padding: '2px 0 6px', color: '#6B6E73', fontSize: '11.5px', fontWeight: 800 }}>
+                סה"כ כולל מע"מ
+              </td>
+              <td style={{ padding: '2px 0 6px', fontWeight: 800, color: 'var(--brand-primary)', fontVariantNumeric: 'tabular-nums' }}>
+                {fmtILS(withVat.gross)}
               </td>
             </tr>
           </tfoot>
@@ -110,7 +132,7 @@ export default function DeliveryPage({
   onBack, onLoadCandidates, onLink, onUnlink, onApprove,
   onChangeSupplier, onDismantle, onOpenInvoice, onArrived, onMarkDiffers, customerOrders = [],
   onSetCustomerStatus, pendingPair, onResolvePair, onSettleByReceipt, onUndoReceipt,
-  onRecordGoods, capturedBy, onReload,
+  onRecordGoods, onGoodsWithInvoice, capturedBy, onReload,
 }: {
   note: DeliveryNote
   stage: PipelineStage
@@ -169,6 +191,12 @@ export default function DeliveryPage({
   }) => Promise<{ needsChoice?: boolean } | void>
   /** Who is looking at this — passed to the handwritten reader for its log. */
   capturedBy?: string
+  /**
+   * "הסחורה הגיעה עם החשבונית" — the invoice on this row IS the record of what
+   * arrived, so nothing needs typing. Offered only where it is true: a row still
+   * waiting for goods that already carries an invoice.
+   */
+  onGoodsWithInvoice?: () => Promise<void>
   /** Re-read the row after the camera wrote straight into it (that path does not
    *  go through `onRecordGoods`, so nothing else would know it changed). */
   onReload?: () => Promise<void> | void
@@ -204,7 +232,7 @@ export default function DeliveryPage({
 }) {
   const [candidates, setCandidates] = useState<InvoiceCandidate[] | null>(null)
   const [busy, setBusy] = useState(false)
-  const [confirm, setConfirm] = useState<'approve' | 'dismantle' | 'arrived' | null>(null)
+  const [confirm, setConfirm] = useState<'approve' | 'dismantle' | 'arrived' | 'goodsWithInvoice' | null>(null)
   const [docView, setDocView] = useState<{ url: string; previewSrc?: string } | null>(null)
   // Shut until asked for. The block is the widest thing on the page and most
   // visits to a row are to READ it — what arrived, what it was billed against —
@@ -454,7 +482,9 @@ export default function DeliveryPage({
                     <PackageCheck className="w-4 h-4" style={{ color: 'var(--brand-primary)', flex: 'none' }} />
                     <span style={{ fontSize: '13.5px', fontWeight: 700 }}>הסחורה הגיעה?</span>
                     <span style={{ fontSize: '12px', color: '#9CA3AF' }}>
-                      הקלדה · דף בכתב יד · צילום התעודה
+                      {linked.length > 0
+                        ? 'רק אם צריך — החשבונית המוצמדת מספיקה כתיעוד'
+                        : 'הקלדה · דף בכתב יד · צילום התעודה'}
                     </span>
                   </button>
                 )
@@ -465,7 +495,7 @@ export default function DeliveryPage({
                 <Row k="תעודה" v={note.noteNumber || '—'} />
                 <Row k="תאריך" v={note.date || '—'} />
                 <Row k="סכום" v={fmtILS(note.amount || null)} />
-                {parsedLines.length > 0 && <LineItemsTable lines={parsedLines} />}
+                {parsedLines.length > 0 && <LineItemsTable lines={parsedLines} isoDate={note.isoDate} />}
               </section>
 
               <section className="bg-white border" style={{ borderColor: '#E2E4E9', padding: '14px 16px' }}>
@@ -658,6 +688,32 @@ export default function DeliveryPage({
                 ) : (
                   <button onClick={() => setConfirm('arrived')} style={BTN_PRIMARY}>
                     <PackageCheck className="w-4 h-4" />הסחורה הגיעה
+                  </button>
+                )
+              )}
+
+              {/* The shortcut the owner asked for, and the reason it is a BUTTON
+                  and not a rule: the system cannot know whether the goods came
+                  with the invoice or are still on the way. A person can, and one
+                  click is cheaper than typing out a document already attached
+                  here. What follows is unchanged — the approval is still its own
+                  deliberate act. */}
+              {stage === 'awaiting_goods' && linked.length > 0 && onGoodsWithInvoice && (
+                confirm === 'goodsWithInvoice' ? (
+                  <>
+                    <p style={{ fontSize: '12px', color: '#4B5563', margin: 0 }}>
+                      החשבונית תיחשב כתיעוד של מה שהגיע, והשורה תעבור לאישור.
+                    </p>
+                    <button
+                      disabled={busy}
+                      onClick={() => act(async () => { await onGoodsWithInvoice(); setConfirm(null) })}
+                      style={BTN_PRIMARY}
+                    ><PackageCheck className="w-4 h-4" />כן, הגיעה עם החשבונית</button>
+                    <button onClick={() => setConfirm(null)} style={BTN_QUIET}>ביטול</button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirm('goodsWithInvoice')} style={BTN_PRIMARY}>
+                    <PackageCheck className="w-4 h-4" />הסחורה הגיעה עם החשבונית
                   </button>
                 )
               )}
