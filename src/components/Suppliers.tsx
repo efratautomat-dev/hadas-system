@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, ChevronRight, X, LayoutGrid, Table2, AlertTriangle, GitMerge, ArrowRightLeft } from 'lucide-react'
+import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, ChevronRight, X, LayoutGrid, Table2, AlertTriangle, GitMerge, ArrowRightLeft, StickyNote } from 'lucide-react'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { supplierAttention, ATTENTION_COLOR } from '../lib/supplierAttention'
 import { pendingPairCount } from '../lib/deliveryPairs'
 import { useSuppliers, type MergePreview, type MergeResult } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
+import { useSuppliersWithNotes } from '../hooks/useSuppliersWithNotes'
 import { STATUS } from '../theme/status'
 import SupplierDetail, { type Supplier } from './SupplierDetail'
 import { Button } from './ui/Button'
@@ -366,6 +367,8 @@ export default function Suppliers({
 }: SuppliersProps) {
   const isTablet = useIsTablet()
   const { data: serverSuppliers, loading, error, invoiceCounts, create: createSupplier, update: updateSupplier, remove: removeSupplier, merge: mergeSuppliers } = useSuppliers()
+  // Which cards carry something written about them — one query for the screen.
+  const notedSuppliers = useSuppliersWithNotes()
 
   const [suppliers, setSuppliers]         = useState<Supplier[]>([])
   const [internalViewId, setInternalViewId] = useState<string | null>(null)
@@ -743,7 +746,17 @@ export default function Suppliers({
                   </div>
                   {/* name + contact */}
                   <div className="text-right" style={{ minHeight: isTablet ? '52px' : '46px' }}>
-                    <h3 className="truncate" style={{ color: '#12131A', fontSize: isTablet ? '20px' : '18px', fontWeight: 700, letterSpacing: '-0.01em' }}>{sup.name}</h3>
+                    <h3 className="truncate flex items-center gap-1.5" style={{ color: '#12131A', fontSize: isTablet ? '20px' : '18px', fontWeight: 700, letterSpacing: '-0.01em' }}>
+                      <span className="truncate">{sup.name}</span>
+                      {/* Something is written about this supplier. The ICON only —
+                          the text belongs in the panel, and a preview here would
+                          be a second copy to keep in step. */}
+                      {(notedSuppliers.has(sup.id) || (sup.notes ?? '').trim()) && (
+                        <span title="יש הערות על הספק" style={{ display: 'flex', flexShrink: 0, color: 'var(--brand-primary)' }}>
+                          <StickyNote size={15} />
+                        </span>
+                      )}
+                    </h3>
                     <p className="text-gray-400 mt-1 truncate" style={{ fontSize: isTablet ? '14px' : '13px' }}>{contactLine}</p>
                   </div>
                   {/* current balance, stamped with today's date */}
@@ -815,7 +828,14 @@ export default function Suppliers({
                     onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                   >
                     <div className="min-w-0 text-right">
-                      <p className="truncate" style={{ fontSize: '15px', fontWeight: 600, color: '#12131A' }}>{sup.name}</p>
+                      <p className="truncate flex items-center gap-1.5" style={{ fontSize: '15px', fontWeight: 600, color: '#12131A' }}>
+                        <span className="truncate">{sup.name}</span>
+                        {(notedSuppliers.has(sup.id) || (sup.notes ?? '').trim()) && (
+                          <span title="יש הערות על הספק" style={{ display: 'flex', flexShrink: 0, color: 'var(--brand-primary)' }}>
+                            <StickyNote size={13} />
+                          </span>
+                        )}
+                      </p>
                       {contactLine && <p className="truncate text-gray-400" style={{ fontSize: '12px', marginTop: '2px' }}>{contactLine}</p>}
                     </div>
                     <div className="min-w-0 text-right"><CategoryChip category={sup.category} /></div>

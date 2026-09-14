@@ -62,7 +62,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   // The SAME panel the manager opens. The role difference is which props are
   // passed, not which component renders: no onDismantle here, and the amounts are
   // already NULL because the masking view decided that long before this screen.
-  const { data: allNotes, link, unlink, candidates, reassignSupplier, resolvePair, create: createDelivery, goodsWithInvoice, reload: reloadNotes } = useDeliveryNotes()
+  const { data: allNotes, link, unlink, candidates, reassignSupplier, resolvePair, create: createDelivery, goodsWithInvoice, saveNotes: saveNoteText, saveLineItems, reload: reloadNotes } = useDeliveryNotes()
   const { data: allInv, ledgerApprove } = useInvoices()
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
   // The delivery page's two-pane threshold (1100) is NOT the board's (1024):
@@ -157,6 +157,8 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             capturedBy={userEmail}
             onReload={reloadNotes}
             onGoodsWithInvoice={async () => { await goodsWithInvoice(openNote.id) }}
+            onSaveNotes={async text => { await saveNoteText(openNote.id, text) }}
+            onSaveLineItems={async text => { await saveLineItems(openNote.id, text) }}
             onRecordGoods={async d => {
               const res = await createDelivery(d)
               await reloadNotes()

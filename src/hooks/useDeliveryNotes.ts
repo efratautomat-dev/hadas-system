@@ -29,6 +29,7 @@ export function useDeliveryNotes() {
           storageUrl:      r.storage_url  ?? undefined,
           pairedNoteId:    r.paired_note_id ?? null,
           receiptSettledAt: r.receipt_settled_at ?? null,
+          notes:           r.notes ?? '',
           // WHEN THE ROW ENTERED THE SYSTEM, kept apart from the document's own
           // date. The goods list sorts on this: an order opened just now for an
           // invoice dated last month is the newest thing that happened, and
@@ -182,6 +183,37 @@ export function useDeliveryNotes() {
   }
 
   /**
+   * A remark about this delivery. Narrow on purpose — the same shape the invoice
+   * note uses, so an employee may write one without the route that also writes
+   * amounts being opened to her.
+   */
+  const saveNotes = async (id: string, notes: string) => {
+    try {
+      await api.put(`/delivery-notes/${id}/notes`, { notes })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בשמירת ההערה: ${msg}`)
+      throw err
+    }
+  }
+
+  /**
+   * Correct the item list. Narrow route, open to employees — the reading is a
+   * machine's and the goods are in front of her.
+   */
+  const saveLineItems = async (id: string, lineItems: string) => {
+    try {
+      await api.put(`/delivery-notes/${id}/line-items`, { lineItems })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בשמירת הפריטים: ${msg}`)
+      throw err
+    }
+  }
+
+  /**
    * "הסחורה הגיעה עם החשבונית" — the attached invoice IS the record of what came.
    *
    * Most deliveries in the shop arrive with the supplier's invoice in the box,
@@ -325,5 +357,5 @@ export function useDeliveryNotes() {
     }
   }
 
-  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reassignSupplier, resolvePair, settleByReceipt, undoReceipt, goodsWithInvoice, reload: load }
+  return { data, loading, error, create, setMatch, update, link, unlink, remove, candidates, dismantle, reassignSupplier, resolvePair, settleByReceipt, undoReceipt, goodsWithInvoice, saveNotes, saveLineItems, reload: load }
 }

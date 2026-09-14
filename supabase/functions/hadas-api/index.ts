@@ -797,7 +797,11 @@ async function updateDeliveryNote(req: Request, supabase: SupabaseClient, id: st
   if (body.stage           !== undefined) updates.stage         = body.stage;
   if (body.employeeId      !== undefined) updates.employee_id   = body.employeeId || null;
   if (body.intakeSource    !== undefined) updates.intake_source = body.intakeSource;
-  // body.notes intentionally excluded — no notes column in delivery_notes
+  // `notes` has its own narrow route (PUT /delivery-notes/:id/notes), open to
+  // employees, and is accepted here too now that the column exists —
+  // 20260914010000. The old comment said it was excluded because there was
+  // nowhere to put it; there is.
+  if (body.notes           !== undefined) updates.notes         = body.notes;
 
   if (Object.keys(updates).length === 0) return json({ error: "No fields to update" }, 400);
   const { error } = await supabase.from("delivery_notes").update(updates).eq("id", id);
@@ -1411,6 +1415,97 @@ function storableAmount(n: unknown): number | null {
   const v = typeof n === "number" ? n : Number(n);
   if (!Number.isFinite(v)) return null;
   return Math.abs(v) > NUMERIC_10_2_MAX ? null : v;
+}
+
+/**
+ * Write a DELIVERY's note — and nothing else.
+ *
+ * The same narrow shape `setInvoiceNotes` has, for the same reason, and this is
+ * the screen where it matters most: the person standing in front of the pallet
+ * is the one who sees that two boxes are crushed or that one item is short, and
+ * a remark she cannot leave is knowledge the system loses at the counter. §11 of
+ * the owner's batch says exactly this — with an invoice attached nothing needs
+ * recording, "רק אם יש בעיה הן רושמות הערות".
+ *
+ * NOT `line_items`: that is the document's own contents. This is what someone
+ * thought about it.
+ */
+async function setDeliveryNotes(
+  req: Request, supabase: SupabaseClient, id: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const notes = typeof body?.notes === "string" ? body.notes : null;
+  if (notes === null) return json({ error: "notes is required" }, 400);
+
+  const { error } = await supabase.from("delivery_notes").update({ notes }).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
+}
+
+/**
+ * "טופל" — a person is done with a note.
+ *
+ * Keyed by (source, record) rather than stored on each note's own table: the
+ * panel is a cross-section of six places, and a column on each would be six
+ * migrations and six routes for one toggle. This holds the ANSWER; the note
+ * itself is never touched, which is what keeps a collected note read-only where
+ * it was written.
+ *
+ * Reversible, and deliberately not per-user: two people working one supplier are
+ * working one list.
+ */
+async function setNoteHandled(
+  req: Request, supabase: SupabaseClient, actor?: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const sourceKey  = String(body?.sourceKey ?? "").trim();
+  const recordId   = String(body?.recordId ?? "").trim();
+  const supplierId = String(body?.supplierId ?? "").trim();
+  const handled    = body?.handled !== false;
+  if (!sourceKey || !recordId) return json({ error: "sourceKey and recordId are required" }, 400);
+
+  if (!handled) {
+    const { error } = await supabase.from("note_handled").delete()
+      .eq("source_key", sourceKey).eq("record_id", recordId);
+    if (error) return json({ error: error.message }, 500);
+    return json({ success: true, handled: false });
+  }
+
+  if (!supplierId) return json({ error: "supplierId is required" }, 400);
+  const { error } = await supabase.from("note_handled").upsert({
+    source_key:  sourceKey,
+    record_id:   recordId,
+    supplier_id: supplierId,
+    handled_at:  new Date().toISOString(),
+    handled_by:  actor ?? null,
+  }, { onConflict: "source_key,record_id" });
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, handled: true });
+}
+
+/**
+ * Correct the item list — on a delivery or on an invoice — and nothing else.
+ *
+ * The owner: "אפשרות עריכה גם לעובדות לפריטים בתעודות משלוח וחשבוניות, לפעמים
+ * הפענוח טועה וזה לא ברור מה הכוונה." The reading is a machine's, the goods are
+ * in front of her, and she is the only one who can say that "חוט כותנה 6" was
+ * actually "חוט כותנה 8". A line nobody may fix is a line nobody trusts.
+ *
+ * Narrow, like the notes routes beside it: `line_items` is TEXT about what
+ * arrived, and it is already visible to employees (neither `_v` view masks it).
+ * The amounts are not touched here, and the general update route stays closed.
+ */
+async function setLineItems(
+  req: Request, supabase: SupabaseClient, table: "invoices" | "delivery_notes", id: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const lineItems = typeof body?.lineItems === "string" ? body.lineItems
+    : typeof body?.line_items === "string" ? body.line_items : null;
+  if (lineItems === null) return json({ error: "lineItems is required" }, 400);
+
+  const { error } = await supabase.from(table).update({ line_items: lineItems }).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
 }
 
 async function setInvoiceNotes(
@@ -2894,6 +2989,14 @@ const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
   // A remark on an invoice. She took the delivery and saw what was short; a note
   // she cannot leave is knowledge lost at the counter.
   /^\/invoices\/[^/]+\/notes$/,
+  // A remark on a DELIVERY, for the same reason and more so: she is the one who
+  // saw the crushed box. And marking a note handled is a judgement about work,
+  // not about money.
+  /^\/delivery-notes\/[^/]+\/notes$/,
+  // Correcting a misread item list. Text about goods, no figure, and she is the
+  // one holding them — the same argument as the misread supplier.
+  /^\/delivery-notes\/[^/]+\/line-items$/,
+  /^\/invoices\/[^/]+\/line-items$/,
   // Answering "is the note that just arrived the same delivery you recorded?" —
   // a judgement about goods she handled, which is hers to make.
   /^\/delivery-notes\/[^/]+\/pair$/,
@@ -2904,6 +3007,7 @@ const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
 
 function employeeMayAccess(method: string, path: string): boolean {
   if (method === "POST" && (path === "/returns" || path === "/delivery-notes" || path === "/orders")) return true;
+  if (method === "PUT" && path === "/note-handled") return true;
   // The suggestion list is a read, but it is served by this API rather than the anon
   // client because it joins invoices to the link table. Advisory only — it attaches
   // nothing, and the handler masks `total_amount` for a non-manager itself, because
@@ -3133,6 +3237,17 @@ Deno.serve(async (req: Request) => {
     if (pair && req.method === "PUT")
       return await resolveDeliveryPair(req, supabase, pair[1]);
 
+    if (path === "/note-handled" && req.method === "PUT")
+      return await setNoteHandled(req, supabase, auth.email);
+    const dnLines = path.match(/^\/delivery-notes\/([^/]+)\/line-items$/);
+    if (dnLines && req.method === "PUT")
+      return await setLineItems(req, supabase, "delivery_notes", dnLines[1]);
+    const invLines = path.match(/^\/invoices\/([^/]+)\/line-items$/);
+    if (invLines && req.method === "PUT")
+      return await setLineItems(req, supabase, "invoices", invLines[1]);
+    const dnNotes = path.match(/^\/delivery-notes\/([^/]+)\/notes$/);
+    if (dnNotes && req.method === "PUT")
+      return await setDeliveryNotes(req, supabase, dnNotes[1]);
     const invNotes = path.match(/^\/invoices\/([^/]+)\/notes$/);
     if (invNotes && req.method === "PUT")
       return await setInvoiceNotes(req, supabase, invNotes[1]);

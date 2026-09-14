@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { PackageCheck, Plus, LayoutGrid, Table2 } from 'lucide-react'
 import { useDeliveryNotes } from '../../hooks/useDeliveryNotes'
 import { useInvoices } from '../../hooks/useInvoices'
+import { InvoiceDetail } from '../Invoices'
 import { useOrders } from '../../hooks/useOrders'
 import { useSuppliers } from '../../hooks/useSuppliers'
 import OrderForm from './OrderForm'
@@ -9,6 +10,7 @@ import SupplierPicker from './SupplierPicker'
 import ArrivalChoice from './ArrivalChoice'
 import GoodsIntake from './GoodsIntake'
 import { intakeShort } from '../../lib/intakeSource'
+import { useNotesTarget } from '../../lib/notesTargetContext'
 import CustomerOrdersBook from './CustomerOrdersBook'
 import { pendingPairFor } from '../../lib/deliveryPairs'
 
@@ -61,8 +63,8 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
   /** Land straight on one delivery — the supplier card's rows link here. */
   initialNoteId?: string | null
 }) {
-  const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle, create: createNote, resolvePair, settleByReceipt, undoReceipt, goodsWithInvoice, reload: reloadNotes } = useDeliveryNotes()
-  const { data: invoices, ledgerApprove } = useInvoices()
+  const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle, create: createNote, resolvePair, settleByReceipt, undoReceipt, goodsWithInvoice, saveNotes: saveNoteText, saveLineItems, reload: reloadNotes } = useDeliveryNotes()
+  const { data: invoices, ledgerApprove, update: updateInvoice, saveNotes: saveInvoiceNotes, saveLineItems: saveInvoiceLines } = useInvoices()
   const { data: orders, create: createOrder, markArrived, setCustomerStatus, markDiffers, cancel: cancelOrder, uncancel: uncancelOrder } = useOrders()
   const { data: suppliers } = useSuppliers()
   const [newOrder, setNewOrder] = useState(false)
@@ -178,6 +180,15 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
   )
 
   const openNote = useMemo(() => notes.find(n => n.id === openId) ?? null, [notes, openId])
+  // The invoice opened OVER the goods page, when she asks for its full screen.
+  const [invoiceDetailId, setInvoiceDetailId] = useState<string | null>(null)
+  const invoiceDetailInv = useMemo(
+    () => invoices.find(i => i.id === invoiceDetailId) ?? null,
+    [invoices, invoiceDetailId],
+  )
+  // The notes panel follows the row on screen — and holds nothing while the LIST
+  // is showing, because a note has to belong to one supplier.
+  useNotesTarget(openNote?.supplierId ?? null, openNote?.supplierName ?? '')
 
   // A page, not a dialog: comparing two documents needs the whole width, and a
   // list competing for attention underneath is exactly what made the modal feel
@@ -222,12 +233,43 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
         capturedBy={userEmail}
         onReload={reloadNotes}
         onGoodsWithInvoice={async () => { await goodsWithInvoice(openNote.id) }}
+        onSaveNotes={async text => { await saveNoteText(openNote.id, text) }}
+        onSaveLineItems={async text => { await saveLineItems(openNote.id, text) }}
+        onOpenInvoiceDetail={setInvoiceDetailId}
         onRecordGoods={async d => {
           const res = await createNote(d)
           await reloadNotes()
           return res
         }}
       />
+      {/* ── The invoice's own screen, OVER the goods page ──────────────────
+          Not navigation: she is in the middle of comparing a delivery with a
+          bill, and a screen change loses that place. The same component the
+          invoices screen renders, so there is one invoice screen and not two
+          that drift — and closing it puts her back exactly where she was. */}
+      {invoiceDetailInv && (
+        <div
+          className="fixed inset-0 z-50"
+          style={{ background: 'rgba(0,0,0,0.45)', overflowY: 'auto', padding: '20px 12px' }}
+          onClick={e => { if (e.target === e.currentTarget) setInvoiceDetailId(null) }}
+        >
+          <div className="bg-white" style={{ maxWidth: '1180px', margin: '0 auto', padding: '16px', direction: 'rtl' }}>
+            <InvoiceDetail
+              invoice={invoiceDetailInv}
+              derivedStatus={invoiceDetailInv.status ?? ''}
+              onBack={() => setInvoiceDetailId(null)}
+              onSave={async updated => {
+                setInvoiceDetailId(null)
+                await updateInvoice(updated.id, updated)
+                await reloadNotes()
+              }}
+              onSaveNotes={async (id, notes) => { await saveInvoiceNotes(id, notes) }}
+              onSaveLineItems={async (id, text) => { await saveInvoiceLines(id, text) }}
+            />
+          </div>
+        </div>
+      )}
+
       {reassign && (
         <SupplierPicker
           current={openNote.supplierId ?? ''}

@@ -297,6 +297,15 @@ export interface DeliveryNote {
   amount: number
   status: 'pending' | 'archived'
   linkedInvoiceId?: string
+  /**
+   * A remark about THIS delivery — what was short, what was damaged, what the
+   * driver said. NOT `lineItems`, which is the document's own contents.
+   *
+   * The field was declared here long before the COLUMN existed: until
+   * `20260914010000` there was nowhere to store it, and `updateDeliveryNote`
+   * carried a comment saying so. It is real now, and registered in `noteSources`
+   * so a remark written on the goods page reaches the supplier's notes panel.
+   */
   notes?: string
   driveFileLink?: string
   /**

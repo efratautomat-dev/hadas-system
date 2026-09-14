@@ -36,6 +36,34 @@ const CARD: React.CSSProperties = {
   background: 'white', border: '1px solid #E8E6EA', borderRadius: '12px', padding: '9px 11px',
 }
 
+/**
+ * "טופל" — the owner's toggle.
+ *
+ * A note that has been dealt with should stop taking up the column without
+ * leaving the log: the entry stays, folded to one line, one click from being
+ * opened again. Not a delete and not an edit — the note is untouched, and for a
+ * COLLECTED note that is the only correct treatment, because it belongs to the
+ * screen it was written on.
+ */
+function HandledToggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      title={on ? 'להחזיר לפתוח' : 'סימון כטופל'}
+      className="inline-flex items-center gap-1"
+      style={{
+        background: on ? '#DCFCE7' : 'transparent',
+        border: `1px solid ${on ? '#86EFAC' : '#E8E6EA'}`,
+        borderRadius: '999px', padding: '1px 7px', cursor: 'pointer',
+        color: on ? '#166534' : '#9CA3AF', fontSize: '10.5px', fontWeight: 700,
+        fontFamily: 'inherit',
+      }}
+    >
+      <Check className="w-3 h-3" />טופל
+    </button>
+  )
+}
+
 function Tag({ style, children }: { style: { bg: string; fg: string }; children: React.ReactNode }) {
   return (
     <span className="rounded-md font-bold"
@@ -46,10 +74,11 @@ function Tag({ style, children }: { style: { bg: string; fg: string }; children:
 }
 
 /** A note WRITTEN in the panel — the only kind that can be edited here. */
-function OwnNoteRow({ note, onSave, onDelete }: {
+function OwnNoteRow({ note, onSave, onDelete, onHandled }: {
   note: FeedNote
   onSave: (id: string, body: string) => Promise<void>
   onDelete: (id: string) => Promise<void>
+  onHandled: (next: boolean) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft]     = useState(note.body)
@@ -64,6 +93,7 @@ function OwnNoteRow({ note, onSave, onDelete }: {
         )}
         {!editing && (
           <span className="flex items-center gap-1" style={{ marginInlineStart: 'auto' }}>
+            <HandledToggle on={note.handled} onToggle={() => onHandled(!note.handled)} />
             {/* First of the three, because it is the one that leaves the note
                 exactly as it is. */}
             <CopyButton text={note.body} title="העתקת ההערה" size={14} />
@@ -111,6 +141,16 @@ function OwnNoteRow({ note, onSave, onDelete }: {
             ><X className="w-3 h-3" />ביטול</button>
           </div>
         </>
+      ) : note.handled ? (
+        // Folded: one line, still readable, still there. Clicking it opens the
+        // note back up — the toggle above is not the only way back in, because a
+        // folded note you cannot expand is a deleted note with extra steps.
+        <p
+          onClick={() => onHandled(false)}
+          className="truncate"
+          style={{ margin: 0, fontSize: '12.5px', color: '#9CA3AF', cursor: 'pointer' }}
+          title={note.body}
+        >{note.body}</p>
       ) : (
         <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', color: '#1F2125' }}>
           {note.body}
@@ -125,9 +165,10 @@ function OwnNoteRow({ note, onSave, onDelete }: {
  * it never reads as something written here, and a footer that names the record
  * and opens it — the note without its context is half the information.
  */
-function DerivedNoteRow({ note, onOpen }: {
+function DerivedNoteRow({ note, onOpen, onHandled }: {
   note: FeedNote
   onOpen: (intent: NoteOpenIntent) => void
+  onHandled: (next: boolean) => void
 }) {
   return (
     <div style={{ ...CARD, background: '#FBFBFD', borderStyle: 'dashed' }}>
@@ -135,6 +176,7 @@ function DerivedNoteRow({ note, onOpen }: {
         <Tag style={note.style}>{note.label}</Tag>
         <span style={{ fontSize: '11px', color: '#9CA3AF' }}>{noteDate(note.date)}</span>
         <span className="flex items-center gap-1.5" style={{ marginInlineStart: 'auto' }}>
+          <HandledToggle on={note.handled} onToggle={() => onHandled(!note.handled)} />
           {/* Read-only here, and copyable: taking the text is not editing it. This
               is the row that matters most for the ask — a note written on an
               invoice or on a statement reaches this panel whichever screen it was
@@ -147,11 +189,22 @@ function DerivedNoteRow({ note, onOpen }: {
         </span>
       </div>
 
-      <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', color: '#1F2125' }}>
-        {note.body}
-      </p>
+      {note.handled ? (
+        <p
+          onClick={() => onHandled(false)}
+          className="truncate"
+          style={{ margin: 0, fontSize: '12.5px', color: '#9CA3AF', cursor: 'pointer' }}
+          title={note.body}
+        >{note.body}</p>
+      ) : (
+        <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', color: '#1F2125' }}>
+          {note.body}
+        </p>
+      )}
 
-      {note.ref && (
+      {/* The footer that names the record goes with the body: a folded row is one
+          line, and a link under it would make it three. */}
+      {!note.handled && note.ref && (
         <div className="flex items-center gap-1.5 flex-wrap" style={{
           marginTop: '7px', paddingTop: '6px', borderTop: '1px dashed #E8E6EA',
           fontSize: '11.5px', color: '#6B6E73',
@@ -199,7 +252,7 @@ export function SupplierNotesPanel({ supplierId, supplierName, tag, open, onTogg
   onToggle: () => void
   onOpenRecord: (intent: NoteOpenIntent) => void
 }) {
-  const { feed, loading, create, update, remove } = useSupplierNotes(supplierId)
+  const { feed, loading, create, update, remove, setHandled } = useSupplierNotes(supplierId)
   const [draft, setDraft]   = useState('')
   const [filter, setFilter] = useState<string>('all')
 
@@ -330,9 +383,17 @@ export function SupplierNotesPanel({ supplierId, supplierName, tag, open, onTogg
             </p>
           )}
           {shown.map(n => n.editable
-            ? <OwnNoteRow key={n.key} note={n} onSave={update} onDelete={remove} />
-            : <DerivedNoteRow key={n.key} note={n} onOpen={onOpenRecord} />
-          )}
+            ? (
+              <OwnNoteRow
+                key={n.key} note={n} onSave={update} onDelete={remove}
+                onHandled={next => { void setHandled(n.sourceKey, n.recordId, next) }}
+              />
+            ) : (
+              <DerivedNoteRow
+                key={n.key} note={n} onOpen={onOpenRecord}
+                onHandled={next => { void setHandled(n.sourceKey, n.recordId, next) }}
+              />
+            ))}
         </div>
       </aside>
     </>

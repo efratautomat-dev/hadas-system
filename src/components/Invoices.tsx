@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, Search, ChevronRight, ChevronDown, ExternalLink, Eye, Save, AlertTriangle, X, Trash2, Wallet, CheckCircle, Clock, RotateCcw, FolderOpen, StickyNote } from 'lucide-react'
+import { FileText, Search, ChevronRight, ChevronDown, ExternalLink, Eye, Save, AlertTriangle, X, Trash2, Wallet, CheckCircle, Clock, RotateCcw, FolderOpen, StickyNote, Pencil } from 'lucide-react'
 import { type Invoice, type Alert, type PipelineStage } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
@@ -19,6 +19,10 @@ import { STATUS } from '../theme/status'
 import { STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING, deriveInvoiceStatus, INVOICE_STATUS_INTERNAL } from '../lib/invoiceStatus'
 import { isCreditInvoice, applyCreditSign, convertInvoice } from '../lib/creditNote'
 import { tierAllows } from '../lib/tiers'
+import { useNotesTarget } from '../lib/notesTargetContext'
+import LineItemsEditor from './pipeline/LineItemsEditor'
+import { newLine, linesToText as linesToStored, type Line } from '../lib/lineItems'
+import { parseLines } from '../lib/lineItemsFormat'
 import { vatRateFor, vatPercentFor, completeAmounts, type EditedAmount } from '../lib/vat'
 import { useDateField } from './ui/form'
 import { newestFirst } from '../lib/recency'
@@ -363,7 +367,7 @@ function withAmounts(inv: Invoice, edited: EditedAmount | null = null): Invoice 
 export function InvoiceDetail({
   invoice, derivedStatus, onBack, onSave, onSaveNotes, onOpenSupplier, onDelete,
   needsReviewConfirm = false, onMarkReviewed,
-  pipelineStage, onOpenPipeline, onOpenPipelineView,
+  pipelineStage, onOpenPipeline, onOpenPipelineView, onSaveLineItems,
 }: {
   invoice: Invoice; derivedStatus: string; onBack: () => void; onSave: (inv: Invoice) => void
   /** Save ONLY the note, without leaving the screen. `onSave` navigates away —
@@ -387,6 +391,14 @@ export function InvoiceDetail({
   pipelineStage?: PipelineStage | null
   onOpenPipeline?: () => Promise<void>
   onOpenPipelineView?: () => void
+  /**
+   * Correct the extracted item list. Absent = the block is read-only.
+   *
+   * "לפעמים הפענוח טועה וזה לא ברור מה הכוונה" — and until now the invoice's
+   * items were not shown on any screen at all, so a wrong reading could not even
+   * be SEEN, let alone fixed.
+   */
+  onSaveLineItems?: (id: string, lineItems: string) => Promise<void>
 }) {
   const { data: suppliersData } = useSuppliers()
   // Opened rows are completed to all three amounts. The extractor returns 0 for
@@ -397,6 +409,8 @@ export function InvoiceDetail({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [noteState, setNoteState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [lineDraftOpen, setLineDraftOpen] = useState(false)
+  const [lineDraft, setLineDraft] = useState<Line[]>([])
 
   // The note saves on its own, staying put. Failure is REPORTED rather than
   // swallowed: the text is still in the box, and a silent failure would let the
@@ -853,6 +867,61 @@ export function InvoiceDetail({
           )}
         </Group>
 
+        {/* ── פריטים ────────────────────────────────────────────────────────
+            Read off the document by the extractor and, until now, shown nowhere.
+            The goods screen has displayed the delivery's table for a while; the
+            invoice's own list was stored and invisible, which is the worst of
+            both — nobody could check it and nobody could fix it. */}
+        {(lineDraftOpen || (form.lineDetails ?? '').trim()) && (
+          <div style={{ background: 'white', borderRadius: '14px', border: '1px solid #EEEEF2', padding: '14px' }}>
+            <div className="flex items-center gap-2" style={{ marginBottom: '7px' }}>
+              <FileText size={15} style={{ color: 'var(--brand-primary)' }} />
+              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--brand-primary)' }}>פריטים בחשבונית</h3>
+              {!lineDraftOpen && onSaveLineItems && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLineDraft(parseLines(form.lineDetails ?? '').map(l => ({
+                      ...newLine(), item: l.item, quantity: l.quantity, price: l.price,
+                    })))
+                    setLineDraftOpen(true)
+                  }}
+                  className="inline-flex items-center gap-1"
+                  style={{ background: 'none', border: 'none', padding: 0, color: 'var(--brand-primary)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                ><Pencil className="w-3.5 h-3.5" />תיקון</button>
+              )}
+            </div>
+            {lineDraftOpen ? (
+              <>
+                <LineItemsEditor lines={lineDraft} onChange={setLineDraft} isoDate={form.invoiceDate} />
+                <div className="flex items-center gap-2" style={{ marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const text = linesToStored(lineDraft)
+                      setForm(f => ({ ...f, lineDetails: text }))
+                      setLineDraftOpen(false)
+                      await onSaveLineItems?.(form.id, text)
+                    }}
+                    className="rounded-xl font-bold"
+                    style={{ background: 'var(--brand-primary)', color: 'white', border: 'none', padding: '7px 14px', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >שמירת הפריטים</button>
+                  <button
+                    type="button"
+                    onClick={() => setLineDraftOpen(false)}
+                    className="rounded-xl"
+                    style={{ background: 'white', color: '#6B6E73', border: '1px solid #E2E4E9', padding: '7px 14px', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}
+                  >ביטול</button>
+                </div>
+              </>
+            ) : (
+              <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.6, whiteSpace: 'pre-wrap', color: '#4B5563' }}>
+                {form.lineDetails}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* 4 – הערות.
             At the BOTTOM, not the top, and that is the send buttons' doing: the
             owner asked for "exactly what statement reconciliation has", and a
@@ -1052,13 +1121,19 @@ export default function Invoices({
   onOpenInvoice, onCloseInvoice, onOpenSupplier, onOpenDelivery,
   onDuplicateResolved, onDuplicateDismissed,
 }: InvoicesProps) {
-  const { data: serverInvoices, loading, error, update: updateInvoice, updateStatus, remove: removeInvoice, openPipeline } = useInvoices()
+  const { data: serverInvoices, loading, error, update: updateInvoice, updateStatus, remove: removeInvoice, openPipeline, saveLineItems } = useInvoices()
   // Read-only: which pipeline (if any) this invoice already belongs to.
   // `reload` matters: opening a pipeline writes a delivery row, and without
   // re-reading here the button appeared to do nothing — this screen holds its own
   // copy of the list, separate from the goods screen's.
   const { data: pipelineNotes, reload: reloadNotes } = useDeliveryNotes()
   const { deliveriesFor, reload: reloadLinks } = useDeliveryLinks()
+  // ── The notes panel follows the supplier you are looking at ───────────────
+  // The owner: "אם אני בחשבונית של הדפסות רימון אני אוכל לפתוח מהצד את ההערות
+  // של הדפסות רימון." Declared here rather than threaded through Layout: only
+  // this screen knows which invoice is open, and the panel is mounted once.
+  // `null` while the LIST is showing — a note has to belong to someone, and a
+  // list is about everyone.
   // Suppliers flagged "בהסדר תשלום" → their invoices get an informational tag (display-only).
   const { data: suppliersData } = useSuppliers()
   const [invoices, setInvoices] = useState<Invoice[]>([])
@@ -1081,6 +1156,9 @@ export default function Invoices({
   const selected     = controlledSelectedId !== undefined
     ? (invoices.find(inv => inv.id === controlledSelectedId) ?? null)
     : internalSelected
+  // Declared unconditionally (a hook cannot live behind the `if (selected)`
+  // below), and `null` while the list is showing.
+  useNotesTarget(selected?.supplierId ?? null, selected?.supplier ?? '')
   const openInvoice  = (inv: Invoice) => onOpenInvoice  ? onOpenInvoice(inv.id)  : setInternalSelected(inv)
   const closeInvoice = ()             => onCloseInvoice ? onCloseInvoice()        : setInternalSelected(null)
 
@@ -1270,6 +1348,7 @@ export default function Invoices({
         // Notes save in place — no closeInvoice(), and the error is rethrown so
         // the note box can show that it did not save.
         onSaveNotes={async (id, notes) => { await updateInvoice(id, { notes }) }}
+        onSaveLineItems={saveLineItems}
       />
     )
   }

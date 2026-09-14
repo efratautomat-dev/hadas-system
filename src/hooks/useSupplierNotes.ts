@@ -53,6 +53,16 @@ export interface FeedNote {
   /** Present on collected notes. */
   ref?:      DerivedNoteRef
   open?:     NoteOpenIntent
+  /**
+   * A person marked this note dealt with, so the panel folds it.
+   *
+   * Kept apart from the note itself — the answer lives in `note_handled`, keyed
+   * by (source, record). A collected note stays read-only where it was written,
+   * and a handled one is still there, one click from being opened again.
+   */
+  handled:   boolean
+  /** What `setHandled` acts on: the row the note came from. */
+  recordId:  string
 }
 
 /** Newest first. Undated rows sink to the bottom rather than to the top: an
@@ -80,6 +90,7 @@ function byDateDesc(a: FeedNote, b: FeedNote): number {
 export function useSupplierNotes(supplierId: string | null) {
   const [own, setOwn]         = useState<SupplierNote[]>([])
   const [derived, setDerived] = useState<FeedNote[]>([])
+  const [handled, setHandledSet] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState<string | null>(null)
 
@@ -143,6 +154,8 @@ export function useSupplierNotes(supplierId: string | null) {
             editable:  false,
             ref:       src.ref(raw),
             open:      src.open(raw),
+            handled:   false,            // filled below, from one query
+            recordId:  String(raw.id ?? ''),
           })
         }
         return out
@@ -154,10 +167,49 @@ export function useSupplierNotes(supplierId: string | null) {
     setDerived(perSource.flat())
   }, [supplierId])
 
+  /**
+   * Which of this supplier's notes someone has already dealt with.
+   *
+   * One query for the whole supplier rather than one per note, and a failure is
+   * swallowed: not knowing that a note was handled costs a fold, while failing
+   * the panel over it costs the notes themselves.
+   */
+  const loadHandled = useCallback(async () => {
+    if (!supplierId) { setHandledSet(new Set()); return }
+    try {
+      const { data, error: err } = await supabase
+        .from('note_handled')
+        .select('source_key, record_id')
+        .eq('supplier_id', supplierId)
+      if (err) throw err
+      setHandledSet(new Set((data ?? []).map(r => `${r.source_key}:${r.record_id}`)))
+    } catch (e) {
+      console.warn('[supplier-notes] handled marks unavailable:', e)
+      setHandledSet(new Set())
+    }
+  }, [supplierId])
+
+  /** Fold a note away, or bring it back. Optimistic — a toggle that waits for a
+   *  round trip before it moves reads as a broken toggle. */
+  const setHandled = async (sourceKey: string, recordId: string, next: boolean) => {
+    const key = `${sourceKey}:${recordId}`
+    setHandledSet(prev => {
+      const copy = new Set(prev)
+      if (next) copy.add(key); else copy.delete(key)
+      return copy
+    })
+    try {
+      await api.put('/note-handled', { sourceKey, recordId, supplierId, handled: next })
+    } catch (e) {
+      console.error('[supplier-notes] handled toggle failed:', e)
+      await loadHandled()   // put the screen back to what the server actually holds
+    }
+  }
+
   // Both halves of the feed refresh together — a supplier change has to move
   // them as one, or the panel briefly shows one supplier's written notes beside
   // another's collected ones.
-  useEffect(() => { void load(); void loadDerived() }, [load, loadDerived])
+  useEffect(() => { void load(); void loadDerived(); void loadHandled() }, [load, loadDerived, loadHandled])
 
   const ownAsFeed: FeedNote[] = own.map(n => ({
     key:         `manual:${n.id}`,
@@ -169,9 +221,15 @@ export function useSupplierNotes(supplierId: string | null) {
     editable:    true,
     noteId:      n.id,
     authorEmail: n.authorEmail,
+    handled:     false,
+    recordId:    n.id,
   }))
 
-  const feed = [...ownAsFeed, ...derived].sort(byDateDesc)
+  // Handled is stamped HERE, on both halves at once, so the two kinds of note
+  // cannot disagree about what the mark means.
+  const feed = [...ownAsFeed, ...derived]
+    .map(n => ({ ...n, handled: handled.has(`${n.sourceKey}:${n.recordId}`) }))
+    .sort(byDateDesc)
 
   /** The tag comes from the CALLER (the screen), never from the user. */
   const create = async (body: string, tag: NoteTag) => {
@@ -198,7 +256,7 @@ export function useSupplierNotes(supplierId: string | null) {
     data: own,
     /** Everything the panel shows, ordered newest first. */
     feed,
-    loading, error, create, update, remove,
-    reload: async () => { await Promise.all([load(), loadDerived()]) },
+    loading, error, create, update, remove, setHandled,
+    reload: async () => { await Promise.all([load(), loadDerived(), loadHandled()]) },
   }
 }

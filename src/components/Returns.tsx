@@ -15,6 +15,7 @@ import { Button } from './ui/Button'
 import { SummaryCards } from './ui/SummaryCards'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { isoToDisplay } from '../lib/dates'
+import { useNotesTarget } from '../lib/notesTargetContext'
 import { DateField } from './ui/form'
 
 export type ReturnStatus = 'אושר' | 'בטיפול' | 'נדחה'
@@ -325,6 +326,9 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm())
+  // The notes panel follows the return being written: the supplier on the form
+  // is the one this screen is about, and `null` the rest of the time.
+  useNotesTarget(showForm ? (form.supplierId || null) : null, suppliersData.find(sp => sp.id === form.supplierId)?.name ?? '')
   const [justSaved, setJustSaved] = useState<ReturnPDFData | null>(null)
   const [autoOpenedEditId, setAutoOpenedEditId] = useState<string | null>(null)
 
