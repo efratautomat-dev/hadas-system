@@ -49,9 +49,17 @@ if (!existsSync(ANDROID_HOME)) fail(`Android SDK not found at ${ANDROID_HOME} �
 if (!existsSync(JAVA_HOME)) fail(`JDK not found at ${JAVA_HOME} — set JAVA_HOME (Capacitor 8 needs JDK 21)`)
 if (!existsSync(LOCAL_PROPS)) writeFileSync(LOCAL_PROPS, `sdk.dir=${ANDROID_HOME}\n`)
 
-const env = { ...process.env, ANDROID_HOME, ANDROID_SDK_ROOT: ANDROID_HOME, JAVA_HOME }
+// Built per call, not once: a branded build sets the customer's identity into
+// process.env part-way through, and `cap sync` reads it from there. A snapshot
+// taken at startup would hand every child process the generic identity — which
+// produces a "branded" APK named InControl, with nothing to show anything went
+// wrong.
 const run = (cmd, cmdArgs, cwd = ROOT) =>
-  execFileSync(cmd, cmdArgs, { cwd, env, stdio: 'inherit' })
+  execFileSync(cmd, cmdArgs, {
+    cwd,
+    env: { ...process.env, ANDROID_HOME, ANDROID_SDK_ROOT: ANDROID_HOME, JAVA_HOME },
+    stdio: 'inherit',
+  })
 
 // ── signing ──────────────────────────────────────────────────────────────────
 // A release build without the keystore would produce an unsigned artifact that
@@ -86,9 +94,13 @@ function restoreIdentity() {
 }
 
 function applyClient(client, version) {
-  // The name and package are already in place — `cap sync` wrote them from the
-  // environment (see capacitor.config.ts). Only the baked address is ours to add.
+  // Written AFTER `cap sync`, which is the only order that survives: sync rewrites
+  // parts of this file from capacitor.config.ts, and the app name is not one of
+  // the parts it maintains — it keeps whatever `cap add` first put there. Verified
+  // by reading the built APK, not by trusting the build to have honoured it.
   const strings = readFileSync(STRINGS, 'utf8')
+    .replace(/<string name="app_name">[^<]*<\/string>/, `<string name="app_name">${client.app.name}</string>`)
+    .replace(/<string name="title_activity_main">[^<]*<\/string>/, `<string name="title_activity_main">${client.app.name}</string>`)
     .replace(/<string name="store_url">[^<]*<\/string>/, `<string name="store_url">${client.siteUrl}</string>`)
   writeFileSync(STRINGS, strings)
 
