@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Truck, PackageCheck } from 'lucide-react'
+import { Truck, PackageCheck, Ban } from 'lucide-react'
 import { StatusBadge, StatusFlag } from '../StatusBadge'
 import type { Order } from '../../hooks/useOrders'
 
@@ -17,11 +17,13 @@ import type { Order } from '../../hooks/useOrders'
 // Newest first (§7.4).
 
 export default function OrdersRail({
-  orders, onArrived, onArrivedPartial,
+  orders, onArrived, onArrivedPartial, onCancel,
 }: {
   orders: Order[]
   onArrived: (id: string) => Promise<void>
   onArrivedPartial: (id: string) => Promise<void>
+  /** Cross an order out with a reason. Absent = the control is not rendered. */
+  onCancel?: (id: string, reason: string) => Promise<void>
 }) {
   // Which orders were split. Their "הגיע" button is replaced by a line saying what
   // happened — otherwise it gets pressed again and splits a third time.
@@ -50,6 +52,7 @@ export default function OrdersRail({
             split={splitParents.has(o.id)}
             onArrived={onArrived}
             onArrivedPartial={onArrivedPartial}
+            onCancel={onCancel}
           />
         ))}
         {orders.length === 0 && (
@@ -66,17 +69,24 @@ export default function OrdersRail({
 }
 
 function OrderCard({
-  order: o, split, onArrived, onArrivedPartial,
+  order: o, split, onArrived, onArrivedPartial, onCancel,
 }: {
   order: Order
   split: boolean
   onArrived: (id: string) => Promise<void>
   onArrivedPartial: (id: string) => Promise<void>
+  /** "אזל אצל הספק" — cross it out with the reason. Absent = not offered. */
+  onCancel?: (id: string, reason: string) => Promise<void>
 }) {
   // "הגיע" is one click (§7.e) — the partial case is the one that needs a second,
   // because it creates a row, and a split made by accident is confusing to undo.
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Crossing out lives here too, and not only in the customer notebook: a plain
+  // restock that the supplier cannot fill has nowhere else to go, and a card that
+  // can never leave the board is the thing the board stops being read for.
+  const [cancelling, setCancelling] = useState(false)
+  const [reason, setReason] = useState('')
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true)
@@ -136,6 +146,48 @@ function OrderCard({
             >הגיע</button>
           )}
         </div>
+      )}
+
+      {!asking && onCancel && !arrived && !split && (
+        cancelling ? (
+          <div className="grid gap-1.5" style={{ marginTop: '9px' }}>
+            <input
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              autoFocus
+              placeholder="למה? למשל: אזל אצל הספק"
+              style={{
+                fontFamily: 'inherit', fontSize: '12px', padding: '5px 8px',
+                border: '1px solid #E2E4E9', background: '#FAFAFC', width: '100%',
+              }}
+            />
+            <div className="flex gap-1.5">
+              <button
+                disabled={busy || !reason.trim()}
+                onClick={() => run(async () => { await onCancel(o.id, reason.trim()); setCancelling(false); setReason('') })}
+                className="font-bold"
+                style={{
+                  background: reason.trim() ? 'var(--brand-primary)' : '#D6D7DD', color: 'white',
+                  border: 'none', padding: '5px 11px', fontSize: '12px',
+                  cursor: reason.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit',
+                }}
+              >סימון</button>
+              <button
+                onClick={() => { setCancelling(false); setReason('') }}
+                style={{ background: 'none', border: 'none', color: '#9CA3AF', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+              >ביטול</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setCancelling(true)}
+            className="inline-flex items-center gap-1"
+            style={{
+              background: 'none', border: 'none', padding: 0, marginTop: '9px',
+              color: '#9CA3AF', fontSize: '11.5px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          ><Ban className="w-3 h-3" />לא רלוונטית</button>
+        )
       )}
 
       {o.arrivedDiffers && (

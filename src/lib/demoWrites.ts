@@ -523,6 +523,41 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return row
   }
 
+  // ── PUT /orders/:id/cancel · /uncancel ───────────────────────────────────
+  // A line through the entry, never a deletion — and the reason is required here
+  // exactly as it is on the server, because a demo that accepts an empty reason
+  // teaches the opposite of the rule.
+  const cancelOrd = path.match(/^\/orders\/([^/]+)\/cancel$/)
+  if (method === 'PUT' && cancelOrd) {
+    const order = find('orders', cancelOrd[1])
+    if (!order) return null
+    const why = String(b.reason ?? '').trim()
+    if (!why) return { success: false } as unknown as Row
+    order.cancelled_at = nowIso()
+    order.cancel_reason = why
+    // The empty shell the order opened describes a delivery that will not happen.
+    const shellId = order.delivery_note_id ? String(order.delivery_note_id) : null
+    if (shellId) {
+      const shell = find('delivery_notes', shellId)
+      const hasInvoice = links.some(l => String(l.delivery_note_id) === shellId)
+      if (shell && shell.intake_source === 'order' && shell.stage === 'awaiting_goods'
+          && !shell.note_number && !hasInvoice) {
+        const i = notes.findIndex(n => String(n.id) === shellId)
+        if (i >= 0) notes.splice(i, 1)
+        order.delivery_note_id = null
+      }
+    }
+    return { success: true }
+  }
+  const uncancelOrd = path.match(/^\/orders\/([^/]+)\/uncancel$/)
+  if (method === 'PUT' && uncancelOrd) {
+    const order = find('orders', uncancelOrd[1])
+    if (!order) return null
+    order.cancelled_at = null
+    order.cancel_reason = null
+    return { success: true }
+  }
+
   // ── PUT /orders/:id/differs ──────────────────────────────────────────────
   const differs = path.match(/^\/orders\/([^/]+)\/differs$/)
   if (method === 'PUT' && differs) {

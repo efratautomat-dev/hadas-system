@@ -1823,6 +1823,85 @@ async function markOrderDiffers(supabase: SupabaseClient, id: string): Promise<R
   return json({ success: true });
 }
 
+/**
+ * ביטול הזמנה — the line through the notebook entry.
+ *
+ * "אם מהחברה אמרו שהדגם אזל, שזה לא יופיע כל הזמן על המסך אלא רק בסינון הזמנות
+ * לא רלוונטיות." Nothing is deleted: the customer may ask next month whether it
+ * was ever ordered, and a page torn out answers nothing.
+ *
+ * The reason is REQUIRED, and it is the feature rather than paperwork. "אזל אצל
+ * הספק" and "הלקוחה התחרטה" lead to opposite next steps — reorder elsewhere, or
+ * drop it — and three months later the difference lives only in those words. The
+ * same hard 400 the ledger reset uses, for the same reason.
+ *
+ * The EMPTY SHELL goes with it. An order opens a pipeline row the moment it is
+ * placed, and a cancelled order's row describes a delivery that will now never
+ * happen — leaving it would put a permanent "ממתין לסחורה" on the goods screen
+ * for goods nobody is waiting for. Only the shell: a row that already carried
+ * goods, or already holds an invoice, is a real record and stays untouched.
+ */
+async function cancelOrder(
+  req: Request, supabase: SupabaseClient, id: string, actor?: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const reason = String(body?.reason ?? "").trim();
+  if (!reason) return json({ error: "חובה לרשום סיבה לביטול" }, 400);
+
+  const { data: order } = await supabase.from("orders")
+    .select("id, delivery_note_id, cancelled_at").eq("id", id).maybeSingle();
+  if (!order) return json({ error: "Order not found" }, 404);
+  if (order.cancelled_at) return json({ success: true, alreadyCancelled: true });
+
+  const { error } = await supabase.from("orders").update({
+    cancelled_at:  new Date().toISOString(),
+    cancel_reason: reason,
+    cancelled_by:  actor ?? null,
+  }).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+
+  let shellRemoved = false;
+  const noteId = order.delivery_note_id ? String(order.delivery_note_id) : null;
+  if (noteId) {
+    const { data: note } = await supabase.from("delivery_notes")
+      .select("id, stage, intake_source, note_number, storage_url, amount")
+      .eq("id", noteId).maybeSingle();
+    const links = await linkedInvoiceIds(supabase, noteId);
+    // A shell and nothing else: opened BY this order, still waiting for goods,
+    // carrying no document, no number, no figure and no invoice.
+    const isEmptyShell = !!note
+      && note.intake_source === "order"
+      && note.stage === "awaiting_goods"
+      && !note.note_number
+      && !note.storage_url
+      && !(note.amount && Number(note.amount) !== 0)
+      && links.length === 0;
+    if (isEmptyShell) {
+      await supabase.from("orders").update({ delivery_note_id: null }).eq("id", id);
+      await supabase.from("delivery_notes").delete().eq("id", noteId);
+      shellRemoved = true;
+    }
+  }
+  return json({ success: true, shellRemoved });
+}
+
+/**
+ * …and un-crossing it. A supplier who calls back the next morning to say the
+ * model is in after all is an ordinary Tuesday, and a cancellation that cannot be
+ * undone is one people avoid using — which returns the screen to the state this
+ * whole feature exists to fix.
+ *
+ * The pipeline row is NOT re-created here. Marking "הגיע" opens one, and inventing
+ * a second path to the same row is how two rows for one delivery start.
+ */
+async function uncancelOrder(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { error } = await supabase.from("orders")
+    .update({ cancelled_at: null, cancel_reason: null, cancelled_by: null })
+    .eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
+}
+
 // ─── Returns ──────────────────────────────────────────────────────────────────
 // Whitelist: supplier_id, date (from dateIso), amount, reason, invoice_id,
 //            status, created_by, email_sender
@@ -2806,6 +2885,10 @@ const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
   // took them in, carrying no figure. The approval that follows is still the
   // owner's, and still separate.
   /^\/delivery-notes\/[^/]+\/goods-with-invoice$/,
+  // The supplier told her the model is out of stock. She is the one who was told,
+  // and crossing the line out carries no figure — only the reason she was given.
+  /^\/orders\/[^/]+\/cancel$/,
+  /^\/orders\/[^/]+\/uncancel$/,
   // The customer line is hers to move — she is the one who phones.
   /^\/orders\/[^/]+\/customer-status$/,
   // A remark on an invoice. She took the delivery and saw what was short; a note
@@ -3076,6 +3159,12 @@ Deno.serve(async (req: Request) => {
     const orderArrived = path.match(/^\/orders\/([^/]+)\/arrived$/);
     if (orderArrived && req.method === "PUT")
       return await markOrderArrived(req, supabase, orderArrived[1], auth.email);
+    const orderCancel = path.match(/^\/orders\/([^/]+)\/cancel$/);
+    if (orderCancel && req.method === "PUT")
+      return await cancelOrder(req, supabase, orderCancel[1], auth.email);
+    const orderUncancel = path.match(/^\/orders\/([^/]+)\/uncancel$/);
+    if (orderUncancel && req.method === "PUT")
+      return await uncancelOrder(supabase, orderUncancel[1]);
     const orderDiffers = path.match(/^\/orders\/([^/]+)\/differs$/);
     if (orderDiffers && req.method === "PUT")
       return await markOrderDiffers(supabase, orderDiffers[1]);
