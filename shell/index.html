@@ -69,6 +69,16 @@
 <body>
   <main id="boot">רגע…</main>
 
+  <main id="retry" hidden>
+    <img class="mark" src="icon.png" alt="">
+    <div>
+      <h1 id="retry-title">המערכת לא נטענה</h1>
+      <p class="prompt" style="margin-top:6px">בדקי שיש חיבור לאינטרנט ונסי שוב.</p>
+    </div>
+    <button class="cta" id="retry-go">נסי שוב</button>
+    <p class="links"><a href="#" id="retry-quit" class="quiet">יציאה</a></p>
+  </main>
+
   <main id="gate" hidden>
     <img class="mark" src="icon.png" alt="">
     <div>
@@ -194,10 +204,44 @@
     window.location.href = 'https://incontrol.ctrlplusf.com/bridge-check.html'
   })
 
+  // A branded build ships this file; the generic one does not. Its presence is
+  // what decides whether this tablet belongs to a known customer or has to ask.
+  async function bakedClient() {
+    try {
+      var res = await fetch('client.json', { cache: 'no-store' })
+      if (res.ok) return await res.json()
+    } catch (_e) { /* generic build */ }
+    return null
+  }
+
+  function showRetry(client) {
+    boot.hidden = true
+    document.getElementById('retry').hidden = false
+    if (client && client.label) {
+      document.getElementById('retry-title').textContent = 'המערכת של ' + client.label + ' לא נטענה'
+    }
+  }
+
+  document.getElementById('retry-go').addEventListener('click', async function () {
+    var client = await bakedClient()
+    await set(KEY_FAILED, '')
+    if (client && client.siteUrl) await set(KEY_URL, client.siteUrl)
+    enter(client && client.siteUrl, true)
+  })
+
+  document.getElementById('retry-quit').addEventListener('click', async function (e) {
+    e.preventDefault()
+    var A = plugins().App
+    if (A && A.exitApp) await A.exitApp()
+  })
+
   ;(async function start() {
     // Set by the native watchdog when the system loaded but never came up.
     var failed = await get(KEY_FAILED)
     if (failed) {
+      var client = await bakedClient()
+      // A branded tablet has no code to type — offer the only useful action.
+      if (client) return showRetry(client)
       await set(KEY_FAILED, '')
       return showGate('המערכת לא נטענה. בדקי חיבור לאינטרנט ונסי שוב.')
     }
