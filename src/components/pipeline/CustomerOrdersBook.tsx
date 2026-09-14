@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Phone, User, Check } from 'lucide-react'
+import { Phone, User, Check, Ban } from 'lucide-react'
 import { StatusBadge } from '../StatusBadge'
 import type { Order } from '../../hooks/useOrders'
 import { CUSTOMER_STATUS_FLOW, CUSTOMER_STATUS_LABEL, type CustomerStatus } from '../../lib/customerStatus'
@@ -35,13 +35,20 @@ function dayLabel(iso: string) {
 }
 
 export default function CustomerOrdersBook({
-  orders, onOpen, onSetStatus, delivered = 'bottom',
+  orders, onOpen, onSetStatus, onCancel, onUncancel, delivered = 'bottom',
 }: {
   orders: Order[]
   /** Jump to the goods chain this order became, when it has one. */
   onOpen?: (deliveryNoteId: string) => void
   /** Move the customer line along. Absent = read-only notebook. */
   onSetStatus?: (orderId: string, next: CustomerStatus) => Promise<void>
+  /**
+   * Cross an entry out, with the reason she was given. Absent = the control is
+   * not rendered — the same convention every other optional action here follows.
+   */
+  onCancel?: (orderId: string, reason: string) => Promise<void>
+  /** The supplier called back. */
+  onUncancel?: (orderId: string) => Promise<void>
   /**
    * What happens to `נמסר`.
    *
@@ -59,10 +66,28 @@ export default function CustomerOrdersBook({
     .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''))
 
   const isDone = (o: Order) => o.customerStatus === 'customer_delivered'
-  const withCustomer = all.filter(o => !isDone(o))
-  const done = delivered === 'bottom' ? all.filter(isDone) : []
+  /** Ordered from the supplier — or anywhere past it on the line. */
+  const ordered = (o: Order) =>
+    (o.customerStatus ?? 'customer_waiting') !== 'customer_waiting'
+  /** Only the step she just took can be taken back; the rest already happened. */
+  const canUntick = (o: Order) => (o.customerStatus ?? 'customer_waiting') === 'customer_ordered'
+  // ── Two views of one notebook ───────────────────────────────────────────
+  //
+  // A crossed-out entry does not disappear — "did we ever order that for her?"
+  // is the question a notebook exists to answer, and the answer is often "yes,
+  // and the supplier said the model was discontinued". But it stops competing
+  // for the eye: live entries by default, crossed-out ones behind a filter.
+  const [view, setView] = useState<'live' | 'cancelled'>('live')
+  const [cancelId, setCancelId] = useState<string | null>(null)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  if (withCustomer.length === 0 && done.length === 0) {
+  const cancelled = all.filter(o => !!o.cancelledAt)
+  const live = all.filter(o => !o.cancelledAt)
+  const withCustomer = view === 'cancelled' ? cancelled : live.filter(o => !isDone(o))
+  const done = view === 'cancelled' ? [] : (delivered === 'bottom' ? live.filter(isDone) : [])
+
+  if (withCustomer.length === 0 && done.length === 0 && cancelled.length === 0) {
     return (
       <div
         className="bg-white border text-center"
@@ -84,6 +109,26 @@ export default function CustomerOrdersBook({
 
   return (
     <div className="bg-white border" style={{ borderColor: '#EEEEF2' }}>
+      {/* Offered only once there IS something crossed out. A filter for an empty
+          set is a control that teaches nothing. */}
+      {cancelled.length > 0 && (
+        <div className="flex gap-1.5" style={{ padding: '8px 14px', borderBottom: '1px solid #EEEEF2' }}>
+          {([['live', 'פעילות', live.filter(o => !isDone(o)).length], ['cancelled', 'לא רלוונטיות', cancelled.length]] as const)
+            .map(([k, label, n]) => (
+              <button
+                key={k}
+                onClick={() => setView(k)}
+                className="rounded-full font-bold"
+                style={{
+                  fontSize: '11.5px', padding: '3px 11px', cursor: 'pointer',
+                  border: `1px solid ${view === k ? '#1F2125' : '#E8E6EA'}`,
+                  background: view === k ? '#1F2125' : 'white',
+                  color: view === k ? 'white' : '#6B6E73', fontFamily: 'inherit',
+                }}
+              >{label} · {n}</button>
+            ))}
+        </div>
+      )}
       {days.map(({ key, items }) => (
         <div key={key}>
           <div
@@ -103,6 +148,43 @@ export default function CustomerOrdersBook({
               className="flex items-start justify-between gap-4 flex-wrap"
               style={{ padding: '13px 18px', borderBottom: '1px solid #F3F4F6' }}
             >
+              {/* Read-only notebook (no setter) gets no tick — the same rule the
+                  status control beside it already follows. */}
+              {onSetStatus && !o.cancelledAt && (
+              /* ── One click: "I ordered it" ──────────────────────────────
+                  The full status line lives on the right and stays there — five
+                  states, each one a real thing that happened. But ONE of them is
+                  the owner's own action rather than someone else's: she picked up
+                  the phone and ordered it. Making her open a picker to record her
+                  own step is a tax on the step she takes most.
+                  Once the goods have moved past it the tick locks: unticking then
+                  would rewrite something that already happened. */
+              <label
+                onClick={e => e.stopPropagation()}
+                title={
+                  ordered(o) && (o.customerStatus ?? 'customer_waiting') !== 'customer_ordered'
+                    ? 'ההזמנה כבר התקדמה — הסימון נשמר'
+                    : ordered(o) ? 'בטלי את הסימון' : 'סמני שהזמנת מהספק'
+                }
+                style={{
+                  flex: 'none', display: 'flex', alignItems: 'center', gap: '6px',
+                  cursor: canUntick(o) || !ordered(o) ? 'pointer' : 'default',
+                  paddingTop: '2px',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={ordered(o)}
+                  disabled={ordered(o) && !canUntick(o)}
+                  onChange={() => { void onSetStatus(o.id, ordered(o) ? 'customer_waiting' : 'customer_ordered') }}
+                  style={{ width: '17px', height: '17px', accentColor: 'var(--brand-primary)', cursor: 'inherit' }}
+                />
+                <span style={{ fontSize: '11.5px', color: ordered(o) ? 'var(--brand-primary)' : '#9CA3AF', fontWeight: 700 }}>
+                  הוזמנה
+                </span>
+              </label>
+              )}
+
               <div style={{ minWidth: 0, flex: 1 }}>
                 <p className="flex items-center gap-2 font-bold text-gray-800" style={{ fontSize: '14px', margin: 0 }}>
                   <User className="w-3.5 h-3.5" style={{ color: 'var(--brand-primary)', flex: 'none' }} />
@@ -117,7 +199,75 @@ export default function CustomerOrdersBook({
                     </span>
                   )}
                 </p>
-                <p style={{ fontSize: '13.5px', color: '#4B5563', margin: '3px 0 0' }}>{o.description || '—'}</p>
+                <p
+                  style={{
+                    fontSize: '13.5px', color: o.cancelledAt ? '#9CA3AF' : '#4B5563', margin: '3px 0 0',
+                    textDecoration: o.cancelledAt ? 'line-through' : undefined,
+                  }}
+                >{o.description || '—'}</p>
+                {/* The reason, in the words she was given. This line is the whole
+                    point of the feature: "אזל אצל הספק" and "הלקוחה התחרטה" send
+                    the next person in opposite directions. */}
+                {o.cancelledAt && (
+                  <p style={{ fontSize: '12px', color: '#92400E', margin: '3px 0 0', fontWeight: 600 }}>
+                    לא רלוונטית · {o.cancelReason || 'ללא סיבה'}
+                    {onUncancel && (
+                      <button
+                        onClick={() => { void onUncancel(o.id) }}
+                        style={{
+                          background: 'none', border: 'none', padding: '0 8px', cursor: 'pointer',
+                          color: 'var(--brand-primary)', fontSize: '11.5px', fontWeight: 700, fontFamily: 'inherit',
+                        }}
+                      >החזרה לפעילות</button>
+                    )}
+                  </p>
+                )}
+                {/* Crossing out asks for one sentence and will not proceed without
+                    it — the same hard stop the ledger reset uses, for the same
+                    reason: the reason IS the record. */}
+                {cancelId === o.id ? (
+                  <div className="flex items-center gap-1.5 flex-wrap" style={{ marginTop: '6px' }}>
+                    <input
+                      value={reason}
+                      onChange={e => setReason(e.target.value)}
+                      autoFocus
+                      placeholder="למה? למשל: אזל אצל הספק"
+                      style={{
+                        flex: '1 1 190px', minWidth: 0, fontFamily: 'inherit', fontSize: '12.5px',
+                        padding: '5px 9px', border: '1px solid #E2E4E9', background: '#FAFAFC',
+                      }}
+                    />
+                    <button
+                      disabled={busy || !reason.trim()}
+                      onClick={async () => {
+                        if (!reason.trim() || !onCancel) return
+                        setBusy(true)
+                        try { await onCancel(o.id, reason.trim()); setCancelId(null); setReason('') }
+                        finally { setBusy(false) }
+                      }}
+                      className="font-bold"
+                      style={{
+                        background: reason.trim() ? 'var(--brand-primary)' : '#D6D7DD', color: 'white',
+                        border: 'none', padding: '5px 11px', fontSize: '12px',
+                        cursor: reason.trim() ? 'pointer' : 'not-allowed', fontFamily: 'inherit',
+                      }}
+                    >{busy ? 'שומר…' : 'סימון'}</button>
+                    <button
+                      onClick={() => { setCancelId(null); setReason('') }}
+                      style={{ background: 'none', border: 'none', color: '#9CA3AF', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                    >ביטול</button>
+                  </div>
+                ) : (!o.cancelledAt && onCancel && (
+                  <button
+                    onClick={() => { setCancelId(o.id); setReason('') }}
+                    className="inline-flex items-center gap-1"
+                    style={{
+                      background: 'none', border: 'none', padding: 0, marginTop: '4px',
+                      color: '#9CA3AF', fontSize: '11.5px', fontWeight: 600,
+                      cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  ><Ban className="w-3 h-3" />לא רלוונטית</button>
+                ))}
                 <p style={{ fontSize: '12px', color: '#9CA3AF', margin: '2px 0 0' }}>
                   {o.supplierName}
                   {o.expectedDate ? ` · צפי ${o.expectedDate}` : ''}
@@ -134,9 +284,13 @@ export default function CustomerOrdersBook({
                   >הסחורה בפייפליין ←</button>
                 )}
               </div>
-              <div onClick={e => e.stopPropagation()} style={{ flex: 'none' }}>
-                <CustomerStatusControl order={o} onSet={onSetStatus} />
-              </div>
+              {/* A crossed-out entry has no next step, so the five-state line
+                  comes off it. What it has instead is the reason and a way back. */}
+              {!o.cancelledAt && (
+                <div onClick={e => e.stopPropagation()} style={{ flex: 'none' }}>
+                  <CustomerStatusControl order={o} onSet={onSetStatus} />
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -649,7 +649,8 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
 
   if (adoptId) {
     const { data: target } = await supabase.from("delivery_notes")
-      .select("id, stage, intake_source, line_items, note_number, amount, storage_url")
+      .select("id, stage, intake_source, line_items, note_number, amount, " +
+              "amount_before_vat, vat_amount, storage_url")
       .eq("id", String(adoptId)).maybeSingle();
     if (!target) return json({ error: "That delivery no longer exists" }, 409);
 
@@ -691,8 +692,16 @@ async function createDeliveryNote(req: Request, supabase: SupabaseClient): Promi
 
     if (line_items  && canFill(target.line_items))  patch.line_items  = line_items;
     if (note_number && canFill(target.note_number)) patch.note_number = note_number;
+    // All three, not just the total: the typed grid is priced per unit and BEFORE
+    // VAT, so a row that keeps only `amount` cannot say whether the figure on it
+    // includes the tax — which is precisely the question the owner asks before
+    // she pays. Same hole rule as everything else here.
     const safeAmount = storableAmount(amount);
     if (safeAmount !== null && canFill(target.amount)) patch.amount = safeAmount;
+    const safeNet = storableAmount(amount_before_vat);
+    if (safeNet !== null && canFill(target.amount_before_vat)) patch.amount_before_vat = safeNet;
+    const safeVat = storableAmount(vat_amount);
+    if (safeVat !== null && canFill(target.vat_amount)) patch.vat_amount = safeVat;
     // The document itself is the one field that is hole-only in every case: a
     // photograph never displaces a file that is already on the row.
     if (storageUrl && !target.storage_url) patch.storage_url = storageUrl;
@@ -877,6 +886,49 @@ async function linkDeliveryNote(
     .eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true, stage });
+}
+
+/**
+ * "הסחורה הגיעה עם החשבונית" — the invoice IS the record of what arrived.
+ *
+ * The owner's rule, and it removes real friction from the counter: "אם משלוח
+ * הגיע עם חשבונית זה נחשב כקליטת סחורה, אין צורך לקלוט בנוסף, זה מעיק עליהם. רק
+ * אם יש בעיה הן רושמות הערה." Most deliveries in the shop arrive with the
+ * supplier's invoice in the box; asking someone to type a grid describing a
+ * document that is already attached is asking her to copy it out by hand.
+ *
+ * A PERSON says it, and that is the whole design. `ledgerApproveInvoice`
+ * deliberately refuses to move a row that is still waiting for goods, because
+ * approving an invoice does not make goods appear and "בכרטסת" on a delivery
+ * nobody witnessed is the system asserting something it cannot know. That stays
+ * exactly as it is. This route is the witness — one click that says the goods
+ * came with the invoice — and only then does the row become approvable.
+ *
+ * Employees may call it: it is a statement about goods, made by whoever took
+ * them in, and it carries no figure.
+ */
+async function goodsArrivedWithInvoice(
+  supabase: SupabaseClient, noteId: string,
+): Promise<Response> {
+  const { data: note } = await supabase.from("delivery_notes")
+    .select("id, stage").eq("id", noteId).maybeSingle();
+  if (!note) return json({ error: "Delivery not found" }, 404);
+
+  // Only from "waiting for goods". Anywhere else the goods are already recorded,
+  // and re-stating it would drag a row backwards or forwards past a step.
+  if (note.stage !== "awaiting_goods")
+    return json({ error: "השורה כבר אינה ממתינה לסחורה" }, 409);
+
+  // An invoice must actually be attached — the claim is that THIS document is
+  // the record, so without one there is nothing to stand on.
+  const attached = await linkedInvoiceIds(supabase, noteId);
+  if (attached.length === 0)
+    return json({ error: "אין חשבונית מוצמדת לשורה הזו" }, 409);
+
+  const { error } = await supabase.from("delivery_notes")
+    .update({ stage: "awaiting_approval", status: "linked" }).eq("id", noteId);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, stage: "awaiting_approval" });
 }
 
 // Unlink one invoice, or all of them. With many-to-many, "unlink" is ambiguous:
@@ -1767,6 +1819,85 @@ async function markOrderArrived(
 /** §7.j — what arrived differs from what was ordered. DOCUMENTATION ONLY. */
 async function markOrderDiffers(supabase: SupabaseClient, id: string): Promise<Response> {
   const { error } = await supabase.from("orders").update({ arrived_differs: true }).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true });
+}
+
+/**
+ * ביטול הזמנה — the line through the notebook entry.
+ *
+ * "אם מהחברה אמרו שהדגם אזל, שזה לא יופיע כל הזמן על המסך אלא רק בסינון הזמנות
+ * לא רלוונטיות." Nothing is deleted: the customer may ask next month whether it
+ * was ever ordered, and a page torn out answers nothing.
+ *
+ * The reason is REQUIRED, and it is the feature rather than paperwork. "אזל אצל
+ * הספק" and "הלקוחה התחרטה" lead to opposite next steps — reorder elsewhere, or
+ * drop it — and three months later the difference lives only in those words. The
+ * same hard 400 the ledger reset uses, for the same reason.
+ *
+ * The EMPTY SHELL goes with it. An order opens a pipeline row the moment it is
+ * placed, and a cancelled order's row describes a delivery that will now never
+ * happen — leaving it would put a permanent "ממתין לסחורה" on the goods screen
+ * for goods nobody is waiting for. Only the shell: a row that already carried
+ * goods, or already holds an invoice, is a real record and stays untouched.
+ */
+async function cancelOrder(
+  req: Request, supabase: SupabaseClient, id: string, actor?: string,
+): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const reason = String(body?.reason ?? "").trim();
+  if (!reason) return json({ error: "חובה לרשום סיבה לביטול" }, 400);
+
+  const { data: order } = await supabase.from("orders")
+    .select("id, delivery_note_id, cancelled_at").eq("id", id).maybeSingle();
+  if (!order) return json({ error: "Order not found" }, 404);
+  if (order.cancelled_at) return json({ success: true, alreadyCancelled: true });
+
+  const { error } = await supabase.from("orders").update({
+    cancelled_at:  new Date().toISOString(),
+    cancel_reason: reason,
+    cancelled_by:  actor ?? null,
+  }).eq("id", id);
+  if (error) return json({ error: error.message }, 500);
+
+  let shellRemoved = false;
+  const noteId = order.delivery_note_id ? String(order.delivery_note_id) : null;
+  if (noteId) {
+    const { data: note } = await supabase.from("delivery_notes")
+      .select("id, stage, intake_source, note_number, storage_url, amount")
+      .eq("id", noteId).maybeSingle();
+    const links = await linkedInvoiceIds(supabase, noteId);
+    // A shell and nothing else: opened BY this order, still waiting for goods,
+    // carrying no document, no number, no figure and no invoice.
+    const isEmptyShell = !!note
+      && note.intake_source === "order"
+      && note.stage === "awaiting_goods"
+      && !note.note_number
+      && !note.storage_url
+      && !(note.amount && Number(note.amount) !== 0)
+      && links.length === 0;
+    if (isEmptyShell) {
+      await supabase.from("orders").update({ delivery_note_id: null }).eq("id", id);
+      await supabase.from("delivery_notes").delete().eq("id", noteId);
+      shellRemoved = true;
+    }
+  }
+  return json({ success: true, shellRemoved });
+}
+
+/**
+ * …and un-crossing it. A supplier who calls back the next morning to say the
+ * model is in after all is an ordinary Tuesday, and a cancellation that cannot be
+ * undone is one people avoid using — which returns the screen to the state this
+ * whole feature exists to fix.
+ *
+ * The pipeline row is NOT re-created here. Marking "הגיע" opens one, and inventing
+ * a second path to the same row is how two rows for one delivery start.
+ */
+async function uncancelOrder(supabase: SupabaseClient, id: string): Promise<Response> {
+  const { error } = await supabase.from("orders")
+    .update({ cancelled_at: null, cancel_reason: null, cancelled_by: null })
+    .eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true });
 }
@@ -2750,6 +2881,14 @@ const EMPLOYEE_PIPELINE_WRITES: RegExp[] = [
   // holding the goods and reading the header. It carries no figure, which is why
   // it is its own route rather than the general update.
   /^\/delivery-notes\/[^/]+\/supplier$/,
+  // "the goods came with the invoice" — a statement about goods, made by whoever
+  // took them in, carrying no figure. The approval that follows is still the
+  // owner's, and still separate.
+  /^\/delivery-notes\/[^/]+\/goods-with-invoice$/,
+  // The supplier told her the model is out of stock. She is the one who was told,
+  // and crossing the line out carries no figure — only the reason she was given.
+  /^\/orders\/[^/]+\/cancel$/,
+  /^\/orders\/[^/]+\/uncancel$/,
   // The customer line is hers to move — she is the one who phones.
   /^\/orders\/[^/]+\/customer-status$/,
   // A remark on an invoice. She took the delivery and saw what was short; a note
@@ -2961,6 +3100,9 @@ Deno.serve(async (req: Request) => {
     }
     const linkMatch   = path.match(/^\/delivery-notes\/([^/]+)\/link$/);
     const unlinkMatch = path.match(/^\/delivery-notes\/([^/]+)\/unlink$/);
+    const goodsWithInv = path.match(/^\/delivery-notes\/([^/]+)\/goods-with-invoice$/);
+    if (goodsWithInv && req.method === "PUT")
+      return await goodsArrivedWithInvoice(supabase, goodsWithInv[1]);
     if (linkMatch   && req.method === "PUT") return await linkDeliveryNote(req, supabase, linkMatch[1], auth.email);
     if (unlinkMatch && req.method === "PUT") return await unlinkDeliveryNote(req, supabase, unlinkMatch[1]);
 
@@ -3017,6 +3159,12 @@ Deno.serve(async (req: Request) => {
     const orderArrived = path.match(/^\/orders\/([^/]+)\/arrived$/);
     if (orderArrived && req.method === "PUT")
       return await markOrderArrived(req, supabase, orderArrived[1], auth.email);
+    const orderCancel = path.match(/^\/orders\/([^/]+)\/cancel$/);
+    if (orderCancel && req.method === "PUT")
+      return await cancelOrder(req, supabase, orderCancel[1], auth.email);
+    const orderUncancel = path.match(/^\/orders\/([^/]+)\/uncancel$/);
+    if (orderUncancel && req.method === "PUT")
+      return await uncancelOrder(supabase, orderUncancel[1]);
     const orderDiffers = path.match(/^\/orders\/([^/]+)\/differs$/);
     if (orderDiffers && req.method === "PUT")
       return await markOrderDiffers(supabase, orderDiffers[1]);

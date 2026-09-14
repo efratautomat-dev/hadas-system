@@ -1,3 +1,5 @@
+import { completeAmounts, vatRateFor, type Amounts } from './vat'
+
 // ── פריטים, כמויות ומחירים — the data half ───────────────────────────────────
 //
 // Split from the editor component because a file that exports components must
@@ -45,6 +47,26 @@ export function lineTotal(lines: Line[]): number | null {
   if (filled.length === 0) return null
   if (filled.some(l => !l.price.trim())) return null
   return filled.reduce((s, l) => s + (Number(l.price) || 0) * (Number(l.quantity) || 1), 0)
+}
+
+/**
+ * The three amounts a typed grid produces — net, VAT and gross.
+ *
+ * The owner's rule, and it is how her suppliers' own notes are written: the price
+ * column is **before VAT**, exactly as it is printed on the goods, and the total
+ * the delivery is worth adds VAT on top. Summing the column and calling it the
+ * total under-states every delivery recorded by hand by 18%, and it under-states
+ * it in the direction of paying less than is owed — the error nobody notices
+ * until the supplier's statement disagrees.
+ *
+ * The rate is keyed on the delivery's DATE, never on today: `vatRateFor` knows
+ * 17% before 1.1.2025 and 18% after it. `null` when the column is not fully
+ * priced, because a partial total looks like a real one.
+ */
+export function lineAmounts(lines: Line[], isoDate?: string | null): Amounts | null {
+  const net = lineTotal(lines)
+  if (net === null) return null
+  return completeAmounts({ net }, { rate: vatRateFor(isoDate), edited: 'net' })
 }
 
 /** One line per item, in the shape a typed receipt has always been stored in. */

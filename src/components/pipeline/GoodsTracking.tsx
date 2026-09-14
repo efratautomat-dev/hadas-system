@@ -61,9 +61,9 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
   /** Land straight on one delivery — the supplier card's rows link here. */
   initialNoteId?: string | null
 }) {
-  const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle, create: createNote, resolvePair, settleByReceipt, undoReceipt, reload: reloadNotes } = useDeliveryNotes()
+  const { data: notes, loading: notesLoading, link, unlink, candidates, update, dismantle, create: createNote, resolvePair, settleByReceipt, undoReceipt, goodsWithInvoice, reload: reloadNotes } = useDeliveryNotes()
   const { data: invoices, ledgerApprove } = useInvoices()
-  const { data: orders, create: createOrder, markArrived, setCustomerStatus, markDiffers } = useOrders()
+  const { data: orders, create: createOrder, markArrived, setCustomerStatus, markDiffers, cancel: cancelOrder, uncancel: uncancelOrder } = useOrders()
   const { data: suppliers } = useSuppliers()
   const [newOrder, setNewOrder] = useState(false)
   const [reassign, setReassign] = useState<string | null>(null)
@@ -170,8 +170,10 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
     [notes, filter, orderMeta],
   )
 
+  // Crossed-out entries are off every board: they live only behind the notebook's
+  // "לא רלוונטיות" filter.
   const openOrders = useMemo(
-    () => orders.filter(o => o.status !== 'order_arrived'),
+    () => orders.filter(o => o.status !== 'order_arrived' && !o.cancelledAt),
     [orders],
   )
 
@@ -219,6 +221,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
         }
         capturedBy={userEmail}
         onReload={reloadNotes}
+        onGoodsWithInvoice={async () => { await goodsWithInvoice(openNote.id) }}
         onRecordGoods={async d => {
           const res = await createNote(d)
           await reloadNotes()
@@ -301,7 +304,13 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
               down the page, customer first, phone in reach — a record you look
               through, not a table you sort. */}
           {filter === 'customer' ? (
-            <CustomerOrdersBook orders={orders} onOpen={setOpenId} onSetStatus={setCustomerStatus} />
+            <CustomerOrdersBook
+              orders={orders}
+              onOpen={setOpenId}
+              onSetStatus={setCustomerStatus}
+              onCancel={cancelOrder}
+              onUncancel={uncancelOrder}
+            />
           ) : view === 'cards' ? (
             <GoodsCards
               notes={shown}

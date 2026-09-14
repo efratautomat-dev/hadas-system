@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight } from 'lucide-react'
+import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight, ChevronDown } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import CaptureDocument from '../CaptureDocument'
 import OrdersRail from '../pipeline/OrdersRail'
@@ -46,7 +46,7 @@ const SECTION_CARDS: { key: EmployeeSection; label: string; Icon: typeof FileTex
 
 export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const { data: suppliers } = useSuppliers()
-  const { data: orders, markArrived, setCustomerStatus } = useOrders()
+  const { data: orders, markArrived, setCustomerStatus, cancel: cancelOrder, uncancel: uncancelOrder } = useOrders()
   // Cards ⇄ notebook. Two ways of reading the same orders: the board is what
   // you glance at mid-task, the notebook is what you search when a customer
   // calls. Neither replaces the other, so it is a tab and not a setting.
@@ -62,7 +62,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   // The SAME panel the manager opens. The role difference is which props are
   // passed, not which component renders: no onDismantle here, and the amounts are
   // already NULL because the masking view decided that long before this screen.
-  const { data: allNotes, link, unlink, candidates, reassignSupplier, resolvePair, create: createDelivery, reload: reloadNotes } = useDeliveryNotes()
+  const { data: allNotes, link, unlink, candidates, reassignSupplier, resolvePair, create: createDelivery, goodsWithInvoice, reload: reloadNotes } = useDeliveryNotes()
   const { data: allInv, ledgerApprove } = useInvoices()
   const [openNoteId, setOpenNoteId] = useState<string | null>(null)
   // The delivery page's two-pane threshold (1100) is NOT the board's (1024):
@@ -85,6 +85,14 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
   const [activeSection, setActiveSection] = useState<EmployeeSection>('invoices')
   const [showCapture, setShowCapture] = useState(false)
+  // Folded on a tablet, remembered for the visit: a board she opened once should
+  // not close itself behind her back on the next screen.
+  const [boardOpen, setBoardOpen] = useState(
+    () => { try { return sessionStorage.getItem('empBoardOpen') === '1' } catch { return false } },
+  )
+  useEffect(() => {
+    try { sessionStorage.setItem('empBoardOpen', boardOpen ? '1' : '0') } catch { /* private mode */ }
+  }, [boardOpen])
   // The board only gets its own column when there is width to give it.
   const [isWide, setIsWide] = useState(
     () => typeof window !== 'undefined' && window.innerWidth >= 1024,
@@ -96,7 +104,10 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   }, [])
 
   // Arrived orders leave the board — it shows what is still on its way.
-  const openOrders = orders.filter(o => o.status !== 'order_arrived')
+  // Crossed-out entries leave every board and every count. They live in exactly
+  // one place — the notebook's "לא רלוונטיות" filter — which is the difference
+  // between a notebook and a list nobody trusts.
+  const openOrders = orders.filter(o => o.status !== 'order_arrived' && !o.cancelledAt)
 
   // Browser back/forward across employee sections (flat set, no stack).
   const go = (section: EmployeeSection) => { setActiveSection(section); history.pushState({ section }, '') }
@@ -145,6 +156,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
             onResolvePair={async (arrivedId, action) => { await resolvePair(openNote.id, arrivedId, action) }}
             capturedBy={userEmail}
             onReload={reloadNotes}
+            onGoodsWithInvoice={async () => { await goodsWithInvoice(openNote.id) }}
             onRecordGoods={async d => {
               const res = await createDelivery(d)
               await reloadNotes()
@@ -213,14 +225,48 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
         {/* LEFT in RTL — declared last so the reading order stays screen-first. */}
         {/* Hidden outright rather than shrunk: a board with no width is not a
             smaller board, it is a column of clipped text. */}
-        {!fullPage && (
+        {/* ── On a tablet the board sits ON TOP of the screen, so it opens SHUT ──
+            The owner: "אני רוצה שזה יהיה סגור בדיפולט, מקופל, כך שחיפוש ספק
+            יופיע מיד כשנכנסים למסך הבית."
+            She is right, and the reason is the layout: from 1024px up the board
+            is a column beside the screen and costs nothing, but below that it
+            stacks above — so the first thing on the tablet was two boards, and
+            the thing she actually came to do, find a supplier, was under them.
+            Wide keeps it open; narrow folds it behind a line that still says
+            how many are waiting, because a triangle with no count is a control
+            nobody opens. */}
+        {!fullPage && !isWide && !boardOpen && (
+          <button
+            onClick={() => setBoardOpen(true)}
+            className="bg-white border flex items-center gap-2 w-full text-right"
+            style={{ order: 1, borderColor: '#EEEEF2', padding: '11px 14px', cursor: 'pointer', font: 'inherit' }}
+          >
+            <ChevronDown className="w-4 h-4" style={{ color: ACCENT, flex: 'none' }} />
+            <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#1F2125' }}>הזמנות ומחברת לקוחות</span>
+            <span style={{ fontSize: '12px', color: '#9CA3AF' }}>
+              {openOrders.length} בדרך · {orders.filter(o => o.customerName && o.customerStatus !== 'customer_delivered' && !o.cancelledAt).length} ללקוחות
+            </span>
+          </button>
+        )}
+
+        {!fullPage && (isWide || boardOpen) && (
         <div style={{ order: isWide ? 2 : 1 }}>
+          {!isWide && (
+            <button
+              onClick={() => setBoardOpen(false)}
+              className="inline-flex items-center gap-1"
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF',
+                fontSize: '12px', fontWeight: 600, fontFamily: 'inherit', padding: '0 2px 8px',
+              }}
+            ><ChevronDown className="w-3.5 h-3.5" style={{ transform: 'rotate(180deg)' }} />סגירה</button>
+          )}
           <FilterTabs
             tabs={[
               { key: 'cards' as const, label: 'הזמנות בדרך', count: openOrders.length },
               // Delivered orders are gone from her board, so counting them here
               // would advertise lines she cannot see.
-              { key: 'book'  as const, label: 'מחברת לקוחות', count: orders.filter(o => o.customerName && o.customerStatus !== 'customer_delivered').length },
+              { key: 'book'  as const, label: 'מחברת לקוחות', count: orders.filter(o => o.customerName && o.customerStatus !== 'customer_delivered' && !o.cancelledAt).length },
             ]}
             value={board}
             onChange={setBoard}
@@ -231,12 +277,15 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
               orders={openOrders}
               onArrived={id => arrive(id, false)}
               onArrivedPartial={id => arrive(id, true)}
+              onCancel={cancelOrder}
             />
           ) : (
             <CustomerOrdersBook
               orders={orders}
               onOpen={setOpenNoteId}
               onSetStatus={setCustomerStatus}
+              onCancel={cancelOrder}
+              onUncancel={uncancelOrder}
               delivered="hide"
             />
           )}

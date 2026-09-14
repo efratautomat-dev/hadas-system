@@ -50,6 +50,16 @@ export interface Order {
   customerStatus: CustomerStatus | null
   /** DD/MM/YYYY, or '' when unknown — the common case. */
   expectedDate: string
+  /**
+   * The line through the notebook entry. `null` = live.
+   *
+   * Cancelled orders leave every board and every count, and survive in one
+   * place: the notebook's "לא רלוונטיות" filter, struck through, with the reason
+   * beside them. Nothing is deleted — "did we ever order that for her?" is the
+   * question a notebook exists to answer.
+   */
+  cancelledAt: string | null
+  cancelReason: string | null
 }
 
 export function useOrders() {
@@ -83,6 +93,8 @@ export function useOrders() {
           customerPhone:  r.customer_phone ?? null,
           customerStatus: (r.customer_status as CustomerStatus) ?? null,
           expectedDate:   isoToDisplay(r.expected_date ?? ''),
+          cancelledAt:    r.cancelled_at  ?? null,
+          cancelReason:   r.cancel_reason ?? null,
         })))
         setError(null)
       }
@@ -192,15 +204,44 @@ export function useOrders() {
   }
 
   /**
+   * "אזל אצל הספק" — cross the entry out, and say why.
+   *
+   * The reason is required by the server, and the UI must not paper over that:
+   * a crossed-out line with no reason is the artefact nobody can act on later.
+   */
+  const cancel = async (id: string, reason: string) => {
+    try {
+      await api.put(`/orders/${id}/cancel`, { reason })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בביטול ההזמנה: ${msg}`)
+      throw err
+    }
+  }
+
+  /** The supplier called back. Un-crossing is ordinary, so it is one click. */
+  const uncancel = async (id: string) => {
+    try {
+      await api.put(`/orders/${id}/uncancel`, {})
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בהחזרת ההזמנה: ${msg}`)
+      throw err
+    }
+  }
+
+  /**
    * Open orders for one supplier, NEAREST DATE FIRST (§7.7) — the shape the
    * employee's "is there an order waiting for this?" question needs. Sorted here
    * rather than at each call site so the two screens that ask it cannot disagree.
    */
   const openForSupplier = useCallback((supplierId: string): Order[] =>
     data
-      .filter(o => o.supplierId === supplierId && o.status !== 'order_arrived')
+      .filter(o => o.supplierId === supplierId && o.status !== 'order_arrived' && !o.cancelledAt)
       .sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || '')),
     [data])
 
-  return { data, loading, error, create, markArrived, openForSupplier, setCustomerStatus, markDiffers, reload: load }
+  return { data, loading, error, create, markArrived, openForSupplier, setCustomerStatus, markDiffers, cancel, uncancel, reload: load }
 }

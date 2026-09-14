@@ -3,7 +3,8 @@ import { ChevronRight, Camera, Check, Loader2, Pencil, Printer } from 'lucide-re
 import { readHandwrittenSheet } from '../../lib/api'
 import { printGoodsSheet } from '../../utils/pdf/goodsSheetPdf'
 import LineItemsEditor from './LineItemsEditor'
-import { newLine, lineTotal, linesToText, type Line } from '../../lib/lineItems'
+import { newLine, lineAmounts, linesToText, type Line } from '../../lib/lineItems'
+import { vatPercentFor, type Amounts } from '../../lib/vat'
 
 // ── קליטת סחורה מדף בכתב יד ──────────────────────────────────────────────────
 //
@@ -39,10 +40,15 @@ export default function HandwrittenSheet({
   capturedBy?: string
   onCancel: () => void
   /**
-   * The confirmed lines, and a total ONLY when every line was priced.
+   * The confirmed lines, and the three amounts ONLY when every line was priced.
    * `null` means "not known", which is different from zero and must stay so.
+   *
+   * Three and not one: the price written on the sheet is per unit and BEFORE
+   * VAT, exactly as the supplier prints it, so what the delivery is worth is the
+   * column plus VAT. Handing back a single sum left the caller to guess which of
+   * the two numbers it was.
    */
-  onSave: (lineItems: string, amount: number | null, storageUrl: string | null) => Promise<void>
+  onSave: (lineItems: string, amounts: Amounts | null, storageUrl: string | null) => Promise<void>
 }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -89,7 +95,8 @@ export default function HandwrittenSheet({
   // number, because nobody re-checks a figure that is already there.
   const filled = (rows ?? []).filter(r => r.item.trim())
   const priced = filled.filter(r => r.price.trim() !== '')
-  const total = lineTotal(rows ?? [])
+  // Stamped today, like the row this becomes — the VAT rate follows the date.
+  const total = lineAmounts(rows ?? [], new Date().toISOString().slice(0, 10))
 
   return (
     <div className="bg-white border" style={{ borderColor: '#E2E4E9' }}>
@@ -181,7 +188,7 @@ export default function HandwrittenSheet({
                 style={{ width: '100%', border: '1px solid #E2E4E9', objectFit: 'contain', maxHeight: '460px' }}
               />
             )}
-            <LineItemsEditor lines={rows} onChange={setRows} />
+            <LineItemsEditor lines={rows} onChange={setRows} isoDate={new Date().toISOString().slice(0, 10)} />
           </div>
 
           {err && <p style={{ margin: 0, fontSize: '13px', color: '#DC2626' }}>{err}</p>}
@@ -205,7 +212,7 @@ export default function HandwrittenSheet({
           </div>
           <p style={{ fontSize: '11.5px', color: '#9CA3AF', margin: 0 }}>
             {total !== null
-              ? 'הסה"כ מחושב לבד ומשמש להשוואה מול החשבונית — הוא לא נכנס ליתרה.'
+              ? `המחיר ליחידה נקרא כלפני מע"מ; נוסף מע"מ ${vatPercentFor()}% והסה"כ משמש להשוואה מול החשבונית — הוא לא נכנס ליתרה.`
               : priced.length > 0
                 ? 'חלק מהשורות בלי מחיר — לא יחושב סכום. אפשר להשלים או להשאיר.'
                 : 'בלי מחירים — התעודה תישמר ללא סכום, והסכום יגיע מהחשבונית.'}

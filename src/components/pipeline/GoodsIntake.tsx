@@ -4,7 +4,7 @@ import { Camera, Keyboard, X, Check, PackageCheck, FileSignature, ChevronRight }
 import { SearchableSelect } from '../SearchableSelect'
 import { FieldLabel, TextInput } from '../ui/form'
 import LineItemsEditor from './LineItemsEditor'
-import { newLine, lineTotal, linesToText, type Line } from '../../lib/lineItems'
+import { newLine, lineAmounts, linesToText, type Line } from '../../lib/lineItems'
 import CaptureDocument from '../CaptureDocument'
 import HandwrittenSheet from './HandwrittenSheet'
 import ArrivalChoice from './ArrivalChoice'
@@ -51,8 +51,16 @@ export default function GoodsIntake({
   onCreate: (draft: {
     supplierId: string; supplierName: string
     isoDate: string; lineItems: string; noteNumber?: string
-    /** Σ cost from the sheet, or null when it was not fully priced. */
+    /**
+     * What the delivery is worth, all three, or nothing when the grid was not
+     * fully priced. The typed column is BEFORE VAT — the same way the supplier's
+     * own note is printed — so `amount` carries the total WITH VAT and the other
+     * two say how it was reached. Sending only a sum left the row holding a
+     * figure 18% short of what would be paid.
+     */
     amount?: number | null
+    amountBeforeVat?: number | null
+    vatAmount?: number | null
     /** Where the photographed page was filed, so the row keeps its source. */
     storageUrl?: string | null
     /** Which of the doors below produced this — typed, or read off a photo. */
@@ -90,6 +98,7 @@ export default function GoodsIntake({
     { candidates: ArrivalCandidate[]; draft: Parameters<typeof onCreate>[0] } | null
   >(null)
 
+  const typed = lineAmounts(lines, isoDate)
   const supplier = lockedSupplier ?? suppliers.find(s => s.id === supplierId)
   // The sheet needs a supplier from somewhere: the card it opened from, or the
   // picker it shows when there is no card.
@@ -123,7 +132,9 @@ export default function GoodsIntake({
       supplierName: supplier?.name ?? '',
       isoDate,
       lineItems: linesToText(lines),
-      amount: lineTotal(lines),
+      amount:          typed?.gross ?? null,
+      amountBeforeVat: typed?.net ?? null,
+      vatAmount:       typed?.vat ?? null,
       noteNumber: noteNumber.trim() || undefined,
       employeeId: employeeId || undefined,
       intakeSource: 'manual',
@@ -278,14 +289,16 @@ export default function GoodsIntake({
               supplierName={sheetSupplier.name}
               capturedBy={capturedBy}
               onCancel={() => setMode('choose')}
-              onSave={async (lineItems, amount, storageUrl) => {
+              onSave={async (lineItems, sums, storageUrl) => {
                 await submit({
                   supplierId: sheetSupplier.id,
                   supplierName: sheetSupplier.name,
                   // §7.b — stamped from the capture, never written on the page.
                   isoDate: new Date().toISOString().slice(0, 10),
                   lineItems,
-                  amount,
+                  amount:          sums?.gross ?? null,
+                  amountBeforeVat: sums?.net ?? null,
+                  vatAmount:       sums?.vat ?? null,
                   storageUrl,
                   employeeId: employeeId || undefined,
                   // The lines look exactly like typed ones, and they are not: a
@@ -347,12 +360,12 @@ export default function GoodsIntake({
               </div>
               <div>
                 <FieldLabel required>מה התקבל</FieldLabel>
-                <LineItemsEditor lines={lines} onChange={setLines} />
+                <LineItemsEditor lines={lines} onChange={setLines} isoDate={isoDate} />
                 <p style={{ margin: '5px 2px 0', fontSize: '11.5px', color: '#9CA3AF' }}>
                   {/* The price is optional and never reaches the ledger — it is
                       what the approval screen compares the invoice against. */}
-                  {lineTotal(lines) !== null
-                    ? 'הסה"כ מחושב לבד ומשמש להשוואה מול החשבונית — הוא לא נכנס ליתרה.'
+                  {typed
+                    ? 'המחיר הוא ליחידה ולפני מע"מ; הסה"כ כולל מע"מ מחושב לבד ומשמש להשוואה מול החשבונית — הוא לא נכנס ליתרה.'
                     : 'מחיר לא חובה. בלי מחיר בכל השורות לא יחושב סה"כ — היתרה זזה מהחשבונית בלבד.'}
                 </p>
               </div>

@@ -5,6 +5,7 @@ import type { Employee } from '../hooks/useEmployees'
 import { useCategories } from '../hooks/useCategories'
 import { supabase } from '../lib/supabase'
 import { tierAllowsIntegrations } from '../lib/tiers'
+import { printGoodsSheet } from '../utils/pdf/goodsSheetPdf'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { Button } from '../components/ui/Button'
 // Shared with the supplier form so the two screens stay visually identical.
@@ -769,6 +770,24 @@ export default function Settings() {
               {thresholdMsg.text}
             </p>
           )}
+        </SectionCard>
+
+        {/* ── The blank form, printable from one place ────────────────────
+            "אין מדפסת בחנות" — so the form is printed here, once, and the stack
+            lives beside the pallet. It carries a supplier LINE rather than a
+            supplier name, because a blank form cannot know whose goods it will
+            hold; the note under it says the line is for convenience only and
+            that the supplier is decided by the card the photo is taken from.
+            The alternative — printing per supplier from each card — is a stack
+            per supplier, which is not a thing anyone maintains. */}
+        <SectionCard title="טופס קליטת סחורה להדפסה">
+          <p className="text-sm text-gray-500 mb-3">
+            טופס ריק למילוי ביד ליד המשטח: פריט, כמות, ומחיר ליחידה <b>לפני מע״מ</b>.
+            העובדת ממלאת, מצלמת <b>מתוך כרטיס הספק</b>, והמערכת קוראת את השורות
+            ומוסיפה מע״מ לבד. שורת "ספק" בראש הדף היא לנוחות בלבד —
+            <b> הספק נקבע לפי הכרטיס שממנו צולם</b>, לא לפי מה שנכתב עליו.
+          </p>
+          <Button onClick={() => printGoodsSheet()}>הדפסת הטופס</Button>
         </SectionCard>
 
         <SectionCard title="לוגו המערכת">
