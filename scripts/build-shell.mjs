@@ -9,7 +9,7 @@
 //
 // The system itself is NOT in here — see capacitor.config.ts for why.
 
-import { cpSync, existsSync, rmSync, readdirSync } from 'node:fs'
+import { cpSync, existsSync, rmSync, readdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
@@ -34,5 +34,15 @@ for (const required of ['index.html', 'offline.html', 'stores.json']) {
 
 rmSync(OUT, { recursive: true, force: true })
 cpSync(SRC, OUT, { recursive: true })
+
+// A branded build carries who it belongs to. The shell reads this to know it has
+// no code to ask for — and, when a load fails, to offer a retry instead of a gate.
+// Its ABSENCE is what makes the generic build generic, so it is written here and
+// never committed.
+const client = process.env.INCONTROL_CLIENT_JSON
+if (client) {
+  writeFileSync(resolve(OUT, 'client.json'), client)
+  console.log(`  branded: ${JSON.parse(client).label ?? 'client'}`)
+}
 
 console.log(`✓ dist-shell — ${readdirSync(OUT).join(', ')}`)

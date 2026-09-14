@@ -51,6 +51,22 @@ public class MainActivity extends BridgeActivity {
 
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         String storeUrl = prefs.getString(KEY_URL, null);
+
+        // A branded build carries its customer's address; the generic one does not
+        // and falls through to the store gate. What the tablet was told still wins,
+        // so "switch store" works on both.
+        //
+        // The address is NOT re-used when the watchdog just rejected it: a baked
+        // address would otherwise send the tablet straight back into the broken
+        // site, forever. The shell shows a retry instead, and clears the flag.
+        String failed = prefs.getString(KEY_FAILED, null);
+        if (storeUrl == null || storeUrl.isEmpty()) {
+            String baked = getString(R.string.store_url);
+            if (baked != null && baked.startsWith("https://") && !baked.equals(failed)) {
+                storeUrl = baked;
+            }
+        }
+
         boolean remote = storeUrl != null && storeUrl.startsWith("https://");
 
         if (remote) {

@@ -16,9 +16,13 @@ import type { CapacitorConfig } from '@capacitor/cli'
 //     genuinely want the system browser (printing, PDFs, downloads) says so
 //     explicitly through `openExternal()` in `src/lib/native.ts`, so nothing here
 //     depends on Capacitor's default external-URL behaviour.
+// A branded build passes its customer's identity in the environment, because
+// `npx cap sync` REWRITES res/values/strings.xml from this file — setting those
+// strings by hand after a sync is a race that sync wins. scripts/release-apk.mjs
+// sets these; an ordinary build has them unset and is the generic app.
 const config: CapacitorConfig = {
-  appId: 'com.ctrlplusf.incontrol',
-  appName: 'InControl',
+  appId: process.env.INCONTROL_APP_ID ?? 'com.ctrlplusf.incontrol',
+  appName: process.env.INCONTROL_APP_NAME ?? 'InControl',
   webDir: 'dist-shell',
   android: {
     // The tablets are shared devices in a shop; a WebView that keeps its own

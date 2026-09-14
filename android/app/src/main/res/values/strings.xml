@@ -4,4 +4,8 @@
     <string name="title_activity_main">InControl</string>
     <string name="package_name">com.ctrlplusf.incontrol</string>
     <string name="custom_url_scheme">com.ctrlplusf.incontrol</string>
+    <!-- A branded build bakes the customer's address here and skips the store
+         gate entirely. Empty means the generic app, which asks for a code.
+         Written by scripts/release-apk.mjs when given a client; committed empty. -->
+    <string name="store_url"></string>
 </resources>

@@ -211,8 +211,20 @@ export async function checkForUpdate(): Promise<AppUpdate | null> {
     const { App } = await import('@capacitor/app')
     const info = await App.getInfo()
 
-    const res = await fetch('/app/app-version.json', { cache: 'no-store' })
-    if (!res.ok) return null
+    // A branded build's applicationId ends in the customer's code
+    // (com.ctrlplusf.incontrol.hadas), so it already knows which manifest is its
+    // own. The generic app has no suffix and reads the shared one.
+    const suffix = info.id.split('.').pop()
+    const paths = suffix && suffix !== 'incontrol'
+      ? [`/app/app-version.${suffix}.json`, '/app/app-version.json']
+      : ['/app/app-version.json']
+
+    let res: Response | null = null
+    for (const path of paths) {
+      const attempt = await fetch(path, { cache: 'no-store' })
+      if (attempt.ok) { res = attempt; break }
+    }
+    if (!res) return null
     const manifest = (await res.json()) as {
       versionCode?: number
       versionName?: string
