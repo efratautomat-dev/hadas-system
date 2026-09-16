@@ -10,7 +10,8 @@ export default function Login({ unauthorizedError = false }: Props) {
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [sent, setSent]         = useState(false)
-  const [busy, setBusy]         = useState<'otp' | 'password' | null>(null)
+  const [code, setCode]         = useState('')
+  const [busy, setBusy]         = useState<'otp' | 'password' | 'code' | null>(null)
   const [error, setError]       = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -35,6 +36,34 @@ export default function Login({ unauthorizedError = false }: Props) {
     }
 
     setSent(true)
+  }
+
+  // The emailed LINK cannot come back into the Android app: it opens in Chrome,
+  // where the app's session does not live. Supabase sends a 6-digit code in the
+  // same email (the template carries {{ .Token }}), and verifying it produces the
+  // very same session JWT the link would have. Shown in the browser too — one
+  // login screen is worth more than a platform branch, and it rescues anyone whose
+  // link opened in the wrong browser profile.
+  const handleCodeLogin = async () => {
+    const token = code.replace(/\D/g, '')
+    if (token.length < 6) return
+
+    setBusy('code')
+    setError(null)
+
+    const { error: codeError } = await supabase.auth.verifyOtp({
+      email: email.trim().toLowerCase(),
+      token,
+      type: 'email',
+    })
+
+    setBusy(null)
+
+    if (codeError) {
+      setError('הקוד שגוי או פג תוקף. אפשר לשלוח קוד חדש.')
+      return
+    }
+    // success: onAuthStateChange picks up the session, exactly as after a link.
   }
 
   // DEV/testing: email + password sign-in (Supabase user created in the dev project).
@@ -124,13 +153,47 @@ export default function Login({ unauthorizedError = false }: Props) {
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '44px', marginBottom: '16px' }}>📩</div>
             <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#1F2937', marginBottom: '10px' }}>
-              קישור נשלח!
+              נשלח למייל!
             </h2>
             <p style={{ color: '#6B7280', fontSize: '14px', lineHeight: 1.7, margin: 0 }}>
-              שלחנו לך קישור למייל.<br />אנא בדקי את תיבת הדואר.
+              במייל יש קוד בן 6 ספרות וגם קישור.<br />אפשר להקליד את הקוד כאן:
             </p>
+
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleCodeLogin() }}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              placeholder="000000"
+              aria-label="קוד מהמייל"
+              style={{
+                marginTop: '16px', width: '100%', padding: '13px', borderRadius: '12px',
+                border: '1.5px solid #E2E4E9', fontSize: '22px', fontWeight: 700,
+                textAlign: 'center', letterSpacing: '0.3em', direction: 'ltr',
+                fontFamily: 'inherit',
+              }}
+            />
+
+            {error && (
+              <p style={{ color: '#E8645A', fontSize: '13px', marginTop: '10px', marginBottom: 0 }}>{error}</p>
+            )}
+
             <button
-              onClick={() => { setSent(false); setEmail('') }}
+              onClick={() => void handleCodeLogin()}
+              disabled={busy === 'code' || code.replace(/\D/g, '').length < 6}
+              style={{
+                marginTop: '12px', width: '100%', padding: '13px', borderRadius: '12px',
+                border: 'none', background: 'var(--brand-primary)', color: 'white',
+                fontSize: '15px', fontWeight: 700, fontFamily: 'inherit',
+                opacity: busy === 'code' || code.replace(/\D/g, '').length < 6 ? 0.5 : 1,
+              }}
+            >
+              {busy === 'code' ? 'בודק…' : 'כניסה'}
+            </button>
+            <button
+              onClick={() => { setSent(false); setEmail(''); setCode(''); setError(null) }}
               style={{
                 marginTop: '24px',
                 background: 'none',

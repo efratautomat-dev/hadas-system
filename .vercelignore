@@ -1,1 +1,6 @@
 supabase/
+
+# The Android shell never ships to Vercel — see capacitor.config.ts.
+android/
+dist-shell/
+shell/

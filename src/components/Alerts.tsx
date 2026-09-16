@@ -6,6 +6,8 @@ import {
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
+import { openExternal } from '../lib/native'
+import { DocumentBody } from './PdfPreviewModal'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
@@ -262,7 +264,7 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
           <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
             {messageLink && (
               <button
-                onClick={() => window.open(messageLink, '_blank', 'noopener,noreferrer')}
+                onClick={() => void openExternal(messageLink)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
                 style={{ background: '#EFF6FF', color: '#1D4ED8' }}
               >
@@ -425,7 +427,7 @@ export function resolveAlertDestination(
     t === 'return_no_file'         || t === 'delivery_note_ingest_failed' ||
     t === 'statement_ingest_failed'|| t === 'return_ingest_failed'
   ) {
-    if (messageLink) { window.open(messageLink, '_blank', 'noopener,noreferrer'); return }
+    if (messageLink) { void openExternal(messageLink); return }
     handlers.onPageChange?.('alerts')
     return
   }
@@ -814,11 +816,9 @@ function ApprovalModal({
 
           <div style={{ flex: '1 1 280px', minWidth: 0 }}>
             {docUrl ? (
-              <iframe
-                src={docUrl}
-                title="מסמך מקור"
-                style={{ width: '100%', height: '300px', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB' }}
-              />
+              <div style={{ height: '300px', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB', overflow: 'hidden' }}>
+                <DocumentBody url={docUrl} previewSrc={docUrl} />
+              </div>
             ) : (
               <div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB', color: '#9CA3AF', fontSize: '13px', textAlign: 'center', padding: '12px' }}>
                 {storagePath ? 'טוען את המסמך…' : 'אין תצוגת מסמך — אפשר לפתוח ב-Drive'}
@@ -945,11 +945,9 @@ function ReclassifyModal({
         {/* Document image */}
         <div style={{ padding: '16px 22px 8px' }}>
           {docUrl ? (
-            <iframe
-              src={docUrl}
-              title="מסמך מקור"
-              style={{ width: '100%', height: '340px', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB' }}
-            />
+            <div style={{ height: '340px', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB', overflow: 'hidden' }}>
+              <DocumentBody url={docUrl} previewSrc={docUrl} />
+            </div>
           ) : (
             <div style={{ height: '340px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB', color: '#9CA3AF', fontSize: '13px' }}>
               אין תצוגת מסמך זמינה
