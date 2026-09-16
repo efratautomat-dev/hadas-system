@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Printer, BookOpen, RotateCcw } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
+import { useDeliveryLinks } from '../hooks/useDeliveryLinks'
 import { usePayments } from '../hooks/usePayments'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { SearchableSelect } from './SearchableSelect'
@@ -67,6 +68,7 @@ const COL_M = '80px 1fr 110px'
 export default function SupplierLedger({ initialSupplierId }: { initialSupplierId?: string }) {
   const { data: suppliersData, loading } = useSuppliers()
   const { data: allInvoices } = useInvoices()
+  const { data: deliveryLinks } = useDeliveryLinks()
   const { data: allPayments } = usePayments()
   const { asEngineInput: resets, create: createReset, remove: removeReset } = useLedgerResets()
   const { logoUrl } = useAppLogo()
@@ -95,10 +97,15 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
   // undated row sorted as "before the period" and vanished into the opening figure.
   // The window is now a DISPLAY filter; the closing balance always counts every
   // movement and therefore always agrees with the supplier screen.
+  // See SupplierDetail: the mark belongs to invoices that are in a goods chain.
+  const pipelineInvoiceIds = useMemo(
+    () => new Set(deliveryLinks.map(l => l.invoiceId)),
+    [deliveryLinks],
+  )
   const ledger = useMemo(
     () => buildLedger(selectedSupplierId, allInvoices, allPayments, baseOpening,
-      { from: fromDate, to: toDate, paymentArrangement, resets }),
-    [selectedSupplierId, allInvoices, allPayments, baseOpening, fromDate, toDate, paymentArrangement, resets],
+      { from: fromDate, to: toDate, paymentArrangement, resets, pipelineInvoiceIds }),
+    [selectedSupplierId, allInvoices, allPayments, baseOpening, fromDate, toDate, paymentArrangement, resets, pipelineInvoiceIds],
   )
 
   const rows: TableRow[] = [

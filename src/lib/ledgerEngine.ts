@@ -274,6 +274,15 @@ export function buildLedgerEntries(
   supplierId: string,
   invoices: InvoiceLike[],
   payments: PaymentLike[],
+  /**
+   * Invoice ids that belong to a GOODS CHAIN — see `awaitingLedgerApproval`.
+   *
+   * Absent or empty means "this caller knows nothing about pipelines", and the
+   * mark is then simply not raised. That is the honest answer rather than a
+   * cautious one: the mark says a PAIR is waiting for a person, and a caller
+   * that cannot see pairs cannot claim one is waiting.
+   */
+  pipelineInvoiceIds?: ReadonlySet<string> | null,
 ): Omit<LedgerRow, 'balance'>[] {
   // ⚠️ Invoices are keyed on `supplierId` and payments on `supplier_id` — two
   // conventions inside one function, because that is how the two hooks map them.
@@ -302,7 +311,14 @@ export function buildLedgerEntries(
         movement: amount,
         undated: !iso,
         pendingApproval: isAwaitingApproval(i),
-        awaitingLedgerApproval: isAwaitingLedgerApproval(i),
+        // Only for an invoice that is actually IN a chain. An invoice with no
+        // delivery attached has no pair to approve, so asking for an approval on
+        // it asks a question with no meaning — and since the pipeline shipped,
+        // every newly ingested invoice arrives unapproved, which turned the mark
+        // into a banner on nearly every supplier. A mark that is always on marks
+        // nothing.
+        awaitingLedgerApproval:
+          isAwaitingLedgerApproval(i) && !!pipelineInvoiceIds?.has(String(i.id)),
         isReset: false,
         resetReason: '',
         settledByReceipt: false,
@@ -388,9 +404,16 @@ export function buildLedger(
   invoices: InvoiceLike[],
   payments: PaymentLike[],
   openingBalance: AmountLike,
-  opts?: { from?: string; to?: string; paymentArrangement?: boolean; resets?: ResetLike[] },
+  opts?: {
+    from?: string
+    to?: string
+    paymentArrangement?: boolean
+    resets?: ResetLike[]
+    /** See `buildLedgerEntries`. Display-only: it moves no figure. */
+    pipelineInvoiceIds?: ReadonlySet<string> | null
+  },
 ): LedgerResult {
-  const movements = buildLedgerEntries(supplierId, invoices, payments)
+  const movements = buildLedgerEntries(supplierId, invoices, payments, opts?.pipelineInvoiceIds)
   const opening = num(openingBalance)
   const { from, to } = opts ?? {}
 
