@@ -64,6 +64,21 @@ export interface NoteSource {
 
   /** The note text. Return '' to skip the row entirely. */
   body: (row: SourceRow) => string
+  /**
+   * The COLUMN `body` reads — and the only reason it exists separately.
+   *
+   * The suppliers screen asks a different question from the panel: not "what is
+   * written about this supplier" but "is anything written at all", for every
+   * supplier at once. Answering it through `body()` would mean pulling every
+   * invoice, every payment and every delivery in the business to look at one
+   * field. With the column named, the same question is one tiny query per
+   * source — ids of rows whose note is not empty.
+   *
+   * ⚠️ MUST be the column `body` reads. They are two views of one fact, and a
+   * source where they disagree shows a marker for a note nobody can find, or
+   * hides one that is there.
+   */
+  noteColumn: string
   /** ISO date for ordering, or null when the record carries none. */
   date: (row: SourceRow) => string | null
   ref:  (row: SourceRow) => DerivedNoteRef
@@ -87,6 +102,7 @@ function shekels(v: unknown): string | undefined {
 export const NOTE_SOURCES: NoteSource[] = [
   {
     key:   'card',
+    noteColumn: 'notes',
     label: 'כרטיס ספק',
     style: { bg: '#F3F4F6', fg: '#4B5563' },
     // suppliers_v, NOT suppliers. `20260708000000_employee_financial_column_mask`
@@ -108,6 +124,7 @@ export const NOTE_SOURCES: NoteSource[] = [
   },
   {
     key:   'payments',
+    noteColumn: 'notes',
     label: 'תשלומים',
     style: { bg: '#DBEAFE', fg: '#1E40AF' },
     table: 'payments',
@@ -120,6 +137,7 @@ export const NOTE_SOURCES: NoteSource[] = [
   },
   {
     key:   'returns',
+    noteColumn: 'detail',
     label: 'חזרות',
     style: { bg: '#FDEEEC', fg: '#9B2C2C' },
     table: 'returns',
@@ -139,6 +157,7 @@ export const NOTE_SOURCES: NoteSource[] = [
   },
   {
     key:   'invoices',
+    noteColumn: 'notes',
     label: 'חשבוניות',
     style: { bg: '#E0E7FF', fg: '#3730A3' },
     // invoices_v for the same reason as suppliers_v above.
@@ -156,6 +175,7 @@ export const NOTE_SOURCES: NoteSource[] = [
   },
   {
     key:   'statements',
+    noteColumn: 'resolution_notes',
     label: 'כרטסות',
     style: { bg: '#FEF3C7', fg: '#92400E' },
     table: 'vendor_statements',
@@ -174,6 +194,7 @@ export const NOTE_SOURCES: NoteSource[] = [
   },
   {
     key:   'deliveries',
+    noteColumn: 'notes',
     label: 'סחורה',
     style: { bg: '#DCFCE7', fg: '#166534' },
     // delivery_notes_v, NOT delivery_notes — the base table's SELECT is revoked
