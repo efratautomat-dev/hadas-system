@@ -249,6 +249,26 @@ export async function checkForUpdate(): Promise<AppUpdate | null> {
 }
 
 /**
+ * Whether this build carries a customer's address of its own.
+ *
+ * A branded app has exactly one system it can ever show, so there is nothing to
+ * switch to — and offering the control anyway produces a button that appears to
+ * do nothing. Returns false in the browser and in the generic app.
+ */
+export async function isBrandedBuild(): Promise<boolean> {
+  if (!isNative()) return false
+  const StoreGate = (window as unknown as {
+    Capacitor?: { Plugins?: { StoreGate?: { info?: () => Promise<{ branded?: boolean }> } } }
+  }).Capacitor?.Plugins?.StoreGate
+  try {
+    const info = await StoreGate?.info?.()
+    return info?.branded === true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Forgets which store this tablet belongs to and returns to the gate. Exists so a
  * mistyped code, or a tablet moving between customers, does not mean reinstalling
  * the app. No-op in the browser, where there is no store code to begin with.
