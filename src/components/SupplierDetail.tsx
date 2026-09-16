@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw, Plus, PackageCheck } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { computedAmountNotes } from '../lib/computedAmount'
+import { useDeliveryLinks } from '../hooks/useDeliveryLinks'
 import { useOrders } from '../hooks/useOrders'
 import OrderForm from './pipeline/OrderForm'
 import GoodsIntake from './pipeline/GoodsIntake'
@@ -232,6 +233,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
   const { data: allNotes, create: createDeliveryNote } = useDeliveryNotes()
+  const { data: deliveryLinks } = useDeliveryLinks()
   // Computed once per card, from the rows already in hand.
   const computedRows = computedAmountNotes(
     allNotes.filter(n => n.supplierId === supplier.id),
@@ -287,8 +289,16 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   // ledger screen and the suppliers list read the same hook and the same engine,
   // which is the only reason all three can agree about a reset supplier.
   const { asEngineInput: resets, create: createReset, remove: removeReset } = useLedgerResets()
+  // Which invoices are actually in a goods chain. The "טרם אושרה לכרטסת" mark is
+  // about a PAIR waiting for a person, so an invoice with no delivery attached
+  // must not carry it — otherwise every invoice ingested since the pipeline
+  // shipped raises a banner nobody can act on.
+  const pipelineInvoiceIds = useMemo(
+    () => new Set(deliveryLinks.map(l => l.invoiceId)),
+    [deliveryLinks],
+  )
   const ledgerResult = buildLedger(supplier.id, invoices, payments, openingBalance,
-    { paymentArrangement, resets })
+    { paymentArrangement, resets, pipelineInvoiceIds })
   const currentBalance = ledgerResult.closingBalance
 
   // Σ invoices for the KPI card excludes flagged rows for the same reason — a
