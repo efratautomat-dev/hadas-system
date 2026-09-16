@@ -44,11 +44,21 @@ export function useSuppliersWithNotes(): Set<string> {
 
     await Promise.all(NOTE_SOURCES.map(async (src) => {
       try {
+        // ⚠️ NO `.neq(col, '')` HERE, and that is the whole bug the second time
+        // round. PostgREST renders it as `col=neq.` — an operator with an empty
+        // operand — and answers 400. The query threw, the catch below swallowed
+        // it per source, and the ONLY surviving source was `supplier_notes`,
+        // whose query has no such filter. Which is precisely what the owner saw:
+        // an icon on suppliers with a panel-written note and on nobody else.
+        //
+        // The demo could not catch it either — `demoClient` ignores filters
+        // entirely, so there the rows came back and the JS filter did the work.
+        //
+        // Empties are filtered in JS below, where they always were.
         const { data, error } = await supabase
           .from(src.table)
           .select(`${src.supplierColumn}, ${src.noteColumn}`)
           .not(src.noteColumn, 'is', null)
-          .neq(src.noteColumn, '')
         if (error) throw error
         for (const raw of (data ?? []) as unknown as Record<string, unknown>[]) {
           // `body` is not consulted here (it needs the whole row), so an
