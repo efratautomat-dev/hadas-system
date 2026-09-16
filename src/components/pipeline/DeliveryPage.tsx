@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ChevronRight, ChevronDown, Check, Link2, Unlink, UserCog, Scissors, FileText,
-  Truck, Eye, ExternalLink, PackageCheck, TriangleAlert,
+  Truck, Eye, ExternalLink, PackageCheck, TriangleAlert, StickyNote, Pencil,
 } from 'lucide-react'
 import { PipelineStrip } from './PipelineStrip'
 import GoodsIntake from './GoodsIntake'
 import { completeAmounts, vatRateFor, vatPercentFor } from '../../lib/vat'
 import { intakeLong, noDocumentReason, documentExpected } from '../../lib/intakeSource'
+import { CopyButton } from '../ui/CopyButton'
+import LineItemsEditor from './LineItemsEditor'
+import { newLine, linesToText as linesToStored, type Line } from '../../lib/lineItems'
 import { ReceiptSettle } from './ReceiptSettle'
 import { parseLines, parsedTotal, type ParsedLine } from '../../lib/lineItemsFormat'
 import { StatusBadge } from '../StatusBadge'
@@ -132,7 +135,8 @@ export default function DeliveryPage({
   onBack, onLoadCandidates, onLink, onUnlink, onApprove,
   onChangeSupplier, onDismantle, onOpenInvoice, onArrived, onMarkDiffers, customerOrders = [],
   onSetCustomerStatus, pendingPair, onResolvePair, onSettleByReceipt, onUndoReceipt,
-  onRecordGoods, onGoodsWithInvoice, capturedBy, onReload,
+  onRecordGoods, onGoodsWithInvoice, onSaveNotes, onSaveLineItems, onOpenInvoiceDetail,
+  capturedBy, onReload,
 }: {
   note: DeliveryNote
   stage: PipelineStage
@@ -189,6 +193,25 @@ export default function DeliveryPage({
     amount?: number | null; storageUrl?: string | null
     employeeId?: string; adopt?: string; forceNew?: boolean
   }) => Promise<{ needsChoice?: boolean } | void>
+  /**
+   * A remark about this delivery. Absent = the block is not rendered.
+   *
+   * The goods page is where someone stands in front of the pallet, and until now
+   * it was the one screen in the system with nowhere to write down what she saw.
+   */
+  onSaveNotes?: (notes: string) => Promise<void>
+  /**
+   * Correct the item list. Absent = the table stays read-only.
+   *
+   * "לפעמים הפענוח טועה וזה לא ברור מה הכוונה" — the reading is a machine's and
+   * the goods are in front of whoever is looking at this page.
+   */
+  onSaveLineItems?: (lineItems: string) => Promise<void>
+  /**
+   * Open the invoice's OWN screen over this one — figures, category, notes — and
+   * come straight back. Absent = the button is not rendered.
+   */
+  onOpenInvoiceDetail?: (invoiceId: string) => void
   /** Who is looking at this — passed to the handwritten reader for its log. */
   capturedBy?: string
   /**
@@ -239,6 +262,24 @@ export default function DeliveryPage({
   // not to add to it. An open form at the top pushes the row's own facts down
   // the screen on every visit to serve the one visit that came to write.
   const [intakeOpen, setIntakeOpen] = useState(false)
+  const [editingLines, setEditingLines] = useState(false)
+  const [lineDraft, setLineDraft] = useState<Line[]>([])
+  const [noteDraft, setNoteDraft] = useState(note.notes ?? '')
+  const [noteState, setNoteState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  // Opening a DIFFERENT delivery must not carry the previous one's draft across —
+  // a remark about the wrong pallet is worse than no remark.
+  //
+  // Adjusted DURING RENDER rather than in an effect: this is the React-documented
+  // way to reset state when a prop changes, it costs no second paint, and it does
+  // not add another `set-state-in-effect` to a baseline that already carries
+  // fourteen of them.
+  const [draftFor, setDraftFor] = useState(note.id)
+  if (draftFor !== note.id) {
+    setDraftFor(note.id)
+    setNoteDraft(note.notes ?? '')
+    setNoteState('idle')
+    setEditingLines(false)
+  }
   const [pane, setPane] = useState<'note' | 'invoice'>('note')
   // A supplier who bills one delivery in parts is ordinary, so attaching another
   // invoice stays possible — behind a click, because it is not the common case and
@@ -394,6 +435,20 @@ export default function DeliveryPage({
                 >{label}</button>
               ))}
             </div>
+            {/* ── The whole invoice, from here ─────────────────────────────
+                The owner: "בעמוד הסחורה אנחנו רוצים שיהיה הכל — כפתור הצג פרטים
+                שפותח את מסך החשבונית המלא, וניתן לרשום הערות, לסגור ולהיות שוב
+                במסך הסחורה." The document pane shows the SCAN; everything the
+                system knows about the invoice — its figures, its category, its
+                notes — lived on another screen, and going there meant losing
+                your place here. */}
+            {pane === 'invoice' && invoice && onOpenInvoiceDetail && (
+              <button
+                onClick={() => onOpenInvoiceDetail(invoice.id)}
+                className="inline-flex items-center gap-1.5"
+                style={{ padding: '5px 10px', border: '1px solid var(--brand-primary)', background: 'white', color: 'var(--brand-primary)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', marginInlineStart: 'auto', marginInlineEnd: '6px' }}
+              ><FileText size={13} />הצג פרטים</button>
+            )}
             {shown && (
               <button
                 onClick={() => (pane === 'note' && !note.driveFileLink && note.storageUrl)
@@ -495,8 +550,94 @@ export default function DeliveryPage({
                 <Row k="תעודה" v={note.noteNumber || '—'} />
                 <Row k="תאריך" v={note.date || '—'} />
                 <Row k="סכום" v={fmtILS(note.amount || null)} />
-                {parsedLines.length > 0 && <LineItemsTable lines={parsedLines} isoDate={note.isoDate} />}
+                {editingLines ? (
+                  <div style={{ marginTop: '10px' }}>
+                    <LineItemsEditor lines={lineDraft} onChange={setLineDraft} isoDate={note.isoDate} />
+                    <div className="flex items-center gap-2" style={{ marginTop: '7px' }}>
+                      <button
+                        disabled={busy}
+                        onClick={() => act(async () => {
+                          await onSaveLineItems!(linesToStored(lineDraft))
+                          setEditingLines(false)
+                        })}
+                        className="font-bold text-white"
+                        style={{ background: 'var(--brand-primary)', border: 'none', padding: '6px 14px', fontSize: '12.5px', cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit' }}
+                      >שמירת הפריטים</button>
+                      <button
+                        onClick={() => setEditingLines(false)}
+                        style={{ background: 'none', border: 'none', color: '#9CA3AF', fontSize: '12.5px', cursor: 'pointer', fontFamily: 'inherit' }}
+                      >ביטול</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {parsedLines.length > 0 && <LineItemsTable lines={parsedLines} isoDate={note.isoDate} />}
+                    {/* Offered whether or not there are lines: an empty reading is
+                        the case that needs correcting most. */}
+                    {onSaveLineItems && (
+                      <button
+                        onClick={() => {
+                          setLineDraft(parsedLines.length
+                            ? parsedLines.map(l => ({ ...newLine(), item: l.item, quantity: l.quantity, price: l.price }))
+                            : [newLine(), newLine()])
+                          setEditingLines(true)
+                        }}
+                        className="inline-flex items-center gap-1"
+                        style={{
+                          background: 'none', border: 'none', padding: 0, marginTop: '8px',
+                          color: 'var(--brand-primary)', fontSize: '12px', fontWeight: 700,
+                          cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      ><Pencil className="w-3.5 h-3.5" />{parsedLines.length ? 'תיקון הפריטים' : 'רישום הפריטים'}</button>
+                    )}
+                  </>
+                )}
               </section>
+
+              {onSaveNotes && (
+                <section className="bg-white border" style={{ borderColor: '#E2E4E9', padding: '14px 16px' }}>
+                  <div className="flex items-center gap-2" style={{ marginBottom: '7px' }}>
+                    <StickyNote size={14} style={{ color: 'var(--brand-primary)' }} />
+                    <h4 className="font-bold" style={{ fontSize: '11.5px', color: '#9CA3AF', margin: 0 }}>הערות למשלוח</h4>
+                    <CopyButton text={noteDraft} title="העתקת ההערה" size={13} />
+                    <span style={{ marginInlineStart: 'auto', fontSize: '11px', color: '#9CA3AF' }}>
+                      מופיעה גם בהערות הספק
+                    </span>
+                  </div>
+                  <textarea
+                    value={noteDraft}
+                    onChange={e => { setNoteDraft(e.target.value); setNoteState('idle') }}
+                    placeholder="מה היה חסר, מה הגיע פגום, מה אמר הנהג…"
+                    style={{
+                      width: '100%', minHeight: '54px', resize: 'vertical', fontFamily: 'inherit',
+                      fontSize: '13px', lineHeight: 1.55, color: '#1F2125',
+                      background: '#FAFAFC', border: '1px solid #E2E4E9', padding: '7px 9px',
+                    }}
+                  />
+                  <div className="flex items-center gap-2" style={{ marginTop: '7px' }}>
+                    <button
+                      disabled={noteState === 'saving' || noteDraft === (note.notes ?? '')}
+                      onClick={async () => {
+                        setNoteState('saving')
+                        try { await onSaveNotes(noteDraft); setNoteState('saved') }
+                        catch { setNoteState('error') }
+                      }}
+                      className="font-bold"
+                      style={{
+                        background: noteDraft === (note.notes ?? '') ? '#D6D7DD' : 'var(--brand-primary)',
+                        color: 'white', border: 'none', padding: '6px 14px', fontSize: '12.5px',
+                        cursor: noteDraft === (note.notes ?? '') ? 'default' : 'pointer', fontFamily: 'inherit',
+                      }}
+                    >שמירת הערה</button>
+                    <span style={{ fontSize: '11.5px', color: noteState === 'error' ? '#DC2626' : '#9CA3AF' }}>
+                      {noteState === 'saving' ? 'שומר…'
+                        : noteState === 'saved' ? 'ההערה נשמרה'
+                        : noteState === 'error' ? 'ההערה לא נשמרה — נסי שוב'
+                        : ''}
+                    </span>
+                  </div>
+                </section>
+              )}
 
               <section className="bg-white border" style={{ borderColor: '#E2E4E9', padding: '14px 16px' }}>
                 <h4 className="font-bold" style={{ fontSize: '11.5px', color: '#9CA3AF', margin: '0 0 9px' }}>על מה חויבנו</h4>

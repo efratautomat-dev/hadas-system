@@ -172,11 +172,33 @@ export const NOTE_SOURCES: NoteSource[] = [
     }),
     open: r => ({ page: 'reconciliation', statementViewId: str(r.id) }),
   },
+  {
+    key:   'deliveries',
+    label: 'סחורה',
+    style: { bg: '#DCFCE7', fg: '#166534' },
+    // delivery_notes_v, NOT delivery_notes — the base table's SELECT is revoked
+    // from anon/authenticated, and a source pointed at it fails SILENTLY.
+    table: 'delivery_notes_v',
+    supplierColumn: 'supplier_id',
+    columns: 'id, supplier_id, notes, note_number, date, stage',
+    body: r => str(r.notes),
+    date: r => str(r.date) || null,
+    ref:  r => ({
+      label:  `סחורה ${str(r.note_number) || str(r.id)}`,
+      action: 'פתיחת הסחורה',
+    }),
+    open: r => ({ page: 'deliveries', deliverySelectedId: str(r.id) }),
+  },
 ]
 
-// NOT here, and why: `delivery_notes` has no notes column at all — only
-// `line_items`, which is the document's contents, not a remark someone made.
-// Adding a notes field to that screen is the moment it earns an entry above.
+// The entry above is what `20260914010000` earned: until it, `delivery_notes`
+// had no notes column at all — only `line_items`, which is the document's own
+// contents and not a remark someone made. The goods page is where a person
+// stands in front of the pallet and sees the crushed box, so it is the last
+// place that should have had nowhere to write it down.
+//
+// ⚠️ No FIGURE is read here. `delivery_notes_v` masks amounts for an employee,
+// and this source asks for none — the note, the number, the date and the stage.
 
 export const SOURCE_BY_KEY: Record<string, NoteSource> =
   Object.fromEntries(NOTE_SOURCES.map(s => [s.key, s]))

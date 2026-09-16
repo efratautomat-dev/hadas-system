@@ -91,6 +91,15 @@ function find(table: string, id: string): Row | undefined {
   return demoTables[table]?.find(r => String(r.id) === id)
 }
 
+/**
+ * Which notes were marked handled in this demo session.
+ *
+ * In memory rather than in a table: the demo has no `note_handled`, and the mark
+ * is a judgement about work rather than data anyone browses. Lost on reload,
+ * which is exactly right for a demo.
+ */
+export const demoHandled = new Set<string>()
+
 function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
   const orders   = demoTables.orders
   const notes    = demoTables.delivery_notes
@@ -412,6 +421,41 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     notes.unshift(note)
     links.push({ delivery_note_id: note.id, invoice_id: String(invoice.id), created_at: nowIso() })
     return { success: true, deliveryNoteId: note.id }
+  }
+
+  // ── PUT /delivery-notes/:id/line-items · /invoices/:id/line-items ────────
+  const dnLines = path.match(/^\/delivery-notes\/([^/]+)\/line-items$/)
+  if (method === 'PUT' && dnLines) {
+    const note = find('delivery_notes', dnLines[1])
+    if (!note) return null
+    note.line_items = String(b.lineItems ?? '')
+    return { success: true }
+  }
+  const invLines = path.match(/^\/invoices\/([^/]+)\/line-items$/)
+  if (method === 'PUT' && invLines) {
+    const inv = find('invoices', invLines[1])
+    if (!inv) return null
+    inv.line_items = String(b.lineItems ?? '')
+    return { success: true }
+  }
+
+  // ── PUT /delivery-notes/:id/notes ────────────────────────────────────────
+  const dnNotes = path.match(/^\/delivery-notes\/([^/]+)\/notes$/)
+  if (method === 'PUT' && dnNotes) {
+    const note = find('delivery_notes', dnNotes[1])
+    if (!note) return null
+    note.notes = String(b.notes ?? '')
+    return { success: true }
+  }
+
+  // ── PUT /note-handled ────────────────────────────────────────────────────
+  // The demo keeps the answer in memory the same way the real one keeps it in a
+  // table: the note is never touched, only the mark beside it.
+  if (method === 'PUT' && path === '/note-handled') {
+    const key = `${String(b.sourceKey ?? '')}:${String(b.recordId ?? '')}`
+    if (b.handled === false) demoHandled.delete(key)
+    else demoHandled.add(key)
+    return { success: true, handled: b.handled !== false }
   }
 
   // ── PUT /delivery-notes/:id/goods-with-invoice ───────────────────────────

@@ -153,6 +153,18 @@ export function useInvoices() {
     }
   }
 
+  /** Correct a misread item list. Same narrow route the delivery uses. */
+  const saveLineItems = async (id: string, lineItems: string) => {
+    try {
+      await api.put(`/invoices/${id}/line-items`, { lineItems })
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`שגיאה בשמירת הפריטים: ${msg}`)
+      throw err
+    }
+  }
+
   const openPipeline = async (id: string): Promise<string | null> => {
     try {
       const res = await api.put(`/invoices/${id}/open-pipeline`, {}) as
@@ -208,5 +220,5 @@ export function useInvoices() {
     }
   }
 
-  return { data, loading, error, create, update, updateStatus, remove, ledgerApprove, ledgerUnapprove, openPipeline, saveNotes }
+  return { data, loading, error, create, update, updateStatus, remove, ledgerApprove, ledgerUnapprove, openPipeline, saveNotes, saveLineItems }
 }
