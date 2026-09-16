@@ -269,8 +269,13 @@ function writeVersionManifest(link) {
   // to the generic identity by the time this runs.
   const code = client ? client.version.code : Number(readFileSync(GRADLE_FILE, 'utf8').match(/versionCode\s+(\d+)/)?.[1] ?? 0)
   const name = client ? client.version.name : readFileSync(GRADLE_FILE, 'utf8').match(/versionName\s+"([^"]+)"/)?.[1] ?? '0.0.0'
-  const file = resolve(ROOT, client
-    ? `public/app/app-version.${client.code}.json`
+  // Mirrors checkForUpdate() in src/lib/native.ts exactly: the app looks up its
+  // manifest by the suffix of its own applicationId, so a build that keeps the
+  // generic id writes the generic manifest. Two places, one rule — if one moves,
+  // the app checks a file nobody writes.
+  const suffix = client ? client.app.applicationId.split('.').pop() : null
+  const file = resolve(ROOT, suffix && suffix !== 'incontrol'
+    ? `public/app/app-version.${suffix}.json`
     : 'public/app/app-version.json')
   const previous = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
   writeFileSync(file, JSON.stringify({ ...previous, versionCode: code, versionName: name, url: link }, null, 2) + '\n')
