@@ -25,7 +25,7 @@ export function printGoodsSheet(opts: { supplierName?: string; rows?: number } =
   const rows = opts.rows ?? 16
 
   const body = Array.from({ length: rows })
-    .map(() => '<tr><td class="item"></td><td class="qty"></td><td class="price"></td></tr>')
+    .map(() => '<tr><td class="item"></td><td class="sku"></td><td class="qty"></td><td class="price"></td></tr>')
     .join('')
 
   openPrintWindow(`<!doctype html>
@@ -46,7 +46,8 @@ export function printGoodsSheet(opts: { supplierName?: string; rows?: number } =
   th { font-size: 12px; text-align: right; padding: 7px 10px; background: #F3F4F6;
        border: 1px solid #9CA3AF; }
   td { border: 1px solid #C9CBD2; height: 30px; }
-  td.qty   { width: 80px; border-inline-start: 1px solid #9CA3AF; }
+  td.sku   { width: 100px; border-inline-start: 1px solid #9CA3AF; }
+  td.qty   { width: 70px; border-inline-start: 1px solid #9CA3AF; }
   td.price { width: 90px; border-inline-start: 1px solid #9CA3AF; }
   .foot { margin-top: 14px; font-size: 11px; color: #9CA3AF; display: flex;
           justify-content: space-between; }
@@ -59,6 +60,7 @@ export function printGoodsSheet(opts: { supplierName?: string; rows?: number } =
   </div>
   <p class="note">
     למלא <b>פריט, כמות, ומחיר ליחידה לפני מע"מ</b> אם הוא מופיע על הסחורה.
+    עמודת <b>דגם / מק"ט</b> היא לא חובה — למלא רק כשהיא כתובה על הסחורה או על הדגם.
     <b>אין צורך לחשב סה"כ</b> — המערכת מסכמת ומוסיפה מע"מ בעצמה. עמודת המחיר לא
     חובה; משאירים ריק כשאין.
     אין צורך לרשום תאריך — הוא נרשם בצילום${
@@ -68,7 +70,7 @@ export function printGoodsSheet(opts: { supplierName?: string; rows?: number } =
     }.
   </p>
   <table>
-    <thead><tr><th>פריט</th><th class="qty">כמות</th><th class="price">מחיר ליחידה<br><span class="sub">לפני מע"מ</span></th></tr></thead>
+    <thead><tr><th>פריט</th><th class="sku">דגם / מק"ט<br><span class="sub">לא חובה</span></th><th class="qty">כמות</th><th class="price">מחיר ליחידה<br><span class="sub">לפני מע"מ</span></th></tr></thead>
     <tbody>${body}</tbody>
   </table>
   <div class="foot">

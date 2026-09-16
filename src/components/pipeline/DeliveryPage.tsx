@@ -73,12 +73,16 @@ function LineItemsTable({ lines, isoDate }: { lines: ParsedLine[]; isoDate?: str
   // exactly the guess the owner asked to stop making before she pays.
   const withVat = total == null ? null : completeAmounts({ net: total }, { rate: vatRateFor(isoDate), edited: 'net' })
   const anyFigures = lines.some(l => l.quantity || l.price)
+  // The column appears only when something is in it — most deliveries have none,
+  // and an always-present empty column is a column nobody reads.
+  const anySku = lines.some(l => (l.sku ?? '').trim())
   return (
     <div style={{ marginTop: '11px', overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
         <thead>
           <tr style={{ color: '#9CA3AF', fontSize: '11px', fontWeight: 700 }}>
             <th style={{ textAlign: 'start', padding: '0 0 5px' }}>פריט</th>
+            {anySku && <th style={{ textAlign: 'start', padding: '0 0 5px', width: '84px' }}>דגם / מק״ט</th>}
             {anyFigures && <th style={{ textAlign: 'start', padding: '0 0 5px', width: '58px' }}>כמות</th>}
             {anyFigures && <th style={{ textAlign: 'start', padding: '0 0 5px', width: '74px' }}>מחיר ליחידה</th>}
             {anyFigures && <th style={{ textAlign: 'start', padding: '0 0 5px', width: '74px' }}>סה"כ</th>}
@@ -90,6 +94,7 @@ function LineItemsTable({ lines, isoDate }: { lines: ParsedLine[]; isoDate?: str
             return (
               <tr key={i} style={{ borderTop: '1px solid #EEEEF2' }}>
                 <td style={{ padding: '5px 0', color: '#4B5563' }}>{l.item || '—'}</td>
+                {anySku && <td style={{ padding: '5px 0', color: '#6B6E73' }}>{l.sku || '—'}</td>}
                 {anyFigures && <td style={{ padding: '5px 0', color: '#6B6E73', fontVariantNumeric: 'tabular-nums' }}>{l.quantity || '—'}</td>}
                 {anyFigures && <td style={{ padding: '5px 0', color: '#6B6E73', fontVariantNumeric: 'tabular-nums' }}>{l.price ? fmtILS(Number(l.price)) : '—'}</td>}
                 {anyFigures && <td style={{ padding: '5px 0', color: '#4B5563', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{row == null ? '—' : fmtILS(row)}</td>}
@@ -100,7 +105,7 @@ function LineItemsTable({ lines, isoDate }: { lines: ParsedLine[]; isoDate?: str
         {withVat != null && (
           <tfoot>
             <tr style={{ borderTop: '1.5px solid #E2E4E9' }}>
-              <td colSpan={3} style={{ padding: '6px 0', color: '#9CA3AF', fontSize: '11.5px', fontWeight: 700 }}>
+              <td colSpan={anySku ? 4 : 3} style={{ padding: '6px 0', color: '#9CA3AF', fontSize: '11.5px', fontWeight: 700 }}>
                 סה"כ לפי הפריטים · לפני מע"מ
               </td>
               <td style={{ padding: '6px 0', fontWeight: 700, color: '#4B5563', fontVariantNumeric: 'tabular-nums' }}>
@@ -108,7 +113,7 @@ function LineItemsTable({ lines, isoDate }: { lines: ParsedLine[]; isoDate?: str
               </td>
             </tr>
             <tr>
-              <td colSpan={3} style={{ padding: '2px 0', color: '#9CA3AF', fontSize: '11.5px', fontWeight: 700 }}>
+              <td colSpan={anySku ? 4 : 3} style={{ padding: '2px 0', color: '#9CA3AF', fontSize: '11.5px', fontWeight: 700 }}>
                 מע"מ {vatPercentFor(isoDate)}%
               </td>
               <td style={{ padding: '2px 0', color: '#6B6E73', fontVariantNumeric: 'tabular-nums' }}>
@@ -116,7 +121,7 @@ function LineItemsTable({ lines, isoDate }: { lines: ParsedLine[]; isoDate?: str
               </td>
             </tr>
             <tr>
-              <td colSpan={3} style={{ padding: '2px 0 6px', color: '#6B6E73', fontSize: '11.5px', fontWeight: 800 }}>
+              <td colSpan={anySku ? 4 : 3} style={{ padding: '2px 0 6px', color: '#6B6E73', fontSize: '11.5px', fontWeight: 800 }}>
                 סה"כ כולל מע"מ
               </td>
               <td style={{ padding: '2px 0 6px', fontWeight: 800, color: 'var(--brand-primary)', fontVariantNumeric: 'tabular-nums' }}>
@@ -578,7 +583,7 @@ export default function DeliveryPage({
                       <button
                         onClick={() => {
                           setLineDraft(parsedLines.length
-                            ? parsedLines.map(l => ({ ...newLine(), item: l.item, quantity: l.quantity, price: l.price }))
+                            ? parsedLines.map(l => ({ ...newLine(), item: l.item, sku: l.sku, quantity: l.quantity, price: l.price }))
                             : [newLine(), newLine()])
                           setEditingLines(true)
                         }}

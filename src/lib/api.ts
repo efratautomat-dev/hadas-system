@@ -128,6 +128,9 @@ export async function captureDocument(input: {
 /** One handwritten line as the reader returned it. */
 export interface HandwrittenLine {
   item: string
+  /** דגם / מק״ט as written in the sheet's fourth column. '' when absent — which
+   *  is most lines, and the column is optional on the printed form too. */
+  sku?: string
   quantity: string
   /**
    * Cost price as written, or '' when the sheet carries none.
@@ -161,7 +164,7 @@ export async function readHandwrittenSheet(input: {
     console.warn('[DEMO MODE] stubbed readHandwrittenSheet — no network call')
     return {
       lines: [
-        { item: 'חלב 3% ארגז', quantity: '2', price: '128.5', uncertain: false },
+        { item: 'חלב 3% ארגז', sku: 'MK-3010', quantity: '2', price: '128.5', uncertain: false },
         { item: 'קוטג׳ ארגז',  quantity: '1', price: '96',    uncertain: false },
         { item: 'ביצים מגש',   quantity: '4', price: '',      uncertain: true  },
       ],

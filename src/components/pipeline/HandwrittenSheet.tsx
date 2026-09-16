@@ -68,7 +68,7 @@ export default function HandwrittenSheet({
       // The stored page travels with the lines, so the delivery keeps the document
       // it was read from — the thing that makes a disputed reading checkable.
       setStored(read.storageUrl)
-      setRows(read.lines.map(l => ({ ...newLine(), item: l.item, quantity: l.quantity, price: l.price, uncertain: l.uncertain })))
+      setRows(read.lines.map(l => ({ ...newLine(), item: l.item, sku: l.sku ?? '', quantity: l.quantity, price: l.price, uncertain: l.uncertain })))
       if (read.lines.length === 0) setErr('לא זוהו שורות בדף. אפשר להוסיף ידנית.')
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))

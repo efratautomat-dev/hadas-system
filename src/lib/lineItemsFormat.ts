@@ -27,6 +27,16 @@
 
 export interface ParsedLine {
   item: string
+  /**
+   * דגם / מק״ט — optional, and optional in the strong sense: most deliveries
+   * carry none, the printed sheet leaves the column blank, and a row without one
+   * must read exactly as it did before this field existed.
+   *
+   * Written as a bracketed tag right after the item — `חוט כותנה [מק״ט 4412]` —
+   * so every line stored before today still parses to precisely the same three
+   * fields, and a supplier's own text containing a dash or a ₪ is unaffected.
+   */
+  sku: string
   /** '' when the note did not say. Not 1 — an assumed quantity is a made-up one. */
   quantity: string
   /** Cost per UNIT, as printed. '' when absent. */
@@ -37,9 +47,13 @@ export interface ParsedLine {
 export function lineToText(l: ParsedLine): string {
   const item = l.item.trim()
   if (!item) return ''
+  // Empty stays ABSENT rather than becoming `[מק״ט ]`: a blank tag would make
+  // every old row differ from its own re-save, and the panel would show brackets
+  // around nothing.
+  const sku = (l.sku ?? '').trim() ? ` [מק״ט ${(l.sku ?? '').trim()}]` : ''
   const q = l.quantity.trim() ? ` — ${l.quantity.trim()}` : ''
   const p = l.price.trim() ? ` · ₪${l.price.trim()}` : ''
-  return `${item}${q}${p}`
+  return `${item}${sku}${q}${p}`
 }
 
 /** One line per item, in the shape a typed receipt has always been stored in. */
@@ -84,9 +98,18 @@ export function parseLines(text: string | null | undefined): ParsedLine[] {
         quantity = qtyMatch[1].replace(/,/g, '')
         rest = rest.slice(0, qtyMatch.index).trim()
       }
-      return { item: rest.replace(/[·—–-]\s*$/, '').trim(), quantity, price }
+      // The model / SKU tag, taken out of whatever is left. Read AFTER the
+      // figures so a tag containing a dash or a number cannot be mistaken for a
+      // quantity, and absent from a line that never carried one.
+      let sku = ''
+      const skuMatch = rest.match(/\[\s*מק["״']?ט\s*([^\]]+)\]/)
+      if (skuMatch) {
+        sku = skuMatch[1].trim()
+        rest = (rest.slice(0, skuMatch.index) + rest.slice(skuMatch.index! + skuMatch[0].length)).trim()
+      }
+      return { item: rest.replace(/[·—–-]\s*$/, '').trim(), quantity, price, sku }
     })
-    .filter(l => l.item || l.quantity || l.price)
+    .filter(l => l.item || l.quantity || l.price || l.sku)
 }
 
 /** Σ unit price × quantity, and ONLY when every line carries a price.
