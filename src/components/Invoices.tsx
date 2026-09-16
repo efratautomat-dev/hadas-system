@@ -882,7 +882,7 @@ export function InvoiceDetail({
                   type="button"
                   onClick={() => {
                     setLineDraft(parseLines(form.lineDetails ?? '').map(l => ({
-                      ...newLine(), item: l.item, quantity: l.quantity, price: l.price,
+                      ...newLine(), item: l.item, sku: l.sku, quantity: l.quantity, price: l.price,
                     })))
                     setLineDraftOpen(true)
                   }}

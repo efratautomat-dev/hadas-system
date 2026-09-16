@@ -4171,6 +4171,9 @@ async function handleNonInvoice(
 
 interface HandwrittenLine {
   item:     string;
+  /** דגם / מק״ט, as written in the sheet's optional fourth column. '' when the
+   *  line carries none, which is most of them. */
+  sku:      string;
   quantity: string;
   /**
    * Cost price, as written — empty when the sheet carries none.
@@ -4188,7 +4191,7 @@ interface HandwrittenLine {
 async function extractHandwrittenSheet(
   doc: { mimeType: string; bytes: Uint8Array },
 ): Promise<HandwrittenLine[]> {
-  const shape = '{"lines":[{"item":"","quantity":"","price":"","uncertain":false}]}';
+  const shape = '{"lines":[{"item":"","sku":"","quantity":"","price":"","uncertain":false}]}';
   // Written for the PRINTED template, but deliberately tolerant of what actually
   // reaches a counter: a table drawn by hand on a blank page, or a note that just
   // lists what came in. The form gives the best reading, but a scrap of paper must
@@ -4202,6 +4205,9 @@ async function extractHandwrittenSheet(
     "• שורות ריקות — לדלג עליהן לגמרי.\n" +
     "• אל תמציא פריטים שאינם כתובים, ואל תשלים רשימה.\n" +
     "• quantity כמחרוזת בדיוק כפי שנכתבה (גם '2 ארגזים' או '1.5').\n" +
+    "• sku = דגם או מק\"ט, אם נכתב בעמודה שלו או ליד הפריט. בדיוק כפי שנכתב, " +
+    "כולל אותיות ומקפים. אין? sku ריק — זו עמודה לא חובה ורוב השורות בלעדיה, " +
+    "ולא להמציא מספר ולא לקחת את הכמות או את המחיר במקומו.\n" +
     "• price = מחיר ליחידה בלבד, אם נכתב. מספרים בלבד, בלי ₪ ובלי פסיקים.\n" +
     "• אם על הדף יש גם עמודת סה\"כ — להתעלם ממנה ולקחת את מחיר היחידה. " +
     "המערכת מחשבת את הסה\"כ בעצמה, וסה\"כ שנקרא בטעות כמחיר יחידה מכפיל כל שורה.\n" +
@@ -4238,6 +4244,7 @@ async function extractHandwrittenSheet(
       const o = r as Record<string, unknown>;
       return {
         item:      String(o.item ?? "").trim(),
+        sku:       String(o.sku ?? "").trim(),
         quantity:  String(o.quantity ?? "").trim(),
         price:     String(o.price ?? "").trim(),
         uncertain: o.uncertain === true,

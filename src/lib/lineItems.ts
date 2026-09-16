@@ -9,6 +9,8 @@ import { completeAmounts, vatRateFor, type Amounts } from './vat'
 export interface Line {
   key: string
   item: string
+  /** דגם / מק״ט — optional. Stored as a bracketed tag; see `lineItemsFormat`. */
+  sku: string
   quantity: string
   /**
    * Cost per UNIT, as written on the goods.
@@ -26,7 +28,7 @@ export interface Line {
 
 export const newLine = (): Line => ({
   key: `l_${Math.random().toString(36).slice(2, 9)}`,
-  item: '', quantity: '', price: '',
+  item: '', sku: '', quantity: '', price: '',
 })
 
 /**
@@ -74,9 +76,12 @@ export function linesToText(lines: Line[]): string {
   return lines
     .filter(l => l.item.trim())
     .map(l => {
+      // Same shape the reader expects, and the same rule: an empty tag is left
+      // out entirely rather than written as empty brackets.
+      const sku = (l.sku ?? '').trim() ? ` [מק״ט ${(l.sku ?? '').trim()}]` : ''
       const q = l.quantity.trim() ? ` — ${l.quantity.trim()}` : ''
       const p = l.price.trim() ? ` · ₪${l.price.trim()}` : ''
-      return `${l.item.trim()}${q}${p}`
+      return `${l.item.trim()}${sku}${q}${p}`
     })
     .join('\n')
 }

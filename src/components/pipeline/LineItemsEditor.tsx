@@ -33,9 +33,12 @@ export default function LineItemsEditor({
     <div className="border" style={{ borderColor: '#E2E4E9' }}>
       <div
         className="grid"
-        style={{ gridTemplateColumns: '1fr 66px 92px 84px 38px', background: '#F8F8FA', borderBottom: '1px solid #E2E4E9', fontSize: '11.5px', fontWeight: 800, color: '#6B6E73' }}
+        style={{ gridTemplateColumns: '1fr 96px 62px 88px 80px 38px', background: '#F8F8FA', borderBottom: '1px solid #E2E4E9', fontSize: '11.5px', fontWeight: 800, color: '#6B6E73' }}
       >
         <span style={{ padding: '7px 11px' }}>פריט</span>
+        {/* Optional, and said so: most deliveries carry no model number, and a
+            column that looks required is a column people put a dash in. */}
+        <span style={{ padding: '7px 11px' }}>דגם / מק״ט<span style={{ fontWeight: 600, color: '#9CA3AF' }}> (לא חובה)</span></span>
         <span style={{ padding: '7px 11px' }}>כמות</span>
         {/* Said on the header, because it decides what the total means. The
             supplier's own note prints the price this way and the owner asked for
@@ -53,12 +56,18 @@ export default function LineItemsEditor({
           key={l.key}
           className="grid items-center"
           style={{
-            gridTemplateColumns: '1fr 66px 92px 84px 38px',
+            gridTemplateColumns: '1fr 96px 62px 88px 80px 38px',
             borderBottom: '1px solid #F3F4F6',
             background: l.uncertain ? '#FFFBEB' : undefined,
           }}
         >
           <input value={l.item} onChange={e => set(i, { item: e.target.value })} style={CELL} />
+          <input
+            value={l.sku ?? ''}
+            onChange={e => set(i, { sku: e.target.value })}
+            placeholder="—"
+            style={{ ...CELL, borderInlineStart: '1px solid #F3F4F6' }}
+          />
           <input
             value={l.quantity}
             inputMode="decimal"

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight, ChevronDown } from 'lucide-react'
+import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight, ChevronDown, Plus } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import CaptureDocument from '../CaptureDocument'
 import OrdersRail from '../pipeline/OrdersRail'
 import CustomerOrdersBook from '../pipeline/CustomerOrdersBook'
+import OrderForm from '../pipeline/OrderForm'
 import { FilterTabs } from '../ui/FilterTabs'
 import { useOrders, type ArrivalCandidate } from '../../hooks/useOrders'
 import ArrivalChoice from '../pipeline/ArrivalChoice'
@@ -46,7 +47,7 @@ const SECTION_CARDS: { key: EmployeeSection; label: string; Icon: typeof FileTex
 
 export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const { data: suppliers } = useSuppliers()
-  const { data: orders, markArrived, setCustomerStatus, cancel: cancelOrder, uncancel: uncancelOrder } = useOrders()
+  const { data: orders, markArrived, setCustomerStatus, cancel: cancelOrder, uncancel: uncancelOrder, create: createOrder } = useOrders()
   // Cards ⇄ notebook. Two ways of reading the same orders: the board is what
   // you glance at mid-task, the notebook is what you search when a customer
   // calls. Neither replaces the other, so it is a tab and not a setting.
@@ -85,6 +86,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
   const [activeSection, setActiveSection] = useState<EmployeeSection>('invoices')
   const [showCapture, setShowCapture] = useState(false)
+  const [newCustomerOrder, setNewCustomerOrder] = useState(false)
   // Folded on a tablet, remembered for the visit: a board she opened once should
   // not close itself behind her back on the next screen.
   const [boardOpen, setBoardOpen] = useState(
@@ -282,14 +284,53 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
               onCancel={cancelOrder}
             />
           ) : (
-            <CustomerOrdersBook
-              orders={orders}
-              onOpen={setOpenNoteId}
-              onSetStatus={setCustomerStatus}
-              onCancel={cancelOrder}
-              onUncancel={uncancelOrder}
-              delivered="hide"
-            />
+            <>
+              {/* ── הזמנה חדשה, מתוך המחברת ──────────────────────────────────
+                  The owner: "במחברת לקוחות אפשרות הזמנה חדשה ובחירת ספק מהרשימה
+                  כדי להקל על חוויית המשתמש." Until now a customer order could be
+                  opened only from INSIDE a supplier's card — which is the right
+                  place when you are already there, and the wrong one when the
+                  customer is on the phone and the notebook is what is open. The
+                  supplier is then a field like any other, picked from the list.
+                  Same form either way: `customerOnly`, so the customer's name
+                  stays required — an order for nobody is a restock, and it
+                  belongs on the other tab. */}
+              {newCustomerOrder ? (
+                <div style={{ marginBottom: '12px' }}>
+                  <OrderForm
+                    inline
+                    customerOnly
+                    suppliers={suppliers.map(sp => ({ id: sp.id, name: sp.name, hp: (sp as { hp?: string }).hp }))}
+                    openOrders={orders
+                      .filter(o => !o.cancelledAt && o.status !== 'order_arrived')
+                      .map(o => ({
+                        id: o.id, supplierId: o.supplierId, description: o.description,
+                        date: o.date, expectedDate: o.expectedDate, customerName: o.customerName,
+                      }))}
+                    onClose={() => setNewCustomerOrder(false)}
+                    onCreate={async d => { await createOrder(d); setNewCustomerOrder(false) }}
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => setNewCustomerOrder(true)}
+                  className="w-full flex items-center justify-center gap-1.5 font-bold"
+                  style={{
+                    background: 'white', color: ACCENT, border: `1px solid ${ACCENT}`,
+                    padding: '9px', fontSize: '13px', cursor: 'pointer',
+                    marginBottom: '12px', fontFamily: 'inherit',
+                  }}
+                ><Plus className="w-4 h-4" />הזמנה חדשה ללקוחה</button>
+              )}
+              <CustomerOrdersBook
+                orders={orders}
+                onOpen={setOpenNoteId}
+                onSetStatus={setCustomerStatus}
+                onCancel={cancelOrder}
+                onUncancel={uncancelOrder}
+                delivered="hide"
+              />
+            </>
           )}
         </div>
         )}
