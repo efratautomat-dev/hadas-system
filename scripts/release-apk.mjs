@@ -18,7 +18,7 @@
 // so bumping is the default and skipping it is the deliberate case.
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { loadClient, bumpClientVersion, listClients } from './lib/clients.mjs'
@@ -217,37 +217,28 @@ if (!existsSync(abs)) fail(`gradle finished but ${out} is missing`)
 const mb = (statSync(abs).size / 1024 / 1024).toFixed(1)
 
 // ── publish ──────────────────────────────────────────────────────────────────
-// The download link lives in Supabase Storage, NOT on the demo server. A demo
-// deploy syncs the built site and deletes whatever is not in it — which silently
-// removed the APK (and, before it, the store registry) mid-testing. Storage is
-// outside that blast radius, and the URL never changes, so a tablet installed a
-// year ago is updated by replacing the file behind the same link.
-async function publish(file) {
-  const env = readEnv()
-  const url = env.SUPABASE_URL
-  const key = env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) {
-    warn('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — skipping upload')
-    return null
-  }
-
+// The installer is the VENDOR's artifact, not the customer's data, so it lives on
+// the vendor's own server beside the demo — no customer project, no service-role
+// key, nothing that has to be handed over to build a release.
+//
+// `app-releases/` is excluded from the demo sync in scripts/deploy.mjs, because a
+// deploy must never be able to break an install link that has already reached a
+// shop. It happened twice during this work, and a 404 is invisible to whoever is
+// holding the tablet.
+//
+// The URL never changes: a tablet installed a year ago updates from the same link.
+function publish(file) {
   const name = client ? `${client.code}.apk` : 'incontrol.apk'
-  const target = `${url}/storage/v1/object/app-releases/${name}`
-  const res = await fetch(target, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      apikey: key,
-      'Content-Type': 'application/vnd.android.package-archive',
-      'x-upsert': 'true',
-    },
-    body: readFileSync(file),
-  })
-  if (!res.ok) {
-    warn(`upload failed (${res.status}) — the previous version is still the live download`)
+  const dir = process.env.APP_RELEASES_DIR ?? '/home/runner/hadas-demo/html/app-releases'
+  const base = process.env.APP_RELEASES_URL ?? 'https://incontrol.ctrlplusf.com/app-releases'
+
+  if (!existsSync(dirname(dir))) {
+    warn(`${dirname(dir)} is not reachable — publish from the machine that hosts the demo`)
     return null
   }
-  return `${url}/storage/v1/object/public/app-releases/${name}`
+  mkdirSync(dir, { recursive: true })
+  copyFileSync(file, resolve(dir, name))
+  return `${base}/${name}`
 }
 
 function readEnv() {
@@ -292,7 +283,7 @@ if (wantDebug) {
   info('Play Store bundle — not uploaded; the store is the distribution channel for it')
 } else {
   step('publishing the download link')
-  const link = await publish(abs)
+  const link = publish(abs)
   if (link) {
     info(link)
     info('same link every time — a tablet updates by opening it again')
