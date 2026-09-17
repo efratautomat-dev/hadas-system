@@ -14,7 +14,15 @@ if (hasSigning) {
 android {
     namespace = "com.ctrlplusf.incontrol"
     compileSdk = rootProject.ext.compileSdkVersion
+    // The customer's address is a compile-time constant, not a string resource:
+    // reading Resources before super.onCreate is the one place where a failure
+    // blanks the screen with no error anyone can reach. See MainActivity.
+    buildFeatures {
+        buildConfig true
+    }
+
     defaultConfig {
+        buildConfigField "String", "STORE_URL", "\"\""
         applicationId "com.ctrlplusf.incontrol"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
