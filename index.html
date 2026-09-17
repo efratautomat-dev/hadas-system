@@ -29,6 +29,56 @@
         })
       }
     </script>
+    <!-- A white screen is the worst symptom this system can produce: it tells the
+         person holding the tablet nothing, and it tells us nothing either. It has
+         already cost two rounds of guessing — once for a WebView too old to parse
+         the bundle, once for a device we could not read an error from at all.
+
+         So: if the app has not rendered anything a few seconds after load, or if a
+         script died on the way, say so ON SCREEN. The browser version is the single
+         most useful fact in that message, because Chrome and Android System WebView
+         update separately and a tablet routinely runs a modern one and an ancient
+         other. Nothing here depends on the bundle, so it still speaks when the
+         bundle is exactly what failed. -->
+    <script>
+      (function () {
+        var shown = false
+
+        function report(title, detail) {
+          if (shown) return
+          var root = document.getElementById('root')
+          if (!root || root.children.length > 0) return
+          shown = true
+          var m = navigator.userAgent.match(/Chrome\/([0-9.]+)/)
+          root.innerHTML =
+            '<div dir="rtl" style="font-family:system-ui,Arial,sans-serif;padding:32px 24px;' +
+            'max-width:560px;margin:0 auto;color:#1F2937;line-height:1.7">' +
+            '<h1 style="font-size:19px;margin:0 0 12px">' + title + '</h1>' +
+            '<p style="color:#6B7280;font-size:14px;margin:0 0 20px">' +
+            'המערכת לא הצליחה לעלות במכשיר הזה. הפרטים למטה עוזרים לאתר את הסיבה.</p>' +
+            '<div style="background:#F8F8FA;border-radius:12px;padding:16px;font-size:12px;' +
+            'direction:ltr;text-align:left;word-break:break-word;font-family:monospace;' +
+            'white-space:pre-wrap">' + detail + '\n\n' +
+            'browser engine: Chrome ' + (m ? m[1] : 'unknown') + '\n' +
+            navigator.userAgent + '</div>' +
+            '<p style="color:#9CA3AF;font-size:12px;margin:18px 0 0">' +
+            'אם כתוב כאן מספר גרסה נמוך מ-93 — צריך לעדכן את Android System WebView ' +
+            'מ-Play Store.</p></div>'
+        }
+
+        window.addEventListener('error', function (e) {
+          report('שגיאה בטעינת המערכת',
+                 String(e.message || 'script error') + '\n' + (e.filename || '') + ':' + (e.lineno || 0))
+        })
+        window.addEventListener('unhandledrejection', function (e) {
+          report('שגיאה בטעינת המערכת', 'unhandled rejection: ' + String(e.reason).slice(0, 300))
+        })
+        // Nothing crashed, nothing rendered: the usual signature of a bundle the
+        // engine could not parse, which raises no error anyone can catch.
+        setTimeout(function () { report('המערכת לא נטענה', 'no error was raised, and nothing rendered') }, 12000)
+      })()
+    </script>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
