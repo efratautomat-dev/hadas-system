@@ -69,12 +69,12 @@ public class MainActivity extends BridgeActivity {
             String failed = prefs.getString(KEY_FAILED, null);
             if (failed != null) prefs.edit().remove(KEY_FAILED).apply();
 
-            String baked = null;
-            try {
-                baked = getResources().getString(R.string.store_url);
-            } catch (Exception e) {
-                Logger.error("store_url resource unavailable", e);
-            }
+            // A constant compiled into the app: no Resources, no Context, nothing
+            // that can fail this early. Reading a string resource here is the most
+            // likely cause of the blank screens that sent us in circles — on the
+            // tablet where it happened, the fallback below is what finally showed
+            // something instead of nothing.
+            String baked = BuildConfig.STORE_URL;
 
             // A BRANDED build belongs to exactly one customer, so its baked address
             // wins outright — a stored one can only be a leftover. A tablet used for
@@ -96,12 +96,20 @@ public class MainActivity extends BridgeActivity {
                 // A programmatic config REPLACES capacitor.config.json wholesale, so
                 // everything the app relies on has to be repeated here. Keep this in
                 // step with capacitor.config.ts — one setting in two places.
+                // NO allowNavigation here, and that is the point. Every entry in it
+                // is registered as an authority on Capacitor's LOCAL asset server
+                // (WebViewLocalServer.java:704), so the WebView serves those hosts
+                // out of the APK instead of fetching them. A "*" therefore told the
+                // app to intercept the entire internet and answer from files that do
+                // not exist — the customer's site never loaded, and the screen showed
+                // the offline page on a tablet with a working connection.
+                //
+                // server.url is allowed by definition; nothing else needs to be.
                 config =
                     new CapConfig.Builder(this)
                         .setServerUrl(storeUrl)
                         .setErrorPath("offline.html")
                         .setAndroidScheme("https")
-                        .setAllowNavigation(new String[] { "*" })
                         .create();
             } else {
                 storeUrl = null;

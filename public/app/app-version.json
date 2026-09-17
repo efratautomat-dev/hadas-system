@@ -1,7 +1,7 @@
 {
   "_note": "The shell version the tablets should be running. Written automatically by scripts/release-apk.mjs on every signed build — do not edit by hand. The app compares versionCode against its own and offers the download; Android will not install a sideloaded app silently, so the last tap is always the owner's.",
-  "versionCode": 17,
-  "versionName": "1.0.16",
+  "versionCode": 20,
+  "versionName": "1.0.19",
   "url": "https://incontrol.ctrlplusf.com/app-releases/hadas.apk",
   "notes": "צילום ישירות מהמצלמה, תצוגת PDF בתוך האפליקציה, והחלפת חנות מההגדרות."
 }
