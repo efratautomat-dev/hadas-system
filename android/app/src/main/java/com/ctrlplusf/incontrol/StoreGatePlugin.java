@@ -1,5 +1,6 @@
 package com.ctrlplusf.incontrol;
 
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -30,6 +31,19 @@ public class StoreGatePlugin extends Plugin {
         // that has nowhere to land.
         call.resolve();
         getActivity().runOnUiThread(() -> getActivity().recreate());
+    }
+
+    /**
+     * Whether this build carries its customer's address. A branded app has nothing
+     * to switch to, so Settings hides the control rather than showing one that
+     * appears to do nothing.
+     */
+    @PluginMethod
+    public void info(PluginCall call) {
+        String baked = getContext().getString(R.string.store_url);
+        JSObject result = new JSObject();
+        result.put("branded", baked != null && baked.startsWith("https://"));
+        call.resolve(result);
     }
 
     @PluginMethod

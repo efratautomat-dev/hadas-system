@@ -153,7 +153,13 @@ if (wantDemo) {
   info(`מסנכרנים ל-${DEMO_HTML}`)
   // --delete so a file removed from the app disappears from the live demo too;
   // without it the demo silently accumulates assets that no longer exist.
-  run(`rsync -a --delete ${ROOT}/dist-demo/ ${DEMO_HTML}/`)
+  //
+  // `app-releases/` is excluded because it is NOT part of the demo: it holds the
+  // signed APKs the shops install, put there by scripts/release-apk.mjs. Twice
+  // during the Android work a deploy quietly deleted files served from here — the
+  // store registry and an installer link that had already been sent to a customer.
+  // A deploy must never be able to break an install link.
+  run(`rsync -a --delete --exclude=app-releases/ ${ROOT}/dist-demo/ ${DEMO_HTML}/`)
 
   // The container serves the mounted directory, so it only needs starting the
   // first time (or after the compose file changes). `up -d` is a no-op otherwise.

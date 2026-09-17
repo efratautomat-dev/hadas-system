@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { checkForUpdate, isNative, openExternal, resetStoreCode, saveOrShareFile, type AppUpdate } from '../lib/native'
+import { checkForUpdate, isBrandedBuild, isNative, openExternal, resetStoreCode, saveOrShareFile, type AppUpdate } from '../lib/native'
 import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw, Tag, GitMerge, X, FileSpreadsheet, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
@@ -577,7 +577,9 @@ export default function Settings() {
   }
 
   const [appUpdate, setAppUpdate] = useState<AppUpdate | null>(null)
+  const [branded, setBranded] = useState(false)
   useEffect(() => { void checkForUpdate().then(setAppUpdate) }, [])
+  useEffect(() => { void isBrandedBuild().then(setBranded) }, [])
 
   function handleExportAll() {
     import('xlsx').then(async XLSX => {
@@ -892,7 +894,7 @@ export default function Settings() {
           </SectionCard>
         )}
 
-        {isNative() && (
+        {isNative() && !branded && (
           <SectionCard title="החנות המחוברת">
             <p className="text-sm text-gray-500 mb-3" style={{ lineHeight: 1.7 }}>
               האפליקציה מחוברת למערכת אחת, לפי הקוד שהוזן בהתקנה. איפוס מחזיר את

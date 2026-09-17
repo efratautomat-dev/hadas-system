@@ -52,19 +52,24 @@ public class MainActivity extends BridgeActivity {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         String storeUrl = prefs.getString(KEY_URL, null);
 
-        // A branded build carries its customer's address; the generic one does not
-        // and falls through to the store gate. What the tablet was told still wins,
-        // so "switch store" works on both.
+        // A BRANDED build belongs to exactly one customer, so its baked address
+        // wins outright — a stored one can only be a leftover. That is not
+        // hypothetical: a tablet used for testing kept the demo address it had been
+        // given, survived the update (preferences do), and opened the demo instead
+        // of the shop's own system. There is no legitimate reason for a branded app
+        // to point anywhere else, so the question is not asked.
         //
-        // The address is NOT re-used when the watchdog just rejected it: a baked
-        // address would otherwise send the tablet straight back into the broken
-        // site, forever. The shell shows a retry instead, and clears the flag.
+        // The generic build has no baked address and keeps what the tablet was told
+        // — that is what its store gate is for.
+        //
+        // Either way the address is NOT re-used when the watchdog just rejected it,
+        // or a tablet would loop back into a broken site forever.
         String failed = prefs.getString(KEY_FAILED, null);
-        if (storeUrl == null || storeUrl.isEmpty()) {
-            String baked = getString(R.string.store_url);
-            if (baked != null && baked.startsWith("https://") && !baked.equals(failed)) {
-                storeUrl = baked;
-            }
+        String baked = getString(R.string.store_url);
+        boolean isBranded = baked != null && baked.startsWith("https://");
+
+        if (isBranded) {
+            storeUrl = baked.equals(failed) ? null : baked;
         }
 
         boolean remote = storeUrl != null && storeUrl.startsWith("https://");
