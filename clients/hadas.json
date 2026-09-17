@@ -13,7 +13,7 @@
   },
   "version": {
     "_note": "Per customer, because Android compares versionCode against what is installed on THAT device. Written back by the release script on every build — do not edit by hand.",
-    "code": 16,
-    "name": "1.0.15"
+    "code": 17,
+    "name": "1.0.16"
   }
 }

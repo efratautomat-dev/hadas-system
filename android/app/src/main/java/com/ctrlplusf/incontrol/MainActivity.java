@@ -61,7 +61,13 @@ public class MainActivity extends BridgeActivity {
         try {
             SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
             storeUrl = prefs.getString(KEY_URL, null);
+            // One shot, not a life sentence. The flag exists to stop a tablet
+            // looping back into a site that just failed to come up — one launch
+            // later the network may be back, the deploy may be fixed, and the app
+            // may even have been reinstalled. Reading it clears it, so the next
+            // start tries the address again instead of refusing it forever.
             String failed = prefs.getString(KEY_FAILED, null);
+            if (failed != null) prefs.edit().remove(KEY_FAILED).apply();
 
             String baked = null;
             try {
