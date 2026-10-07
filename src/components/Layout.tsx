@@ -5,6 +5,7 @@ import type { NoteTag } from '../hooks/useSupplierNotes'
 import type { NoteOpenIntent } from '../lib/noteSources'
 import { Bell, Search, Menu, ArrowRight } from 'lucide-react'
 import Sidebar from './Sidebar'
+import UpdateBanner from './UpdateBanner'
 import Dashboard from './Dashboard'
 import Suppliers from './Suppliers'
 import Invoices, { type DuplicateResolution } from './Invoices'
@@ -470,6 +471,9 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
           overflowX: 'clip',
         }}
       >
+        {/* The app's own update notice. No-op in the browser. */}
+        <UpdateBanner />
+
         {/* Top bar */}
         <header
           className="bg-white border-b sticky top-0 z-40 flex items-center justify-between"
