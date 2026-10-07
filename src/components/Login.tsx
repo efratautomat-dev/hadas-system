@@ -18,6 +18,11 @@ export default function Login({ unauthorizedError = false }: Props) {
     e.preventDefault()
     if (!email.trim()) return
 
+    // Enter belongs to whichever path the person is actually using. With a
+    // password typed, that is signing in — not mailing a code they did not ask
+    // for, and spending one of the day's few allowed mails doing it.
+    if (password) return handlePasswordLogin()
+
     setBusy('otp')
     setError(null)
 
@@ -156,7 +161,7 @@ export default function Login({ unauthorizedError = false }: Props) {
               נשלח למייל!
             </h2>
             <p style={{ color: '#6B7280', fontSize: '14px', lineHeight: 1.7, margin: 0 }}>
-              במייל יש קוד בן 6 ספרות וגם קישור.<br />אפשר להקליד את הקוד כאן:
+              במייל יש קוד בן 6 ספרות.<br />הקלידי אותו כאן — הקישור שבמייל פותח דפדפן ולא את האפליקציה.
             </p>
 
             <input
@@ -236,12 +241,15 @@ export default function Login({ unauthorizedError = false }: Props) {
               onBlur={e => (e.currentTarget.style.borderColor = '#E2E4E9')}
             />
 
-            {/* DEV/testing: password sign-in. Optional — magic link above stays primary. */}
+            {/* The password is the PRIMARY way in, not a developer shortcut. The
+                shop's tablets are signed in once at setup and keep the session, and
+                the emailed code is the fallback for a device that was signed out —
+                which also makes logging in independent of the mail quota. */}
             <label
               htmlFor="password"
               style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', margin: '16px 0 6px' }}
             >
-              סיסמה <span style={{ color: '#9CA3AF', fontWeight: 400, fontSize: '12px' }}>(לפיתוח)</span>
+              סיסמה
             </label>
             <input
               id="password"
@@ -269,25 +277,27 @@ export default function Login({ unauthorizedError = false }: Props) {
             )}
 
             <button
-              type="submit"
-              disabled={busy !== null || !email.trim()}
+              type="button"
+              onClick={handlePasswordLogin}
+              disabled={busy !== null || !email.trim() || !password}
               style={{
                 width: '100%',
                 marginTop: '16px',
-                padding: '12px',
+                padding: '13px',
                 borderRadius: '12px',
                 border: 'none',
                 background:
-                  busy !== null || !email.trim()
+                  busy !== null || !email.trim() || !password
                     ? '#D1D5DB'
                     : 'linear-gradient(135deg, var(--brand-primary-dark), #E8645A)',
                 color: 'white',
-                fontSize: '14px',
+                fontSize: '15px',
                 fontWeight: 700,
-                cursor: busy !== null || !email.trim() ? 'not-allowed' : 'pointer',
+                minHeight: '48px',
+                cursor: busy !== null || !email.trim() || !password ? 'not-allowed' : 'pointer',
               }}
             >
-              {busy === 'otp' ? 'שולח...' : 'שלח קישור התחברות'}
+              {busy === 'password' ? 'מתחבר...' : 'כניסה'}
             </button>
 
             {/* divider */}
@@ -298,22 +308,22 @@ export default function Login({ unauthorizedError = false }: Props) {
             </div>
 
             <button
-              type="button"
-              onClick={handlePasswordLogin}
-              disabled={busy !== null || !email.trim() || !password}
+              type="submit"
+              disabled={busy !== null || !email.trim()}
               style={{
                 width: '100%',
                 padding: '12px',
                 borderRadius: '12px',
                 background: 'white',
-                border: `1.5px solid ${busy !== null || !email.trim() || !password ? '#E2E4E9' : 'var(--brand-primary-dark)'}`,
-                color: busy !== null || !email.trim() || !password ? '#B4B8C0' : 'var(--brand-primary-dark)',
+                border: `1.5px solid ${busy !== null || !email.trim() ? '#E2E4E9' : 'var(--brand-primary-dark)'}`,
+                color: busy !== null || !email.trim() ? '#B4B8C0' : 'var(--brand-primary-dark)',
                 fontSize: '14px',
                 fontWeight: 700,
-                cursor: busy !== null || !email.trim() || !password ? 'not-allowed' : 'pointer',
+                minHeight: '44px',
+                cursor: busy !== null || !email.trim() ? 'not-allowed' : 'pointer',
               }}
             >
-              {busy === 'password' ? 'מתחבר...' : 'התחבר עם סיסמה'}
+              {busy === 'otp' ? 'שולח...' : 'שכחתי סיסמה — שלחו לי קוד למייל'}
             </button>
           </form>
         )}

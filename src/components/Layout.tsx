@@ -457,6 +457,17 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
           marginRight: `${sidebarWidth}px`,
           marginLeft:  `${notesPush}px`,
           transition: isMobile ? 'none' : 'margin-right 0.3s, margin-left 0.25s ease',
+          // Wide content scrolls inside its own container; the PAGE never scrolls
+          // sideways. Without this, anything that overflows — a table with long
+          // supplier names, a grid one column too wide — pushes the whole document
+          // instead, and because the sidebar is fixed the content slides underneath
+          // it. On a tablet that reads as "the menu jumped on top of the page".
+          //
+          // `clip` rather than `hidden`: hidden would turn this into a scroll
+          // container and break the sticky top bar. Engines too old for `clip`
+          // ignore it and behave exactly as before.
+          minWidth: 0,
+          overflowX: 'clip',
         }}
       >
         {/* Top bar */}

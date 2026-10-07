@@ -58,3 +58,7 @@ android/app/release
 android/key.properties
 *.keystore
 *.jks
+
+# Build of the real system mirrored onto the vendor server (see clients/hadas.json).
+dist-hadas
+.env.hadas
