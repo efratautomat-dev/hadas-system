@@ -161,6 +161,14 @@ if (wantDemo) {
   // A deploy must never be able to break an install link.
   run(`rsync -a --delete --exclude=app-releases/ --exclude=hadas/ ${ROOT}/dist-demo/ ${DEMO_HTML}/`)
 
+  // Customer mirrors live on this same server, and falling behind is invisible
+  // from the outside: the office sees the new build, the shop's tablets keep
+  // running yesterday's, and the first symptom is someone saying "but on my
+  // computer it looks different". So they ship with every deploy, not when
+  // someone remembers.
+  step('מעדכנים עותקי לקוחות')
+  run('node scripts/build-mirror.mjs')
+
   // The container serves the mounted directory, so it only needs starting the
   // first time (or after the compose file changes). `up -d` is a no-op otherwise.
   info('מוודאים שהקונטיינר רץ')
