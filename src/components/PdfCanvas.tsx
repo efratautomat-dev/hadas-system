@@ -31,13 +31,29 @@ export default function PdfCanvas({ url, onFail }: Props) {
 
     void (async () => {
       try {
-        const pdfjs = await import('pdfjs-dist')
-        // Vite gives the worker a real URL; without it pdf.js runs on the main
-        // thread and a multi-page scan freezes the screen while it renders.
-        const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
-        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+        // The LEGACY build, and a worker that is allowed to fail.
+        //
+        // pdf.js ships an ES-module worker, which an older tablet WebView cannot
+        // start — and when it cannot, the document silently became "open it in the
+        // browser", on a tablet that has no browser. Rendering a few pages on the
+        // main thread is slower; showing nothing is useless. So the worker is an
+        // optimisation here, not a requirement.
+        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+        try {
+          const workerUrl = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default
+          pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+        } catch (workerErr) {
+          console.warn('[PdfCanvas] no worker — rendering on the main thread', workerErr)
+        }
 
-        const doc = await pdfjs.getDocument({ url, withCredentials: false }).promise
+        const doc = await pdfjs.getDocument({
+          url,
+          withCredentials: false,
+          // Both off for an old engine: eval is blocked in many WebViews, and the
+          // worker-side fetch is the part that fails when there is no worker.
+          isEvalSupported: false,
+          useWorkerFetch: false,
+        }).promise
         if (cancelled) return
 
         host.replaceChildren()
@@ -72,8 +88,10 @@ export default function PdfCanvas({ url, onFail }: Props) {
         setStatus('ready')
       } catch (err) {
         // A PDF we cannot fetch or parse is not an error to argue with — hand the
-        // caller back its external-open button rather than showing a dead panel.
-        console.error('[PdfCanvas] falling back to external open:', err)
+        // caller back its fallback rather than showing a dead panel. The message is
+        // kept visible in the console because "the document just does not show" was
+        // the hardest thing to diagnose on a tablet we cannot attach a debugger to.
+        console.error('[PdfCanvas] could not render:', err)
         if (!cancelled) onFail()
       }
     })()

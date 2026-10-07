@@ -548,7 +548,22 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1" style={{ padding: pad, paddingTop: padTop }}>
+        <main
+          className="flex-1"
+          style={{
+            padding: pad,
+            paddingTop: padTop,
+            // The page must never scroll sideways: wide content scrolls inside its
+            // own container. `overflow-x: clip` on the wrapper above says the same
+            // thing, but an older tablet WebView ignores it — and the shop runs on
+            // exactly such a tablet, where every screen sat shifted with the menu
+            // over the content. `hidden` is understood everywhere, and it is safe
+            // HERE because the sticky top bar is a sibling of this element, not a
+            // descendant: clipping here cannot un-stick it.
+            overflowX: 'hidden',
+            minWidth: 0,
+          }}
+        >
           {canGoBack && (
             <div style={{ marginBottom: '12px' }}>
               <button
