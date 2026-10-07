@@ -2,7 +2,7 @@
   "_note": "One customer, one file. This is what makes a branded build possible without touching code: the address, the identity on the home screen, and the version counter all live here. `npm run build:apk -- --client=hadas` reads it. A new customer is a copy of this file — see docs/09-ANDROID-APP.md §10.",
   "code": "hadas",
   "label": "הדס",
-  "siteUrl": "https://hadas-system.vercel.app",
+  "siteUrl": "https://incontrol.ctrlplusf.com/hadas/",
   "app": {
     "_note": "applicationId is the customer's app identity on the device, and what a device-management filter approves. SafeTech approved com.ctrlplusf.incontrol and confirmed the approval follows the PACKAGE ID, so this build keeps it: a suffixed id would be a different app to Android and to them, needing a fresh review and installing alongside instead of over. Never change it once a customer is live.",
     "applicationId": "com.ctrlplusf.incontrol",
@@ -13,7 +13,8 @@
   },
   "version": {
     "_note": "Per customer, because Android compares versionCode against what is installed on THAT device. Written back by the release script on every build — do not edit by hand.",
-    "code": 14,
-    "name": "1.0.13"
-  }
+    "code": 23,
+    "name": "1.0.22"
+  },
+  "_hosting": "Served from the vendor server rather than Vercel: the tablet WebView loads this host and would not load the Vercel one, on a device where Chrome loaded both. Same code, same Supabase project, same data — only the origin differs. Rebuild with scripts/mirror-hadas.mjs whenever production changes."
 }

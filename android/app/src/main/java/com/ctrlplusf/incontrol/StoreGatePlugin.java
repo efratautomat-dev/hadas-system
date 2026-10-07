@@ -40,7 +40,7 @@ public class StoreGatePlugin extends Plugin {
      */
     @PluginMethod
     public void info(PluginCall call) {
-        String baked = getContext().getString(R.string.store_url);
+        String baked = BuildConfig.STORE_URL;
         JSObject result = new JSObject();
         result.put("branded", baked != null && baked.startsWith("https://"));
         call.resolve(result);

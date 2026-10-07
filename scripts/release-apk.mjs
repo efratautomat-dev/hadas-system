@@ -101,13 +101,13 @@ function applyClient(client, version) {
   const strings = readFileSync(STRINGS, 'utf8')
     .replace(/<string name="app_name">[^<]*<\/string>/, `<string name="app_name">${client.app.name}</string>`)
     .replace(/<string name="title_activity_main">[^<]*<\/string>/, `<string name="title_activity_main">${client.app.name}</string>`)
-    .replace(/<string name="store_url">[^<]*<\/string>/, `<string name="store_url">${client.siteUrl}</string>`)
   writeFileSync(STRINGS, strings)
 
   // applicationId is the customer's identity to Android itself. The Java package
   // deliberately stays com.ctrlplusf.incontrol — Android separates the two, and
   // renaming packages per customer would fork the native code for nothing.
   let gradle = readFileSync(GRADLE_FILE, 'utf8')
+    .replace(/buildConfigField "String", "STORE_URL",.*/, `buildConfigField "String", "STORE_URL", "\\"${client.siteUrl}\\""`)
     .replace(/applicationId "[^"]*"/, `applicationId "${client.app.applicationId}"`)
     .replace(/versionCode\s+\d+/, `versionCode ${version.code}`)
     .replace(/versionName\s+"[^"]+"/, `versionName "${version.name}"`)

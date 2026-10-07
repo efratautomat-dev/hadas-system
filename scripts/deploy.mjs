@@ -159,7 +159,7 @@ if (wantDemo) {
   // during the Android work a deploy quietly deleted files served from here — the
   // store registry and an installer link that had already been sent to a customer.
   // A deploy must never be able to break an install link.
-  run(`rsync -a --delete --exclude=app-releases/ ${ROOT}/dist-demo/ ${DEMO_HTML}/`)
+  run(`rsync -a --delete --exclude=app-releases/ --exclude=hadas/ ${ROOT}/dist-demo/ ${DEMO_HTML}/`)
 
   // The container serves the mounted directory, so it only needs starting the
   // first time (or after the compose file changes). `up -d` is a no-op otherwise.

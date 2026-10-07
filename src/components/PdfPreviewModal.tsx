@@ -58,29 +58,49 @@ export function DocumentBody({ url, previewSrc }: { url: string; previewSrc?: st
     )
   }
   if (isImage) {
+    // The scan sits in its own positioned box rather than relying on
+    // `max-height: 100%` against a flex parent. That percentage is resolved
+    // differently by the Android WebView than by a desktop browser, and on a
+    // tablet it collapsed the scan to nothing — the document was invisible until
+    // the owner tapped to zoom, which drops the percentage entirely. An absolutely
+    // positioned image resolves against a box that definitely has a size.
     return (
-      <img
-        src={previewUrl}
-        alt="תצוגה מקדימה"
-        onClick={() => setZoomed(z => !z)}
-        title={zoomed ? 'הקטן תצוגה' : 'הגדל תצוגה'}
+      <div
         style={{
-          display: 'block',
-          margin: 'auto',
-          // Tight padding so the scan fills its pane — this is the surface the
-          // owner reads while typing, so every pixel of it counts.
-          padding: '6px',
-          boxSizing: 'border-box',
-          borderRadius: '12px',
-          cursor: zoomed ? 'zoom-out' : 'zoom-in',
-          ...(zoomed
-            // Click to zoom past the container and scroll around the scan.
-            ? { maxWidth: 'none', maxHeight: 'none' }
-            // Fill the height the CONTAINER gives us (the side pane, or the
-            // modal body) rather than a fixed slice of the viewport.
-            : { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }),
+          position: 'relative',
+          flex: 1,
+          alignSelf: 'stretch',
+          width: '100%',
+          minHeight: '240px',
+          overflow: zoomed ? 'auto' : 'hidden',
         }}
-      />
+      >
+        <img
+          src={previewUrl}
+          alt="תצוגה מקדימה"
+          onClick={() => setZoomed((z) => !z)}
+          title={zoomed ? 'הקטן תצוגה' : 'הגדל תצוגה'}
+          style={{
+            display: 'block',
+            padding: '6px',
+            boxSizing: 'border-box',
+            borderRadius: '12px',
+            cursor: zoomed ? 'zoom-out' : 'zoom-in',
+            ...(zoomed
+              // Click to zoom past the container and scroll around the scan.
+              ? { position: 'static', margin: 'auto', maxWidth: 'none', maxHeight: 'none' }
+              // Fill the pane the caller gave us — the side panel, or the modal body.
+              : {
+                  position: 'absolute',
+                  inset: 0,
+                  margin: 'auto',
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                }),
+          }}
+        />
+      </div>
     )
   }
   // The Android WebView has no PDF renderer, so this iframe is a blank rectangle

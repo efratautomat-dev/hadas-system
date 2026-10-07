@@ -6,6 +6,7 @@ import android.os.Handler;
 import android.os.Looper;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
+import com.getcapacitor.Logger;
 
 /**
  * InControl — decides WHICH system this tablet is before the bridge is built, and
@@ -49,47 +50,82 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(StoreGatePlugin.class);
 
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String storeUrl = prefs.getString(KEY_URL, null);
+        // Everything here runs BEFORE super.onCreate, because the bridge is built
+        // there and the address has to be decided first. That also means a failure
+        // here kills onCreate before anything is loaded — which on screen looks
+        // exactly like a white page, with no error anywhere to read. It happened on
+        // a real tablet. So the whole decision is defensive: if any part of it
+        // throws, the app falls back to loading its local shell, which can at least
+        // say something.
+        String storeUrl = null;
+        try {
+            SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+            storeUrl = prefs.getString(KEY_URL, null);
+            // One shot, not a life sentence. The flag exists to stop a tablet
+            // looping back into a site that just failed to come up — one launch
+            // later the network may be back, the deploy may be fixed, and the app
+            // may even have been reinstalled. Reading it clears it, so the next
+            // start tries the address again instead of refusing it forever.
+            String failed = prefs.getString(KEY_FAILED, null);
+            if (failed != null) prefs.edit().remove(KEY_FAILED).apply();
 
-        // A BRANDED build belongs to exactly one customer, so its baked address
-        // wins outright — a stored one can only be a leftover. That is not
-        // hypothetical: a tablet used for testing kept the demo address it had been
-        // given, survived the update (preferences do), and opened the demo instead
-        // of the shop's own system. There is no legitimate reason for a branded app
-        // to point anywhere else, so the question is not asked.
-        //
-        // The generic build has no baked address and keeps what the tablet was told
-        // — that is what its store gate is for.
-        //
-        // Either way the address is NOT re-used when the watchdog just rejected it,
-        // or a tablet would loop back into a broken site forever.
-        String failed = prefs.getString(KEY_FAILED, null);
-        String baked = getString(R.string.store_url);
-        boolean isBranded = baked != null && baked.startsWith("https://");
+            // A constant compiled into the app: no Resources, no Context, nothing
+            // that can fail this early. Reading a string resource here is the most
+            // likely cause of the blank screens that sent us in circles — on the
+            // tablet where it happened, the fallback below is what finally showed
+            // something instead of nothing.
+            String baked = BuildConfig.STORE_URL;
 
-        if (isBranded) {
-            storeUrl = baked.equals(failed) ? null : baked;
-        }
+            // A BRANDED build belongs to exactly one customer, so its baked address
+            // wins outright — a stored one can only be a leftover. A tablet used for
+            // testing kept the demo address it had been given, survived the update
+            // (preferences do), and opened the demo instead of the shop's system.
+            //
+            // The generic build has no baked address and keeps what the tablet was
+            // told; that is what its store gate is for.
+            //
+            // Either way an address the watchdog just rejected is not re-used, or a
+            // tablet would loop back into a broken site forever.
+            if (baked != null && baked.startsWith("https://")) {
+                storeUrl = baked.equals(failed) ? null : baked;
+            } else if (storeUrl != null && storeUrl.equals(failed)) {
+                storeUrl = null;
+            }
 
-        boolean remote = storeUrl != null && storeUrl.startsWith("https://");
-
-        if (remote) {
-            // A programmatic config REPLACES capacitor.config.json wholesale, so
-            // everything the app relies on has to be repeated here. Keep this in
-            // step with capacitor.config.ts — the two are one setting in two places.
-            config =
-                new CapConfig.Builder(this)
-                    .setServerUrl(storeUrl)
-                    .setErrorPath("offline.html")
-                    .setAndroidScheme("https")
-                    .setAllowNavigation(new String[] { "*" })
-                    .create();
+            if (storeUrl != null && storeUrl.startsWith("https://")) {
+                // A programmatic config REPLACES capacitor.config.json wholesale, so
+                // everything the app relies on has to be repeated here. Keep this in
+                // step with capacitor.config.ts — one setting in two places.
+                // NO allowNavigation here, and that is the point. Every entry in it
+                // is registered as an authority on Capacitor's LOCAL asset server
+                // (WebViewLocalServer.java:704), so the WebView serves those hosts
+                // out of the APK instead of fetching them. A "*" therefore told the
+                // app to intercept the entire internet and answer from files that do
+                // not exist — the customer's site never loaded, and the screen showed
+                // the offline page on a tablet with a working connection.
+                //
+                // server.url is allowed by definition; nothing else needs to be.
+                config =
+                    new CapConfig.Builder(this)
+                        .setServerUrl(storeUrl)
+                        .setErrorPath("offline.html")
+                        .setAndroidScheme("https")
+                        .create();
+            } else {
+                storeUrl = null;
+            }
+        } catch (Exception e) {
+            // Better a store gate than a blank screen nobody can diagnose.
+            Logger.error("could not resolve the store address — falling back to the shell", e);
+            config = null;
+            storeUrl = null;
         }
 
         super.onCreate(savedInstanceState);
 
-        if (remote) startWatchdog(prefs, storeUrl);
+        if (storeUrl != null) {
+            startWatchdog(getSharedPreferences(PREFS, MODE_PRIVATE), storeUrl);
+        }
     }
 
     /**

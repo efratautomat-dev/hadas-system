@@ -10,12 +10,15 @@ import type { CapacitorConfig } from '@capacitor/cli'
 //
 // Two consequences worth stating out loud:
 //   • `webDir` is `dist-shell`, NOT `dist`. The app never bundles the system itself.
-//   • `allowNavigation: ['*']` is on purpose. The hand-off to the customer's domain
-//     has to stay INSIDE the WebView, and each customer sits on their own server —
-//     a host allow-list would mean a new APK for every new domain. Everywhere we
-//     genuinely want the system browser (printing, PDFs, downloads) says so
-//     explicitly through `openExternal()` in `src/lib/native.ts`, so nothing here
-//     depends on Capacitor's default external-URL behaviour.
+//   • `allowNavigation` lists the hosts the GENERIC build may hand the WebView to
+//     after the store gate. It is NOT a wildcard, and must never become one: every
+//     entry is registered as an authority on Capacitor's local asset server
+//     (WebViewLocalServer.java:704), so those hosts get served out of the APK
+//     instead of fetched. `'*'` meant "intercept the entire internet", and a real
+//     tablet showed the offline page on a perfectly good connection because of it.
+//     A branded build sets no allow-list at all — its server.url is allowed by
+//     definition. Adding a customer to the registry means adding their host here
+//     and rebuilding the generic APK; branded builds are unaffected.
 // A branded build passes its customer's identity in the environment, because
 // `npx cap sync` REWRITES res/values/strings.xml from this file — setting those
 // strings by hand after a sync is a race that sync wins. scripts/release-apk.mjs
@@ -35,7 +38,7 @@ const config: CapacitorConfig = {
     // access to Capacitor plugins (Capacitor's own constraint) — so it must not try
     // to read the stored store code; reloading is all it can offer.
     errorPath: 'offline.html',
-    allowNavigation: ['*'],
+    allowNavigation: ['incontrol.ctrlplusf.com', 'hadas-system.vercel.app'],
   },
 }
 
