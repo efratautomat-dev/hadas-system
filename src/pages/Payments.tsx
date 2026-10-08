@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { saveOrShareFile } from '../lib/native'
-import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download, Trash2, Wallet, CalendarDays, Clock } from 'lucide-react'
+import { Plus, Search, Pencil, X, RotateCcw, CreditCard, LayoutList, Table2, Download, Trash2, Wallet, CalendarDays, Clock, AlertTriangle } from 'lucide-react'
 import { SearchableSelect } from '../components/SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from '../components/StatusBadge'
 import { SummaryCards } from '../components/ui/SummaryCards'
 import { FilterTabs } from '../components/ui/FilterTabs'
 import { useSuppliers } from '../hooks/useSuppliers'
-import { usePayments as usePaymentsData } from '../hooks/usePayments'
+import { usePayments as usePaymentsData, type TwinPayment } from '../hooks/usePayments'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow } from '../components/ui/tableStyles'
 import { Button } from '../components/ui/Button'
 import { loadBizboxTemplate } from '../lib/bizboxTemplate'
@@ -273,6 +273,10 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
   const [showForm, setShowForm] = useState(true)
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  // The duplicate-payment question, with the payload that raised it.
+  const [twin, setTwin] = useState<
+    { payload: Parameters<typeof createPayment>[0]; existing: TwinPayment | null } | null
+  >(null)
 
   const [fltSupplier, setFltSupplier] = useState(initialSupplier ?? '')
   const [fltType, setFltType] = useState('')
@@ -511,7 +515,28 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
       status,
     }
     try {
-      await createPayment(payload)
+      const res = await createPayment(payload)
+      // The server found an identical payment and wrote nothing. Hold the payload
+      // so answering "כן, זה תשלום נוסף" resumes the same save rather than making
+      // her retype it.
+      if (res?.needsChoice) {
+        setTwin({ payload, existing: res.duplicate ?? null })
+        return
+      }
+      setForm({ ...EMPTY_FORM, date: todayStr() })
+      showToast('✅ תשלום נוסף בהצלחה')
+    } catch {
+      // hook sets error state
+    }
+  }
+
+  /** Answer the duplicate question: save anyway, with the same payload. */
+  async function confirmTwin() {
+    if (!twin) return
+    const { payload } = twin
+    setTwin(null)
+    try {
+      await createPayment({ ...payload, force: true })
       setForm({ ...EMPTY_FORM, date: todayStr() })
       showToast('✅ תשלום נוסף בהצלחה')
     } catch {
@@ -1967,6 +1992,71 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
               >
                 חזרה
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── "קיים תשלום זהה" ──────────────────────────────────────────────
+          Asked, not blocked. Two identical payments are a real thing — two
+          cheques handed over for one clearing date — so the screen names the one
+          it found and lets a person decide. Nothing was written when this opens,
+          so "ביטול" leaves the form exactly as she typed it. */}
+      {twin && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center"
+          style={{ background: 'rgba(0,0,0,0.5)', overflowY: 'auto', padding: '48px 12px' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setTwin(null) }}
+        >
+          <div className="bg-white shadow-2xl w-full" style={{ maxWidth: '480px', direction: 'rtl' }}>
+            <div className="flex items-center gap-2 px-5 py-3 border-b" style={{ borderColor: '#EEEEF2' }}>
+              <AlertTriangle className="w-4 h-4" style={{ color: '#D97706' }} />
+              <span className="font-bold text-gray-800" style={{ fontSize: '15px' }}>
+                קיים תשלום זהה במערכת
+              </span>
+            </div>
+            <div className="px-5 py-4">
+              <p style={{ fontSize: '13.5px', color: '#4B5563', margin: '0 0 12px' }}>
+                לספק הזה כבר רשום תשלום באותו סכום ולאותו <b>תאריך ערך</b> — התאריך
+                שבו הכסף יורד בפועל.
+              </p>
+              {twin.existing && (
+                <div style={{ background: '#FAFAFC', border: '1px solid #E2E4E9', padding: '11px 13px', fontSize: '13px' }}>
+                  <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
+                    <span style={{ color: '#6B6E73' }}>סכום</span>
+                    <b style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtILS(Number(twin.existing.amount) || 0)}</b>
+                  </div>
+                  <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
+                    <span style={{ color: '#6B6E73' }}>תאריך ערך</span>
+                    <b>{fmtDate(twin.existing.valueDate || '')}</b>
+                  </div>
+                  <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
+                    <span style={{ color: '#6B6E73' }}>נרשם ב</span>
+                    <span>{fmtDate(twin.existing.date || '')}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span style={{ color: '#6B6E73' }}>סוג ואסמכתא</span>
+                    <span>{twin.existing.type || '—'}{twin.existing.ref ? ` · ${twin.existing.ref}` : ''}</span>
+                  </div>
+                </div>
+              )}
+              <p style={{ fontSize: '12.5px', color: '#9CA3AF', margin: '12px 0 0' }}>
+                אם זה תשלום נוסף באמת — אישור יישמור אותו. אם זו טעות, ביטול משאיר
+                את הטופס כמו שהוא.
+              </p>
+            </div>
+            <div className="px-5 pb-5 flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => void confirmTwin()}
+                className="font-semibold text-white"
+                style={{ background: 'var(--brand-primary)', border: 'none', padding: '9px 16px', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}
+              >כן, זה תשלום נוסף</button>
+              <button
+                type="button"
+                onClick={() => setTwin(null)}
+                style={{ background: 'white', border: '1px solid #E2E4E9', color: '#6B6E73', padding: '9px 16px', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}
+              >ביטול</button>
             </div>
           </div>
         </div>

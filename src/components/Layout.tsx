@@ -402,7 +402,19 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     )
     if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
-    if (activePage === 'capture')        return <CaptureDocument capturedBy={userEmail} />
+    if (activePage === 'capture')        return (
+      // ── "קח אותי למסמך" ────────────────────────────────────────────────
+      // The button that says "המסמך כבר קיים · פתחי את דף הסחורה" has existed
+      // for a while, but it renders only when a handler is passed — and this
+      // screen, the one where most photographing actually happens, passed none.
+      // So the message appeared here without the way onward. The intents are the
+      // same ones <Alerts> already uses.
+      <CaptureDocument
+        capturedBy={userEmail}
+        onOpenDelivery={(id) => pushNav({ page: 'deliveries', deliverySelectedId: id })}
+        onOpenInvoice={(id) => pushNav({ page: 'invoices', invoiceSelectedId: id })}
+      />
+    )
     if (activePage === 'integrations')   return <Integrations />
     if (activePage === 'system-logs')    return <SystemLogs />
     if (activePage === 'settings')       return <Settings />

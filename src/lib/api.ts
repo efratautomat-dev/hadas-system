@@ -79,6 +79,9 @@ export interface CaptureResult {
   captureId: string
   deliveryNoteId?: string
   noteNumber?:     string
+  /** `exists` on an INVOICE: the row already on file, so the reply can open it. */
+  invoiceId?:      string
+  invoiceNumber?:  string
   supplierName?:   string
   /** `attached` only: another row of this supplier already carries this number. */
   duplicateOf?:    string
