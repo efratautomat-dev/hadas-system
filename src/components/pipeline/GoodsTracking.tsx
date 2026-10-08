@@ -385,7 +385,11 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
                       style={{ cursor: 'pointer' }}
                       title="פתיחת המשלוח"
                     >
-                      <td style={{ padding: '12px 16px', borderBottom: '1px solid #E2E4E9', fontSize: '13.5px' }}>
+                      {/* A supplier name is read as one word. Letting it break mid-name
+                          to save a few pixels — "הדפסות / רימון" — costs more than the
+                          scroll it avoids, and the table already scrolls in its own
+                          container. */}
+                      <td style={{ padding: '12px 16px', borderBottom: '1px solid #E2E4E9', fontSize: '13.5px', whiteSpace: 'nowrap' }}>
                         <span className="font-semibold text-gray-800">{n.supplierName}</span>
                         <div style={{ fontSize: '11.5px', color: '#9CA3AF' }}>
                           {/* An order-opened row says so, and names its customer:
@@ -526,7 +530,7 @@ function GoodsCards({ notes, orderByNote, stageOf, onOpen, customers, invoicesFo
     )
   }
   return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
       {notes.map(n => (
         <div
           key={n.id}
