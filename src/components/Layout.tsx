@@ -5,6 +5,7 @@ import type { NoteTag } from '../hooks/useSupplierNotes'
 import type { NoteOpenIntent } from '../lib/noteSources'
 import { Bell, Search, Menu, ArrowRight } from 'lucide-react'
 import Sidebar from './Sidebar'
+import UpdateBanner from './UpdateBanner'
 import Dashboard from './Dashboard'
 import Suppliers from './Suppliers'
 import Invoices, { type DuplicateResolution } from './Invoices'
@@ -470,6 +471,9 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
           overflowX: 'clip',
         }}
       >
+        {/* The app's own update notice. No-op in the browser. */}
+        <UpdateBanner />
+
         {/* Top bar */}
         <header
           className="bg-white border-b sticky top-0 z-40 flex items-center justify-between"
@@ -553,14 +557,15 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
           style={{
             padding: pad,
             paddingTop: padTop,
-            // The page must never scroll sideways: wide content scrolls inside its
-            // own container. `overflow-x: clip` on the wrapper above says the same
-            // thing, but an older tablet WebView ignores it — and the shop runs on
-            // exactly such a tablet, where every screen sat shifted with the menu
-            // over the content. `hidden` is understood everywhere, and it is safe
-            // HERE because the sticky top bar is a sibling of this element, not a
-            // descendant: clipping here cannot un-stick it.
-            overflowX: 'hidden',
+            // The page must never scroll sideways — that is what slid the content
+            // under the fixed menu on the shop's tablet. But `hidden` was the wrong
+            // cure: four screens have content wider than this pane, and hiding it
+            // made parts of them unreachable instead of merely awkward.
+            //
+            // `auto` keeps both promises: the PANE scrolls, the page does not, and
+            // nothing is lost. The sticky top bar is a sibling rather than a child,
+            // so it is unaffected either way.
+            overflowX: 'auto',
             minWidth: 0,
           }}
         >
