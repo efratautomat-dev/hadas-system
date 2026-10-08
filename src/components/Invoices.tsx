@@ -642,9 +642,20 @@ export function InvoiceDetail({
         </div>
       )}
 
-      {/* Top bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
+      {/* Top bar — three groups that sit together rather than three groups pushed
+          into three corners. `space-between` on a wide desktop reads as deliberate
+          spacing; on a tablet it is an empty middle with controls stranded at the
+          edges, which is exactly how it looked on the shop's screen. Below the
+          desktop width the row wraps into tidy lines instead. */}
+      <div style={{
+        display: 'flex',
+        justifyContent: isWide ? 'space-between' : 'flex-start',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '10px',
+        marginBottom: '20px',
+      }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <Button variant="primary" onClick={() => onSave(form)}>
             <Save size={16} />
             שמור
@@ -667,8 +678,11 @@ export function InvoiceDetail({
           )}
         </div>
 
-        <div style={{ textAlign: 'center', flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+        <div style={{ textAlign: isWide ? 'center' : 'right', flex: isWide ? 1 : undefined }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '10px',
+            justifyContent: isWide ? 'center' : 'flex-start',
+          }}>
             <StatusBadge status={internalStatus} style={{ fontWeight: 600, padding: '4px 12px' }} />
             {/* Headline is the SUPPLIER's invoice number — that's what the owner
                 matches against the paper document. The system id stays visible

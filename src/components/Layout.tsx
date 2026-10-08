@@ -570,7 +570,10 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
           }}
         >
           {canGoBack && (
-            <div style={{ marginBottom: '12px' }}>
+            // A flex row, so the round button lands at the start of the line — the
+            // RIGHT in an RTL page. As a bare block it drifted to the far edge and
+            // read as a stray control floating above the screen.
+            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '12px' }}>
               <button
                 onClick={goBack}
                 style={{
