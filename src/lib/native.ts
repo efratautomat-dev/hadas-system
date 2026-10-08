@@ -214,10 +214,14 @@ export async function checkForUpdate(): Promise<AppUpdate | null> {
     // A branded build's applicationId ends in the customer's code
     // (com.ctrlplusf.incontrol.hadas), so it already knows which manifest is its
     // own. The generic app has no suffix and reads the shared one.
+    // Resolved against the page's own base, not the host root: a customer served
+    // from a sub-path would otherwise ask the ROOT for its version and be told
+    // about somebody else's build.
     const suffix = info.id.split('.').pop()
-    const paths = suffix && suffix !== 'incontrol'
-      ? [`/app/app-version.${suffix}.json`, '/app/app-version.json']
-      : ['/app/app-version.json']
+    const names = suffix && suffix !== 'incontrol'
+      ? [`app/app-version.${suffix}.json`, 'app/app-version.json']
+      : ['app/app-version.json']
+    const paths = names.map((n) => new URL(n, document.baseURI).href)
 
     let res: Response | null = null
     for (const path of paths) {
