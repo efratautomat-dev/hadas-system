@@ -515,6 +515,42 @@ function paymentToRow(body: Record<string, unknown>, supplierId: string | null):
   return row;
 }
 
+/**
+ * The same payment, entered twice — ask, never block.
+ *
+ * The owner's rule: "אם קיים במערכת תשלום לאותו ספק עם אותו סכום ואותו תאריך
+ * תשלום (התאריך שיורד בפועל, לא ביצוע התשלום) — להקפיץ שאלה."
+ *
+ * `value_date` and not `payment_date`, and that distinction is the whole rule:
+ * two cheques written on one Tuesday for two different clearing dates are two
+ * payments; two for the SAME clearing date and the same amount are almost
+ * always one payment recorded twice.
+ *
+ * The effective value date is `value_date ?? payment_date`, because the screen
+ * fills a blank value date with the payment date before sending (Payments.tsx)
+ * and older rows may carry none at all. Comparing the stored column alone would
+ * let exactly those rows through the check.
+ *
+ * Returns the twin, or null. Cancelled payments are not twins — cancelling one
+ * and re-entering it is the ordinary correction.
+ */
+async function findTwinPayment(
+  supabase: SupabaseClient, supplierId: string, amount: number, valueDate: string,
+): Promise<Record<string, unknown> | null> {
+  const { data } = await supabase.from("payments")
+    .select("id, amount, payment_date, value_date, payment_type, reference, status")
+    .eq("supplier_id", supplierId)
+    .neq("status", "cancelled");
+  const target = Math.abs(amount);
+  return (data ?? []).find(p => {
+    const theirs = String(p.value_date ?? p.payment_date ?? "");
+    if (theirs !== valueDate) return false;
+    // To the agora. A rounding difference is not the same payment, and a float
+    // comparison on money is how a 0.01 gap becomes "not a duplicate".
+    return Math.abs(Math.abs(Number(p.amount ?? 0)) - target) < 0.005;
+  }) ?? null;
+}
+
 async function createPayment(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
   if (!body.amount || !body.date) return json({ error: "amount and date are required" }, 400);
@@ -526,6 +562,32 @@ async function createPayment(req: Request, supabase: SupabaseClient): Promise<Re
     // Auto-create (PART 3B): a payment for a supplier that does not exist yet
     // creates one from whatever is available (name and/or ח.פ), flagged incomplete.
     supplierId = await resolveOrCreateSupplier(supabase, body.supplier as string | undefined, body.hp as string | undefined);
+  }
+
+  // ── Is this the same payment again? ──────────────────────────────────────
+  //
+  // Asked BEFORE anything is written, and answered with a question rather than
+  // an error: two identical payments do exist — two cheques handed to one
+  // supplier for one clearing date — so a person decides. Same shape as the
+  // goods intake's "כבר יש תעודה ממתינה": nothing has happened yet, so the call
+  // is safe to repeat with `force: true`.
+  const force = body.force === true || body.forceNew === true;
+  const effectiveValueDate = String(body.valueDate || body.value_date || body.date || "");
+  if (!force && supplierId && effectiveValueDate) {
+    const twin = await findTwinPayment(supabase, supplierId, Number(body.amount), effectiveValueDate);
+    if (twin) {
+      return json({
+        success: false, needsChoice: true,
+        duplicate: {
+          id:        String(twin.id),
+          amount:    twin.amount,
+          date:      twin.payment_date,
+          valueDate: twin.value_date ?? twin.payment_date,
+          type:      twin.payment_type,
+          ref:       twin.reference,
+        },
+      }, 200);
+    }
   }
 
   const row = paymentToRow(body, supplierId);
@@ -864,6 +926,40 @@ async function linkedInvoiceIds(supabase: SupabaseClient, noteId: string): Promi
   return ((data ?? []) as Array<{ invoice_id: string }>).map(r => String(r.invoice_id));
 }
 
+/** `2026-09-14` → `14/09/2026`. Israeli order, for a message a person reads. */
+function isoToHe(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return d && m && y ? `${d}/${m}/${y}` : iso;
+}
+
+/**
+ * The date the chain STARTED, when an order started it.
+ *
+ * The owner's rule: "כשנפתח פייפליין עם הזמנה אסור לקשר אליו חשבונית עם תאריך
+ * מוקדם יותר — זה לא הגיוני." An invoice written before anyone had even ordered
+ * the goods cannot be the invoice for them.
+ *
+ * ⚠️ Read from the ORDER, never from `delivery_notes.date`. `markOrderArrived`
+ * overwrites the row's date with the arrival date, so comparing against the row
+ * would reject a perfectly good invoice that arrived between the order and the
+ * delivery — the common case, not an edge one.
+ *
+ * The EARLIEST order, because a partial arrival splits one order into two rows
+ * that both point here; the chain began at the first of them.
+ *
+ * `null` when no order opened this chain — then there is nothing to enforce and
+ * the rule does not apply.
+ */
+async function chainOrderDate(
+  supabase: SupabaseClient, noteId: string,
+): Promise<string | null> {
+  const { data } = await supabase.from("orders")
+    .select("date").eq("delivery_note_id", noteId)
+    .order("date", { ascending: true }).limit(1);
+  const d = data?.[0]?.date;
+  return d ? String(d) : null;
+}
+
 async function linkDeliveryNote(
   req: Request, supabase: SupabaseClient, id: string, actor?: string,
 ): Promise<Response> {
@@ -874,8 +970,26 @@ async function linkDeliveryNote(
   // ALREADY in the ledger (the consolidated case, where a late note joins an invoice
   // the owner approved last week) must not reopen an approval nobody is waiting on.
   const { data: inv } = await supabase.from("invoices")
-    .select("id, ledger_approved_at").eq("id", invoice_id).maybeSingle();
+    .select("id, ledger_approved_at, invoice_date, invoice_number").eq("id", invoice_id).maybeSingle();
   if (!inv) return json({ error: "Invoice not found" }, 404);
+
+  // ── An invoice cannot predate the order it is supposed to be for ─────────
+  //
+  // Refused rather than warned, because the owner ruled it out ("זה לא הגיוני")
+  // and because the honest fix is usually the ORDER's date: an order recorded a
+  // few days after it was phoned in carries the day it was typed, not the day it
+  // was placed. So the message names both dates and points at the thing that is
+  // actually wrong, instead of offering a way around it.
+  const orderDate = await chainOrderDate(supabase, id);
+  if (orderDate && inv.invoice_date && String(inv.invoice_date) < orderDate) {
+    return json({
+      error: `חשבונית מ-${isoToHe(String(inv.invoice_date))} מוקדמת מההזמנה ` +
+             `(${isoToHe(orderDate)}) ולכן אינה יכולה להיות עליה. ` +
+             `אם ההזמנה נרשמה באיחור — תקני את תאריך ההזמנה ונסי שוב.`,
+      code: "INVOICE_BEFORE_ORDER",
+      invoiceDate: inv.invoice_date, orderDate,
+    }, 409);
+  }
 
   const { error: linkErr } = await supabase.from("delivery_note_invoices")
     .upsert(
@@ -1132,6 +1246,11 @@ async function deliveryNoteCandidates(
 
   const already = new Set(await linkedInvoiceIds(supabase, id));
   const noteAmount = Math.abs(Number(note.amount ?? 0));
+  // An invoice that may not be LINKED must not be OFFERED. `linkDeliveryNote`
+  // refuses an invoice dated before the order that opened this chain; a
+  // suggestion the system will then reject is a suggestion that wastes a click
+  // and teaches that the matching is unreliable.
+  const orderDate = await chainOrderDate(supabase, id);
 
   const scored = ((invoices ?? []) as CandidateInvoice[])
     .filter((i: CandidateInvoice) => !already.has(String(i.id)))
@@ -1148,6 +1267,10 @@ async function deliveryNoteCandidates(
       return { invoice: i, dayGap, amountGap, amountMatch };
     })
     .filter((c: ScoredCandidate) => c.dayGap === null || c.dayGap <= MATCH_WINDOW_DAYS)
+    // ⚠️ `dayGap` is an ABSOLUTE distance, so without this an invoice from before
+    // the order scores exactly like one from after it.
+    .filter((c: ScoredCandidate) =>
+      !orderDate || !c.invoice.invoice_date || String(c.invoice.invoice_date) >= orderDate)
     .sort((a: ScoredCandidate, b: ScoredCandidate) => {
       if (a.amountMatch !== b.amountMatch) return a.amountMatch ? -1 : 1;
       return (a.dayGap ?? 9999) - (b.dayGap ?? 9999);

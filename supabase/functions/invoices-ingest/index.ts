@@ -63,6 +63,13 @@ const ANTHROPIC_VERSION         = "2023-06-01";
 const MAX_LINKS_PER_EMAIL   = 5;     // cap so a link-spam email can't DOS the run
 const LINK_FETCH_TIMEOUT_MS = 20000; // per-link fetch timeout
 const MAX_REDIRECTS         = 5;     // match N8N's maxRedirects:5 — fail fast on tracker loops
+// ── Landing pages ────────────────────────────────────────────────────────────
+// "The link leads to another link, and only the second one downloads." ONE hop,
+// because that is the case; anything deeper is a crawler, and a crawler inside an
+// ingest run is a timeout waiting to happen.
+const MAX_LINK_DEPTH             = 1;
+const MAX_LINKS_PER_LANDING_PAGE = 3;
+const MAX_LANDING_PAGE_BYTES     = 512 * 1024;  // a landing page is text, not a document
 const LINK_FETCH_HEADERS = {
   "Accept":     "*/*",
   "User-Agent": "Mozilla/5.0",
@@ -861,6 +868,74 @@ async function fetchLinkBinary(url: string): Promise<Response> {
   }
 }
 
+/**
+ * The real download link, out of a LANDING PAGE.
+ *
+ * The owner's case, and it is common: "יש קישורים של מסמכים שמגיעים במייל
+ * ומובילים לעוד קישור, ורק הקישור השני מוריד." The first URL answers with HTML —
+ * a page that says "לצפייה בחשבונית לחץ כאן" — and until now that page was
+ * sniffed as "not a PDF/image" and discarded unread, with the real link inside it.
+ *
+ * No new heuristic: `extractInvoiceLinks` is the function that already reads a
+ * document link out of HTML for the EMAIL BODY, tuned on real suppliers' mail
+ * (icount unwrapping, DOWNLOAD_WORDS, .pdf preference). A landing page is the
+ * same problem one hop later, so it gets the same reader.
+ *
+ * Two shapes it adds, because a landing page sometimes redirects instead of
+ * linking: `<meta http-equiv="refresh" content="0;url=…">` and a bare
+ * `window.location = "…"`. Both are cheap and neither needs a parser.
+ *
+ * Returns URLs resolved against the page's own address, so a relative
+ * `/download?id=…` works.
+ */
+function extractLinksFromLandingPage(html: string, pageUrl: string): string[] {
+  const abs = (u: string): string | null => {
+    try { return new URL(u, pageUrl).toString(); } catch { return null; }
+  };
+  const out: string[] = [];
+  const push = (u: string | null) => {
+    if (!u || !/^https?:\/\//i.test(u) || out.includes(u)) return;
+    out.push(u);
+  };
+
+  // Anchors — through the same reader the email body uses.
+  for (const u of extractInvoiceLinks("", html)) push(abs(u));
+
+  // <meta http-equiv="refresh" content="0; url=...">
+  const meta = html.match(
+    /<meta[^>]+http-equiv\s*=\s*["']?refresh["']?[^>]*content\s*=\s*["'][^"']*url\s*=\s*([^"';]+)/i,
+  );
+  if (meta) push(abs(decodeHtmlEntities(meta[1].trim())));
+
+  // window.location = "..." / location.href = '...' / location.replace("...")
+  const js = html.matchAll(
+    /(?:window\.)?location(?:\.href)?\s*=\s*["']([^"']+)["']|location\.replace\(\s*["']([^"']+)["']/gi,
+  );
+  for (const m of js) push(abs(decodeHtmlEntities((m[1] ?? m[2] ?? "").trim())));
+
+  // ── Last resort: the page's own links, unfiltered by keyword ─────────────
+  //
+  // `extractInvoiceLinks` demands a keyword or a `.pdf`, and that is right for an
+  // EMAIL — a body carries dozens of decorative links and the keyword is what
+  // makes the real one win. A landing page is the opposite: it holds two or three
+  // links and the one we want may be labelled nothing more than "כאן".
+  //
+  // Safe to guess here because the gates downstream are cheap and absolute: a
+  // wrong link simply fails the magic-byte sniff and the next one is tried. What
+  // is excluded is only what cannot be a document — mail, phone, scripts,
+  // in-page anchors and the social buttons every such page carries.
+  if (out.length === 0) {
+    const NOT_A_DOCUMENT = /(?:^mailto:|^tel:|^javascript:|^#|facebook\.com|instagram\.com|twitter\.com|x\.com|linkedin\.com|whatsapp\.com|wa\.me|youtube\.com|accessibility|privacy|terms)/i;
+    for (const a of extractAnchors(html)) {
+      const href = decodeHtmlEntities(unwrapTrackingUrl(a.href));
+      if (NOT_A_DOCUMENT.test(href)) continue;
+      push(abs(href));
+    }
+  }
+
+  return out;
+}
+
 interface ResolvedDoc { mimeType: string; filename: string; bytes: Uint8Array }
 
 // Tries each candidate link in order; returns the first that yields a PDF/image.
@@ -869,6 +944,16 @@ async function resolveDocFromLinks(
   candidates: string[],
   log:        Logger,
   msgId:      string,
+  /**
+   * How many landing pages deep we already are. 0 = the links in the email.
+   *
+   * ⚠️ ONE hop only (`MAX_LINK_DEPTH`). "The link leads to another link" is the
+   * case; a crawler is not. Depth is also what stops a page that links to
+   * itself from spending the whole ingest run.
+   */
+  depth = 0,
+  /** URLs already attempted anywhere in this resolution — loop protection. */
+  seen: Set<string> = new Set(),
 ): Promise<{ doc: ResolvedDoc | null; failures: Array<{ url: string; reason: string }> }> {
   const failures: Array<{ url: string; reason: string }> = [];
 
@@ -880,6 +965,8 @@ async function resolveDocFromLinks(
   for (const rawUrl of candidates.slice(0, MAX_LINKS_PER_EMAIL)) {
     // Unwrap icount click-tracker first, then rewrite share links to direct-download form.
     const url = normalizeDownloadUrl(unwrapTrackingUrl(rawUrl));
+    if (seen.has(url)) continue;
+    seen.add(url);
     try {
       const resp = await fetchLinkBinary(url);
       if (!resp.ok) {
@@ -891,9 +978,34 @@ async function resolveDocFromLinks(
       const bytes = new Uint8Array(await resp.arrayBuffer());
       const kind  = sniffFileType(bytes);
       if (kind === "other") {
+        // ── A landing page, not a dead end ─────────────────────────────────
+        //
+        // This is where the owner's case used to die: the link answers with HTML
+        // containing the real download link, and the page was discarded unread.
+        // Now it is read — once — through the same extractor the email body uses.
+        const looksHtml = contentType.includes("html") || contentType.includes("xml")
+          || /^\s*<(?:!doctype|html|head|meta|body)/i.test(
+            new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, 200)));
+        if (looksHtml && depth < MAX_LINK_DEPTH && bytes.length <= MAX_LANDING_PAGE_BYTES) {
+          const html = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+          const inner = extractLinksFromLandingPage(html, url)
+            .filter(u => !seen.has(normalizeDownloadUrl(unwrapTrackingUrl(u))))
+            .slice(0, MAX_LINKS_PER_LANDING_PAGE);
+          await log("info",
+            `link is a landing page — following ${inner.length} link(s) inside it`,
+            { url, depth, found: inner }, msgId);
+          if (inner.length > 0) {
+            const nested = await resolveDocFromLinks(inner, log, msgId, depth + 1, seen);
+            failures.push(...nested.failures);
+            if (nested.doc) return { doc: nested.doc, failures };
+          } else {
+            failures.push({ url, reason: "landing page with no download link inside" });
+          }
+          continue;
+        }
         const reason = `not a PDF/image (content-type: ${contentType || "unknown"})`;
         failures.push({ url, reason });
-        await log("info", `link skipped — ${reason}`, { url, bytes: bytes.length }, msgId);
+        await log("info", `link skipped — ${reason}`, { url, bytes: bytes.length, depth }, msgId);
         continue;
       }
       // Logo/size filter — the attachment path drops tiny images as logos, but the
@@ -1713,9 +1825,30 @@ interface InvoiceFileCtx {
   // DB/UI. Defaults to the Gmail source label; the camera-capture path overrides
   // it with CAPTURE_LABEL_SOURCE. Optional so the email call site stays unchanged.
   labelSource?:         string;
+  /**
+   * Photographed by someone standing in front of the document, not pulled from a
+   * mailbox. Changes exactly one behaviour — an invoice whose number this
+   * supplier already has is reported back instead of being filed a second time.
+   * Same flag, same single purpose, as on the non-invoice path.
+   */
+  captureMode?:         boolean;
 }
 
 type InvoiceFileOutcome = "created" | "skipped" | "alerted" | "error";
+
+/**
+ * The camera's own answer: this invoice is already on file.
+ *
+ * Only the capture path can return it, and the difference from the mailbox is
+ * the person. Two emails carrying one invoice number can genuinely be two
+ * documents and nobody is standing there to judge, so that path keeps both rows
+ * and marks them. Here she IS standing there, with the paper in her hand, asking
+ * the system a question — so the honest answer is "we have it", with the row to
+ * open, and nothing is filed.
+ */
+interface InvoiceAlreadyOnFile {
+  existing: { invoiceId: string; invoiceNumber: string; supplierName: string };
+}
 
 // Runs the full invoice pipeline for ONE file: extract → supplier → category →
 // Drive + Storage upload → dedup → insert → category usage. Returns the outcome;
@@ -1728,7 +1861,7 @@ async function handleInvoiceFile(
   file:     UsableFile,
   ctx:      InvoiceFileCtx,
   result:   IngestResult,
-): Promise<InvoiceFileOutcome> {
+): Promise<InvoiceFileOutcome | InvoiceAlreadyOnFile> {
   const { token, msgId, subject, from, emailTs, messageLink, managerEmail, suppliers, categoryNames } = ctx;
 
   const extracted = await extractInvoice(file, categoryNames, null);
@@ -1862,6 +1995,23 @@ async function handleInvoiceFile(
       .eq("invoice_number", extracted.invoice_number)
       .limit(1);
     if (dupInv && dupInv.length > 0) {
+      // ── She is holding the paper and asking ──────────────────────────────
+      //
+      // The camera path answers "we already have it" and files NOTHING: no row,
+      // no Drive copy, no Storage upload, no alert. The mailbox keeps its own
+      // behaviour below — two emails with one number can be two real documents,
+      // and there nobody is present to decide.
+      if (ctx.captureMode) {
+        await log("info", "capture: invoice already on file — not filed again",
+          { existingId: dupInv[0].id, invoiceNumber: extracted.invoice_number }, msgId);
+        return {
+          existing: {
+            invoiceId:     String(dupInv[0].id),
+            invoiceNumber: extracted.invoice_number ?? "",
+            supplierName:  supplierDisplayName || extracted.vendor_name || "",
+          },
+        };
+      }
       isDuplicate = true;
       await log("warn", "duplicate invoice number for supplier", { existingId: dupInv[0].id }, msgId);
       await insertAlertOnce(supabase, log, msgId, {
@@ -2629,10 +2779,14 @@ async function ingestInvoices(
           continue;
         }
         const outcome = await handleInvoiceFile(supabase, log, f, invoiceCtx, result);
-        if      (outcome === "created") created++;
-        else if (outcome === "alerted") alerted++;
-        else if (outcome === "skipped") skipped++;
-        else                            errored++;
+        // The "already on file" object is reachable only with `captureMode`, which
+        // this path never sets — narrowed explicitly rather than left to fall into
+        // the error tally by accident.
+        const o = typeof outcome === "string" ? outcome : "error";
+        if      (o === "created") created++;
+        else if (o === "alerted") alerted++;
+        else if (o === "skipped") skipped++;
+        else                      errored++;
       }
 
       // Every file was an ad → surface it so the email isn't lost silently.
@@ -4432,8 +4586,18 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
         messageLink: "", labelIds: [], partialRefundLabelId: null,
         managerEmail, approvalThreshold, suppliers, categoryNames, isCreditNote: false,
         labelSource: CAPTURE_LABEL_SOURCE,
+        captureMode: true,
       };
       const outcome = await handleInvoiceFile(supabase, log, file, ctx, result);
+      // Already on file: nothing was written, and the reply names the invoice she
+      // should be looking at. `ok: true` on purpose — from where she is standing
+      // this is a success, not a failure to file. Same contract the delivery path
+      // returns for the same situation.
+      if (typeof outcome === "object" && outcome.existing) {
+        return json({
+          ok: true, outcome: "exists", docType, captureId, ...outcome.existing,
+        });
+      }
       await log("info", "capture invoice complete", { outcome }, captureId);
       return json({
         ok:       outcome !== "error",

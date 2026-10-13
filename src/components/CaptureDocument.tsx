@@ -13,6 +13,12 @@ interface Props {
    */
   onOpenDelivery?: (deliveryNoteId: string) => void
   /**
+   * Open an INVOICE that turned out to be on file already. Same idea as
+   * `onOpenDelivery`: the reply has somewhere to send her instead of telling her
+   * it exists and leaving her to find it.
+   */
+  onOpenInvoice?: (invoiceId: string) => void
+  /**
    * Photograph INTO this delivery row rather than filing a new one.
    *
    * Set from the delivery page. The type picker disappears with it: the row is
@@ -53,7 +59,7 @@ function readAsDataUrl(file: File): Promise<string> {
 }
 
 export default function CaptureDocument({
-  capturedBy, onOpenDelivery, attachToNoteId, onAttached,
+  capturedBy, onOpenDelivery, onOpenInvoice, attachToNoteId, onAttached,
 }: Props) {
   // Attaching has exactly one meaning, so the type is not a question.
   const [selected, setSelected] = useState<TypeOption | null>(
@@ -303,6 +309,8 @@ export default function CaptureDocument({
             <p style={{ color: '#057A55', fontSize: '13px', marginTop: '2px' }}>
               {result.outcome === 'attached'
                 ? `${result.noteNumber ? `תעודה ${result.noteNumber} · ` : ''}הפריטים והמסמך נכנסו לשורה הקיימת.`
+                : result.outcome === 'exists' && result.invoiceId
+                ? `חשבונית ${result.invoiceNumber || ''} כבר קיימת במערכת — לא נוצרה שורה שנייה.`.replace('  ', ' ')
                 : result.outcome === 'exists'
                 ? `תעודה ${result.noteNumber || ''} כבר נקלטה מהמייל — לא נוצרה שורה שנייה.`.replace('  ', ' ')
                 : result.outcome === 'alerted'
@@ -325,6 +333,15 @@ export default function CaptureDocument({
               {/* The way ONWARD comes first and carries the colour: when the note
                   is already on file, the next thing she wants is the delivery
                   itself, not another photograph. */}
+              {result.outcome === 'exists' && result.invoiceId && onOpenInvoice && (
+                <button
+                  onClick={() => onOpenInvoice(result.invoiceId!)}
+                  className="rounded-xl"
+                  style={{ background: ACCENT, color: '#FFFFFF', border: `1px solid ${ACCENT}`, padding: '8px 16px', fontSize: '14px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  קחי אותי לחשבונית
+                </button>
+              )}
               {result.outcome === 'exists' && result.deliveryNoteId && onOpenDelivery && (
                 <button
                   onClick={() => onOpenDelivery(result.deliveryNoteId!)}

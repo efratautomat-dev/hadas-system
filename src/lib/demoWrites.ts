@@ -567,6 +567,36 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return row
   }
 
+  // ── POST /payments ───────────────────────────────────────────────────────
+  // Mirrors the server's twin check so the demo asks the same question. The
+  // effective value date is `value_date ?? payment_date`, exactly as there.
+  if (method === 'POST' && path === '/payments') {
+    const payments = demoTables.payments
+    if (!payments) return null
+    const force = b.force === true
+    const supplierId = String(b.supplier_id ?? '')
+    const want = String(b.valueDate ?? b.value_date ?? b.date ?? '')
+    const amount = Math.abs(Number(b.amount ?? 0))
+    if (!force && supplierId && want) {
+      const twin = payments.find(p =>
+        String(p.supplier_id ?? '') === supplierId &&
+        p.status !== 'cancelled' &&
+        String(p.value_date ?? p.payment_date ?? '') === want &&
+        Math.abs(Math.abs(Number(p.amount ?? 0)) - amount) < 0.005)
+      if (twin) {
+        return {
+          success: false, needsChoice: true,
+          duplicate: {
+            id: String(twin.id), amount: twin.amount, date: twin.payment_date,
+            valueDate: twin.value_date ?? twin.payment_date,
+            type: twin.payment_type, ref: twin.reference,
+          },
+        } as unknown as Row
+      }
+    }
+    return null   // not a twin → fall through to the generic demo write
+  }
+
   // ── PUT /orders/:id/cancel · /uncancel ───────────────────────────────────
   // A line through the entry, never a deletion — and the reason is required here
   // exactly as it is on the server, because a demo that accepts an empty reason
@@ -661,6 +691,18 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     const invoiceId = String(b.invoice_id ?? '')
     const invoice = find('invoices', invoiceId)
     if (!note || !invoice) return null
+    // Mirrors the server: an invoice dated before the ORDER that opened this
+    // chain cannot be for it. The demo refuses too, or it would teach that the
+    // link is allowed and the real system would then say otherwise.
+    const chainOrder = orders
+      .filter(o => String(o.delivery_note_id ?? '') === String(note.id))
+      .map(o => String(o.date ?? ''))
+      .filter(Boolean)
+      .sort()[0]
+    const invDate = String(invoice.invoice_date ?? '')
+    if (chainOrder && invDate && invDate < chainOrder) {
+      return { success: false, error: 'INVOICE_BEFORE_ORDER' } as unknown as Row
+    }
     if (!links.some(l => l.delivery_note_id === note.id && l.invoice_id === invoiceId)) {
       links.push({ delivery_note_id: note.id, invoice_id: invoiceId, created_at: nowIso() })
     }

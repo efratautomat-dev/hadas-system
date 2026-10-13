@@ -28,6 +28,18 @@ const FALLBACK_PAYMENTS: Payment[] = [
   { id: '5', supplier_id: '', supplier: 'אסם השקעות',  amount: 6800,  type: 'העברה בנקאית', date: '2026-04-20', ref: 'TRF-2026-005', valueDate: null,         notes: '',                       status: 'paid',    bizboxExportedAt: null, createdAt: null },
 ]
 
+/** The payment the server found when it asked the question. */
+export interface TwinPayment {
+  id: string
+  amount: number
+  /** When it was recorded. */
+  date: string
+  /** When the money leaves — what the check is actually on. */
+  valueDate: string
+  type: string
+  ref: string
+}
+
 export function usePayments() {
   const [data, setData]       = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
@@ -82,12 +94,29 @@ export function usePayments() {
   useEffect(() => subscribe(['payments'], load), [load])
 
   // bizboxExportedAt מוחרג: החותמת נכתבת רק דרך mark-bizbox-exported, לא ביצירה
-  const create = async (body: Omit<Payment, 'id' | 'bizboxExportedAt' | 'createdAt'>) => {
+  /**
+   * Record a payment.
+   *
+   * Returns `needsChoice` when the supplier already has a payment of the same
+   * amount for the same VALUE date — the date the money actually leaves. Nothing
+   * was written when it does, so the screen must ASK and then repeat the call
+   * with `force: true`. Same contract as `useDeliveryNotes.create`, deliberately:
+   * two identical payments are possible, so a person decides, and a silent
+   * second row is the one outcome ruled out.
+   */
+  const create = async (
+    body: Omit<Payment, 'id' | 'bizboxExportedAt' | 'createdAt'> & { force?: boolean },
+  ): Promise<{ needsChoice?: boolean; duplicate?: TwinPayment }> => {
     console.log('[usePayments] create payload:', body)
     try {
-      const res = await api.post('/payments', body)
+      const res = await api.post('/payments', body) as
+        { needsChoice?: boolean; duplicate?: TwinPayment }
       console.log('[usePayments] create response:', res)
+      // The question came back — nothing was saved, so do NOT reload and do not
+      // report success.
+      if (res?.needsChoice) return res
       await load()
+      return {}
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('[usePayments] create error:', msg)
