@@ -83,6 +83,32 @@ export async function openExternal(url: string): Promise<boolean> {
   return false
 }
 
+/**
+ * Downloads a new build and hands it to Android's installer, without a browser.
+ *
+ * The shop's tablets have none, by policy — so "open the download link" was never
+ * a route there, and every update meant carrying the file in by hand. The app
+ * fetches its own update instead. Android still shows its own confirmation and
+ * asks once for permission to install from this app; nothing installs silently.
+ *
+ * Returns false if the native path is unavailable, so the caller can fall back to
+ * opening the link the old way.
+ */
+export async function installUpdate(url: string): Promise<boolean> {
+  if (!isNative() || !url) return false
+  const StoreGate = (window as unknown as {
+    Capacitor?: { Plugins?: { StoreGate?: { installUpdate?: (o: { url: string }) => Promise<void> } } }
+  }).Capacitor?.Plugins?.StoreGate
+  if (!StoreGate?.installUpdate) return false
+  try {
+    await StoreGate.installUpdate({ url })
+    return true
+  } catch (err) {
+    console.error('[native] in-app update failed:', err)
+    return false
+  }
+}
+
 export type EmailOpen = 'opened' | 'gmail-app' | 'copied-subject' | 'copied-link'
 
 /**

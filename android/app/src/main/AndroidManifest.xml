@@ -38,6 +38,11 @@
          concluded there was no browser and no mail app even where both existed,
          and quietly fell back to copying links to the clipboard. Declaring the
          intents restores the question, it does not grant any new power. -->
+    <!-- The tablets have no browser by policy, so the app fetches its own updates
+         and hands them to the system installer. Android still asks the user to
+         confirm, and asks once for permission to install from this app. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />

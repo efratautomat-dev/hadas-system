@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { checkForUpdate, openExternal, type AppUpdate } from '../lib/native'
+import { checkForUpdate, installUpdate, openExternal, type AppUpdate } from '../lib/native'
 
 // UpdateBanner — the only way a new version of the APP reaches a tablet.
 //
@@ -20,6 +20,7 @@ export default function UpdateBanner() {
   // The update is a download, and a tablet with no browser has nothing to download
   // with. Rather than a button that does nothing, the link is copied and said so.
   const [copied, setCopied] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     void checkForUpdate().then(setUpdate)
@@ -47,7 +48,16 @@ export default function UpdateBanner() {
       )}
 
       <button
-        onClick={async () => { if (!(await openExternal(update.url))) setCopied(true) }}
+        onClick={async () => {
+          setBusy(true)
+          // The app downloads and installs it itself. Only if that is unavailable
+          // does it fall back to opening the link — which needs a browser these
+          // tablets deliberately do not have.
+          const installing = await installUpdate(update.url)
+          if (!installing && !(await openExternal(update.url))) setCopied(true)
+          setBusy(false)
+        }}
+        disabled={busy}
         style={{
           marginInlineStart: 'auto',
           padding: '8px 18px',
@@ -62,7 +72,7 @@ export default function UpdateBanner() {
           cursor: 'pointer',
         }}
       >
-        עדכני עכשיו
+        {busy ? 'מוריד…' : 'עדכני עכשיו'}
       </button>
 
       {copied && (
