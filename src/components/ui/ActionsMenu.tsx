@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { MoreVertical } from 'lucide-react'
 
 // ── The one place a record's actions live ────────────────────────────────────
@@ -33,22 +34,54 @@ export interface MenuItem {
 export function ActionsMenu({ items, label = 'פעולות' }: { items: MenuItem[]; label?: string }) {
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
+  // Where to draw the menu, in viewport coordinates. It is rendered into <body>
+  // rather than beside the button, because an absolutely positioned child is
+  // clipped by any ancestor that hides overflow — and the content area does, so
+  // that a wide table scrolls itself instead of the page. On a desktop the menu
+  // had room and nobody noticed; on the shop's tablet it opened past the edge of
+  // the pane and looked like a button that does nothing.
+  const [at, setAt] = useState<{ top: number; right: number } | null>(null)
+
+  const place = useCallback(() => {
+    const r = wrap.current?.getBoundingClientRect()
+    if (!r) return
+    const MENU_W = 220
+    // Keep it on screen: pinned under the button, nudged in if the edge is close.
+    const right = Math.min(
+      Math.max(window.innerWidth - r.right, 8),
+      Math.max(window.innerWidth - MENU_W - 8, 8),
+    )
+    setAt({ top: r.bottom + 6, right })
+  }, [])
 
   // Close on an outside click or on Escape. Both, because a menu you can only
   // dismiss one way is one people learn to click twice to be sure of.
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
+    place()
+    const onDown = (e: Event) => {
+      const t = e.target as Node
+      if (wrap.current?.contains(t)) return
+      // The menu now lives outside this component's DOM, so "outside" has to mean
+      // outside BOTH the button and the menu itself.
+      if ((t as HTMLElement).closest?.('[data-actions-menu]')) return
+      setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
+    const onMove = () => setOpen(false)
+    // pointerdown rather than mousedown: a tablet reports a tap as a pointer event
+    // first, and a menu that only listens for a mouse is a menu that feels stuck.
+    document.addEventListener('pointerdown', onDown)
     document.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onMove)
+    window.addEventListener('scroll', onMove, true)
     return () => {
-      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('pointerdown', onDown)
       document.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onMove)
+      window.removeEventListener('scroll', onMove, true)
     }
-  }, [open])
+  }, [open, place])
 
   const ordinary = items.filter(i => !i.danger)
   const danger   = items.filter(i => i.danger)
@@ -90,13 +123,15 @@ export function ActionsMenu({ items, label = 'פעולות' }: { items: MenuItem
         <MoreVertical className="w-5 h-5" />
       </button>
 
-      {open && (
+      {open && at && createPortal(
         <div
           role="menu"
+          data-actions-menu
+          dir="rtl"
           style={{
-            position: 'absolute', insetInlineStart: 0, top: 'calc(100% + 6px)',
+            position: 'fixed', top: at.top, right: at.right,
             minWidth: '220px', background: 'white', border: '1px solid #E2E4E9',
-            boxShadow: '0 8px 24px rgba(16,17,21,.13)', zIndex: 40,
+            boxShadow: '0 8px 24px rgba(16,17,21,.13)', zIndex: 70,
             padding: '4px 0', borderRadius: 'var(--ui-radius, 2px)',
           }}
         >
@@ -105,7 +140,8 @@ export function ActionsMenu({ items, label = 'פעולות' }: { items: MenuItem
             <div style={{ height: '1px', background: '#EEEEF2', margin: '4px 0' }} />
           )}
           {danger.map(row)}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
