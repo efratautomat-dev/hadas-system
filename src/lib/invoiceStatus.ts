@@ -33,13 +33,19 @@ export function deriveInvoiceStatus(invoice: Invoice, alerts: Alert[]): string {
   return underReview ? STATUS_REVIEW : STATUS_WAITING
 }
 
-// Map the derived Hebrew status onto the unified taxonomy (spec/06-RULES.md §1):
-// waiting → new, under-review → in_progress, transferred-to-accountant → done.
-// Lives HERE, not in a screen, so every screen renders the same badge.
+// Map the derived Hebrew status onto the badge keys. Lives HERE, not in a screen,
+// so every screen renders the same badge.
+//
+// These used to point at the generic `new` / `in_progress` / `done` taxonomy,
+// which renders `חדש` / `בטיפול` / `טופל` — three words that appear nowhere else
+// on the invoices screen. The filter tabs, the counters and the detail header all
+// speak the derived vocabulary above, so the badge in the row disagreed with the
+// tab that had just filtered to it. The badge keys now carry the invoice's own
+// words (registered in `StatusBadge`), with the same colours as before.
 export const INVOICE_STATUS_INTERNAL: Record<string, string> = {
-  [STATUS_WAITING]:     'new',
-  [STATUS_REVIEW]:      'in_progress',
-  [STATUS_TRANSFERRED]: 'done',
+  [STATUS_WAITING]:     'invoice_waiting',
+  [STATUS_REVIEW]:      'invoice_review',
+  [STATUS_TRANSFERRED]: 'invoice_transferred',
 }
 
 /** Derived status → the internal key StatusBadge expects. */

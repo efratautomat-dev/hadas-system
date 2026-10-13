@@ -457,7 +457,7 @@ export default function GoodsTracking({ userEmail, initialNoteId = null }: {
         <OrderForm
           suppliers={suppliers.map(s => ({ id: s.id, name: s.name, hp: (s as { hp?: string }).hp }))}
           onClose={() => setNewOrder(false)}
-          openOrders={openOrders.map(o => ({ id: o.id, supplierId: o.supplierId, description: o.description, date: o.date, expectedDate: o.expectedDate, customerName: o.customerName }))}
+          openOrders={openOrders.map(o => ({ id: o.id, supplierId: o.supplierId, description: o.description, date: o.date, expectedDate: o.expectedDate, customerName: o.customerName, customerStatus: o.customerStatus }))}
           onCreate={async d => { await createOrder(d) }}
         />
       )}

@@ -102,9 +102,15 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // balance — the supplier is owed money the ledger does not show.
   invoice_amount_unreadable:      b('סכום לא נקרא בחשבונית', Coins, 'action'),
   delivery_note_amount_unreadable: b('סכום לא נקרא בתעודה',  Coins, 'action'),
-  // An employee took a customer's order for a supplier whose shipment is already
-  // on its way. ACTION and time-sensitive: the value is entirely in catching it
-  // before that shipment leaves, and a day late it is merely history.
+  // ⚠️ NO LONGER RAISED (13.10.2026) — kept so the rows already in the table
+  // still read as themselves instead of falling back to a raw type name.
+  //
+  // It fired when an employee took a customer's order at a supplier who already
+  // had one open, and it was right about the moment that matters and wrong about
+  // who was standing in it: by the time the manager read the notification the
+  // shipment had often gone ("לבטל התראה על הזמנה מלקוחה, זה מציק"). The
+  // question now appears inside `OrderForm`, the moment she picks that supplier
+  // for a new order — where answering it still changes something.
   customer_order_joins_shipment:  b('הזמנת לקוחה — אפשר לצרף למשלוח', Package, 'action'),
 
   // ── Check (yellow): worth a look / verify ──

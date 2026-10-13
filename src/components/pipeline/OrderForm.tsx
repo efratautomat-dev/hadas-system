@@ -30,6 +30,12 @@ export interface OrderDraft {
   expectedDate: string
   customerName: string
   customerPhone: string
+  /**
+   * Customer orders this order is carrying — ticked in the block that appears
+   * the moment a supplier with waiting customers is chosen. The server marks
+   * each one `הוזמנה מהספק`, because that is now true of them.
+   */
+  joinedOrderIds: string[]
 }
 
 export default function OrderForm({
@@ -59,6 +65,8 @@ export default function OrderForm({
   openOrders?: {
     id: string; supplierId: string; description: string; date: string
     expectedDate: string; customerName: string | null
+    /** A customer already handed her goods is not waiting for anything. */
+    customerStatus?: string | null
   }[]
   /**
    * Render in the page flow instead of over it. The employee screens open these
@@ -76,11 +84,31 @@ export default function OrderForm({
   const [customerPhone, setCustomerPhone] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Which waiting customer orders this one is carrying. Keyed by order id so a
+  // supplier changed mid-form cannot leave a tick behind on somebody else's row.
+  const [joined, setJoined] = useState<Record<string, boolean>>({})
 
   const supplier = lockedSupplier ?? suppliers.find(s => s.id === supplierId)
   // Filtered HERE rather than by each caller: the manager picks the supplier
   // inside this form, so only this component knows which orders are relevant.
   const siblings = openOrders.filter(o => o.supplierId === supplierId)
+  // ── The question that replaced an alert ───────────────────────────────────
+  //
+  // Customer orders waiting on this supplier's name are the ones that can ride
+  // along, and this — a new order being written — is the only moment anyone can
+  // still act on that. It used to be an alert fired at the employee's end of the
+  // decision, which reached the manager after the window had usually closed
+  // ("לבטל התראה על הזמנה מלקוחה, זה מציק", 13.10.2026).
+  //
+  // Not shown on the employee's own customer-order form: she is taking one order
+  // for one person and has nothing to add to it.
+  const waitingCustomers = customerOnly ? [] : siblings.filter(
+    o => (o.customerName ?? '').trim() !== '' && o.customerStatus !== 'customer_delivered',
+  )
+  // The plain notice keeps only the restocks, so the two blocks never say the
+  // same thing twice.
+  const restockSiblings = siblings.filter(o => (o.customerName ?? '').trim() === '')
+  const joinedIds = waitingCustomers.filter(o => joined[o.id]).map(o => o.id)
   // The SUPPLIER is required and nothing else: an order that cannot reach a
   // supplier's page is a row nobody can act on. What was ordered is often a phone
   // call away from being known — "תזמיני מה שחסר" is a real order — and the
@@ -90,6 +118,17 @@ export default function OrderForm({
     // A customer order with no customer cannot be handed back to anyone.
     (!customerOnly || customerName.trim().length > 0)
 
+  // What the supplier is actually being asked for: what she typed, plus a line
+  // per customer order she ticked. Composed at submit rather than written into
+  // the textarea, so unticking a customer takes her line back out — a textarea
+  // edited behind the user's back is a field she stops trusting.
+  const joinedLines = waitingCustomers
+    .filter(o => joined[o.id])
+    .map(o => `עבור ${o.customerName}: ${o.description || '—'}`)
+  const descriptionWithJoined = [description.trim(), ...joinedLines]
+    .filter(Boolean)
+    .join('\n')
+
   const submit = async () => {
     if (!ready || busy) return
     setBusy(true)
@@ -98,12 +137,13 @@ export default function OrderForm({
       await onCreate({
         supplierId,
         supplierName: supplier?.name ?? '',
-        description:  description.trim(),
+        description:  descriptionWithJoined,
         expectedDate,
         // Cleared rather than carried: unchecking the box must actually drop the
         // customer, or a name typed and thought better of is saved anyway.
         customerName:  forCustomer ? customerName.trim()  : '',
         customerPhone: forCustomer ? customerPhone.trim() : '',
+        joinedOrderIds: joinedIds,
       })
       onClose()
     } catch (e) {
@@ -130,7 +170,7 @@ export default function OrderForm({
         <div className="px-5 py-4 grid gap-4">
           <p style={{ fontSize: '12.5px', color: '#9CA3AF', margin: 0 }}>
             {customerOnly
-              ? 'ההזמנה תיפתח אצל הספק הזה. אם כבר יש לו משלוח בדרך — המנהלת תקבל התראה כדי לצרף.'
+              ? 'ההזמנה תיפתח אצל הספק הזה, ותופיע למנהלת כשתיפתח הזמנה אצלו כדי לצרף.'
               : 'מה הוזמן, ממי. הסכום יגיע מהחשבונית.'}
           </p>
 
@@ -160,16 +200,59 @@ export default function OrderForm({
             </div>
           )}
 
-          {supplierId && siblings.length > 0 && (
+          {/* ── לקוחות שממתינות אצל הספק הזה ─────────────────────────────────
+              First, and in the brand colour rather than a warning yellow: this
+              is not a caution, it is a list of things to add before sending the
+              order. A person is waiting at the other end of every line. */}
+          {supplierId && waitingCustomers.length > 0 && (
+            <div style={{ background: 'var(--brand-active-bg)', border: '1px solid #F3D6DD', padding: '12px 14px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--brand-primary)' }}>
+                {waitingCustomers.length === 1
+                  ? 'לקוחה אחת ממתינה אצל הספק הזה — להוסיף להזמנה?'
+                  : `${waitingCustomers.length} לקוחות ממתינות אצל הספק הזה — להוסיף להזמנה?`}
+              </div>
+              <div className="grid gap-1.5" style={{ marginTop: '8px' }}>
+                {waitingCustomers.map(o => (
+                  <label
+                    key={o.id}
+                    className="flex items-start gap-2.5"
+                    style={{ cursor: 'pointer', fontSize: '12.5px', color: '#4B5563' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!joined[o.id]}
+                      onChange={e => setJoined(j => ({ ...j, [o.id]: e.target.checked }))}
+                      style={{ marginTop: '3px', accentColor: 'var(--brand-primary)' }}
+                    />
+                    <span>
+                      <b style={{ color: '#2F3136' }}>{o.customerName}</b>
+                      {' — '}
+                      {o.description || 'ללא פירוט'}
+                      {o.date ? (
+                        <small style={{ color: '#9CA3AF', fontWeight: 700 }}>{` · הוזמנה ${o.date}`}</small>
+                      ) : null}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <p style={{ margin: '8px 0 0', fontSize: '11.5px', color: '#9CA3AF' }}>
+                מה שתסמני ייכנס לשורת "מה הוזמן", וההזמנה של הלקוחה תסומן
+                "הוזמנה מהספק". בלי סימון — שום דבר לא משתנה אצלה.
+              </p>
+            </div>
+          )}
+
+          {/* The restock notice, unchanged in intent and now only about restocks:
+              a second order at a supplier who already has one open. */}
+          {supplierId && restockSiblings.length > 0 && (
             <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', padding: '12px 14px' }}>
               <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#92400E' }}>
-                {`יש כבר ${siblings.length === 1 ? 'הזמנה פתוחה' : `${siblings.length} הזמנות פתוחות`} אצל הספק הזה`}
+                {`יש כבר ${restockSiblings.length === 1 ? 'הזמנה פתוחה' : `${restockSiblings.length} הזמנות פתוחות`} אצל הספק הזה`}
               </div>
               <ul style={{ margin: '6px 0 0', paddingInlineStart: '16px', fontSize: '12.5px', color: '#6B6E73' }}>
-                {siblings.slice(0, 3).map(o => (
+                {restockSiblings.slice(0, 3).map(o => (
                   <li key={o.id}>
                     {o.description || '—'}
-                    {o.customerName ? ` — עבור ${o.customerName}` : ''}
                     {o.expectedDate ? ` · צפי ${o.expectedDate}` : ''}
                   </li>
                 ))}

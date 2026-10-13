@@ -9,6 +9,7 @@ import DemoRoleSwitcher from './components/DemoRoleSwitcher'
 import { NotesTargetProvider } from './lib/notesTarget'
 import { DEMO_STANDALONE } from './lib/demo'
 import { isUnlocked } from './lib/demoGate'
+import { useAutoRefresh } from './lib/autoRefresh'
 
 // A spinner that never stops is as useless as a blank page — and on a tablet the
 // two look identical. Sign-in needs one call to Supabase before anything can be
@@ -102,6 +103,11 @@ export default function App() {
   // changes between the gated and the open render. In the standalone demo build it
   // resolves against the stubbed client — no network either way.
   const { user, role, isLoading, unauthorizedError, signOut } = useAuth()
+
+  // Every open screen re-reads itself once a minute, and the moment the tab comes
+  // back to the front. Called HERE, above every branch, so the hook order never
+  // changes and so exactly one timer exists for the whole app.
+  useAutoRefresh()
 
   // The public demo build (incontrol.ctrlplusf.com) opens on a password door.
   // Unlocking reloads rather than re-rendering: the visitor's chosen role is read

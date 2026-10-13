@@ -311,6 +311,7 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
                       .map(o => ({
                         id: o.id, supplierId: o.supplierId, description: o.description,
                         date: o.date, expectedDate: o.expectedDate, customerName: o.customerName,
+                        customerStatus: o.customerStatus,
                       }))}
                     onClose={() => setNewCustomerOrder(false)}
                     onCreate={async d => { await createOrder(d); setNewCustomerOrder(false) }}

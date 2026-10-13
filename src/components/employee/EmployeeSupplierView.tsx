@@ -690,6 +690,7 @@ export default function EmployeeSupplierView({ supplier, activeSection, onOpenPi
           openOrders={supplierOrders.map(o => ({
             id: o.id, supplierId: o.supplierId, description: o.description,
             date: o.date, expectedDate: o.expectedDate, customerName: o.customerName,
+            customerStatus: o.customerStatus,
           }))}
           onClose={() => setNewOrder(false)}
           onCreate={async d => { await createOrder(d) }}
