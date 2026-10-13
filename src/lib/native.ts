@@ -83,6 +83,45 @@ export async function openExternal(url: string): Promise<boolean> {
   return false
 }
 
+export type EmailOpen = 'opened' | 'gmail-app' | 'copied-subject' | 'copied-link'
+
+/**
+ * Takes the person to the original email, by whatever route the device allows.
+ *
+ * The stored link is a Gmail WEB address — `mail.google.com/mail/u/0/#all/<id>`.
+ * The Gmail Android app does not claim those links, so they need a browser; on a
+ * tablet that has Gmail but no browser, nothing answered at all and the button
+ * appeared dead.
+ *
+ * So: try the link, then try to open the Gmail app itself, and in either case put
+ * the SUBJECT on the clipboard rather than the URL — pasting a subject into Gmail's
+ * search finds the message in one move, while a URL that nothing can open is of no
+ * use to anybody. The caller is told which of those happened so it can say so.
+ */
+export async function openEmail(messageLink: string, subject?: string): Promise<EmailOpen> {
+  if (await openExternal(messageLink)) return 'opened'
+
+  if (isNative() && subject) {
+    const { copyText } = await import('./clipboard')
+    await copyText(subject)
+    try {
+      const { AppLauncher } = await import('@capacitor/app-launcher')
+      // The Gmail app's own scheme. It opens the app, not the message — the
+      // subject is already on the clipboard for the search box.
+      const { value } = await AppLauncher.canOpenUrl({ url: 'googlegmail://' })
+      if (value) {
+        await AppLauncher.openUrl({ url: 'googlegmail://' })
+        return 'gmail-app'
+      }
+    } catch {
+      // No Gmail app, or the device refuses the query — the subject is copied.
+    }
+    return 'copied-subject'
+  }
+
+  return 'copied-link'
+}
+
 /**
  * Prints a standalone HTML document that exists only in memory.
  *

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
-import { openExternal } from '../lib/native'
+import { openEmail, type EmailOpen } from '../lib/native'
 import { DocumentBody } from './PdfPreviewModal'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
@@ -196,7 +196,8 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
   // Set when nothing on the device could open the link. One of the shop's tablets
   // has no browser at all, and there this button did nothing at all — no app
   // answered, no error, no sign it had been pressed.
-  const [linkCopied, setLinkCopied] = useState(false)
+  const [mailResult, setMailResult] = useState<EmailOpen | null>(null)
+  const subject = (alert.payload as Record<string, unknown> | undefined)?.subject as string | undefined
 
   return (
     <div
@@ -269,10 +270,10 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
             {messageLink && (
               <button
                 onClick={async () => {
-                  const opened = await openExternal(messageLink)
-                  if (!opened) {
-                    setLinkCopied(true)
-                    setTimeout(() => setLinkCopied(false), 6000)
+                  const how = await openEmail(messageLink, subject)
+                  if (how !== 'opened') {
+                    setMailResult(how)
+                    setTimeout(() => setMailResult(null), 9000)
                   }
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
@@ -282,9 +283,13 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
                 פתח מייל מקורי
               </button>
             )}
-            {linkCopied && (
+            {mailResult && (
               <span style={{ fontSize: '11.5px', color: '#6B7280', lineHeight: 1.5 }}>
-                אין במכשיר אפליקציה שפותחת מיילים — הקישור הועתק, אפשר להדביק אותו בטלפון או במחשב
+                {mailResult === 'gmail-app'
+                  ? 'נושא המייל הועתק — הדביקי אותו בחיפוש של Gmail שנפתח'
+                  : mailResult === 'copied-subject'
+                    ? 'נושא המייל הועתק — אפשר להדביק אותו בחיפוש של Gmail'
+                    : 'אין במכשיר אפליקציה שפותחת את הקישור — הוא הועתק, אפשר להדביק אותו בטלפון או במחשב'}
               </span>
             )}
             {!isResolved && alert.status === 'new' && (
@@ -446,9 +451,13 @@ export function resolveAlertDestination(
       // Same fallback as the card's button: on a device with nothing that opens
       // mail, the link is copied rather than lost. The alerts screen stays put so
       // the person can see which alert they were on.
-      void openExternal(messageLink).then((opened) => {
+      void openEmail(messageLink, p.subject as string | undefined).then((how) => {
         // window.alert: `alert` is the name of the alert row in this file.
-        if (!opened) window.alert('אין במכשיר אפליקציה שפותחת מיילים.\nהקישור הועתק — אפשר להדביק אותו בטלפון או במחשב.')
+        if (how === 'gmail-app' || how === 'copied-subject') {
+          window.alert('נושא המייל הועתק.\nהדביקי אותו בחיפוש של Gmail כדי למצוא את ההודעה.')
+        } else if (how === 'copied-link') {
+          window.alert('אין במכשיר אפליקציה שפותחת את הקישור.\nהוא הועתק — אפשר להדביק אותו בטלפון או במחשב.')
+        }
       })
       return
     }
