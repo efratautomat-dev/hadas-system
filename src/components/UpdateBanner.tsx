@@ -17,6 +17,9 @@ import { checkForUpdate, openExternal, type AppUpdate } from '../lib/native'
 export default function UpdateBanner() {
   const [update, setUpdate] = useState<AppUpdate | null>(null)
   const [dismissed, setDismissed] = useState(false)
+  // The update is a download, and a tablet with no browser has nothing to download
+  // with. Rather than a button that does nothing, the link is copied and said so.
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     void checkForUpdate().then(setUpdate)
@@ -44,7 +47,7 @@ export default function UpdateBanner() {
       )}
 
       <button
-        onClick={() => void openExternal(update.url)}
+        onClick={async () => { if (!(await openExternal(update.url))) setCopied(true) }}
         style={{
           marginInlineStart: 'auto',
           padding: '8px 18px',
@@ -61,6 +64,12 @@ export default function UpdateBanner() {
       >
         עדכני עכשיו
       </button>
+
+      {copied && (
+        <span style={{ fontSize: '12px', opacity: 0.95, width: '100%' }}>
+          אין במכשיר דפדפן להורדה — הקישור הועתק. אפשר לשלוח אותו לטאבלט בוואטסאפ ולפתוח משם.
+        </span>
+      )}
 
       {/* Hiding it lasts for this session only. A tablet that is a version behind
           should be asked again tomorrow, not left silently behind forever. */}

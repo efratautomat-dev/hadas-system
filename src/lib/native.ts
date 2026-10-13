@@ -40,19 +40,47 @@ export function isNative(): boolean {
 }
 
 /**
- * Opens a URL where the viewer can actually use it. In the browser that is a new
- * tab, exactly as before. On the tablet it is the real Chrome app (via an
- * ACTION_VIEW intent) rather than an in-app browser tab — Chrome has Print and a
- * PDF viewer; an in-app tab has neither, which is the whole point of leaving.
+ * Opens a URL where the viewer can actually use it, and SAYS SO when it cannot.
+ *
+ * In the browser that is a new tab, exactly as before. On the tablet it is the
+ * real Chrome app rather than an in-app browser tab — Chrome has Print and a PDF
+ * viewer; an in-app tab has neither, which is the whole point of leaving.
+ *
+ * But one of the shop's tablets has no browser at all, and there "open the email"
+ * did nothing: no app answered the intent, no error, no sign anything had been
+ * asked. So when nothing can open the link, it goes to the clipboard instead and
+ * the caller is told — a link you can paste into a phone beats a button that
+ * quietly does nothing.
+ *
+ * Returns true when the link was opened, false when it was only copied.
  */
-export async function openExternal(url: string): Promise<void> {
-  if (!url) return
+export async function openExternal(url: string): Promise<boolean> {
+  if (!url) return false
   if (!isNative()) {
     window.open(url, '_blank', 'noopener')
-    return
+    return true
   }
+
   const { AppLauncher } = await import('@capacitor/app-launcher')
-  await AppLauncher.openUrl({ url })
+  try {
+    const { value } = await AppLauncher.canOpenUrl({ url })
+    if (value) {
+      await AppLauncher.openUrl({ url })
+      return true
+    }
+  } catch {
+    // Some devices refuse the query itself; the attempt below is still worth making.
+    try {
+      await AppLauncher.openUrl({ url })
+      return true
+    } catch {
+      // fall through to the clipboard
+    }
+  }
+
+  const { copyText } = await import('./clipboard')
+  await copyText(url)
+  return false
 }
 
 /**

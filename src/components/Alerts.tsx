@@ -193,6 +193,10 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
   const messageLink = (alert.payload as Record<string, unknown> | undefined)?.messageLink as string | undefined
   const isResolved = alert.status === 'resolved'
   const clickable  = !!onClick
+  // Set when nothing on the device could open the link. One of the shop's tablets
+  // has no browser at all, and there this button did nothing at all — no app
+  // answered, no error, no sign it had been pressed.
+  const [linkCopied, setLinkCopied] = useState(false)
 
   return (
     <div
@@ -264,13 +268,24 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
           <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
             {messageLink && (
               <button
-                onClick={() => void openExternal(messageLink)}
+                onClick={async () => {
+                  const opened = await openExternal(messageLink)
+                  if (!opened) {
+                    setLinkCopied(true)
+                    setTimeout(() => setLinkCopied(false), 6000)
+                  }
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
                 style={{ background: '#EFF6FF', color: '#1D4ED8' }}
               >
                 <Mail className="w-3 h-3" />
                 פתח מייל מקורי
               </button>
+            )}
+            {linkCopied && (
+              <span style={{ fontSize: '11.5px', color: '#6B7280', lineHeight: 1.5 }}>
+                אין במכשיר אפליקציה שפותחת מיילים — הקישור הועתק, אפשר להדביק אותו בטלפון או במחשב
+              </span>
             )}
             {!isResolved && alert.status === 'new' && (
               <button
@@ -427,7 +442,16 @@ export function resolveAlertDestination(
     t === 'return_no_file'         || t === 'delivery_note_ingest_failed' ||
     t === 'statement_ingest_failed'|| t === 'return_ingest_failed'
   ) {
-    if (messageLink) { void openExternal(messageLink); return }
+    if (messageLink) {
+      // Same fallback as the card's button: on a device with nothing that opens
+      // mail, the link is copied rather than lost. The alerts screen stays put so
+      // the person can see which alert they were on.
+      void openExternal(messageLink).then((opened) => {
+        // window.alert: `alert` is the name of the alert row in this file.
+        if (!opened) window.alert('אין במכשיר אפליקציה שפותחת מיילים.\nהקישור הועתק — אפשר להדביק אותו בטלפון או במחשב.')
+      })
+      return
+    }
     handlers.onPageChange?.('alerts')
     return
   }
