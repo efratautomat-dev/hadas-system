@@ -9,7 +9,7 @@ import { useOrders } from '../../hooks/useOrders'
 import { useIsWide } from '../../hooks/useIsWide'
 import SectionHeader from '../SectionHeader'
 import { SearchableSelect } from '../SearchableSelect'
-import { PdfPreviewModal } from '../PdfPreviewModal'
+import { DocumentBody, PdfPreviewModal } from '../PdfPreviewModal'
 import { supabase } from '../../lib/supabase'
 import { STATUS } from '../../theme/status'
 import type { Invoice, PipelineStage, DeliveryNote } from '../../data/mockData'
@@ -190,7 +190,26 @@ function EmployeeInvoiceView({ invoice, onBack, onSaveNotes, isWide }: {
   const [note, setNote] = useState(invoice.notes ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const docUrl = (invoice.driveFileLink || invoice.storage_url || '').trim()
+  // Same order as the manager's screen, and for the same reason: the copy WE
+  // store can be displayed, a Drive link cannot (Google wants a session the app
+  // does not have). storage_url is a path, so it has to be signed before it is a
+  // URL at all — handing the raw path to an <img> was never going to render.
+  const storagePath = (invoice.storage_url ?? '').trim()
+  const driveLink = (invoice.driveFileLink ?? '').trim()
+  const [docUrl, setDocUrl] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      if (storagePath) {
+        if (/^https?:\/\//i.test(storagePath)) { if (!cancelled) setDocUrl(storagePath); return }
+        const { data } = await supabase.storage.from('documents').createSignedUrl(storagePath, 3600)
+        if (!cancelled && data?.signedUrl) { setDocUrl(data.signedUrl); return }
+      }
+      if (!cancelled) setDocUrl(driveLink)
+    })()
+    return () => { cancelled = true }
+  }, [storagePath, driveLink])
   const statusKey = invoiceStatusKey(invoice, NO_ALERTS)
   const rows = [
     { label: 'מספר חשבונית', value: invoice.invoiceNumber || invoice.id },
@@ -228,8 +247,12 @@ function EmployeeInvoiceView({ invoice, onBack, onSaveNotes, isWide }: {
               style={{ padding: '5px 10px', border: '1px solid #DEDFE5', background: 'white', color: 'var(--brand-primary)', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
             ><Eye size={13} />הגדל</button>
           </div>
-          <div className="grid place-items-center" style={{ flex: 1, color: '#B7B9C0', fontSize: '13px', padding: '16px', textAlign: 'center' }}>
-            לחצי "הגדל" לצפייה במסמך
+          {/* The document itself, not an instruction to go and find it. The shop's
+              tablet is where invoices are actually checked, and a pane that said
+              "press enlarge" meant every single check cost an extra tap and a modal.
+              "הגדל" stays, for reading the small print full screen. */}
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', minHeight: 0 }}>
+            <DocumentBody url={docUrl} />
           </div>
         </div>
       )}
