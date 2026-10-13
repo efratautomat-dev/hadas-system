@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import UpdateBanner from '../UpdateBanner'
 import { Camera, X, LogOut, Search, FileText, Truck, RotateCcw, ChevronRight, ChevronDown, Plus } from 'lucide-react'
 import { SearchableSelect } from '../SearchableSelect'
 import CaptureDocument from '../CaptureDocument'
@@ -182,6 +183,10 @@ export default function EmployeeDashboard({ userEmail, onLogout }: Props) {
 
   return (
     <div className="min-h-screen" style={{ background: '#F8F8FA', direction: 'rtl' }}>
+      {/* The shared tablet is the hardest one to reinstall by hand, so the update
+          notice belongs here more than anywhere. No-op in the browser. */}
+      <UpdateBanner />
+
       {/* ── Header (accent band, brand colors) ── */}
       <header
         className="sticky top-0 z-40 flex items-center justify-between"

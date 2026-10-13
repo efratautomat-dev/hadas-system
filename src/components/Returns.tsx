@@ -556,7 +556,10 @@ export default function Returns({ initialEditId }: ReturnsProps = {}) {
       <>
       {/* Filters */}
       <div className="bg-white rounded-2xl shadow-sm border p-4" style={{ borderColor: '#E2E4E9' }}>
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
+        {/* auto-FIT, not auto-fill: fill keeps empty tracks at the end of the row,
+            which on a tablet left the fourth filter alone on a second line beside a
+            gap. fit collapses the empties and the four share the width. */}
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
           <div>
             <p className="text-right mb-1.5 text-xs font-semibold text-gray-500">ספק</p>
             <SearchableSelect

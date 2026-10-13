@@ -31,11 +31,18 @@ export function FilterTabs<K extends string>({
   return (
     <div
       role="tablist"
-      className="flex items-end gap-1 flex-wrap"
+      className="flex items-end gap-1"
       style={{
         // The hairline runs the full width and the active tab sits ON it, so the
         // row reads as one surface rather than as separate buttons.
         borderBottom: '1px solid #E9EAEF',
+        // One row, always. Wrapping put a lone tab on a second line, aligned to
+        // the wrong edge and detached from the hairline it is supposed to sit on —
+        // which is what a narrow tablet actually does to this row. Scrolling keeps
+        // the shape and keeps every tab reachable.
+        flexWrap: 'nowrap',
+        overflowX: 'auto',
+        scrollbarWidth: 'none',
         ...style,
       }}
     >
@@ -61,6 +68,8 @@ export function FilterTabs<K extends string>({
               cursor: 'pointer',
               fontFamily: 'inherit',
               whiteSpace: 'nowrap',
+              // The row scrolls rather than wraps, so a tab must keep its size.
+              flexShrink: 0,
             }}
           >
             {t.label}
