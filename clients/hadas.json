@@ -13,8 +13,8 @@
   },
   "version": {
     "_note": "Per customer, because Android compares versionCode against what is installed on THAT device. Written back by the release script on every build — do not edit by hand.",
-    "code": 23,
-    "name": "1.0.22"
+    "code": 24,
+    "name": "1.0.23"
   },
   "_hosting": "Served from the vendor server rather than Vercel: the tablet WebView loads this host and would not load the Vercel one, on a device where Chrome loaded both. Same code, same Supabase project, same data — only the origin differs. Rebuild with scripts/mirror-hadas.mjs whenever production changes."
 }

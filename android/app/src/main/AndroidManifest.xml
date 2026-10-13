@@ -33,6 +33,23 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Android 11 hides other apps from us unless we say what we are looking for.
+         Without this, canOpenUrl() answers "no" for EVERYTHING — so the app
+         concluded there was no browser and no mail app even where both existed,
+         and quietly fell back to copying links to the clipboard. Declaring the
+         intents restores the question, it does not grant any new power. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="mailto" />
+        </intent>
+        <package android:name="com.google.android.gm" />
+    </queries>
+
     <!-- Photographing an invoice at the counter is the app's main job. The Camera
          plugin does NOT declare these itself; without them the shot silently fails
          on some devices. READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE cover choosing
