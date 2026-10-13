@@ -694,9 +694,22 @@ function extractRawHtml(message: GmailMessage): string {
 
 // Full N8N keyword set (superset of N8N's list) so portal-style "view/download"
 // links are caught — e.g. כובעי זיוה's "להורדת המסמך" ("הורד" already matches it).
+// ⚠️ The list decides which links are even TRIED, and a document type missing
+// from it is a document the link path never looks for. It began as an invoice
+// list — so a mail whose only wording was "תעודת משלוח" or "כרטסת" produced no
+// candidate at all and was reported as a mail with no attachment, which reads
+// like a fetch failure and is not one. The link path is shared by every document
+// type (it runs before the type routing), so the vocabulary has to be too.
+//
+// A wrong guess here is cheap in one direction and not the other: an extra
+// candidate costs one download that the magic-byte and 50KB gates throw away,
+// while a missing word costs the document. `.pdf` links are still preferred
+// first, so an added keyword cannot outrank the real file.
 const DOWNLOAD_WORDS = [
   "לצפייה", "צפייה", "לחץ כאן", "הורד", "להורדה", "להורדת",
   "view", "download", "invoice", "חשבונית", "מסמך",
+  // Delivery notes, statements and credit notes arrive behind links too.
+  "תעודה", "תעודת", "כרטסת", "זיכוי", "statement", "delivery",
 ];
 
 // True for URLs that point directly at a PDF file.

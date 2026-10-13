@@ -245,24 +245,14 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     row.delivery_note_id = pipe.id
     orders.unshift(row)
 
-    // Mirrors the server: a CUSTOMER order landing on a supplier that already has
-    // one open raises the alert, because the shipment on its way can still carry
-    // the customer's item if somebody sees it in time.
-    const alerts = demoTables.alerts
-    if (row.customer_name && alerts) {
-      const sibling = orders.find(o =>
-        o.id !== row.id && o.supplier_id === row.supplier_id && o.status === 'order_waiting')
-      if (sibling) {
-        alerts.unshift({
-          id: `alert_${Date.now()}`,
-          type: 'customer_order_joins_shipment',
-          title: 'הזמנת לקוחה אצל ספק עם משלוח בדרך',
-          message: `${row.customer_name} הזמינה מ${row.supplier_name}. יש כבר הזמנה פתוחה אצל אותו ספק — אפשר לצרף.`,
-          status: 'unread',
-          created_at: nowIso(),
-          payload: { supplierId: row.supplier_id, orderId: row.id, existingOrderId: sibling.id },
-        })
-      }
+    // Mirrors the server: customer orders the manager ticked in the form are now
+    // ordered from the supplier, so they stop saying "ממתינה". This replaced the
+    // `customer_order_joins_shipment` alert (13.10.2026) — the question is asked
+    // while the order is being written, which is the only time it can be acted on.
+    const joined: string[] = Array.isArray(b.joined_order_ids) ? b.joined_order_ids.map(String) : []
+    for (const id of joined) {
+      const target = orders.find(o => o.id === id && o.supplier_id === row.supplier_id && o.customer_name)
+      if (target) target.customer_status = 'customer_ordered'
     }
     return row
   }

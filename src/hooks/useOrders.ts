@@ -121,6 +121,12 @@ export function useOrders() {
     expectedDate?: string
     customerName?: string
     customerPhone?: string
+    /**
+     * Customer orders this one is carrying (`OrderForm`). The server marks each
+     * `customer_ordered` — "הוזמנה מהספק" — because by sending this order that
+     * is what happened to them.
+     */
+    joinedOrderIds?: string[]
   }) => {
     try {
       const res = await api.post('/orders', {
@@ -131,6 +137,7 @@ export function useOrders() {
         expected_date:  body.expectedDate  || null,
         customer_name:  body.customerName  || null,
         customer_phone: body.customerPhone || null,
+        joined_order_ids: body.joinedOrderIds ?? [],
       })
       await load()
       return (res as { id?: string }).id

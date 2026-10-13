@@ -1374,48 +1374,36 @@ async function createOrder(req: Request, supabase: SupabaseClient, actor?: strin
   }
   await supabase.from("orders").update({ delivery_note_id: pipe.id }).eq("id", data.id);
 
-  // ── A customer order landing on a supplier that already has one open ──────
+  // ── Customer orders carried by this one ───────────────────────────────────
   //
-  // The owner's rule, and the reason it exists: the shipment is already on its
-  // way, so the customer's item can ride along instead of triggering a second
-  // delivery — but only if somebody notices in time. An employee taking the order
-  // over the phone has no way to know, so the system tells the manager.
+  // This replaces an ALERT (`customer_order_joins_shipment`, 03.09–13.10.2026).
+  // That alert fired on the wrong side of the decision: an employee took a
+  // customer's order, the manager got a notification about a shipment already on
+  // its way, and by the time she read it the window had often closed. Her verdict
+  // was short — *"לבטל התראה על הזמנה מלקוחה, זה מציק"* — and she named the moment
+  // that actually matters: **when a new order is being opened** at a supplier who
+  // has customer orders waiting on his name. The form asks there (see
+  // `OrderForm`), and what it sends back is this list.
   //
-  // Only for CUSTOMER orders. A restock order joining another restock order is
-  // ordinary and needs no interruption; the alert exists because a customer is
-  // waiting and a missed window costs her the wait, not the store a delivery fee.
-  const customerName = body.customer_name ?? body.customerName ?? null;
-  if (customerName) {
-    const { data: openSiblings } = await supabase.from("orders")
-      .select("id, description, expected_date, date")
+  // So the write is small and the reason it is a write at all: a customer order
+  // the manager has just added to a real order HAS been ordered from the supplier,
+  // and leaving it on `ממתינה` is the notebook lying about work that was done.
+  // `customer_ordered` is her click, not the system's inference — the rule in
+  // `src/lib/customerStatus.ts` (only `customer_arrived` is automatic) holds.
+  const joined: string[] = Array.isArray(body.joined_order_ids ?? body.joinedOrderIds)
+    ? (body.joined_order_ids ?? body.joinedOrderIds).map(String).filter(Boolean)
+    : [];
+  if (joined.length > 0) {
+    // Scoped to the same supplier on purpose: the ids come from the browser, and
+    // an order at another supplier could never have been carried by this one.
+    await supabase.from("orders")
+      .update({ customer_status: "customer_ordered" })
+      .in("id", joined)
       .eq("supplier_id", supplierId)
-      .eq("status", "order_waiting")
-      .neq("id", data.id)
-      .order("expected_date", { ascending: true, nullsFirst: false })
-      .limit(1);
-    const sibling = openSiblings?.[0];
-    if (sibling) {
-      const when = sibling.expected_date
-        ? `צפי הגעה ${String(sibling.expected_date).split("-").reverse().join("/")}`
-        : "ללא צפי הגעה";
-      await supabase.from("alerts").insert({
-        type:    "customer_order_joins_shipment",
-        title:   "הזמנת לקוחה אצל ספק עם משלוח בדרך",
-        message: `${customerName} הזמינה מ${supplierName ?? "הספק"}. יש כבר הזמנה פתוחה אצל אותו ספק (${when}) — אפשר לצרף.`,
-        status:  "unread",
-        payload: {
-          supplierId,
-          supplierName:   supplierName ?? "",
-          orderId:        data.id,
-          existingOrderId: sibling.id,
-          customerName,
-          expectedDate:   sibling.expected_date ?? null,
-        },
-      });
-    }
+      .not("customer_name", "is", null);
   }
 
-  return json({ id: data.id }, 201);
+  return json({ id: data.id, joined: joined.length }, 201);
 }
 
 /**
