@@ -569,15 +569,17 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
           style={{
             padding: pad,
             paddingTop: padTop,
-            // The page must never scroll sideways — that is what slid the content
-            // under the fixed menu on the shop's tablet. But `hidden` was the wrong
-            // cure: four screens have content wider than this pane, and hiding it
-            // made parts of them unreachable instead of merely awkward.
+            // NO overflow rule here, and that is deliberate. Setting either axis to
+            // `hidden` or `auto` makes CSS compute the OTHER axis as `auto` too, so
+            // this element becomes a scroll container in both directions — and the
+            // page's own scrolling moves inside it. On the shop's tablet that left
+            // the buttons at the foot of a long form unreachable, and a menu that
+            // would not open. A page that slides a little sideways is a blemish; a
+            // control that cannot be pressed is a broken screen.
             //
-            // `auto` keeps both promises: the PANE scrolls, the page does not, and
-            // nothing is lost. The sticky top bar is a sibling rather than a child,
-            // so it is unaffected either way.
-            overflowX: 'auto',
+            // Wide content scrolls inside its own container instead — that is the
+            // rule everywhere in this codebase, and where a screen breaks it the fix
+            // belongs in that screen.
             minWidth: 0,
           }}
         >
