@@ -34,6 +34,9 @@ export function applyDemoWrite(method: string, path: string, body?: unknown): Ro
   const pipeline = applyPipelineWrite(method, path, b)
   if (pipeline) return pipeline
 
+  const personal = applyPersonalWrite(method, path, b)
+  if (personal) return personal
+
   const notes = demoTables.supplier_notes
   if (!notes) return null
 
@@ -98,7 +101,14 @@ function find(table: string, id: string): Row | undefined {
  * is a judgement about work rather than data anyone browses. Lost on reload,
  * which is exactly right for a demo.
  */
-export const demoHandled = new Set<string>()
+export const demoHandled = new Map<string, Row>()
+
+/** The marks as `note_handled` rows, so a reader that reloads (the notes panel,
+ *  the home screen's board) sees what was marked rather than losing it on the
+ *  first refresh. */
+export function demoHandledRows(): Row[] {
+  return [...demoHandled.values()]
+}
 
 function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
   const orders   = demoTables.orders
@@ -444,7 +454,11 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
   if (method === 'PUT' && path === '/note-handled') {
     const key = `${String(b.sourceKey ?? '')}:${String(b.recordId ?? '')}`
     if (b.handled === false) demoHandled.delete(key)
-    else demoHandled.add(key)
+    else demoHandled.set(key, {
+      source_key: String(b.sourceKey ?? ''),
+      record_id: String(b.recordId ?? ''),
+      supplier_id: String(b.supplierId ?? ''),
+    })
     return { success: true, handled: b.handled !== false }
   }
 
@@ -765,5 +779,62 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return { success: true }
   }
 
+  return null
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Her own lists: tasks, and "הייתי רוצה שיהיה אחרת".
+//
+// Applied for the same reason notes are — writing one IS the feature. Neither
+// touches a financial record. In memory, like everything else here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function applyPersonalWrite(method: string, path: string, b: Row): Row | null {
+  const tasks  = demoTables.tasks
+  const wishes = demoTables.wishes
+  if (!tasks || !wishes) return null
+
+  if (method === 'POST' && path === '/tasks') {
+    const row: Row = {
+      id: `task_${Date.now()}`,
+      body: String(b.body ?? ''),
+      done: false,
+      from_label: b.fromLabel ? String(b.fromLabel) : null,
+      from_intent: b.fromIntent ?? null,
+      from_key: b.fromKey ? String(b.fromKey) : null,
+      created_at: nowIso(),
+      done_at: null,
+      author_email: DEMO_AUTHOR,
+    }
+    tasks.unshift(row)
+    return row
+  }
+  const t = path.match(/^\/tasks\/([^/]+)$/)
+  if (t && method === 'PUT') {
+    const row = find('tasks', t[1])
+    if (!row) return null
+    if (typeof b.done === 'boolean') { row.done = b.done; row.done_at = b.done ? nowIso() : null }
+    if (typeof b.body === 'string' && b.body.trim()) row.body = b.body.trim()
+    return row
+  }
+  if (t && method === 'DELETE') {
+    const i = tasks.findIndex(r => String(r.id) === t[1])
+    if (i >= 0) tasks.splice(i, 1)
+    return { success: true }
+  }
+
+  if (method === 'POST' && path === '/wishes') {
+    const row: Row = {
+      id: `wish_${Date.now()}`,
+      body: String(b.body ?? ''),
+      page: String(b.page ?? ''),
+      page_label: String(b.pageLabel ?? ''),
+      created_at: nowIso(),
+      author_email: DEMO_AUTHOR,
+    }
+    wishes.unshift(row)
+    return row
+  }
   return null
 }

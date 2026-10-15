@@ -172,6 +172,24 @@ const payments: Row[] = seed.payments.map((p) => ({
 // ── returns ──────────────────────────────────────────────────────────────────
 // useReturns reads DB columns; ReturnStatus is one of אושר|בטיפול|נדחה, so the
 // seed's Hebrew lifecycle labels are mapped onto that union.
+// ── payments still to leave the bank ─────────────────────────────────────────
+// The seed's payments are all history (status paid), so the home screen's "today
+// and tomorrow" had nothing to say. Three payments written and not yet cleared,
+// dated around the demo's own today (src/lib/clock.ts → 2026-06-17): one today,
+// one tomorrow, one later in the week. Fictitious, like the rest.
+//
+// ⚠️ Pending payments COUNT in the ledger (only cancelled ones do not), so none of
+// these sits on a supplier that has a statement in the seed — a payment added to
+// תוויות פלוס would turn its `תואם` statement into a gap nobody made.
+const pendingPayments: Row[] = [
+  { id: 'pay_p1', supplier_id: 'sup_07', amount: 3110, payment_type: 'צ׳ק', payment_date: '2026-06-01', value_date: '2026-06-17',
+    reference: 'inv_024', notes: '', status: 'pending', bizbox_exported_at: null, created_at: '2026-06-01T08:00:00' },
+  { id: 'pay_p2', supplier_id: 'sup_04', amount: 8240, payment_type: 'צ׳ק', payment_date: '2026-06-02', value_date: '2026-06-18',
+    reference: '', notes: '', status: 'pending', bizbox_exported_at: null, created_at: '2026-06-02T08:00:00' },
+  { id: 'pay_p3', supplier_id: 'sup_06', amount: 12400, payment_type: 'העברה בנקאית', payment_date: '2026-06-10', value_date: '2026-06-22',
+    reference: 'inv_027', notes: '', status: 'pending', bizbox_exported_at: null, created_at: '2026-06-10T08:00:00' },
+]
+
 const RETURN_STATUS: Record<string, string> = {
   'הסתיים': 'אושר',
   'ממתין לזיכוי': 'בטיפול',
@@ -349,6 +367,9 @@ const delivery_notes: Row[] = [
   // produces is a feature that reads as missing.
   { id: 'dn_08', supplier_id: 'sup_03', supplier_name: 'הדפסות רימון', date: '2026-06-13', amount: null, status: 'pending', invoice_id: null, drive_file_link: null, storage_url: null, note_number: '', stage: 'awaiting_invoice', intake_source: 'manual', line_items: 'מדבקות לוגו — 3 גלילים' },
   { id: 'dn_09', supplier_id: 'sup_03', supplier_name: 'הדפסות רימון', date: '2026-06-14', amount: 2410, status: 'pending_match', invoice_id: null, drive_file_link: DOC_URL, storage_url: null, note_number: '5512', stage: 'awaiting_invoice', intake_source: 'email' },
+  // An invoice that came in and opened its own pipeline row, and the goods never
+  // followed — the home screen's "חשבונית בלי סחורה".
+  { id: 'dn_i1', supplier_id: 'sup_06', supplier_name: 'משלוחים מהיר אקספרס', date: '2026-06-05', amount: null, status: 'pending', invoice_id: 'inv_027', drive_file_link: null, storage_url: null, note_number: '', stage: 'awaiting_goods', intake_source: 'invoice' },
   { id: 'dn_07', supplier_id: 'sup_08', supplier_name: 'תוויות פלוס',      date: '2026-06-14', amount: 3120,  status: 'pending',       invoice_id: null,      drive_file_link: null, storage_url: DOC_URL, note_number: '', stage: 'awaiting_goods', intake_source: 'manual' },
 ]
 
@@ -380,6 +401,19 @@ const orders: Row[] = [
     customer_status: 'customer_notified',
     status: 'order_arrived', arrived_at: '2026-06-09T08:20:00', arrived_differs: false,
     delivery_note_id: 'dn_05' },
+  // Two customers the home screen should mention: one whose order arrived and
+  // nobody has phoned yet, one whose order is three weeks old and has not come.
+  { id: 'ord_07', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',
+    description: 'חוט כותנה — 6 גוונים, 2 סלילים מכל גוון', date: '2026-06-04',
+    customer_name: 'רונית כהן', customer_phone: '050-3318842',
+    customer_status: 'customer_arrived',
+    status: 'order_arrived', arrived_at: '2026-06-14T10:00:00', arrived_differs: false,
+    delivery_note_id: 'dn_06' },
+  { id: 'ord_08', supplier_id: 'sup_05', supplier_name: 'כפתורים ופרטים בע"מ',
+    description: 'כפתורי צדף לבנים — 40 יחידות', date: '2026-05-27',
+    customer_name: 'מיכל לוי', customer_phone: '052-6604117',
+    customer_status: 'customer_ordered',
+    status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: 'dn_o1' },
   { id: 'ord_04', supplier_id: 'sup_07', supplier_name: 'חוטי זוהר',
     description: 'חוט כותנה — 6 גוונים', date: '2026-06-10',
     status: 'order_waiting', arrived_at: null, arrived_differs: false, delivery_note_id: 'dn_o4' },
@@ -398,6 +432,7 @@ const delivery_note_invoices: Row[] = [
   // the case where a single approval must move both rows and the money once.
   { delivery_note_id: 'dn_03', invoice_id: 'inv_033', created_at: '2026-06-02T10:00:00' },
   { delivery_note_id: 'dn_04', invoice_id: 'inv_025', created_at: '2026-06-11T10:00:00' },
+  { delivery_note_id: 'dn_i1', invoice_id: 'inv_027', created_at: '2026-06-05T10:00:00' },
 ]
 
 // ── employees ────────────────────────────────────────────────────────────────
@@ -430,7 +465,7 @@ const allowed_users: Row[] = [{ email: demoMeta.email, role: demoMeta.role }]
 export const demoTables: Record<string, Row[]> = {
   suppliers,
   invoices,
-  payments,
+  payments: [...payments, ...pendingPayments],
   // Empty on purpose, and REGISTERED on purpose. A ledger reset is a gesture the
   // walkthrough performs rather than a state it starts in — the demo supplier's
   // ledger should open with its real movements, not with a line already drawn
@@ -468,6 +503,42 @@ export const demoTables: Record<string, Row[]> = {
       body: 'איש קשר חדש — יוסי, אחראי הזמנות.',
       author_email: demoMeta.email,
       created_at: '2026-07-30T11:40:00', updated_at: '2026-07-30T11:40:00' },
+    // Notes on the suppliers the home screen's story is about, so its noticeboard
+    // shows several voices rather than one supplier's history.
+    { id: 'note_04', supplier_id: 'sup_07', tag: 'suppliers',
+      body: 'הגיע 380 מטר במקום 400 — צילמתי את התעודה',
+      author_email: demoMeta.email,
+      created_at: '2026-06-15T09:10:00', updated_at: '2026-06-15T09:10:00' },
+    { id: 'note_05', supplier_id: 'sup_07', tag: 'suppliers',
+      body: 'ביקשו שנחזיר את הגלילים הריקים במשלוח הבא',
+      author_email: demoMeta.email,
+      created_at: '2026-06-14T12:00:00', updated_at: '2026-06-14T12:00:00' },
+    { id: 'note_06', supplier_id: 'sup_08', tag: 'payments',
+      body: 'לשאול על הנחת כמות מ-500 יחידות',
+      author_email: demoMeta.email,
+      created_at: '2026-06-14T10:30:00', updated_at: '2026-06-14T10:30:00' },
+    { id: 'note_07', supplier_id: 'sup_03', tag: 'suppliers',
+      body: 'שתי חבילות הגיעו פגומות, הנהג צילם',
+      author_email: demoMeta.email,
+      created_at: '2026-06-13T08:45:00', updated_at: '2026-06-13T08:45:00' },
   ],
   system_logs: [],
+  // Her own to-do list on the home screen. Demo-only for now: there is no table
+  // in the live system yet, and these three tell the story the mockup told.
+  tasks: [
+    { id: 'task_01', body: 'לבדוק מול חוטי זוהר את הפרש ה-20 מטר', done: false,
+      from_label: 'נוצרה מהערה · חוטי זוהר · 15/06', from_intent: { page: 'suppliers', supplierViewId: 'sup_07' },
+      from_key: 'manual:note_04', created_at: '2026-06-15T09:30:00', done_at: null, author_email: demoMeta.email },
+    { id: 'task_02', body: 'להתקשר לרו״ח לגבי הזיכוי ממאי', done: false,
+      from_label: null, from_intent: null, from_key: null,
+      created_at: '2026-06-14T16:10:00', done_at: null, author_email: demoMeta.email },
+    { id: 'task_03', body: 'להשוות מחירי הדפסה — רימון מול תוויות פלוס', done: false,
+      from_label: null, from_intent: null, from_key: null,
+      created_at: '2026-06-12T11:00:00', done_at: null, author_email: demoMeta.email },
+  ] as Row[],
+  // "הייתי רוצה שיהיה אחרת" — requests about the SYSTEM, not about a supplier.
+  wishes: [
+    { id: 'wish_01', body: 'שבמסך החשבוניות יהיה אפשר לסנן גם לפי קטגוריה', page: 'invoices', page_label: 'חשבוניות',
+      created_at: '2026-06-10T13:20:00', author_email: demoMeta.email },
+  ] as Row[],
 }

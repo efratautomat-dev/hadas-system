@@ -28,6 +28,8 @@ export type Resource =
   | 'alerts'
   | 'supplier_notes'
   | 'ledger_resets'
+  | 'tasks'
+  | 'wishes'
 
 /**
  * Every topic, in one array — the list a time-based refresh announces.
@@ -39,6 +41,7 @@ export type Resource =
 export const ALL_RESOURCES: Resource[] = [
   'delivery_notes', 'orders', 'invoices', 'suppliers', 'payments',
   'returns', 'statements', 'alerts', 'supplier_notes', 'ledger_resets',
+  'tasks', 'wishes',
 ]
 
 type Listener = () => void
@@ -105,6 +108,8 @@ export function resourcesFor(path: string): Resource[] {
   // A reset moves the balance on every screen that shows one, which is why it
   // announces `suppliers` as well as itself.
   if (path.startsWith('/ledger-resets')) add('ledger_resets', 'suppliers')
+  if (path.startsWith('/tasks'))          add('tasks')
+  if (path.startsWith('/wishes'))         add('wishes')
   if (path.startsWith('/ingest'))         add('delivery_notes', 'invoices', 'alerts')
   return all
 }

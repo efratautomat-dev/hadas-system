@@ -11,6 +11,7 @@
 
 import { demoTables, demoUser } from '../data/demoData'
 import { getDemoRole } from './demoGate'
+import { demoHandledRows } from './demoWrites'
 import {
   deleteSettings,
   fileToDataUrl,
@@ -111,6 +112,10 @@ export function createDemoClient() {
     from: (table: string) =>
       table === 'allowed_users'
         ? query([{ email: demoUser.email, role: getDemoRole() }], table)
+        // The "טופל" marks live in demoWrites, not in the seed — served live so a
+        // reader that reloads after the click sees the click.
+        : table === 'note_handled'
+        ? query(demoHandledRows(), table)
         : query(demoTables[table] ?? demoTables[table.replace(/_v$/, '')] ?? [], table),
 
     auth: {
