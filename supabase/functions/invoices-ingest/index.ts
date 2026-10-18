@@ -236,21 +236,18 @@ async function getIngestMailbox(token: string, log: Logger, msgId: string): Prom
 }
 
 /**
- * The link "פתח מייל מקורי" opens. It used to be `u/0/#all/<api id>`:
+ * The link "פתח מייל מקורי" opens — straight onto the email, no search page.
+ * It used to be `u/0/#all/<message id>`, which failed two ways:
  *  - `u/0` means "whichever Google account is first in this browser", not the
- *    mailbox we ingest — so on a browser signed into her personal account first,
- *    it opened the wrong inbox;
- *  - `#all/<api id>` only resolves for the first message of a thread.
- * Now: the mailbox by ADDRESS, and a search on the RFC Message-ID header, which
- * finds the exact message in any folder and any position in its thread. Either
- * piece missing falls back to the old form rather than to no link.
+ *    mailbox we ingest — so a browser signed into another account first opened
+ *    the wrong inbox. Now the mailbox is named by ADDRESS.
+ *  - Gmail's web UI opens a CONVERSATION by its thread id; a message id only
+ *    works when it is the first message of the thread, so replies and forwards
+ *    landed nowhere. Now it is the thread id, which always resolves.
  */
-function buildGmailLink(apiMsgId: string, mailbox: string | null, rfcMessageId: string): string {
+function buildGmailLink(apiMsgId: string, mailbox: string | null, threadId: string | undefined): string {
   const account = mailbox ? encodeURIComponent(mailbox) : "0";
-  const rfc = rfcMessageId.trim().replace(/^<|>$/g, "");
-  return rfc
-    ? `https://mail.google.com/mail/u/${account}/#search/rfc822msgid%3A${encodeURIComponent(rfc)}`
-    : `https://mail.google.com/mail/u/${account}/#all/${apiMsgId}`;
+  return `https://mail.google.com/mail/u/${account}/#all/${threadId || apiMsgId}`;
 }
 
 interface GmailPart {
@@ -2588,7 +2585,7 @@ async function ingestInvoices(
       const rawHtml    = extractRawHtml(message);
       const emailTs    = new Date(parseInt(message.internalDate, 10)).toISOString();
       messageLink = buildGmailLink(
-        msgId, await getIngestMailbox(token, log, msgId), extractHeader(message, "Message-ID"),
+        msgId, await getIngestMailbox(token, log, msgId), message.threadId,
       );
 
       await log("info", "processing", { subject, from, labelIds: message.labelIds ?? [] }, msgId);
