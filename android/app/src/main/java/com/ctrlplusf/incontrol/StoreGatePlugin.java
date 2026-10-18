@@ -1,10 +1,20 @@
 package com.ctrlplusf.incontrol;
 
+import android.content.Intent;
+import android.net.Uri;
+import androidx.core.content.FileProvider;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.Logger;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 /**
  * The two native calls the web side needs.
@@ -50,5 +60,72 @@ public class StoreGatePlugin extends Plugin {
     public void alive(PluginCall call) {
         MainActivity.markAlive();
         call.resolve();
+    }
+
+    /**
+     * Downloads a new build and hands it to Android's installer.
+     *
+     * The shop's tablets have no browser — deliberately — so "open the download
+     * link" was never going to work there, and every update meant carrying the file
+     * in by hand. The app fetches its own update instead: into the cache directory,
+     * then out through the FileProvider the project already declares, as an
+     * ACTION_VIEW the package installer answers.
+     *
+     * Android still shows its own confirmation, and asks once for permission to
+     * install from this app. That is the law, not a gap: nothing here installs
+     * anything silently.
+     */
+    @PluginMethod
+    public void installUpdate(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null || url.isEmpty()) {
+            call.reject("missing url");
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                File dir = new File(getContext().getCacheDir(), "updates");
+                if (!dir.exists() && !dir.mkdirs()) throw new IOException("cannot create " + dir);
+
+                // One fixed name: the previous download is replaced rather than
+                // accumulating copies of an app on a device with little room.
+                File apk = new File(dir, "update.apk");
+
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setInstanceFollowRedirects(true);
+                conn.setConnectTimeout(30_000);
+                conn.setReadTimeout(120_000);
+                conn.connect();
+
+                int code = conn.getResponseCode();
+                if (code != 200) throw new IOException("server answered " + code);
+
+                try (InputStream in = conn.getInputStream(); FileOutputStream out = new FileOutputStream(apk)) {
+                    byte[] buf = new byte[16 * 1024];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                }
+                conn.disconnect();
+
+                if (apk.length() < 1024) throw new IOException("downloaded file is too small to be an app");
+
+                Uri uri = FileProvider.getUriForFile(
+                    getContext(),
+                    getContext().getPackageName() + ".fileprovider",
+                    apk
+                );
+
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(uri, "application/vnd.android.package-archive");
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+
+                call.resolve();
+            } catch (Exception e) {
+                Logger.error("update download failed", e);
+                call.reject(e.getMessage() == null ? "download failed" : e.getMessage());
+            }
+        }).start();
     }
 }

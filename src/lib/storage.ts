@@ -10,7 +10,7 @@ import { openExternal } from './native'
 export async function openStoredFile(pathOrUrl: string | null | undefined) {
   if (!pathOrUrl) return
   if (/^https?:\/\//i.test(pathOrUrl)) {
-    await openExternal(pathOrUrl)
+    if (!(await openExternal(pathOrUrl))) tellCopied()
     return
   }
   const { data, error } = await supabase.storage.from('documents').createSignedUrl(pathOrUrl, 120)
@@ -19,5 +19,12 @@ export async function openStoredFile(pathOrUrl: string | null | undefined) {
     alert('לא ניתן לפתוח את הקובץ כעת')
     return
   }
-  await openExternal(data.signedUrl)
+  if (!(await openExternal(data.signedUrl))) tellCopied()
+}
+
+// Nothing on the device could open the link, so it went to the clipboard instead.
+// Saying so is the whole point: on a tablet with no browser this button used to do
+// nothing at all, which reads as a broken system rather than a missing app.
+function tellCopied() {
+  alert('אין במכשיר אפליקציה שפותחת את הקובץ.\nהקישור הועתק — אפשר להדביק אותו בטלפון או במחשב.')
 }

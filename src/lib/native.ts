@@ -40,19 +40,112 @@ export function isNative(): boolean {
 }
 
 /**
- * Opens a URL where the viewer can actually use it. In the browser that is a new
- * tab, exactly as before. On the tablet it is the real Chrome app (via an
- * ACTION_VIEW intent) rather than an in-app browser tab — Chrome has Print and a
- * PDF viewer; an in-app tab has neither, which is the whole point of leaving.
+ * Opens a URL where the viewer can actually use it, and SAYS SO when it cannot.
+ *
+ * In the browser that is a new tab, exactly as before. On the tablet it is the
+ * real Chrome app rather than an in-app browser tab — Chrome has Print and a PDF
+ * viewer; an in-app tab has neither, which is the whole point of leaving.
+ *
+ * But one of the shop's tablets has no browser at all, and there "open the email"
+ * did nothing: no app answered the intent, no error, no sign anything had been
+ * asked. So when nothing can open the link, it goes to the clipboard instead and
+ * the caller is told — a link you can paste into a phone beats a button that
+ * quietly does nothing.
+ *
+ * Returns true when the link was opened, false when it was only copied.
  */
-export async function openExternal(url: string): Promise<void> {
-  if (!url) return
+export async function openExternal(url: string): Promise<boolean> {
+  if (!url) return false
   if (!isNative()) {
     window.open(url, '_blank', 'noopener')
-    return
+    return true
   }
+
   const { AppLauncher } = await import('@capacitor/app-launcher')
-  await AppLauncher.openUrl({ url })
+  try {
+    const { value } = await AppLauncher.canOpenUrl({ url })
+    if (value) {
+      await AppLauncher.openUrl({ url })
+      return true
+    }
+  } catch {
+    // Some devices refuse the query itself; the attempt below is still worth making.
+    try {
+      await AppLauncher.openUrl({ url })
+      return true
+    } catch {
+      // fall through to the clipboard
+    }
+  }
+
+  const { copyText } = await import('./clipboard')
+  await copyText(url)
+  return false
+}
+
+/**
+ * Downloads a new build and hands it to Android's installer, without a browser.
+ *
+ * The shop's tablets have none, by policy — so "open the download link" was never
+ * a route there, and every update meant carrying the file in by hand. The app
+ * fetches its own update instead. Android still shows its own confirmation and
+ * asks once for permission to install from this app; nothing installs silently.
+ *
+ * Returns false if the native path is unavailable, so the caller can fall back to
+ * opening the link the old way.
+ */
+export async function installUpdate(url: string): Promise<boolean> {
+  if (!isNative() || !url) return false
+  const StoreGate = (window as unknown as {
+    Capacitor?: { Plugins?: { StoreGate?: { installUpdate?: (o: { url: string }) => Promise<void> } } }
+  }).Capacitor?.Plugins?.StoreGate
+  if (!StoreGate?.installUpdate) return false
+  try {
+    await StoreGate.installUpdate({ url })
+    return true
+  } catch (err) {
+    console.error('[native] in-app update failed:', err)
+    return false
+  }
+}
+
+export type EmailOpen = 'opened' | 'gmail-app' | 'copied-subject' | 'copied-link'
+
+/**
+ * Takes the person to the original email, by whatever route the device allows.
+ *
+ * The stored link is a Gmail WEB address — `mail.google.com/mail/u/0/#all/<id>`.
+ * The Gmail Android app does not claim those links, so they need a browser; on a
+ * tablet that has Gmail but no browser, nothing answered at all and the button
+ * appeared dead.
+ *
+ * So: try the link, then try to open the Gmail app itself, and in either case put
+ * the SUBJECT on the clipboard rather than the URL — pasting a subject into Gmail's
+ * search finds the message in one move, while a URL that nothing can open is of no
+ * use to anybody. The caller is told which of those happened so it can say so.
+ */
+export async function openEmail(messageLink: string, subject?: string): Promise<EmailOpen> {
+  if (await openExternal(messageLink)) return 'opened'
+
+  if (isNative() && subject) {
+    const { copyText } = await import('./clipboard')
+    await copyText(subject)
+    try {
+      const { AppLauncher } = await import('@capacitor/app-launcher')
+      // The Gmail app's own scheme. It opens the app, not the message — the
+      // subject is already on the clipboard for the search box.
+      const { value } = await AppLauncher.canOpenUrl({ url: 'googlegmail://' })
+      if (value) {
+        await AppLauncher.openUrl({ url: 'googlegmail://' })
+        return 'gmail-app'
+      }
+    } catch {
+      // No Gmail app, or the device refuses the query — the subject is copied.
+    }
+    return 'copied-subject'
+  }
+
+  return 'copied-link'
 }
 
 /**
@@ -214,10 +307,14 @@ export async function checkForUpdate(): Promise<AppUpdate | null> {
     // A branded build's applicationId ends in the customer's code
     // (com.ctrlplusf.incontrol.hadas), so it already knows which manifest is its
     // own. The generic app has no suffix and reads the shared one.
+    // Resolved against the page's own base, not the host root: a customer served
+    // from a sub-path would otherwise ask the ROOT for its version and be told
+    // about somebody else's build.
     const suffix = info.id.split('.').pop()
-    const paths = suffix && suffix !== 'incontrol'
-      ? [`/app/app-version.${suffix}.json`, '/app/app-version.json']
-      : ['/app/app-version.json']
+    const names = suffix && suffix !== 'incontrol'
+      ? [`app/app-version.${suffix}.json`, 'app/app-version.json']
+      : ['app/app-version.json']
+    const paths = names.map((n) => new URL(n, document.baseURI).href)
 
     let res: Response | null = null
     for (const path of paths) {

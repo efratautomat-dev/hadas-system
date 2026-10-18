@@ -1,0 +1,84 @@
+# nginx for the Hadas demo. TLS, HTTP/2 and the redirect from :80 are Traefik's
+# job (see docker-compose.yml) — this server block only serves files.
+
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    charset utf-8;
+
+    # A demo of a private business system has no business in search results.
+    add_header X-Robots-Tag "noindex, nofollow" always;
+
+    location = /robots.txt {
+        add_header Content-Type text/plain;
+        return 200 "User-agent: *\nDisallow: /\n";
+    }
+
+    # The Android shell runs on its own local origin (https://localhost) and fetches
+    # the store registry from here, so it must be readable cross-origin. The file is
+    # a public code -> address map and holds nothing private. Never cached: adding a
+    # customer has to reach a tablet that is already installed.
+    location /app/ {
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header Cache-Control "no-store" always;
+    }
+
+    # nginx's bundled mime.types has no entry for .mjs, so an ES module was served
+    # as application/octet-stream — and every browser REFUSES to execute a module
+    # with that type. It cost a day: the PDF renderer could not load its worker, so
+    # invoices that arrived as PDFs showed nothing on the tablet while the same
+    # document opened fine from Vercel, which types the file correctly.
+    location ~* \.mjs$ {
+        types { }
+        default_type application/javascript;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+    }
+
+    # Android hands a download to the package installer only when it arrives with
+    # the Android package MIME type. nginx's default (application/octet-stream)
+    # produces a file Chrome downloads and then "cannot open" — which is exactly
+    # what a sideloaded APK looks like when this is missing.
+    location ~* \.apk$ {
+        types { }
+        default_type application/vnd.android.package-archive;
+    }
+
+    # Vite fingerprints every asset filename, so they can be cached forever.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # index.html must never be cached: it is the file that names the current
+    # asset hashes, so a stale copy points the browser at a build that is gone —
+    # or, worse, keeps serving a build that still works and looks current. The
+    # tablets load /hadas/, and a cached copy there meant the shop ran yesterday's
+    # app while the office ran today's, with nothing on screen to say so.
+    location = /index.html {
+        add_header Cache-Control "no-store" always;
+    }
+
+    location = /hadas/ {
+        add_header Cache-Control "no-store" always;
+    }
+
+    location = /hadas/index.html {
+        add_header Cache-Control "no-store" always;
+    }
+
+    # The app has no URL router — navigation is history.pushState without changing
+    # the path, so every request is for "/" or a real file. This fallback is a
+    # safety net for a stray deep link, not a requirement.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+}

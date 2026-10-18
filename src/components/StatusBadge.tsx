@@ -42,6 +42,21 @@ const STATUS_MAP: Record<string, StatusStyle> = {
   // it is a discrepancy — the same reading `mismatch` has on a statement.
   awaiting_goods:    badge('חשבונית ללא סחורה', SEMANTIC.mismatch),
 
+  // ── An invoice's three states, in the invoice's own words ─────────────────
+  // These used to be mapped onto the generic trio above, so a row read `חדש` /
+  // `בטיפול` / `טופל` while the filter tabs and the counters over the very same
+  // table read `ממתין` / `בבדיקה` / `הועבר לרו״ח`. One screen, two vocabularies
+  // for one state, and nothing on it explaining that they were the same thing —
+  // the owner asked what `חדש` and `בטיפול` meant, which is the question a
+  // second vocabulary always produces.
+  //
+  // Same reasoning as the pipeline stages right above: the words say WHAT the
+  // invoice is waiting for, and `בטיפול` throws that away. The colours are
+  // unchanged, so the badge still reads the same at a glance.
+  invoice_waiting:     badge('ממתין',        SEMANTIC.check),
+  invoice_review:      badge('בבדיקה',       SEMANTIC.in_progress),
+  invoice_transferred: badge('הועבר לרו״ח',  SEMANTIC.done),
+
   // Orders (§7.3). Stored as English keys like every other column added in this
   // chapter; the Hebrew lives here, where every other Hebrew label lives.
   order_waiting: badge('ממתינה',       SEMANTIC.new),

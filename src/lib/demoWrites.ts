@@ -245,24 +245,14 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     row.delivery_note_id = pipe.id
     orders.unshift(row)
 
-    // Mirrors the server: a CUSTOMER order landing on a supplier that already has
-    // one open raises the alert, because the shipment on its way can still carry
-    // the customer's item if somebody sees it in time.
-    const alerts = demoTables.alerts
-    if (row.customer_name && alerts) {
-      const sibling = orders.find(o =>
-        o.id !== row.id && o.supplier_id === row.supplier_id && o.status === 'order_waiting')
-      if (sibling) {
-        alerts.unshift({
-          id: `alert_${Date.now()}`,
-          type: 'customer_order_joins_shipment',
-          title: 'הזמנת לקוחה אצל ספק עם משלוח בדרך',
-          message: `${row.customer_name} הזמינה מ${row.supplier_name}. יש כבר הזמנה פתוחה אצל אותו ספק — אפשר לצרף.`,
-          status: 'unread',
-          created_at: nowIso(),
-          payload: { supplierId: row.supplier_id, orderId: row.id, existingOrderId: sibling.id },
-        })
-      }
+    // Mirrors the server: customer orders the manager ticked in the form are now
+    // ordered from the supplier, so they stop saying "ממתינה". This replaced the
+    // `customer_order_joins_shipment` alert (13.10.2026) — the question is asked
+    // while the order is being written, which is the only time it can be acted on.
+    const joined: string[] = Array.isArray(b.joined_order_ids) ? b.joined_order_ids.map(String) : []
+    for (const id of joined) {
+      const target = orders.find(o => o.id === id && o.supplier_id === row.supplier_id && o.customer_name)
+      if (target) target.customer_status = 'customer_ordered'
     }
     return row
   }
@@ -567,6 +557,36 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     return row
   }
 
+  // ── POST /payments ───────────────────────────────────────────────────────
+  // Mirrors the server's twin check so the demo asks the same question. The
+  // effective value date is `value_date ?? payment_date`, exactly as there.
+  if (method === 'POST' && path === '/payments') {
+    const payments = demoTables.payments
+    if (!payments) return null
+    const force = b.force === true
+    const supplierId = String(b.supplier_id ?? '')
+    const want = String(b.valueDate ?? b.value_date ?? b.date ?? '')
+    const amount = Math.abs(Number(b.amount ?? 0))
+    if (!force && supplierId && want) {
+      const twin = payments.find(p =>
+        String(p.supplier_id ?? '') === supplierId &&
+        p.status !== 'cancelled' &&
+        String(p.value_date ?? p.payment_date ?? '') === want &&
+        Math.abs(Math.abs(Number(p.amount ?? 0)) - amount) < 0.005)
+      if (twin) {
+        return {
+          success: false, needsChoice: true,
+          duplicate: {
+            id: String(twin.id), amount: twin.amount, date: twin.payment_date,
+            valueDate: twin.value_date ?? twin.payment_date,
+            type: twin.payment_type, ref: twin.reference,
+          },
+        } as unknown as Row
+      }
+    }
+    return null   // not a twin → fall through to the generic demo write
+  }
+
   // ── PUT /orders/:id/cancel · /uncancel ───────────────────────────────────
   // A line through the entry, never a deletion — and the reason is required here
   // exactly as it is on the server, because a demo that accepts an empty reason
@@ -661,6 +681,18 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     const invoiceId = String(b.invoice_id ?? '')
     const invoice = find('invoices', invoiceId)
     if (!note || !invoice) return null
+    // Mirrors the server: an invoice dated before the ORDER that opened this
+    // chain cannot be for it. The demo refuses too, or it would teach that the
+    // link is allowed and the real system would then say otherwise.
+    const chainOrder = orders
+      .filter(o => String(o.delivery_note_id ?? '') === String(note.id))
+      .map(o => String(o.date ?? ''))
+      .filter(Boolean)
+      .sort()[0]
+    const invDate = String(invoice.invoice_date ?? '')
+    if (chainOrder && invDate && invDate < chainOrder) {
+      return { success: false, error: 'INVOICE_BEFORE_ORDER' } as unknown as Row
+    }
     if (!links.some(l => l.delivery_note_id === note.id && l.invoice_id === invoiceId)) {
       links.push({ delivery_note_id: note.id, invoice_id: invoiceId, created_at: nowIso() })
     }

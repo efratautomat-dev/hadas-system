@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
-import { openExternal } from '../lib/native'
+import { openEmail, type EmailOpen } from '../lib/native'
 import { DocumentBody } from './PdfPreviewModal'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
@@ -103,9 +103,15 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   // balance — the supplier is owed money the ledger does not show.
   invoice_amount_unreadable:      b('סכום לא נקרא בחשבונית', Coins, 'action'),
   delivery_note_amount_unreadable: b('סכום לא נקרא בתעודה',  Coins, 'action'),
-  // An employee took a customer's order for a supplier whose shipment is already
-  // on its way. ACTION and time-sensitive: the value is entirely in catching it
-  // before that shipment leaves, and a day late it is merely history.
+  // ⚠️ NO LONGER RAISED (13.10.2026) — kept so the rows already in the table
+  // still read as themselves instead of falling back to a raw type name.
+  //
+  // It fired when an employee took a customer's order at a supplier who already
+  // had one open, and it was right about the moment that matters and wrong about
+  // who was standing in it: by the time the manager read the notification the
+  // shipment had often gone ("לבטל התראה על הזמנה מלקוחה, זה מציק"). The
+  // question now appears inside `OrderForm`, the moment she picks that supplier
+  // for a new order — where answering it still changes something.
   customer_order_joins_shipment:  b('הזמנת לקוחה — אפשר לצרף למשלוח', Package, 'action'),
 
   // ── Check (yellow): worth a look / verify ──
@@ -200,6 +206,11 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
   const messageLink = (alert.payload as Record<string, unknown> | undefined)?.messageLink as string | undefined
   const isResolved = alert.status === 'resolved'
   const clickable  = !!onClick
+  // Set when nothing on the device could open the link. One of the shop's tablets
+  // has no browser at all, and there this button did nothing at all — no app
+  // answered, no error, no sign it had been pressed.
+  const [mailResult, setMailResult] = useState<EmailOpen | null>(null)
+  const subject = (alert.payload as Record<string, unknown> | undefined)?.subject as string | undefined
 
   return (
     <div
@@ -271,13 +282,28 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
           <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
             {messageLink && (
               <button
-                onClick={() => void openExternal(messageLink)}
+                onClick={async () => {
+                  const how = await openEmail(messageLink, subject)
+                  if (how !== 'opened') {
+                    setMailResult(how)
+                    setTimeout(() => setMailResult(null), 9000)
+                  }
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
                 style={{ background: '#EFF6FF', color: '#1D4ED8' }}
               >
                 <Mail className="w-3 h-3" />
                 פתח מייל מקורי
               </button>
+            )}
+            {mailResult && (
+              <span style={{ fontSize: '11.5px', color: '#6B7280', lineHeight: 1.5 }}>
+                {mailResult === 'gmail-app'
+                  ? 'נושא המייל הועתק — הדביקי אותו בחיפוש של Gmail שנפתח'
+                  : mailResult === 'copied-subject'
+                    ? 'נושא המייל הועתק — אפשר להדביק אותו בחיפוש של Gmail'
+                    : 'אין במכשיר אפליקציה שפותחת את הקישור — הוא הועתק, אפשר להדביק אותו בטלפון או במחשב'}
+              </span>
             )}
             {!isResolved && alert.status === 'new' && (
               <button
@@ -434,7 +460,20 @@ export function resolveAlertDestination(
     t === 'return_no_file'         || t === 'delivery_note_ingest_failed' ||
     t === 'statement_ingest_failed'|| t === 'return_ingest_failed'
   ) {
-    if (messageLink) { void openExternal(messageLink); return }
+    if (messageLink) {
+      // Same fallback as the card's button: on a device with nothing that opens
+      // mail, the link is copied rather than lost. The alerts screen stays put so
+      // the person can see which alert they were on.
+      void openEmail(messageLink, p.subject as string | undefined).then((how) => {
+        // window.alert: `alert` is the name of the alert row in this file.
+        if (how === 'gmail-app' || how === 'copied-subject') {
+          window.alert('נושא המייל הועתק.\nהדביקי אותו בחיפוש של Gmail כדי למצוא את ההודעה.')
+        } else if (how === 'copied-link') {
+          window.alert('אין במכשיר אפליקציה שפותחת את הקישור.\nהוא הועתק — אפשר להדביק אותו בטלפון או במחשב.')
+        }
+      })
+      return
+    }
     handlers.onPageChange?.('alerts')
     return
   }

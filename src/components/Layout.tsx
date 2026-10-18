@@ -5,6 +5,7 @@ import type { NoteTag } from '../hooks/useSupplierNotes'
 import type { NoteOpenIntent } from '../lib/noteSources'
 import { Bell, Search, Menu, ArrowRight } from 'lucide-react'
 import Sidebar from './Sidebar'
+import UpdateBanner from './UpdateBanner'
 import Dashboard from './Dashboard'
 import Suppliers from './Suppliers'
 import Invoices, { type DuplicateResolution } from './Invoices'
@@ -402,7 +403,19 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     )
     if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
-    if (activePage === 'capture')        return <CaptureDocument capturedBy={userEmail} />
+    if (activePage === 'capture')        return (
+      // ── "קח אותי למסמך" ────────────────────────────────────────────────
+      // The button that says "המסמך כבר קיים · פתחי את דף הסחורה" has existed
+      // for a while, but it renders only when a handler is passed — and this
+      // screen, the one where most photographing actually happens, passed none.
+      // So the message appeared here without the way onward. The intents are the
+      // same ones <Alerts> already uses.
+      <CaptureDocument
+        capturedBy={userEmail}
+        onOpenDelivery={(id) => pushNav({ page: 'deliveries', deliverySelectedId: id })}
+        onOpenInvoice={(id) => pushNav({ page: 'invoices', invoiceSelectedId: id })}
+      />
+    )
     if (activePage === 'integrations')   return <Integrations />
     if (activePage === 'system-logs')    return <SystemLogs />
     if (activePage === 'settings')       return <Settings />
@@ -470,6 +483,9 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
           overflowX: 'clip',
         }}
       >
+        {/* The app's own update notice. No-op in the browser. */}
+        <UpdateBanner />
+
         {/* Top bar */}
         <header
           className="bg-white border-b sticky top-0 z-40 flex items-center justify-between"
@@ -553,19 +569,23 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
           style={{
             padding: pad,
             paddingTop: padTop,
-            // The page must never scroll sideways: wide content scrolls inside its
-            // own container. `overflow-x: clip` on the wrapper above says the same
-            // thing, but an older tablet WebView ignores it — and the shop runs on
-            // exactly such a tablet, where every screen sat shifted with the menu
-            // over the content. `hidden` is understood everywhere, and it is safe
-            // HERE because the sticky top bar is a sibling of this element, not a
-            // descendant: clipping here cannot un-stick it.
-            overflowX: 'hidden',
+            // The page must never scroll sideways — that is what slid the content
+            // under the fixed menu on the shop's tablet. But `hidden` was the wrong
+            // cure: four screens have content wider than this pane, and hiding it
+            // made parts of them unreachable instead of merely awkward.
+            //
+            // `auto` keeps both promises: the PANE scrolls, the page does not, and
+            // nothing is lost. The sticky top bar is a sibling rather than a child,
+            // so it is unaffected either way.
+            overflowX: 'auto',
             minWidth: 0,
           }}
         >
           {canGoBack && (
-            <div style={{ marginBottom: '12px' }}>
+            // A flex row, so the round button lands at the start of the line — the
+            // RIGHT in an RTL page. As a bare block it drifted to the far edge and
+            // read as a stray control floating above the screen.
+            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: '12px' }}>
               <button
                 onClick={goBack}
                 style={{

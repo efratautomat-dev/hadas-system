@@ -30,6 +30,18 @@ export type Resource =
   | 'ledger_resets'
   | 'backup_runs'
 
+/**
+ * Every topic, in one array — the list a time-based refresh announces.
+ *
+ * Kept next to the union it mirrors so the two cannot drift: a topic added
+ * above and forgotten here would be a resource the periodic refresh silently
+ * stops refreshing, which is the hardest kind of staleness to notice.
+ */
+export const ALL_RESOURCES: Resource[] = [
+  'delivery_notes', 'orders', 'invoices', 'suppliers', 'payments',
+  'returns', 'statements', 'alerts', 'supplier_notes', 'ledger_resets',
+]
+
 type Listener = () => void
 
 const listeners = new Map<Resource, Set<Listener>>()
@@ -57,6 +69,11 @@ export function notify(resources: Resource[]): void {
   }
 }
 
+/** Reload everything — what the periodic refresh calls. */
+export function notifyAll(): void {
+  notify(ALL_RESOURCES)
+}
+
 /**
  * Which resources a write touched, from its path.
  *
@@ -82,6 +99,10 @@ export function resourcesFor(path: string): Resource[] {
   if (path.startsWith('/statements') || path.startsWith('/vendor-statements')) add('statements')
   if (path.startsWith('/alerts'))         add('alerts')
   if (path.startsWith('/supplier-notes')) add('supplier_notes')
+  // The "טופל" toggle writes to `note_handled`, not to the note — and announced
+  // nothing, so the mark landed in the DB and no other screen showing that note
+  // learned about it until a reload.
+  if (path.startsWith('/note-handled'))  add('supplier_notes')
   // A reset moves the balance on every screen that shows one, which is why it
   // announces `suppliers` as well as itself.
   if (path.startsWith('/ledger-resets')) add('ledger_resets', 'suppliers')

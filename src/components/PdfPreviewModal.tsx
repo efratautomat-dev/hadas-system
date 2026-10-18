@@ -46,6 +46,7 @@ function isPdfUrl(u: string): boolean {
 
 export function DocumentBody({ url, previewSrc }: { url: string; previewSrc?: string }) {
   const [drivePreviewFailed, setDrivePreviewFailed] = useState(false)
+  const [failReason, setFailReason] = useState<string | null>(null)
   const previewUrl = previewSrc ?? toDrivePreview(url)
   const isImage = isImageUrl(previewSrc) || isImageUrl(url)
   const [zoomed, setZoomed] = useState(false)
@@ -109,7 +110,12 @@ export function DocumentBody({ url, previewSrc }: { url: string; previewSrc?: st
   // which a Drive link will not give us, so that case still opens externally, and
   // any other failure falls back to the same button.
   if (isNative() && !drivePreviewFailed && !isDriveUrl(url) && isPdfUrl(previewUrl)) {
-    return <PdfCanvas url={previewUrl} onFail={() => setDrivePreviewFailed(true)} />
+    return (
+      <PdfCanvas
+        url={previewUrl}
+        onFail={(reason) => { setFailReason(reason); setDrivePreviewFailed(true) }}
+      />
+    )
   }
 
   // A PDF the WebView cannot draw (a Drive link, or one pdf.js choked on) leaves
@@ -120,8 +126,17 @@ export function DocumentBody({ url, previewSrc }: { url: string; previewSrc?: st
       <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
                     alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '20px' }}>
         <p style={{ margin: 0, fontSize: '14px', color: '#6B7280', textAlign: 'center' }}>
-          מסמך PDF נפתח בדפדפן של הטאבלט
+          לא ניתן להציג את המסמך כאן
         </p>
+        {failReason && (
+          <p style={{
+            margin: 0, fontSize: '11px', color: '#9CA3AF', textAlign: 'left',
+            direction: 'ltr', maxWidth: '320px', wordBreak: 'break-word',
+            fontFamily: 'monospace',
+          }}>
+            {failReason}
+          </p>
+        )}
         <button
           onClick={() => void openExternal(previewUrl)}
           style={{ padding: '11px 20px', borderRadius: '10px', border: 'none', fontSize: '15px',

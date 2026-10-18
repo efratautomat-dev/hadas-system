@@ -642,9 +642,20 @@ export function InvoiceDetail({
         </div>
       )}
 
-      {/* Top bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
+      {/* Top bar — three groups that sit together rather than three groups pushed
+          into three corners. `space-between` on a wide desktop reads as deliberate
+          spacing; on a tablet it is an empty middle with controls stranded at the
+          edges, which is exactly how it looked on the shop's screen. Below the
+          desktop width the row wraps into tidy lines instead. */}
+      <div style={{
+        display: 'flex',
+        justifyContent: isWide ? 'space-between' : 'flex-start',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '10px',
+        marginBottom: '20px',
+      }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <Button variant="primary" onClick={() => onSave(form)}>
             <Save size={16} />
             שמור
@@ -667,8 +678,11 @@ export function InvoiceDetail({
           )}
         </div>
 
-        <div style={{ textAlign: 'center', flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+        <div style={{ textAlign: isWide ? 'center' : 'right', flex: isWide ? 1 : undefined }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '10px',
+            justifyContent: isWide ? 'center' : 'flex-start',
+          }}>
             <StatusBadge status={internalStatus} style={{ fontWeight: 600, padding: '4px 12px' }} />
             {/* Headline is the SUPPLIER's invoice number — that's what the owner
                 matches against the paper document. The system id stays visible
@@ -1152,6 +1166,8 @@ export default function Invoices({
 
   const isMobile = useIsMobile()
   const isTablet = useIsTablet()
+  // The filter strip and the search box share a row only when both still fit.
+  const isWideList = !isMobile && !isTablet
 
   const selected     = controlledSelectedId !== undefined
     ? (invoices.find(inv => inv.id === controlledSelectedId) ?? null)
@@ -1428,8 +1444,17 @@ export default function Invoices({
         { label: STATUS_WAITING,     value: String(counts[STATUS_WAITING] ?? 0),     Icon: Clock,       tone: 'yellow' },
       ]} />
 
-      {/* Filters + Search */}
-      <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      {/* Filters + Search — side by side only where both actually fit. Below that
+          they shared a row, the tab strip broke apart and the search box shrank to
+          a slot nobody could read. A tablet is squarely in "below that". */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '10px',
+          alignItems: isWideList ? 'flex-start' : 'stretch',
+          flexDirection: isWideList ? 'row' : 'column',
+        }}
+      >
         <FilterTabs
           tabs={(['all', 'כפילויות', STATUS_TRANSFERRED, STATUS_REVIEW, STATUS_WAITING] as Filter[])
             .map(f => ({
@@ -1439,7 +1464,7 @@ export default function Invoices({
             }))}
           value={filter}
           onChange={setFilter}
-          style={{ flex: 1, minWidth: '280px' }}
+          style={{ flex: isWideList ? 1 : undefined, minWidth: 0 }}
         />
         <div
           className="flex items-center gap-2 flex-1 bg-white rounded-xl border px-4"

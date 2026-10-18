@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from 'react'
 
 interface Props {
   url: string
-  onFail: () => void
+  onFail: (reason: string) => void
 }
 
 export default function PdfCanvas({ url, onFail }: Props) {
@@ -92,7 +92,11 @@ export default function PdfCanvas({ url, onFail }: Props) {
         // kept visible in the console because "the document just does not show" was
         // the hardest thing to diagnose on a tablet we cannot attach a debugger to.
         console.error('[PdfCanvas] could not render:', err)
-        if (!cancelled) onFail()
+        // The reason travels to the screen. On a tablet there is no console to
+        // read and no debugger to attach, and "the document does not show" has
+        // already cost a day of guessing.
+        const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+        if (!cancelled) onFail(reason.slice(0, 200))
       }
     })()
 
