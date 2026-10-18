@@ -3,8 +3,7 @@
 -- ----------------------------------------------------------------------------
 -- Schedules `backup-run` for 01:00 UTC every Monday — 03:00 or 04:00 Israel
 -- time, i.e. the night between Sunday and Monday (owner's choice, 18.10.2026:
--- "כל ראשון בלילה"; it was Saturday). Still
--- time, depending on the season. The hour is chosen for one reason beyond being
+-- "כל ראשון בלילה"; it was Saturday). 03:00 or 04:00 depends on the season. The hour is chosen for one reason beyond being
 -- quiet: it is when `invoices-ingest` is least likely to be inserting rows, and
 -- a row inserted while a table is being paged is the one race the backup's
 -- completeness guard has to fail on.
