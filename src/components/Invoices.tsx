@@ -13,6 +13,7 @@ import { FilterTabs } from './ui/FilterTabs'
 import { Button } from './ui/Button'
 import { CopyButton } from './ui/CopyButton'
 import { supabase } from '../lib/supabase'
+import { externalLinkProps } from '../lib/native'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { SummaryCards } from './ui/SummaryCards'
 import { STATUS } from '../theme/status'
@@ -263,9 +264,7 @@ function TLink({ label, value, onChange, showPreview = false }: { label: string;
         {value && showPreview && <PdfPreviewButton url={value} />}
         {value && (
           <a
-            href={value}
-            target="_blank"
-            rel="noopener noreferrer"
+            {...externalLinkProps(value)}
             style={{
               padding: '9px 11px', borderRadius: '10px', border: '1.5px solid #DEDFE5',
               color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', flexShrink: 0, textDecoration: 'none',
@@ -567,9 +566,7 @@ export function InvoiceDetail({
                 beside the other two ways out of this pane. */}
             {form.monthFolderLink && (
               <a
-                href={form.monthFolderLink}
-                target="_blank"
-                rel="noopener noreferrer"
+                {...externalLinkProps(form.monthFolderLink)}
                 title="תיקיית החודש בדרייב"
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '5px 10px',
@@ -582,9 +579,7 @@ export function InvoiceDetail({
               </a>
             )}
             <a
-              href={docSrc.url}
-              target="_blank"
-              rel="noopener noreferrer"
+              {...externalLinkProps(docSrc.url)}
               title="פתח בכרטיסייה חדשה"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '5px 10px',
@@ -1200,11 +1195,26 @@ export default function Invoices({
   const statusFor = (inv: Invoice) => statusOf.get(inv.id) ?? deriveInvoiceStatus(inv, alerts)
 
   // ── duplicate helpers ────────────────────────────────────────────────────
-  const dupCount = invoices.filter(i => i.duplicateFlag === 'כפילות אפשרית').length
-
+  // A blank number is not a number: two numberless invoices of one supplier are
+  // not a pair, they are two invoices nobody could read the number of.
   const getDupPair = (inv: Invoice): Invoice | undefined =>
-    invoices.find(i => i.id !== inv.id &&
-      i.invoiceNumber === inv.invoiceNumber && i.supplierId === inv.supplierId)
+    inv.invoiceNumber
+      ? invoices.find(i => i.id !== inv.id &&
+          i.invoiceNumber === inv.invoiceNumber && i.supplierId === inv.supplierId)
+      : undefined
+
+  // Ingest flags only the one that arrived SECOND. The duplicates view has to show
+  // the pair, so the earlier one is pulled in alongside it — a duplicate with one
+  // side missing is not something anyone can decide about.
+  const dupIds = new Set<string>()
+  for (const inv of invoices) {
+    if (inv.duplicateFlag !== 'כפילות אפשרית') continue
+    const pair = getDupPair(inv)
+    if (!pair) continue
+    dupIds.add(inv.id)
+    dupIds.add(pair.id)
+  }
+  const dupCount = invoices.filter(i => i.duplicateFlag === 'כפילות אפשרית' && dupIds.has(i.id)).length
 
   // Auto-open the dup modal when arriving from a duplicate-invoice alert.
   // Runs once the invoice list has loaded (so getDupPair can find the pair).
@@ -1301,10 +1311,13 @@ export default function Invoices({
     if (!dupModal) return
     const saved = dupModal
     setDupModal(null)
+    // isDuplicate, not duplicateFlag: duplicateFlag is derived on read and the API
+    // has no column for it, so this used to send an empty update, get a 400, and
+    // leave both rows flagged with the alerts still open.
     try {
       await Promise.all([
-        updateInvoice(saved.invoice.id, { duplicateFlag: null, duplicateNote: 'אושר ידנית' }),
-        updateInvoice(saved.pair.id,    { duplicateFlag: null, duplicateNote: 'אושר ידנית' }),
+        updateInvoice(saved.invoice.id, { isDuplicate: false }),
+        updateInvoice(saved.pair.id,    { isDuplicate: false }),
       ])
       onDuplicateResolved?.(resolutionInfo(saved))
     } catch {
@@ -1377,7 +1390,7 @@ export default function Invoices({
       const matchFilter = filter === 'all'
         ? true
         : filter === 'כפילויות'
-          ? inv.duplicateFlag === 'כפילות אפשרית'
+          ? dupIds.has(inv.id)
           : statusFor(inv) === filter
       return matchSearch && matchFilter
     })
@@ -1387,6 +1400,9 @@ export default function Invoices({
     // reverse it for descending (newest at the top). Note: this is row ORDER
     // only — the displayed date column still shows invoiceDate.
     .sort(newestFirst)
+    // In the duplicates view the two halves of a pair sit next to each other.
+    .sort((a, b) => filter !== 'כפילויות' ? 0
+      : `${a.supplierId}|${a.invoiceNumber}`.localeCompare(`${b.supplierId}|${b.invoiceNumber}`))
 
   // Mirrors the Returns table: multiple flexible columns so extra width is
   // shared between them, never absorbed by a single column. That kills the
@@ -1595,7 +1611,7 @@ export default function Invoices({
                           <StickyNote size={14} />
                         </span>
                       )}
-                      {inv.duplicateFlag === 'כפילות אפשרית' && isMobile && (
+                      {dupIds.has(inv.id) && isMobile && (
                         <button
                           onClick={e => openDupModal(inv, e)}
                           title="קיימת חשבונית נוספת עם אותו מספר לספק זה"
@@ -1623,7 +1639,7 @@ export default function Invoices({
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ fontSize: '13px', color: '#374151' }}>{inv.invoiceNumber || inv.id}</span>
-                        {inv.duplicateFlag === 'כפילות אפשרית' && (
+                        {dupIds.has(inv.id) && (
                           <button
                             onClick={e => openDupModal(inv, e)}
                             title="קיימת חשבונית נוספת עם אותו מספר לספק זה"
@@ -1700,8 +1716,10 @@ export default function Invoices({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', padding: '14px 24px 8px' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: '#6B7280', textAlign: 'right' }}>שדה</span>
               {([
-                { title: 'חשבונית זו',      inv: dupModal.invoice, color: 'var(--brand-primary)', key: 'invoice' as const },
-                { title: 'כפילות אפשרית', inv: dupModal.pair,    color: '#9CA3AF', key: 'pair'    as const },
+                // Titled by which one arrived when — not by which row was clicked,
+                // which said "this invoice" about whichever side the alert opened.
+                { title: dupModal.invoice.duplicateFlag ? 'הגיעה שנייה — סומנה ככפולה' : 'הגיעה ראשונה', inv: dupModal.invoice, color: 'var(--brand-primary)', key: 'invoice' as const },
+                { title: dupModal.pair.duplicateFlag    ? 'הגיעה שנייה — סומנה ככפולה' : 'הגיעה ראשונה', inv: dupModal.pair,    color: '#9CA3AF', key: 'pair'    as const },
               ]).map(({ title, inv, color, key }) => (
                 <div key={key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color, textAlign: 'center' }}>{title}</span>

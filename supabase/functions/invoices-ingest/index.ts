@@ -1218,7 +1218,7 @@ async function classifyDocTypeByContent(
 `סווג את סוג המסמך לפי תוכנו בלבד. ענה במילה אחת בלבד מתוך: חשבונית / כרטסת / משלוח / זיכוי / קבלה
 
 - כרטסת: דוח מצטבר עם ריבוי תנועות/שורות (תאריך, חובה, זכות), יתרת פתיחה ויתרת סגירה, או הכותרות "כרטסת", "ריכוז תנועות", "דוח יתרות", "הנהלת חשבונות". זהו ריכוז של כמה עסקאות לאורך תקופה — לא חשבונית בודדת, גם אם מופיעים בו סכומים רבים. אם יש יותר מעסקה אחת ויתרה מצטברת → כרטסת (ולא חשבונית).
-- חשבונית: מסמך של עסקה בודדת עם הכותרת "חשבונית מס" או "חשבונית מקור" ומספר חשבונית יחיד.
+- חשבונית: מסמך עם הכותרת "חשבונית מס" או "חשבונית מקור" ומספר חשבונית יחיד. גם "חשבונית מס ריכוז" / "חשבונית מרכזת" היא חשבונית — חשבונית אחת שמרכזת כמה תעודות משלוח, עם מספר חשבונית אחד וסכום לתשלום, גם כשיש בה שורות רבות עם תאריכים. כותרת שמתחילה ב"חשבונית" → חשבונית, לא כרטסת.
 - קבלה: אישור על תשלום שהתקבל בלבד — הכותרת "קבלה" ללא המילה "חשבונית", לרוב עם אסמכתא/מספר שיק/פרטי אמצעי תשלום ובלי פירוט פריטים שנמכרו. שים לב: מסמך שכותרתו "חשבונית מס קבלה" (או "חשבונית מס / קבלה") הוא חשבונית לכל דבר — ענה "חשבונית". רק מסמך שהוא קבלה בלבד → "קבלה".
 - משלוח: תעודת משלוח / הזמנה.
 - זיכוי: תעודת זיכוי / חשבונית זיכוי / החזר.` },
@@ -1861,11 +1861,28 @@ async function handleInvoiceFile(
   if (extracted.missing_fields?.includes("not_invoice")) {
     await log("info", "extractor flagged as not_invoice, skipping ingest",
       { vendor: extracted.vendor_name, filename: file.filename }, msgId);
+    // The file is stored BEFORE the alert, because the alert is now the only place
+    // this document lives. It used to be raised with no file at all: the
+    // reclassify popup had nothing to show, and reclassifying it created an
+    // invoice/statement row with no document — and a photographed one was simply
+    // gone. A failed upload still raises the alert; it just carries no file.
+    let storageUrl = "";
+    try {
+      const key = buildStorageKey(
+        "unclassified", null, file.attachmentId ?? "link", msgId, pickExtension(file.filename, file.mimeType),
+      );
+      storageUrl = await uploadToStorage(supabase, "invoices", new Date(), key, file.mimeType, file.bytes);
+    } catch (e) {
+      await log("error", `Storage upload failed (not_invoice): ${e instanceof Error ? e.message : e}`, undefined, msgId);
+    }
     await insertAlertOnce(supabase, log, msgId, {
       type:    "document_misclassified",
       title:   "מסמך לא-חשבונית הגיע לתיבת החשבוניות",
       message: `המסמך מ-${extracted.vendor_name || "ספק לא ידוע"} זוהה כלא-חשבונית (כנראה הזמנה או קבלה). נא לבדוק במייל המקורי.`,
-      payload: { gmailMessageId: msgId, subject, from, messageLink, extracted },
+      payload: {
+        gmailMessageId: msgId, subject, from, messageLink, extracted,
+        storageUrl: storageUrl || undefined, mimeType: file.mimeType, filename: file.filename,
+      },
     });
     return "alerted";
   }
@@ -2588,6 +2605,15 @@ async function ingestInvoices(
         if (docType !== "receipt") return false;
         await log("info", "receipt — deliberately NOT ingested (receipts are not invoices)",
           { subject, from }, msgId);
+        // Not ingested, but SAID: this was the only path that labelled an email
+        // processed and left nothing anywhere — no row, no alert — so a document
+        // misread as a receipt simply vanished (הכל-בו בלומנטל, 18.10.2026).
+        await insertAlertOnce(supabase, log, msgId, {
+          type:    "receipt_skipped",
+          title:   "קבלה — לא נקלטה",
+          message: `המייל "${subject}" זוהה כקבלה ולכן לא נקלט כחשבונית. אם זו בעצם חשבונית — פתחי את המייל והעלי אותה ידנית.`,
+          payload: { gmailMessageId: msgId, subject, from, messageLink },
+        });
         await markProcessed(supabase, token, msgId, destProcessed, sourceLabelId);
         result.skipped++;
         return true;
@@ -4395,7 +4421,7 @@ async function extractHandwrittenSheet(
 // AI extraction, Drive upload, Storage upload, dedup, DB insert and alerts all run
 // unchanged because they ARE the same functions.
 
-type CaptureDocType = "invoice" | "delivery_note" | "return_doc";
+type CaptureDocType = "invoice" | "delivery_note" | "return_doc" | "statement";
 
 interface CaptureRequest {
   source:      "camera";
@@ -4425,7 +4451,29 @@ const CAPTURE_TYPE_LABEL: Record<CaptureDocType, string> = {
   invoice:       "חשבונית",
   delivery_note: "תעודת משלוח",
   return_doc:    "חזרה/זיכוי",
+  statement:     "כרטסת",
 };
+
+// The short code she can read out to the developer. It is the first block of the
+// captureId, which every log line of this upload already carries as message_id —
+// so the לוגי מערכת search box finds the whole trail by typing these 8 characters.
+function captureCode(captureId: string): string {
+  return captureId.replace(/^capture-/, "").slice(0, 8).toUpperCase();
+}
+
+// One sentence she can act on, chosen by what actually failed. The raw message
+// still goes back as `details` (and into system_logs) for the developer.
+function captureErrorText(msg: string, docType: CaptureDocType): string {
+  if (/TRUNCATED|max_tokens/i.test(msg)) {
+    return docType === "statement"
+      ? "המסמך ארוך מדי לפענוח. נסי לשלוח עמוד אחד בכל פעם."
+      : "המסמך ארוך מדי לפענוח כמסמך בודד — אם זו כרטסת, בחרי \"כרטסת\" ונסי שוב.";
+  }
+  if (/Anthropic API (429|5\d\d)|overloaded/i.test(msg)) return "שירות הפענוח עמוס כרגע. נסי שוב בעוד דקה.";
+  if (/Anthropic API 4\d\d/i.test(msg)) return "לא ניתן היה לקרוא את הקובץ — ייתכן שהוא גדול מדי או פגום.";
+  if (/token exchange|drive upload|storage upload/i.test(msg)) return "הקובץ פוענח, אבל שמירתו נכשלה. נסי שוב.";
+  return "הקליטה נכשלה.";
+}
 
 /**
  * Read a handwritten goods sheet and RETURN what it read. Saves nothing.
@@ -4503,7 +4551,7 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
 
   // ── Validate ──
   const docType = body.docType;
-  if (docType !== "invoice" && docType !== "delivery_note" && docType !== "return_doc") {
+  if (docType !== "invoice" && docType !== "delivery_note" && docType !== "return_doc" && docType !== "statement") {
     return json({ error: `invalid docType: ${String(docType)}` }, 400);
   }
   if (!body.imageBase64 || typeof body.imageBase64 !== "string") {
@@ -4580,7 +4628,9 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
         outcome,                       // created | alerted | skipped | error
         docType,
         captureId,
+        code:     captureCode(captureId),
         errors:   result.errors,
+        ...(outcome === "error" ? { error: "הקליטה נכשלה.", details: result.errors.join(" · ") } : {}),
       });
     }
 
@@ -4609,11 +4659,20 @@ async function handleCapture(supabase: SupabaseClient, body: CaptureRequest): Pr
       });
     }
     await log("info", "capture non-invoice complete", { docType, ok }, captureId);
-    return json({ ok: ok === true, outcome: ok === true ? "created" : "error", docType, captureId });
+    return json({
+      ok: ok === true, outcome: ok === true ? "created" : "error", docType, captureId,
+      code: captureCode(captureId),
+      ...(ok === true ? {} : { error: "הקליטה נכשלה." }),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await log("error", `capture failed: ${msg}`, { docType }, captureId);
-    return json({ ok: false, outcome: "error", docType, captureId, error: msg }, 500);
+    return json({
+      ok: false, outcome: "error", docType, captureId,
+      code: captureCode(captureId),
+      error: captureErrorText(msg, docType),
+      details: msg,
+    }, 500);
   }
 }
 

@@ -51,6 +51,7 @@ function driveFileIdFromLink(link: string | null): string | null {
 async function createSupplier(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
   const { name, hp, category, contact, email, phone, openingBalance, paymentArrangement, notes, force } = body;
+  const altNames = cleanAltNames(body.alt_names ?? body.altNames);
   if (!name) return json({ error: "name is required" }, 400);
 
   // Gap #4 — dedup, surfaced to the UI (never silent). Unless `force` ("create anyway"),
@@ -59,7 +60,7 @@ async function createSupplier(req: Request, supabase: SupabaseClient): Promise<R
   // user to "use existing" or "create anyway". (hp back-fill on confirm is the UI's job.)
   if (!force) {
     const normHp = normalizeHp(hp);
-    const { data: existingRows } = await supabase.from("suppliers").select("id, name, hp");
+    const { data: existingRows } = await supabase.from("suppliers").select("id, name, hp, alt_names");
     const suppliers = (existingRows ?? []) as SupplierMatchRow[];
     let dup: SupplierMatchRow | null =
       normHp ? (suppliers.find(s => normalizeHp(s.hp) === normHp) ?? null) : null;
@@ -80,6 +81,7 @@ async function createSupplier(req: Request, supabase: SupabaseClient): Promise<R
       opening_balance: openingBalance ?? 0,
       payment_arrangement: paymentArrangement ?? false,
       notes:           notes    ?? null,
+      alt_names:       altNames ?? [],
     })
     .select("id")
     .single();
@@ -108,6 +110,11 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
   for (const [key, col] of Object.entries(ALLOWED)) {
     if (body[key] !== undefined) updates[col] = body[key];
   }
+  // alt_names was sent by the form since 19.08 and silently dropped here — the
+  // whitelist comment above listed it, this map never did. Cleaned, not copied:
+  // ingest matches every entry, so a blank or a repeat of the name is noise.
+  const altNames = cleanAltNames(body.alt_names ?? body.altNames);
+  if (altNames !== undefined) updates.alt_names = altNames;
   if (Object.keys(updates).length === 0) return json({ error: "No fields to update" }, 400);
 
   const { error } = await supabase.from("suppliers").update(updates).eq("id", id);
@@ -123,6 +130,18 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
       .neq("status", "resolved");
   }
   return json({ success: true });
+}
+
+// undefined = "not sent, leave the column alone"; [] = "cleared".
+function cleanAltNames(raw: unknown): string[] | undefined {
+  if (raw === undefined) return undefined;
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\n]/) : [];
+  const out: string[] = [];
+  for (const v of list) {
+    const t = String(v ?? "").trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
 }
 
 async function deleteSupplier(supabase: SupabaseClient, id: string): Promise<Response> {
@@ -2439,7 +2458,7 @@ function normalizeHp(s: string | null | undefined): string {
 // ─── Fuzzy supplier matching (mirrors invoices-ingest findBestSupplier) ────────
 // So the manual/reclassify resolve paths match a name-only supplier despite spelling
 // differences ("תנובה" vs "תנובה בע\"מ"), instead of the old exact-name miss → dup.
-interface SupplierMatchRow { id: string; name: string; hp: string | null }
+interface SupplierMatchRow { id: string; name: string; hp: string | null; alt_names?: string[] | null }
 
 function normalizeForMatch(s: string): string {
   return s.toLowerCase()
@@ -2487,8 +2506,12 @@ function similarityScore(a: string, b: string): number {
 function findBestSupplierRow(typed: string, rows: SupplierMatchRow[], threshold = 0.85): SupplierMatchRow | null {
   let best: { row: SupplierMatchRow; score: number } | null = null;
   for (const s of rows) {
-    const score = similarityScore(typed, s.name);
-    if (!best || score > best.score) best = { row: s, score };
+    // The aliases count exactly like the name — same as findBestSupplier in ingest.
+    for (const candidate of [s.name, ...(s.alt_names ?? [])]) {
+      if (!candidate) continue;
+      const score = similarityScore(typed, candidate);
+      if (!best || score > best.score) best = { row: s, score };
+    }
   }
   return best && best.score >= threshold ? best.row : null;
 }
@@ -2500,7 +2523,7 @@ async function resolveOrCreateSupplier(
 ): Promise<string | null> {
   const normHp = normalizeHp(hp);
   // Load candidates once (small table) so hp + fuzzy-name matching runs in memory.
-  const { data: rows } = await supabase.from("suppliers").select("id, name, hp");
+  const { data: rows } = await supabase.from("suppliers").select("id, name, hp, alt_names");
   const suppliers = (rows ?? []) as SupplierMatchRow[];
 
   // 1. PRIMARY — match by ח.פ (business number). Authoritative.
@@ -2603,11 +2626,17 @@ async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promi
     if (error || !data) return json({ error: `Failed to create delivery note: ${error?.message}` }, 500);
     table = "delivery_notes"; recordId = data.id;
   } else if (docType === "כרטסת") {
-    const supplierId = await resolveOrCreateSupplier(supabase, supplierName);
+    // A statement never creates a supplier card (PRD §7.4) — look up only, and
+    // leave it an orphan for "שינוי ספק" when nothing matches. The balance is NULL,
+    // not 0: nobody has read it yet, and a 0 showed the whole ledger as the gap.
+    const { data: supRows } = await supabase.from("suppliers").select("id, name, hp, alt_names");
+    const supplierId = supplierName
+      ? (findBestSupplierRow(supplierName, (supRows ?? []) as SupplierMatchRow[])?.id ?? null)
+      : null;
     const { data, error } = await supabase.from("vendor_statements").insert({
       supplier_id:     supplierId,
       month:           body.month ?? currentMonth(),
-      vendor_balance:  0,
+      vendor_balance:  null,
       our_balance:     0,
       diff:            0,
       status:          "needs_review",

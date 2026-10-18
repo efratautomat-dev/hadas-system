@@ -124,6 +124,25 @@ export type EmailOpen = 'opened' | 'gmail-app' | 'copied-subject' | 'copied-link
  * search finds the message in one move, while a URL that nothing can open is of no
  * use to anybody. The caller is told which of those happened so it can say so.
  */
+/**
+ * Props for an outbound <a>. In the browser it stays a plain new-tab link (so
+ * middle-click and "copy link" still work); on the tablet a target="_blank"
+ * does nothing at all, silently, so the click is handed to openExternal().
+ */
+export function externalLinkProps(url: string) {
+  return {
+    href: url,
+    target: '_blank',
+    rel: 'noopener noreferrer',
+    onClick: (e: { preventDefault(): void }) => {
+      if (isNative()) {
+        e.preventDefault()
+        void openExternal(url)
+      }
+    },
+  }
+}
+
 export async function openEmail(messageLink: string, subject?: string): Promise<EmailOpen> {
   if (await openExternal(messageLink)) return 'opened'
 

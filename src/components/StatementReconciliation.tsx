@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Search as SearchIcon, X, ArrowLeftRight, ArrowRight,
   Eye, Download, FileText, ExternalLink, Maximize2, UserCog,
@@ -777,11 +777,15 @@ export default function StatementReconciliation({ initialStatementId }: { initia
 
   // Deep-link from a statement alert → open that statement's detail once the list
   // has loaded (once per id). The back control returns to the list, so this is a
-  // way IN, never a dead end.
+  // way IN, never a dead end. "Once" is the ref: serverStatements is reloaded by
+  // the 60-second auto-refresh, and without it a statement she had closed opened
+  // itself again a minute later — same guard as Payments.
+  const autoOpenedRef = useRef<string | null>(null)
   useEffect(() => {
-    if (initialStatementId && serverStatements.some(s => s.id === initialStatementId)) {
-      setSelectedId(initialStatementId)
-    }
+    if (!initialStatementId || autoOpenedRef.current === initialStatementId) return
+    if (!serverStatements.some(s => s.id === initialStatementId)) return
+    autoOpenedRef.current = initialStatementId
+    setSelectedId(initialStatementId)
   }, [initialStatementId, serverStatements])
 
   const counts = {

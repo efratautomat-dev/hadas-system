@@ -417,55 +417,6 @@ export default function Suppliers({
     }
   }, [prefillForAlert])
 
-  // ── Detail view ───────────────────────────────────────────────────────────
-  if (viewId) {
-    const sup = suppliers.find((s) => s.id === viewId)
-    if (!sup) return null
-    return (
-      <>
-        <SupplierDetail
-          supplier={sup}
-          onBack={closeDetail}
-          onEdit={() => {
-            closeDetail()
-            setEditingId(sup.id)
-            setEditForm(supplierToForm(sup))
-          }}
-          onDelete={async () => {
-            closeDetail()
-            try {
-              await removeSupplier(sup.id)
-            } catch {
-              // hook sets error state
-            }
-          }}
-          onMerge={() => setMergeFromId(sup.id)}
-          onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
-          onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
-          onOpenInvoice={onOpenInvoice}
-          onOpenDelivery={onOpenDelivery}
-          onToggleActive={async (nextActive: boolean) => {
-            try {
-              await updateSupplier(sup.id, { active: nextActive })
-            } catch {
-              // hook sets error state
-            }
-          }}
-        />
-        {mergeFromId && (
-          <MergeSuppliersModal
-            fromId={mergeFromId}
-            suppliers={suppliers}
-            invoiceCounts={invoiceCounts}
-            merge={mergeSuppliers}
-            onClose={() => setMergeFromId(null)}
-            onDone={() => { setMergeFromId(null); closeDetail() }}
-          />
-        )}
-      </>
-    )
-  }
-
   // ── Helpers ───────────────────────────────────────────────────────────────
   const startEdit = (sup: Supplier) => {
     setEditingId(sup.id)
@@ -482,6 +433,10 @@ export default function Suppliers({
       paymentArrangement: editForm.paymentArrangement,
       notes: editForm.notes,
       alt_names: splitAltNames(editForm.altNames),
+      // Saving the form IS completing the details: the server clears the flag and
+      // resolves the "new supplier — complete details" alert. Nothing sent it before,
+      // so that alert could only ever be dismissed by hand.
+      needsDetails: false,
     }
     const savedId = editingId
     setEditingId(null)
@@ -584,6 +539,58 @@ export default function Suppliers({
     openDetail(existing.id)
   }
 
+  // ── Detail view ───────────────────────────────────────────────────────────
+  if (viewId) {
+    const sup = suppliers.find((s) => s.id === viewId)
+    if (!sup) return null
+    return (
+      <>
+        <SupplierDetail
+          supplier={sup}
+          onBack={closeDetail}
+          // NOT closeDetail() first: that is goBack(), which pops to whatever opened
+          // the card (Alerts, an invoice, the notes panel) and unmounts this screen
+          // with the edit state in it. The form page below renders while viewId is
+          // still set, so saving or cancelling lands back on this card.
+          onEdit={() => {
+            setEditingId(sup.id)
+            setEditForm(supplierToForm(sup))
+          }}
+          onDelete={async () => {
+            closeDetail()
+            try {
+              await removeSupplier(sup.id)
+            } catch {
+              // hook sets error state
+            }
+          }}
+          onMerge={() => setMergeFromId(sup.id)}
+          onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
+          onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
+          onOpenInvoice={onOpenInvoice}
+          onOpenDelivery={onOpenDelivery}
+          onToggleActive={async (nextActive: boolean) => {
+            try {
+              await updateSupplier(sup.id, { active: nextActive })
+            } catch {
+              // hook sets error state
+            }
+          }}
+        />
+        {mergeFromId && (
+          <MergeSuppliersModal
+            fromId={mergeFromId}
+            suppliers={suppliers}
+            invoiceCounts={invoiceCounts}
+            merge={mergeSuppliers}
+            onClose={() => setMergeFromId(null)}
+            onDone={() => { setMergeFromId(null); closeDetail() }}
+          />
+        )}
+      </>
+    )
+  }
+
   // ── Derived state ──────────────────────────────────────────────────────────
   const filtered = suppliers.filter((s) => {
     const q = search.trim().toLowerCase()
@@ -597,6 +604,7 @@ export default function Suppliers({
       (s.contact || '').toLowerCase().includes(q) ||
       (s.category || '').toLowerCase().includes(q) ||
       (s.hp || '').toLowerCase().includes(q) ||
+      ((s as { alt_names?: string[] }).alt_names ?? []).some((n) => n.toLowerCase().includes(q)) ||
       (qDigits.length > 0 && hpDigits.includes(qDigits))
     const matchStatus = statusFilter === 'all' || s.status === statusFilter
     return matchSearch && matchStatus

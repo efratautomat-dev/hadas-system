@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
-import { openEmail, type EmailOpen } from '../lib/native'
+import { openEmail, externalLinkProps, type EmailOpen } from '../lib/native'
 import { DocumentBody } from './PdfPreviewModal'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/api'
@@ -138,6 +138,7 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
 
   // ── Info (gray): informational ──
   invoice_old_date:            b('תאריך מוקדם',             Clock,         'info'),
+  receipt_skipped:             b('קבלה — לא נקלטה',         Receipt,       'info'),
 
   // ── Legacy / mock-only types (kept so demo + mock data still render; no
   //     bucket → intentionally absent from the bucket type filter) ──
@@ -298,11 +299,7 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
             )}
             {mailResult && (
               <span style={{ fontSize: '11.5px', color: '#6B7280', lineHeight: 1.5 }}>
-                {mailResult === 'gmail-app'
-                  ? 'נושא המייל הועתק — הדביקי אותו בחיפוש של Gmail שנפתח'
-                  : mailResult === 'copied-subject'
-                    ? 'נושא המייל הועתק — אפשר להדביק אותו בחיפוש של Gmail'
-                    : 'אין במכשיר אפליקציה שפותחת את הקישור — הוא הועתק, אפשר להדביק אותו בטלפון או במחשב'}
+                {emailOpenNote(mailResult)}
               </span>
             )}
             {!isResolved && alert.status === 'new' && (
@@ -726,22 +723,25 @@ export default function Alerts({
             const a = reclassifyAlert
             const p = (a.payload ?? {}) as Record<string, unknown>
             setReclassifyAlert(null)
-            // Re-file the document into the correct table via hadas-api. When the
-            // function is unavailable (e.g. not deployed in dev) this throws — we
-            // still resolve the alert so it leaves the queue; the record move lights
-            // up once hadas-api is deployed. (createAlert path resolves via anon RLS.)
+            // Re-file the document into the correct table via hadas-api. If that
+            // fails the alert STAYS OPEN: it used to be resolved anyway, and since
+            // the alert is the only place an unclassified document lives, a failed
+            // move made the document disappear from the system.
+            const extracted = (p.extracted ?? {}) as Record<string, unknown>
             try {
               await api.post('/documents/reclassify', {
                 alertId: a.id,
                 docType,
-                typedSupplierName: p.typedSupplierName,
+                typedSupplierName: p.typedSupplierName ?? extracted.vendor_name,
                 documentUrl:       p.documentUrl,
-                storagePath:       p.storagePath,
+                storageUrl:        p.storageUrl ?? p.storagePath,
                 messageLink:       p.messageLink,
                 gmailMessageId:    p.gmailMessageId,
               })
             } catch (e) {
-              console.warn('[reclassify] hadas-api unavailable; resolving alert only:', e)
+              console.warn('[reclassify] failed; alert left open:', e)
+              window.alert(`הסיווג לא נשמר — ההתראה נשארה פתוחה.\n${e instanceof Error ? e.message : ''}`)
+              return
             }
             onMarkResolved(a.id)
           }}
@@ -847,12 +847,12 @@ function ApprovalModal({
             {(driveLink || mailLink) && (
               <div style={{ display: 'flex', gap: '10px', marginTop: '8px', flexWrap: 'wrap' }}>
                 {driveLink && (
-                  <a href={driveLink} target="_blank" rel="noreferrer" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                  <a {...externalLinkProps(driveLink)} style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
                     פתיחה ב-Drive ↗
                   </a>
                 )}
                 {mailLink && (
-                  <a href={mailLink} target="_blank" rel="noreferrer" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                  <a href={mailLink} onClick={(e) => { e.preventDefault(); void openEmail(mailLink) }} style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
                     פתיחת המייל ↗
                   </a>
                 )}
@@ -943,6 +943,16 @@ function ApprovalModal({
 // signed URL minted from payload.storagePath (private "documents" bucket).
 const DOC_TYPES = ['חשבונית', 'זיכוי', 'תעודת משלוח', 'כרטסת', 'אחר'] as const
 
+// What to tell her when the email could not be opened directly. Shared by the
+// alert card and the reclassify popup so the two cannot say different things.
+function emailOpenNote(how: EmailOpen): string {
+  return how === 'gmail-app'
+    ? 'נושא המייל הועתק — הדביקי אותו בחיפוש של Gmail שנפתח'
+    : how === 'copied-subject'
+      ? 'נושא המייל הועתק — אפשר להדביק אותו בחיפוש של Gmail'
+      : 'אין במכשיר אפליקציה שפותחת את הקישור — הוא הועתק, אפשר להדביק אותו בטלפון או במחשב'
+}
+
 function ReclassifyModal({
   alert, onClose, onConfirm,
 }: {
@@ -952,9 +962,14 @@ function ReclassifyModal({
 }) {
   const p = (alert.payload ?? {}) as Record<string, unknown>
   const directUrl  = p.documentUrl as string | undefined
-  const storagePath = p.storagePath as string | undefined
+  // Ingest writes `storageUrl` (a Storage PATH, same key ApprovalModal reads);
+  // `storagePath` is the older name the dev seed used.
+  const storagePath = (p.storageUrl ?? p.storagePath) as string | undefined
+  const messageLink = p.messageLink as string | undefined
+  const subject     = p.subject as string | undefined
   const [docUrl, setDocUrl]   = useState<string | null>(directUrl ?? null)
   const [choice, setChoice]   = useState<string>('')
+  const [mailResult, setMailResult] = useState<EmailOpen | null>(null)
 
   useLayoutEffect(() => {
     if (docUrl || !storagePath) return
@@ -995,8 +1010,32 @@ function ReclassifyModal({
               <DocumentBody url={docUrl} previewSrc={docUrl} />
             </div>
           ) : (
-            <div style={{ height: '340px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB', color: '#9CA3AF', fontSize: '13px' }}>
-              אין תצוגת מסמך זמינה
+            <div style={{ height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB', color: '#6B7280', fontSize: '13px', textAlign: 'center', padding: '0 20px', lineHeight: 1.6 }}>
+              {storagePath
+                ? 'טוען את המסמך…'
+                : messageLink
+                  ? 'המסמך לא נשמר במערכת (התראה מלפני התיקון) — הוא נמצא במייל המקורי'
+                  : 'המסמך לא נשמר במערכת'}
+            </div>
+          )}
+          {/* The original email, here as well as on the card: this popup is where
+              she decides what the document is, and the email is half the evidence. */}
+          {messageLink && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '10px' }}>
+              <button
+                onClick={async () => {
+                  const how = await openEmail(messageLink, subject)
+                  setMailResult(how === 'opened' ? null : how)
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80"
+                style={{ background: '#EFF6FF', color: '#1D4ED8', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                <Mail className="w-3 h-3" />
+                פתח מייל מקורי
+              </button>
+              {mailResult && (
+                <span style={{ fontSize: '11.5px', color: '#6B7280', lineHeight: 1.5 }}>{emailOpenNote(mailResult)}</span>
+              )}
             </div>
           )}
         </div>

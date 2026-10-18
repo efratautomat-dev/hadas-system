@@ -128,6 +128,7 @@ const ALERT_PAGE: Record<string, string> = {
   invoice_duplicate:       'invoices',
   duplicate_invoice:       'invoices',
   invoice_old_date:        'invoices',
+  receipt_skipped:         'invoices',
   invoice_link_failed:     'invoices',
   supplier_incomplete:     'suppliers',
   supplier_details_review: 'suppliers',
