@@ -307,3 +307,85 @@ canonical `pending` / `archived` for display. Unlinked = pending, linked = archi
 The codebase avoids raw Hebrew/RTL in places where it would scramble the file — e.g. the
 overflow folder name via `String.fromCharCode` (E3), and the SectionHeader LTR-flex workaround
 (see 06). New documentation (these files) keeps exact Hebrew values inside `backticks`.
+
+---
+
+## L. Weekly backup (`backup-run`)
+
+Added 2026-10-07. Before it, the system had no backup of any kind: everything the
+business knows lived in one copy, in one Supabase project.
+
+### L1. Filing layout
+
+`<DRIVE_ROOT_ID>/גיבויים/<year>/<Hebrew month>/גיבוי YYYY-MM-DD/`, plus
+`<year>/רבעונים/רבעון N YYYY/`. The year → Hebrew-month shape is the same one invoices
+use, reusing `HEBREW_MONTHS` from `_shared/drive-filing.ts`. It is what lets a finished
+year be pruned in one pass while the quarter folders survive.
+
+**Every date is Israel-local** (`israelDateParts`, `Asia/Jerusalem`), never UTC. The run
+fires at 01:00 UTC, which is 03:00–04:00 Israel the same day — but a schedule someone
+moves earlier would file a Saturday backup in Friday's folder and break the one-backup-
+per-`run_date` key. The layout maths is pure and lives in `_shared/backup-layout.ts`.
+
+**A second run on one day gets ` (2)`**, not a second folder of the same name: Drive
+permits duplicate names, and without a suffix nobody could tell which folder held the
+complete set.
+
+### L2. The completeness guard — the rule the whole feature rests on
+
+PostgREST returns at most **1000 rows**. A plain `select('*')` on `invoices` returns a
+tenth of the table and reports perfect success.
+
+Paging fixes that and introduces a subtler failure: `.range()` is OFFSET/LIMIT against a
+LIVE table, not a snapshot. A row inserted that sorts early while page 3 is being fetched
+shifts every later window — one row comes back twice, another is never seen, and
+`rows.length` still equals the count.
+
+So `_shared/backup-read.ts` counts **DISTINCT KEYS**, not array length:
+
+| What it sees | What it does |
+|---|---|
+| duplicates present | **THROW.** The window moved; nothing is uploaded. |
+| fewer than the count | re-count. Equal → rows were deleted mid-read, accept with a warning. Still short → **THROW**. |
+| more than the count | rows were inserted mid-read; a snapshot newer than its own count is fine. Note it. |
+
+The key columns come from `BACKUP_TABLES[].orderBy`, which is an **array**: two tables
+have a composite primary key and `delivery_note_invoices` has no `id` column at all. The
+join character is **NUL** — any printable separator lets `("a b","c")` and `("a","b c")`
+collide into one key, under-counting distinct rows and reporting a complete read as short.
+
+`npm run check:backup` drives all of this against fake tables that misbehave on purpose.
+
+### L3. Order of operations, and the completeness mark
+
+1. Read **every** table before touching Drive — a read failure costs zero Drive writes.
+2. Upload the JSON files, then the readable one.
+3. Upload `_manifest.json` **LAST**. It is therefore the completeness mark: a folder
+   without one is a run that died mid-upload, visible without opening anything.
+
+### L4. What is in, what is out
+
+18 tables in; `system_logs` (unbounded diagnostics), `ingest_lock` (a momentary mutex)
+and `backup_runs` itself are out, each with its reason recorded in `BACKUP_EXCLUDED` and
+copied into every manifest. A table in **neither** list raises `backup_table_unlisted` —
+without that guard, a table added in 2027 is absent from every backup until someone needs
+it. `auth.users`, Storage objects and the Drive originals are named in `BACKUP_GAPS` so
+"full snapshot" is never read as "everything".
+
+### L5. The quarterly anchor
+
+On the first run of a new quarter, the **last successful backup of the quarter that just
+closed** is server-side-copied into `רבעונים/רבעון N YYYY`. Answered from Drive plus
+`backup_runs` rather than a flag, so it is idempotent and self-healing: the folder already
+there means nothing happens, a half-finished copy completes next week. A failure here
+never fails the backup — the backup is already up.
+
+⚠️ The anchor goes under the **closed quarter's year**, not the running one. The January
+run anchors Q4 of the previous year.
+
+### L6. The failure nobody can be alerted about
+
+A deleted cron job produces no run, and an absent run cannot raise an alert. The only
+symptom the system has is the Settings panel turning amber when the last successful
+backup is more than **10 days** old (`BACKUP_STALE_DAYS`) — shown even though that run
+succeeded.

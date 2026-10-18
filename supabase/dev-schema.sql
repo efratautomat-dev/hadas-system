@@ -313,6 +313,34 @@ create table if not exists public.ingest_failures (
   constraint ingest_failures_pkey primary key (gmail_message_id)
 );
 
+-- backup_runs (record + lease for the weekly Drive backup) -------------------
+-- See migration 20261007000000_backup_runs.sql for the full commentary. The
+-- unique partial index below IS the single-flight lease, and `kind` lets the
+-- year-end prune share the table so the panel renders one history.
+create table if not exists public.backup_runs (
+  id            uuid        not null default gen_random_uuid(),
+  kind          text        not null default 'backup',   -- 'backup' / 'cleanup'
+  status        text        not null,                    -- 'running' / 'ok' / 'failed'
+  run_date      date        not null,                    -- ISRAEL-local, not UTC
+  started_at    timestamptz not null default now(),
+  finished_at   timestamptz,
+  duration_ms   integer,
+  triggered_by  text        not null,                    -- 'cron' / 'manual'
+  actor_email   text,                                    -- stamped from the JWT; null for cron
+  drive_folder_id     text,
+  drive_folder_link   text,
+  quarter_anchor      text,                              -- e.g. 'רבעון 3 2026'
+  quarter_folder_link text,
+  total_rows    integer,
+  file_count    integer,
+  bytes         integer,
+  readable_format text,                                  -- 'xlsx' / 'csv' / 'none'
+  summary       jsonb,                                   -- per-table census + warnings
+  error         text,
+  error_stage   text,                                    -- e.g. 'read:invoices'
+  constraint backup_runs_pkey primary key (id)
+);
+
 -- ─── 3. Indexes (PKs above are implicit; these are the rest) ─────────────────
 
 -- invoices
@@ -353,6 +381,13 @@ create index if not exists idx_alerts_type       on public.alerts (type);
 -- system_logs
 create index if not exists system_logs_timestamp_idx    on public.system_logs ("timestamp" desc);
 create index if not exists system_logs_source_level_idx on public.system_logs (source, level);
+
+-- backup_runs — the first index is the single-flight LEASE, not an optimisation:
+-- claiming it is the insert, so a concurrent run fails at the database.
+create unique index if not exists backup_runs_single_running
+  on public.backup_runs (kind) where status = 'running';
+create index if not exists backup_runs_started_idx   on public.backup_runs (started_at desc);
+create index if not exists backup_runs_kind_date_idx on public.backup_runs (kind, run_date desc);
 
 -- ─── 4. Functions (SECURITY DEFINER role helpers — exactly two) ──────────────
 
@@ -443,6 +478,16 @@ drop policy if exists "users read own allowed_users row" on public.allowed_users
 create policy "users read own allowed_users row" on public.allowed_users
   for select to authenticated
   using (email = auth.email());
+
+-- backup_runs: manager READ only, and deliberately NO write policy — the only
+-- writer is the backup-run edge function on the service-role key. Manager-only
+-- because `summary` is a row census of every financial table and the folder link
+-- points at the unmasked dump itself.
+alter table public.backup_runs enable row level security;
+drop policy if exists "managers read backup runs" on public.backup_runs;
+create policy "managers read backup runs" on public.backup_runs
+  for select to authenticated
+  using (current_user_role() = 'manager');
 
 -- ─── 6. Storage (private documents bucket + read policy) ─────────────────────
 

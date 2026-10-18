@@ -30,3 +30,12 @@ entrypoint = "./functions/invoices-ingest/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/drive-reconcile/index.ts"
+
+# The weekly database backup to Drive. verify_jwt = false so pg_cron can call it
+# with just x-hadas-key, same as the two ingest jobs. There is deliberately NO
+# JWT path inside the function: its only human caller is hadas-api, which checks
+# the manager role before proxying.
+[functions.backup-run]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/backup-run/index.ts"

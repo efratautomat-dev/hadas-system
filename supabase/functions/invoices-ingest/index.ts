@@ -7,7 +7,7 @@
 // ║  emails with "טופל_ממתין במערכת". 14-day rolling lookback window.        ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { resolveInvoiceFolder, driveGetFolderLink } from "../_shared/drive-filing.ts";
+import { resolveInvoiceFolder, driveGetFolderLink, driveUploadFile } from "../_shared/drive-filing.ts";
 import { vatRateFor, completeAmounts, round2 } from "../_shared/vat.ts";
 // The supplier ledger engine — byte-locked twin of src/lib/ledgerEngine.ts (see
 // scripts/check-twins.mjs). Reconciling a statement on arrival MUST use the same
@@ -450,46 +450,9 @@ function buildStorageKey(
 // driveFindFolder / driveCreateFolder / driveEnsureFolder moved to
 // ../_shared/drive-filing.ts (used only by folder resolution, now shared).
 
-interface UploadedFile { id: string; webViewLink: string }
-
-async function driveUploadFile(
-  token: string,
-  parentId: string,
-  filename: string,
-  mimeType: string,
-  bytes: Uint8Array,
-): Promise<UploadedFile> {
-  const boundary = "----hadasinvoice" + crypto.randomUUID();
-  const metadata = JSON.stringify({ name: filename, parents: [parentId] });
-
-  const enc = new TextEncoder();
-  const head = enc.encode(
-    `--${boundary}\r\n` +
-    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-    metadata + `\r\n` +
-    `--${boundary}\r\n` +
-    `Content-Type: ${mimeType}\r\n\r\n`,
-  );
-  const tail = enc.encode(`\r\n--${boundary}--\r\n`);
-  const body = new Uint8Array(head.length + bytes.length + tail.length);
-  body.set(head, 0);
-  body.set(bytes, head.length);
-  body.set(tail, head.length + bytes.length);
-
-  const resp = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
-    {
-      method:  "POST",
-      headers: {
-        Authorization:  `Bearer ${token}`,
-        "Content-Type": `multipart/related; boundary=${boundary}`,
-      },
-      body,
-    },
-  );
-  if (!resp.ok) throw new Error(`drive upload failed: ${resp.status} ${await resp.text()}`);
-  return resp.json() as Promise<UploadedFile>;
-}
+// driveUploadFile + UploadedFile moved to ../_shared/drive-filing.ts (imported at
+// top). The weekly backup writes files to Drive too, and a second hand-rolled
+// multipart encoder is exactly the duplication scripts/check-twins.mjs exists for.
 
 // driveGetFolderLink moved to ../_shared/drive-filing.ts (imported at top).
 

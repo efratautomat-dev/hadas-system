@@ -3,6 +3,7 @@ import {
   Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus,
   HelpCircle, FileX, Paperclip, Unlink, AlertTriangle, Clock,
   FileWarning, Receipt, AlertCircle, Tag, Mail, X, ShieldCheck, AlertOctagon, Coins, Package,
+  DatabaseBackup, TableProperties,
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
@@ -108,8 +109,14 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   customer_order_joins_shipment:  b('הזמנת לקוחה — אפשר לצרף למשלוח', Package, 'action'),
 
   // ── Check (yellow): worth a look / verify ──
+  // The weekly backup. URGENT, and in the "broken pipeline" family rather than
+  // the "check this" one: nothing is wrong with the data, the safety net is not
+  // there. A type missing from this map renders as a grey English string inside a
+  // Hebrew screen, which is why registering here is not optional.
+  backup_failed:               b('הגיבוי השבועי נכשל',      DatabaseBackup,  'urgent'),
   invoice_low_confidence:      b('וודאות נמוכה',            AlertTriangle, 'check'),
   document_misclassified:      b('מסמך לא חשבונית',         FileX,         'check'),
+  backup_table_unlisted:       b('טבלה חדשה אינה מגובה',    TableProperties, 'check'),
   invoice_no_attachment:       b('ללא קובץ',                Paperclip,     'check'),
   invoice_no_valid_attachment: b('ללא קובץ תקין',           FileX,         'check'),
   invoice_link_failed:         b('הורדה נכשלה',             Unlink,        'check'),

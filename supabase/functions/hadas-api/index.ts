@@ -1,5 +1,7 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { resolveInvoiceFolder, driveMoveFile, driveGetFolderLink } from "../_shared/drive-filing.ts";
+import { resolveInvoiceFolder, driveMoveFile, driveGetFolderLink, driveTrashFile,
+         driveEnsureFolder, driveFindFolder, driveListChildren, isDriveFolder } from "../_shared/drive-filing.ts";
+import { getGoogleAccessToken, googleConfigured } from "../_shared/google-auth.ts";
 import { round2 } from "../_shared/vat.ts";
 // The supplier ledger engine — byte-locked twin of src/lib/ledgerEngine.ts (see
 // scripts/check-twins.mjs). Reconciling a statement here MUST use the same engine
@@ -30,22 +32,7 @@ function validateKey(key: string | null): boolean {
 // Same OAuth identity as invoices-ingest (project-wide secrets). That identity
 // uploaded the invoice files to Drive, so it is authorized to trash them.
 
-async function getGoogleAccessToken(): Promise<string> {
-  const resp = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id:     Deno.env.get("GMAIL_CLIENT_ID")!,
-      client_secret: Deno.env.get("GMAIL_CLIENT_SECRET")!,
-      refresh_token: Deno.env.get("GMAIL_REFRESH_TOKEN")!,
-      grant_type:    "refresh_token",
-    }),
-  });
-  if (!resp.ok) throw new Error(`Google token exchange failed: ${resp.status} ${await resp.text()}`);
-  const data = await resp.json() as { access_token?: string; error?: string };
-  if (!data.access_token) throw new Error(`No access_token: ${data.error ?? "unknown"}`);
-  return data.access_token;
-}
+// getGoogleAccessToken moved to ../_shared/google-auth.ts (imported at top).
 
 // Extracts the Drive file id from a stored webViewLink / open?id= / uc?id= URL.
 function driveFileIdFromLink(link: string | null): string | null {
@@ -54,17 +41,8 @@ function driveFileIdFromLink(link: string | null): string | null {
   return m ? m[1] : null;
 }
 
-// Moves a Drive file to trash (recoverable for 30 days) rather than deleting
-// permanently. 404 is treated as success — the file is already gone.
-async function driveTrashFile(token: string, fileId: string): Promise<void> {
-  const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-    method: "PATCH",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ trashed: true }),
-  });
-  if (!resp.ok && resp.status !== 404)
-    throw new Error(`drive trash failed: ${resp.status} ${await resp.text()}`);
-}
+// driveTrashFile moved to ../_shared/drive-filing.ts (imported at top) — the
+// weekly backup trashes folders through the very same helper.
 
 // ─── Suppliers ────────────────────────────────────────────────────────────────
 // Whitelist: id, name, hp, category, contact, email, phone, opening_balance, payment_arrangement, notes, alt_names, linked_invoices
@@ -316,11 +294,7 @@ async function updateInvoice(req: Request, supabase: SupabaseClient, id: string)
     const oldDate = String(cur?.invoice_date ?? "").slice(0, 10);
     const newDate = String(row.invoice_date ?? "").slice(0, 10);
     const fileId  = driveFileIdFromLink(cur?.drive_file_link ?? null);
-    const driveConfigured = !!(
-      Deno.env.get("GMAIL_CLIENT_ID") &&
-      Deno.env.get("GMAIL_CLIENT_SECRET") &&
-      Deno.env.get("GMAIL_REFRESH_TOKEN")
-    );
+    const driveConfigured = googleConfigured();
 
     if (!newDate || newDate === oldDate) {
       drive = "unchanged";                 // date not actually changing → nothing to move
@@ -409,7 +383,7 @@ async function deleteInvoice(supabase: SupabaseClient, id: string): Promise<Resp
   //    OR when Drive credentials aren't configured / the call fails (graceful skip).
   let drive = "skipped";
   const fileId = driveFileIdFromLink(inv.drive_file_link);
-  const driveConfigured = !!(Deno.env.get("GMAIL_CLIENT_ID") && Deno.env.get("GMAIL_CLIENT_SECRET") && Deno.env.get("GMAIL_REFRESH_TOKEN"));
+  const driveConfigured = googleConfigured();
   if (fileId && driveConfigured) {
     try {
       const token = await getGoogleAccessToken();
@@ -2545,21 +2519,9 @@ async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promi
 
 // ─── Gmail helpers (used by createPaymentFromAlert) ───────────────────────────
 
-async function gmailAccessToken(): Promise<string> {
-  const resp = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id:     Deno.env.get("GMAIL_CLIENT_ID")!,
-      client_secret: Deno.env.get("GMAIL_CLIENT_SECRET")!,
-      refresh_token: Deno.env.get("GMAIL_REFRESH_TOKEN")!,
-      grant_type:    "refresh_token",
-    }),
-  });
-  const data = await resp.json() as { access_token?: string };
-  if (!data.access_token) throw new Error("Gmail token exchange failed");
-  return data.access_token;
-}
+// gmailAccessToken was a THIRD copy of the same refresh-token exchange, with
+// weaker error handling (it never checked resp.ok). It now delegates.
+const gmailAccessToken = getGoogleAccessToken;
 
 async function gmailLabelId(token: string, name: string): Promise<string | null> {
   const resp = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/labels", {
@@ -2889,6 +2851,82 @@ async function deleteEmployee(supabase: SupabaseClient, id: string): Promise<Res
   const { error } = await supabase.from("employees").delete().eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true });
+}
+
+// ─── Backups (Settings → גיבוי) ───────────────────────────────────────────────
+// MANAGER-ONLY, and enforced by OMISSION from employeeMayAccess, which returns
+// false for anything unlisted. The reason belongs on the record:
+//
+//   · POST /backups/run produces a file holding every column invoices_v,
+//     suppliers_v and delivery_notes_v exist to hide from an employee — and then
+//     answers with a link to it. The masking-view warning in CLAUDE.md applies at
+//     full strength here: this function runs on the service-role key, and the
+//     entire POINT of this payload is the unmasked rows.
+//   · POST /backups/year-end-cleanup moves folders to the Drive bin. The employee
+//     allowlist exists for judgements about goods in front of her that carry no
+//     figure; this is the opposite on both counts.
+//
+// There is deliberately NO `GET /backups`: the panel reads `backup_runs` through
+// the anon client under RLS, which is the house pattern ("reads through anon,
+// writes through hadas-api") and the same way useLedgerResets reads its table. A
+// read route here would bypass that RLS and have to re-implement the role check.
+
+/** Fires backup-run server-to-server with the machine key, the same shape as the
+ *  ingest re-invocation above. The owner's identity is stamped from the VERIFIED
+ *  JWT, never from the request body. */
+async function runBackupNow(actorEmail?: string): Promise<Response> {
+  const key = Deno.env.get("HADAS_API_KEY");
+  const url = Deno.env.get("SUPABASE_URL");
+  if (!key || !url) return json({ error: "Backup credentials are not configured" }, 500);
+
+  const res = await fetch(`${url}/functions/v1/backup-run`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "x-hadas-key": key },
+    // force: a manual run is a deliberate act and must not be answered with
+    // "there is already one from today" — that is the cron's rule, not hers.
+    body:    JSON.stringify({ mode: "weekly", force: true, triggeredBy: "manual", actorEmail: actorEmail ?? null }),
+  });
+  const out = await res.json().catch(() => ({}));
+  // 409 (already running) is relayed as itself: it is a real answer, not a fault.
+  if (!res.ok) return json({ error: "Backup run failed", details: out }, res.status === 409 ? 409 : 502);
+  return json({ success: true, result: out });
+}
+
+/**
+ * Year-end prune: the month folders of a FINISHED year go to the Drive bin, and
+ * the four quarter folders stay.
+ *
+ * `year` is validated here as well as inside backup-run. A destructive route gets
+ * its guard on both sides of the wire, because the whole point of a second guard
+ * is that it is not the one that was bypassed.
+ */
+async function cleanupBackupYear(req: Request, actorEmail?: string): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const year = Number(body?.year);
+  if (!Number.isInteger(year)) return json({ error: "year is required" }, 400);
+  if (body?.confirm !== true)  return json({ error: "confirm: true is required" }, 400);
+
+  // Israel-local year, so the first days of January are never read as still being
+  // inside the year the prune is about to delete.
+  const thisYear = Number(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jerusalem", year: "numeric",
+  }).format(new Date()));
+  if (year >= thisYear) {
+    return json({ error: `לא ניתן לנקות שנה שלא הסתיימה (${year})` }, 400);
+  }
+
+  const key = Deno.env.get("HADAS_API_KEY");
+  const url = Deno.env.get("SUPABASE_URL");
+  if (!key || !url) return json({ error: "Backup credentials are not configured" }, 500);
+
+  const res = await fetch(`${url}/functions/v1/backup-run`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "x-hadas-key": key },
+    body:    JSON.stringify({ mode: "year-end-cleanup", year, confirm: true, triggeredBy: "manual", actorEmail: actorEmail ?? null }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) return json({ error: "Cleanup failed", details: out }, res.status === 409 ? 409 : 502);
+  return json({ success: true, result: out });
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -3255,6 +3293,11 @@ Deno.serve(async (req: Request) => {
     const reassign = path.match(/^\/delivery-notes\/([^/]+)\/supplier$/);
     if (reassign && req.method === "PUT")
       return await reassignDeliverySupplier(req, supabase, reassign[1]);
+
+    if (path === "/backups/run" && req.method === "POST")
+      return await runBackupNow(auth.email);
+    if (path === "/backups/year-end-cleanup" && req.method === "POST")
+      return await cleanupBackupYear(req, auth.email);
 
     if (path === "/ingest/parked" && req.method === "GET")
       return await listParkedDocuments(supabase);

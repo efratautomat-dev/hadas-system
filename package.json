@@ -16,6 +16,7 @@
     "deploy:vercel": "node scripts/deploy.mjs --only=vercel",
     "lint": "node scripts/check-twins.mjs && eslint .",
     "check:twins": "node scripts/check-twins.mjs",
+    "check:backup": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/backup-guard-check.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

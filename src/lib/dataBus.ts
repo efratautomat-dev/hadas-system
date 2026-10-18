@@ -28,6 +28,7 @@ export type Resource =
   | 'alerts'
   | 'supplier_notes'
   | 'ledger_resets'
+  | 'backup_runs'
 
 type Listener = () => void
 
@@ -85,5 +86,8 @@ export function resourcesFor(path: string): Resource[] {
   // announces `suppliers` as well as itself.
   if (path.startsWith('/ledger-resets')) add('ledger_resets', 'suppliers')
   if (path.startsWith('/ingest'))         add('delivery_notes', 'invoices', 'alerts')
+  // A backup can raise an alert of its own (a failed run, an unclassified table),
+  // so the feed has to hear about it too — not only the panel that started it.
+  if (path.startsWith('/backups'))        add('backup_runs', 'alerts')
   return all
 }

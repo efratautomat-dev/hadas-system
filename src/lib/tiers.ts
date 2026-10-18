@@ -148,6 +148,15 @@ const ALERT_PAGE: Record<string, string> = {
   statement_no_file:               'reconciliation',
   return_ingest_failed:            'returns',
   return_no_file:                  'returns',
+  // The weekly backup. `settings` is in BASIC_PAGES, so today this resolves to
+  // the same answer the "unregistered stays visible" default already gives — the
+  // reason invoice_amount_unreadable was left out. Registered anyway, because an
+  // automatic cloud backup is a plausible thing to sell per tier (unlike
+  // invoices, which exist at every level), and the day it moves, this map is
+  // where somebody will look.
+  backup_failed:                   'settings',
+  backup_table_unlisted:           'settings',
+
   // Deliberately NOT listed: invoice_amount_unreadable. Invoices exist in every
   // tier, so it would resolve to the same answer the default already gives.
 }

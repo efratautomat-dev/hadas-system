@@ -76,6 +76,15 @@ password gate and its (deliberately limited) security posture — is in
 - `invoices-ingest` and `payments-ingest` are triggered on a schedule (Postgres **pg_cron**
   → `net.http_post(...)` with an `x-hadas-key` header) — see
   `supabase/functions/invoices-ingest/README.md`. The README cites a 5-minute interval.
+- `backup-run` is the **third** scheduled job: `backup-weekly-cron`, Saturday 01:00 UTC,
+  created by `supabase/SCHEDULE-DB-BACKUP.sql`. It dumps every table to Drive. Note it
+  sets `timeout_milliseconds := 300000` — pg_net's 5-second default records a timeout
+  while the function is still working, which looks exactly like a failure and is not one.
+  See `supabase/functions/backup-run/README.md`.
+- ⚠️ **None of the three schedules lives in a migration.** pg_cron is configured by hand
+  in the SQL editor because the real `HADAS_API_KEY` must not be committed. A job that is
+  deleted therefore leaves no trace in the repo, and an absent run cannot alert about
+  itself — the backup panel's ten-day staleness colour is the only symptom the system has.
 
 ### One-time data import
 `migration/generate.cjs` converts Airtable CSV exports (`suppliers.csv.csv`,

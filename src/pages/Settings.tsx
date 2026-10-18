@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { checkForUpdate, isBrandedBuild, isNative, openExternal, resetStoreCode, saveOrShareFile, type AppUpdate } from '../lib/native'
+import { checkForUpdate, isBrandedBuild, isNative, openExternal, resetStoreCode, type AppUpdate } from '../lib/native'
 import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw, Tag, GitMerge, X, FileSpreadsheet, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
@@ -9,6 +9,7 @@ import { tierAllowsIntegrations } from '../lib/tiers'
 import { printGoodsSheet } from '../utils/pdf/goodsSheetPdf'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { Button } from '../components/ui/Button'
+import BackupPanel from '../components/BackupPanel'
 // Shared with the supplier form so the two screens stay visually identical.
 import { SectionCard, FieldLabel, TextInput } from '../components/ui/form'
 import { inspectTemplateFile, TEMPLATE_BUCKET, TEMPLATE_PATH, BUNDLED_TEMPLATE_URL, loadBizboxTemplate } from '../lib/bizboxTemplate'
@@ -581,20 +582,7 @@ export default function Settings() {
   useEffect(() => { void checkForUpdate().then(setAppUpdate) }, [])
   useEffect(() => { void isBrandedBuild().then(setBranded) }, [])
 
-  function handleExportAll() {
-    import('xlsx').then(async XLSX => {
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['גיבוי מלא', new Date().toLocaleDateString('he-IL')]]), 'גיבוי')
-      // XLSX.writeFile() ends in a blob download, which an Android WebView drops
-      // on the floor. Building the blob here lets both platforms take the file
-      // the way each one can — see saveOrShareFile.
-      const bytes = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer
-      const blob = new Blob([bytes], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      })
-      await saveOrShareFile(`hadas_backup_${new Date().toISOString().slice(0, 10)}.xlsx`, blob)
-    })
-  }
+
 
   // ── Employee handlers ────────────────────────────────────────────────────────
 
@@ -1060,90 +1048,13 @@ export default function Settings() {
       </div>
     ),
 
-    backup: (
-      <div className="space-y-5">
-        <NotAvailable />
-        {SHOW_LEGACY && (<>
-        <SectionCard title="ייצוא נתונים">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 rounded-xl border" style={{ borderColor: '#E2E4E9' }}>
-              <Button variant="primary" onClick={handleExportAll}>
-                <Download className="w-4 h-4" />
-                ייצא הכל ל-Excel
-              </Button>
-              <div className="text-right">
-                <p className="text-sm font-semibold text-gray-700">גיבוי מלא</p>
-                <p className="text-xs text-gray-400 mt-0.5">ספקים, חשבוניות, תשלומים, תעודות</p>
-              </div>
-            </div>
-
-            <div
-              className="flex items-center justify-between p-4 rounded-xl border border-dashed"
-              style={{ borderColor: '#E2E4E9' }}
-            >
-              <div className="flex items-center gap-2">
-                <button
-                  disabled
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all"
-                  style={{ background: '#F3F4F6', color: '#9CA3AF', cursor: 'not-allowed' }}
-                >
-                  <Upload className="w-4 h-4" />
-                  גיבוי לדרייב
-                </button>
-                <span className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: '#FEF9C3', color: '#A16207' }}>
-                  בקרוב
-                </span>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold text-gray-400">Google Drive</p>
-                <p className="text-xs text-gray-400 mt-0.5">גיבוי אוטומטי לענן</p>
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="ייבוא נתונים">
-          <div
-            className="flex items-center justify-between p-4 rounded-xl border border-dashed"
-            style={{ borderColor: '#E2E4E9' }}
-          >
-            <div className="flex items-center gap-2">
-              <button
-                disabled
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all"
-                style={{ background: '#F3F4F6', color: '#9CA3AF', cursor: 'not-allowed' }}
-              >
-                <Upload className="w-4 h-4" />
-                ייבא מ-Excel
-              </button>
-              <span className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: '#FEF9C3', color: '#A16207' }}>
-                בקרוב
-              </span>
-            </div>
-            <div className="text-right">
-              <p className="text-sm font-semibold text-gray-400">ייבוא נתונים</p>
-              <p className="text-xs text-gray-400 mt-0.5">ייבוא ספקים וחשבוניות מקובץ Excel</p>
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="מידע על המערכת">
-          <div className="space-y-2">
-            {[
-              ['גרסה', 'v1.0.0'],
-              ['סביבה', 'Production'],
-              ['עדכון אחרון', new Date().toLocaleDateString('he-IL')],
-            ].map(([label, value]) => (
-              <div key={label} className="flex items-center justify-between py-2 border-b last:border-b-0" style={{ borderColor: '#F3F4F6' }}>
-                <span className="text-sm text-gray-500 font-mono">{value}</span>
-                <span className="text-sm font-semibold text-gray-700">{label}</span>
-              </div>
-            ))}
-          </div>
-        </SectionCard>
-        </>)}
-      </div>
-    ),
+    // The placeholder "ייצא הכל ל-Excel" used to live here, behind SHOW_LEGACY.
+    // It is gone with the panel that replaced it: it produced a workbook holding
+    // one header row and NO data under a button labelled "export everything", and
+    // keeping that behind a flag next to a real backup means one future flip
+    // resurrects a convincing, empty one. (It was correctly wired for the tablet
+    // via saveOrShareFile — that was not the problem with it.)
+    backup: <BackupPanel />,
 
     employees: (
       <div className="space-y-5">

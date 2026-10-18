@@ -75,8 +75,11 @@
    into the arithmetic. **This entry pointed at the wrong file and cost time during the
    investigation** — kept as a reminder to date-stamp diagnoses.
 
-6. **Settings → Backup tab is a stub.**
-   `src/pages/Settings.tsx` — tab exists; export/import logic not implemented.
+6. ~~**Settings → Backup tab is a stub.**~~ **DONE 2026-10-07.** The tab now renders
+   `src/components/BackupPanel.tsx`: the weekly Drive backup's status, history, a
+   manual run, and the year-end prune. The placeholder "ייצא הכל ל-Excel" (a
+   workbook with one header row and no data) was deleted with it. Restore/import
+   is deliberately still out of scope — see `supabase/functions/backup-run/README.md`.
 
 25. **⚠️ Statuses do not work well — full re-spec required (raised by the owner 2026-08-05).**
    `הועבר לרו״ח` is entered as a CHECKBOX but behaves as a STATUS that overrides every
