@@ -31,7 +31,7 @@
 //
 //  4. THE DATABASE ROW IS THE RECORD, NOT THE HTTP REPLY. pg_net reports a
 //     timeout long before a full dump finishes and nobody is awake at 04:00 on a
-//     Saturday. `backup_runs` is what the Settings panel and the next run read.
+//     Monday. `backup_runs` is what the Settings panel and the next run read.
 //
 //  5. FAILURE SAYS WHERE IT STOPPED. `error_stage` carries 'read:invoices' or
 //     'upload' or 'quarter-copy'. "The backup failed" is not something anyone can

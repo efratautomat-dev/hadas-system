@@ -189,7 +189,7 @@ export default function BackupPanel() {
     <div className="space-y-5">
       <SectionCard title="גיבוי אוטומטי לדרייב">
         <p className="text-sm mb-4.5 leading-relaxed" style={{ color: '#6B7280', maxWidth: '66ch', marginBottom: 18 }}>
-          כל שבת ב-04:00 המערכת שולפת את <b style={{ color: '#374151' }}>כל</b> נתוני המערכת
+          בכל לילה שבין ראשון לשני, בסביבות 04:00, המערכת שולפת את <b style={{ color: '#374151' }}>כל</b> נתוני המערכת
           ושומרת אותם בדרייב, בתיקייה של אותו חודש. כל גיבוי הוא צילום מלא ועומד בפני עצמו.
         </p>
 
@@ -220,7 +220,7 @@ export default function BackupPanel() {
           <StatusCard
             tone="none" Icon={DatabaseBackup} title="עדיין לא בוצע גיבוי" actions={canRun ? runButton : undefined}
           >
-            התזמון השבועי יתחיל בשבת הקרובה. אפשר גם להריץ אחד עכשיו.
+            התזמון השבועי יתחיל בלילה שבין ראשון לשני הקרוב. אפשר גם להריץ אחד עכשיו.
           </StatusCard>
         )}
 

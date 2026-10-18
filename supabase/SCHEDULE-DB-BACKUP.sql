@@ -1,7 +1,9 @@
 -- ============================================================================
 -- SCHEDULE-DB-BACKUP.sql   —   ⚠️ THIS ONE ACTS. It creates a weekly cron job.
 -- ----------------------------------------------------------------------------
--- Schedules `backup-run` for 01:00 UTC every Saturday — 03:00 or 04:00 Israel
+-- Schedules `backup-run` for 01:00 UTC every Monday — 03:00 or 04:00 Israel
+-- time, i.e. the night between Sunday and Monday (owner's choice, 18.10.2026:
+-- "כל ראשון בלילה"; it was Saturday). Still
 -- time, depending on the season. The hour is chosen for one reason beyond being
 -- quiet: it is when `invoices-ingest` is least likely to be inserting rows, and
 -- a row inserted while a table is being paged is the one race the backup's
@@ -39,7 +41,7 @@ h as (
 )
 select cron.schedule(
   'backup-weekly-cron',
-  '0 1 * * 6',                      -- Saturday 01:00 UTC
+  '0 1 * * 1',                      -- Monday 01:00 UTC = Sunday night, Israel
   format($cmd$
     select net.http_post(
       url     := %L,
