@@ -1,6 +1,6 @@
 # פריסה — גיבוי שבועי + שלב 1 (18.10.2026)
 
-ענף: **`fix/phase1-critical`** (כולל בתוכו את עבודת הגיבוי). הכל רץ **מהמחשב שלך**,
+ענף: **`fix/phase2-daily`** (כולל בתוכו את הגיבוי, שלב 1 ושלב 2-א). הכל רץ **מהמחשב שלך**,
 ב-**PowerShell**, מתוך התיקייה `C:\Users\<user>\Desktop\hadas-deploy`.
 הפרודקשן: `jcwphkuwwuxvjibmvgdh`.
 
@@ -14,10 +14,10 @@
 ```powershell
 cd C:\Users\<user>\Desktop\hadas-deploy
 git fetch origin
-git checkout fix/phase1-critical
+git checkout fix/phase2-daily
 git pull
 ```
-✔ בסוף: `git log --oneline -1` מראה `fix: phase 1 — what was lost…`
+✔ בסוף: `git log --oneline -1` מראה `fix: the email opens where it is…` (או חדש ממנו)
 
 ## שלב ב · מסד הנתונים (טבלת היסטוריית הגיבויים)
 
@@ -44,8 +44,8 @@ supabase functions deploy invoices-ingest --project-ref jcwphkuwwuxvjibmvgdh
 
 ## שלב ד · המסך (ורסל)
 
-ב-GitHub: לפתוח Pull Request מ-`fix/phase1-critical` אל `main` ולמזג, כרגיל.
-הקישור: https://github.com/efratautomat-dev/hadas-system/compare/main...fix/phase1-critical
+ב-GitHub: לפתוח Pull Request מ-`fix/phase2-daily` אל `main` ולמזג, כרגיל.
+הקישור: https://github.com/efratautomat-dev/hadas-system/compare/main...fix/phase2-daily
 
 ההדגמה (`incontrol.ctrlplusf.com`) מתעדכנת מהשרת — תכתבי לי "מוזג" ואני מריץ אותה.
 
