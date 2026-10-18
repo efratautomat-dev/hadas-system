@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { ledgerRowOpens, type OpenLedgerRow } from '../lib/ledgerOpen'
 import { useNotesTargetValue } from '../lib/notesTargetContext'
 import { SupplierNotesPanel, NOTES_PANEL_WIDTH } from './SupplierNotesPanel'
 import type { NoteTag } from '../hooks/useSupplierNotes'
@@ -176,6 +177,28 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     history.pushState({ stack: next }, '')
     setMobileMenuOpen(false)
   }
+  // Leave a screen whose place lives in local state (the statement open on the
+  // reconciliation screen, the supplier on the ledger): write that place into the
+  // CURRENT entry first, so Back reopens it instead of the list above it.
+  const pushNavFrom = (here: Partial<NavEntry> | undefined, entry: NavEntry) => {
+    if (here && Object.keys(here).length) {
+      const stack = [...stackRef.current]
+      stack[stack.length - 1] = { ...stack[stack.length - 1], ...here }
+      stackRef.current = stack
+      history.replaceState({ stack }, '')
+    }
+    pushNav(entry)
+  }
+  // Every ledger row opens the record it was built from — see lib/ledgerOpen.ts.
+  const openLedgerRow: OpenLedgerRow = (row, here) => {
+    if (!ledgerRowOpens(row)) return
+    // A basic-tier demo has invoices but not payments: a payment row stays put
+    // rather than open a screen the viewer cannot see.
+    if (row.type === 'תשלום' && !tierAllows('payments')) return
+    pushNavFrom(here as Partial<NavEntry> | undefined, row.type === 'תשלום'
+      ? { page: 'payments', paymentOpenId: row.id }
+      : { page: 'invoices', invoiceSelectedId: row.id })
+  }
   useEffect(() => {
     const onPop = (e: PopStateEvent) => {
       const stack = (e.state?.stack as NavEntry[] | undefined) ?? [{ page: 'dashboard' }]
@@ -344,6 +367,8 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenDetail={(id) => pushNav({ page: 'suppliers', supplierViewId: id })}
         onCloseDetail={goBack}
         onOpenInvoice={(id) => pushNav({ page: 'invoices', invoiceSelectedId: id })}
+        onOpenRow={openLedgerRow}
+        onOpenStatement={tierAllows('reconciliation') ? (id) => pushNav({ page: 'reconciliation', statementViewId: id }) : undefined}
         prefillForAlert={alertForSupplier}
         onAlertSupplierCreated={async (supplierId, alertId, _payload) => {
           try {
@@ -357,7 +382,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onCancelAlertPrefill={() => setAlertForSupplier(null)}
       />
     )
-    if (activePage === 'ledger')         return <SupplierLedger initialSupplierId={ledgerSupplierId} />
+    if (activePage === 'ledger')         return <SupplierLedger initialSupplierId={ledgerSupplierId} onOpenRow={openLedgerRow} />
     if (activePage === 'invoices') return (
       <Invoices
         key="invoices"
@@ -401,7 +426,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     if (activePage === 'deliveries') return (
       <GoodsTracking userEmail={userEmail} initialNoteId={currentNav.deliverySelectedId ?? null} />
     )
-    if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} />
+    if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} onOpenRow={openLedgerRow} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />
     if (activePage === 'capture')        return (
       // ── "קח אותי למסמך" ────────────────────────────────────────────────

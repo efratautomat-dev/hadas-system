@@ -112,19 +112,6 @@ export async function installUpdate(url: string): Promise<boolean> {
 export type EmailOpen = 'opened' | 'gmail-app' | 'copied-subject' | 'copied-link'
 
 /**
- * Takes the person to the original email, by whatever route the device allows.
- *
- * The stored link is a Gmail WEB address — `mail.google.com/mail/u/0/#all/<id>`.
- * The Gmail Android app does not claim those links, so they need a browser; on a
- * tablet that has Gmail but no browser, nothing answered at all and the button
- * appeared dead.
- *
- * So: try the link, then try to open the Gmail app itself, and in either case put
- * the SUBJECT on the clipboard rather than the URL — pasting a subject into Gmail's
- * search finds the message in one move, while a URL that nothing can open is of no
- * use to anybody. The caller is told which of those happened so it can say so.
- */
-/**
  * Props for an outbound <a>. In the browser it stays a plain new-tab link (so
  * middle-click and "copy link" still work); on the tablet a target="_blank"
  * does nothing at all, silently, so the click is handed to openExternal().
@@ -137,34 +124,49 @@ export function externalLinkProps(url: string) {
     onClick: (e: { preventDefault(): void }) => {
       if (isNative()) {
         e.preventDefault()
-        void openExternal(url)
+        // A Gmail web link goes to the Gmail app, never to the browser.
+        void (url.includes('mail.google.com') ? openEmail(url) : openExternal(url))
       }
     },
   }
 }
 
+/**
+ * Takes the person to the original email, by whatever route the device allows.
+ *
+ * Browser: the stored Gmail web link, in a new tab.
+ *
+ * Tablet: the Gmail APP, never the browser (owner, 18.10.2026: the app must work
+ * with no dependency on a browser). The Gmail Android app does not claim
+ * `mail.google.com` links, so handing it the link sent her to Chrome — or, on the
+ * tablet with no browser, nowhere. Instead the app is launched by its package
+ * name, and the SUBJECT goes to the clipboard first, so one paste into Gmail's
+ * search finds the message. The browser is only the last resort, for a tablet
+ * with no Gmail app at all. The caller is told which route was taken so it can
+ * say so.
+ */
 export async function openEmail(messageLink: string, subject?: string): Promise<EmailOpen> {
-  if (await openExternal(messageLink)) return 'opened'
-
-  if (isNative() && subject) {
-    const { copyText } = await import('./clipboard')
-    await copyText(subject)
-    try {
-      const { AppLauncher } = await import('@capacitor/app-launcher')
-      // The Gmail app's own scheme. It opens the app, not the message — the
-      // subject is already on the clipboard for the search box.
-      const { value } = await AppLauncher.canOpenUrl({ url: 'googlegmail://' })
-      if (value) {
-        await AppLauncher.openUrl({ url: 'googlegmail://' })
-        return 'gmail-app'
-      }
-    } catch {
-      // No Gmail app, or the device refuses the query — the subject is copied.
-    }
-    return 'copied-subject'
+  if (!isNative()) {
+    window.open(messageLink, '_blank', 'noopener')
+    return 'opened'
   }
 
-  return 'copied-link'
+  if (subject) {
+    const { copyText } = await import('./clipboard')
+    await copyText(subject)
+  }
+  try {
+    const { AppLauncher } = await import('@capacitor/app-launcher')
+    // A package name, not a URL: the plugin falls back to the app's launch
+    // intent, which is declared in the manifest's <queries>.
+    const { completed } = await AppLauncher.openUrl({ url: 'com.google.android.gm' })
+    if (completed) return subject ? 'gmail-app' : 'opened'
+  } catch {
+    // No Gmail app, or the device refused — fall through.
+  }
+
+  if (messageLink && await openExternal(messageLink)) return 'opened'
+  return subject ? 'copied-subject' : 'copied-link'
 }
 
 /**

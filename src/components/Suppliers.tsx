@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import type { OpenLedgerRow } from '../lib/ledgerOpen'
 import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, ChevronRight, X, LayoutGrid, Table2, AlertTriangle, GitMerge, ArrowRightLeft, StickyNote } from 'lucide-react'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { supplierAttention, ATTENTION_COLOR } from '../lib/supplierAttention'
@@ -347,6 +348,8 @@ interface SuppliersProps {
   onCloseDetail?: () => void
   onOpenInvoice?: (invoiceId: string) => void
   onOpenDelivery?: (deliveryNoteId: string) => void
+  onOpenRow?: OpenLedgerRow
+  onOpenStatement?: (statementId: string) => void
   prefillForAlert?: AlertPrefill | null
   onAlertSupplierCreated?: (supplierId: string, alertId: string, payload: Record<string, unknown>) => Promise<void>
   onCancelAlertPrefill?: () => void
@@ -361,6 +364,8 @@ export default function Suppliers({
   onCloseDetail,
   onOpenInvoice,
   onOpenDelivery,
+  onOpenRow,
+  onOpenStatement,
   prefillForAlert,
   onAlertSupplierCreated,
   onCancelAlertPrefill,
@@ -569,6 +574,8 @@ export default function Suppliers({
           onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
           onOpenInvoice={onOpenInvoice}
           onOpenDelivery={onOpenDelivery}
+          onOpenRow={onOpenRow}
+          onOpenStatement={onOpenStatement}
           onToggleActive={async (nextActive: boolean) => {
             try {
               await updateSupplier(sup.id, { active: nextActive })

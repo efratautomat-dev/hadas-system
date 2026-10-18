@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { ledgerRowProps, type OpenLedgerRow } from '../lib/ledgerOpen'
 import { Printer, BookOpen, RotateCcw } from 'lucide-react'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useInvoices } from '../hooks/useInvoices'
@@ -66,7 +67,7 @@ function useIsMobile() {
 const COL_D = COL
 const COL_M = '80px 1fr 110px'
 
-export default function SupplierLedger({ initialSupplierId }: { initialSupplierId?: string }) {
+export default function SupplierLedger({ initialSupplierId, onOpenRow }: { initialSupplierId?: string; onOpenRow?: OpenLedgerRow }) {
   const { data: suppliersData, loading } = useSuppliers()
   const { data: allInvoices } = useInvoices()
   const { data: deliveryLinks } = useDeliveryLinks()
@@ -436,14 +437,14 @@ export default function SupplierLedger({ initialSupplierId }: { initialSupplierI
               <div
                 key={row.id}
                 className="grid items-center"
-                style={{
+                {...ledgerRowProps(row, onOpenRow && ((r) => onOpenRow(r, { ledgerSupplierId: selectedSupplierId })), {
                   gridTemplateColumns: activeCOL,
                   borderBottom: '1px solid #EEEEF2',
                   background: isOpening ? 'var(--brand-active-bg)' : undefined,
                   minWidth: isMobile ? '300px' : '660px',
                   minHeight: '56px',
                   padding: '12px 16px',
-                }}
+                })}
               >
                 <span className="text-right text-gray-400" style={{ fontSize: '13px' }}>
                   {row.displayDate}

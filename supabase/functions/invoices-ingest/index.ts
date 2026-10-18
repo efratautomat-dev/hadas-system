@@ -235,6 +235,24 @@ async function getIngestMailbox(token: string, log: Logger, msgId: string): Prom
   return cachedIngestMailbox;
 }
 
+/**
+ * The link "פתח מייל מקורי" opens. It used to be `u/0/#all/<api id>`:
+ *  - `u/0` means "whichever Google account is first in this browser", not the
+ *    mailbox we ingest — so on a browser signed into her personal account first,
+ *    it opened the wrong inbox;
+ *  - `#all/<api id>` only resolves for the first message of a thread.
+ * Now: the mailbox by ADDRESS, and a search on the RFC Message-ID header, which
+ * finds the exact message in any folder and any position in its thread. Either
+ * piece missing falls back to the old form rather than to no link.
+ */
+function buildGmailLink(apiMsgId: string, mailbox: string | null, rfcMessageId: string): string {
+  const account = mailbox ? encodeURIComponent(mailbox) : "0";
+  const rfc = rfcMessageId.trim().replace(/^<|>$/g, "");
+  return rfc
+    ? `https://mail.google.com/mail/u/${account}/#search/rfc822msgid%3A${encodeURIComponent(rfc)}`
+    : `https://mail.google.com/mail/u/${account}/#all/${apiMsgId}`;
+}
+
 interface GmailPart {
   mimeType: string;
   filename?: string;
@@ -2569,7 +2587,9 @@ async function ingestInvoices(
       const bodyText   = extractBodyText(message);
       const rawHtml    = extractRawHtml(message);
       const emailTs    = new Date(parseInt(message.internalDate, 10)).toISOString();
-      messageLink = `https://mail.google.com/mail/u/0/#all/${msgId}`;
+      messageLink = buildGmailLink(
+        msgId, await getIngestMailbox(token, log, msgId), extractHeader(message, "Message-ID"),
+      );
 
       await log("info", "processing", { subject, from, labelIds: message.labelIds ?? [] }, msgId);
 

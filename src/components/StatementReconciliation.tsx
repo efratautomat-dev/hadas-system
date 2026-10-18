@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { ledgerRowProps, type OpenLedgerRow } from '../lib/ledgerOpen'
 import {
   Search as SearchIcon, X, ArrowLeftRight, ArrowRight,
   Eye, Download, FileText, ExternalLink, Maximize2, UserCog,
@@ -136,7 +137,7 @@ function StatusBadge({ status }: { status: VendorStatementStatus }) {
 // ── Our ledger, rendered once ────────────────────────────────────────────────
 // Used by the left pane AND by the "פתח כרטסת מלאה" overlay, so the two can
 // never show different rows for the same supplier.
-function LedgerTable({ ledger, showOpening }: { ledger: LedgerResult; showOpening?: boolean }) {
+function LedgerTable({ ledger, showOpening, onOpenRow }: { ledger: LedgerResult; showOpening?: boolean; onOpenRow?: OpenLedgerRow }) {
   const th = (align: 'right' | 'left'): React.CSSProperties => ({
     position: 'sticky', top: 0, background: 'white', textAlign: align,
     fontSize: '11px', color: '#9CA3AF', fontWeight: 700, padding: '8px 12px',
@@ -175,7 +176,7 @@ function LedgerTable({ ledger, showOpening }: { ledger: LedgerResult; showOpenin
           </tr>
         )}
         {ledger.rows.map(r => (
-          <tr key={r.id} style={{ opacity: r.excluded ? 0.55 : 1 }}>
+          <tr key={r.id} {...ledgerRowProps(r, onOpenRow, { opacity: r.excluded ? 0.55 : 1 })}>
             <td style={{ ...td, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
               {r.undated ? 'ללא תאריך' : r.displayDate}
             </td>
@@ -261,6 +262,8 @@ function SupplierPicker({
 }
 
 interface DetailPageProps {
+  /** A ledger row opens its invoice / payment. */
+  onOpenRow?: OpenLedgerRow
   stmt: VendorStatement
   ledger: LedgerResult
   /** Supplier flagged בהסדר תשלום — excluded from balance tracking, so no verdict. */
@@ -290,7 +293,7 @@ interface DetailPageProps {
 function DetailPage({
   stmt, ledger, paymentArrangement, savedNotes, suppliers, docUrl, isMobile,
   onBack, onExpandDoc, onOpenSource, onVendorBalanceSave,
-  onAssignSupplier, onSaveNotes,
+  onAssignSupplier, onSaveNotes, onOpenRow,
 }: DetailPageProps) {
   const [manualBalance, setManualBalance] = useState('')
   const [notes, setNotes] = useState(savedNotes)
@@ -523,7 +526,7 @@ function DetailPage({
               </button>
             </div>
             <div style={{ overflow: 'auto', minHeight: 0 }}>
-              <LedgerTable ledger={ledger} />
+              <LedgerTable ledger={ledger} onOpenRow={onOpenRow} />
             </div>
           </div>
 
@@ -604,7 +607,7 @@ function DetailPage({
               <button onClick={() => setFullLedger(false)} className="text-gray-400" style={{ marginInlineStart: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X className="w-5 h-5" /></button>
             </div>
             <div style={{ flex: 1, overflow: 'auto' }}>
-              <LedgerTable ledger={ledger} showOpening />
+              <LedgerTable ledger={ledger} showOpening onOpenRow={onOpenRow} />
             </div>
           </div>
         </div>
@@ -674,7 +677,7 @@ function useIsMobile() {
   return v
 }
 
-export default function StatementReconciliation({ initialStatementId }: { initialStatementId?: string | null }) {
+export default function StatementReconciliation({ initialStatementId, onOpenRow }: { initialStatementId?: string | null; onOpenRow?: OpenLedgerRow }) {
   const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement } = useStatements()
   // Deleting is irreversible and the row carries a document, so it goes through a
   // confirmation naming the supplier and month — not a bare icon.
@@ -904,6 +907,7 @@ export default function StatementReconciliation({ initialStatementId }: { initia
           suppliers={supplierList}
           docUrl={selectedDocUrl}
           isMobile={isMobile}
+          onOpenRow={onOpenRow && ((row) => onOpenRow(row, { statementViewId: selectedStmt.id }))}
           onBack={() => setSelectedId(null)}
           onExpandDoc={() => void openDoc(selectedStmt)}
           onOpenSource={() => void openStoredFile(selectedStmt.drive_file_link || selectedStmt.storage_url)}

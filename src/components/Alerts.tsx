@@ -852,7 +852,7 @@ function ApprovalModal({
                   </a>
                 )}
                 {mailLink && (
-                  <a href={mailLink} onClick={(e) => { e.preventDefault(); void openEmail(mailLink) }} style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                  <a href={mailLink} onClick={(e) => { e.preventDefault(); void openEmail(mailLink, p.subject as string | undefined) }} style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
                     פתיחת המייל ↗
                   </a>
                 )}
