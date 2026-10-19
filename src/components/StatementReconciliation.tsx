@@ -3,7 +3,7 @@ import { ledgerRowProps, type OpenLedgerRow } from '../lib/ledgerOpen'
 import {
   Search as SearchIcon, X, ArrowLeftRight, ArrowRight,
   Eye, Download, FileText, ExternalLink, Maximize2, UserCog,
-  AlertTriangle,
+  AlertTriangle, FileX,
 } from 'lucide-react'
 import { useStatements } from '../hooks/useStatements'
 import type {
@@ -26,6 +26,7 @@ import SectionHeader from './SectionHeader'
 import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 import { PdfPreviewModal, DocumentBody } from './PdfPreviewModal'
+import { ReclassifyModal } from './ReclassifyModal'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { FilterTabs } from './ui/FilterTabs'
 
@@ -279,6 +280,8 @@ interface DetailPageProps {
   onVendorBalanceSave: (id: string, vendorBalance: number) => void
   onAssignSupplier: (id: string, supplierId: string) => void
   onSaveNotes: (id: string, notes: string) => Promise<void>
+  /** "שינוי סוג מסמך" — the document was never a statement (e.g. a חשבונית מס ריכוז). */
+  onChangeType: () => void
 }
 
 // Two-pane reconciliation, per the approved mockup: the supplier's document on
@@ -293,7 +296,7 @@ interface DetailPageProps {
 function DetailPage({
   stmt, ledger, paymentArrangement, savedNotes, suppliers, docUrl, isMobile,
   onBack, onExpandDoc, onOpenSource, onVendorBalanceSave,
-  onAssignSupplier, onSaveNotes, onOpenRow,
+  onAssignSupplier, onSaveNotes, onOpenRow, onChangeType,
 }: DetailPageProps) {
   const [manualBalance, setManualBalance] = useState('')
   const [notes, setNotes] = useState(savedNotes)
@@ -461,6 +464,14 @@ function DetailPage({
           >
             <UserCog className="w-3.5 h-3.5" />
             שינוי ספק
+          </button>
+          <button
+            onClick={onChangeType}
+            className="rounded-xl font-bold inline-flex items-center gap-1.5"
+            style={{ background: 'white', color: '#B45309', border: '1px solid #E3C27A', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' }}
+          >
+            <FileX className="w-3.5 h-3.5" />
+            שינוי סוג מסמך
           </button>
         </div>
 
@@ -678,7 +689,9 @@ function useIsMobile() {
 }
 
 export default function StatementReconciliation({ initialStatementId, onOpenRow }: { initialStatementId?: string | null; onOpenRow?: OpenLedgerRow }) {
-  const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement } = useStatements()
+  const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement, changeType } = useStatements()
+  // The statement whose type is being changed — the popup is open while set.
+  const [changingType, setChangingType] = useState<VendorStatement | null>(null)
   // Deleting is irreversible and the row carries a document, so it goes through a
   // confirmation naming the supplier and month — not a bare icon.
   const [confirmDelete, setConfirmDelete] = useState<VendorStatement | null>(null)
@@ -923,8 +936,34 @@ export default function StatementReconciliation({ initialStatementId, onOpenRow 
           }}
           onVendorBalanceSave={handleVendorBalanceSave}
           onSaveNotes={handleSaveNotes}
+          onChangeType={() => setChangingType(selectedStmt)}
         />
         {viewDoc && <PdfPreviewModal url={viewDoc} onClose={() => setViewDoc(null)} />}
+        {changingType && (
+          <ReclassifyModal
+            doc={{ documentUrl: selectedDocUrl ?? undefined }}
+            types={['חשבונית', 'זיכוי', 'תעודת משלוח']}
+            onClose={() => setChangingType(null)}
+            onConfirm={async (docType) => {
+              const stmt = changingType
+              setChangingType(null)
+              let created: { table: string | null; id: string | null }
+              try {
+                created = await changeType(stmt, docType)
+              } catch (e) {
+                // Nothing was removed — the statement stays where it was.
+                window.alert(`סוג המסמך לא שונה — הכרטסת נשארה במקומה.\n${e instanceof Error ? e.message : ''}`)
+                return
+              }
+              setSelectedId(null)
+              // An invoice / credit note opens at once: it was created with the
+              // document only, and the number, date and amounts are hers to fill.
+              if (created.table === 'invoices' && created.id && onOpenRow) {
+                onOpenRow({ type: docType === 'זיכוי' ? 'זיכוי' : 'חשבונית', id: created.id })
+              }
+            }}
+          />
+        )}
       </>
     )
   }

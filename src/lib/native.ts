@@ -111,6 +111,16 @@ export async function installUpdate(url: string): Promise<boolean> {
 
 export type EmailOpen = 'opened' | 'gmail-app' | 'copied-subject' | 'copied-link'
 
+// What to tell her when the email could not be opened directly. Every screen
+// with an email button shows this, so they cannot say different things.
+export function emailOpenNote(how: EmailOpen): string {
+  return how === 'gmail-app'
+    ? 'נושא המייל הועתק — הדביקי אותו בחיפוש של Gmail שנפתח'
+    : how === 'copied-subject'
+      ? 'נושא המייל הועתק — אפשר להדביק אותו בחיפוש של Gmail'
+      : 'אין במכשיר אפליקציה שפותחת את הקישור — הוא הועתק, אפשר להדביק אותו בטלפון או במחשב'
+}
+
 /**
  * Props for an outbound <a>. In the browser it stays a plain new-tab link (so
  * middle-click and "copy link" still work); on the tablet a target="_blank"

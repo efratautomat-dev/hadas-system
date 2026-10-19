@@ -2593,12 +2593,23 @@ async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promi
   const storageUrl:     string | undefined = body.storageUrl ?? body.storagePath;
   const messageLink:    string | undefined = body.messageLink;
   const gmailMessageId: string | undefined = body.gmailMessageId;
+  // The second caller: a statement that was really an invoice ("שינוי סוג מסמך"
+  // on the statement page). Its supplier is already known, so it is passed by id
+  // rather than re-guessed from a name.
+  const statementId:    string | undefined = body.statementId;
+  const knownSupplier:  string | undefined = body.supplierId || undefined;
+
+  // A statement may only BECOME something. "אחר" (or "כרטסת") would remove the
+  // row and file nothing — the document would leave the system with no trace.
+  if (statementId && !["חשבונית", "זיכוי", "תעודת משלוח"].includes(docType)) {
+    return json({ error: "a statement can only be changed to an invoice, credit note or delivery note" }, 400);
+  }
 
   let table: string | null = null;
   let recordId: string | null = null;
 
   if (docType === "חשבונית" || docType === "זיכוי") {
-    const supplierId = await resolveOrCreateSupplier(supabase, supplierName);
+    const supplierId = knownSupplier ?? await resolveOrCreateSupplier(supabase, supplierName);
     const { data, error } = await supabase.from("invoices").insert({
       supplier_id:     supplierId,
       supplier_name:   supplierName ?? "",
@@ -2612,7 +2623,7 @@ async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promi
     if (error || !data) return json({ error: `Failed to create invoice: ${error?.message}` }, 500);
     table = "invoices"; recordId = data.id;
   } else if (docType === "תעודת משלוח") {
-    const supplierId = await resolveOrCreateSupplier(supabase, supplierName);
+    const supplierId = knownSupplier ?? await resolveOrCreateSupplier(supabase, supplierName);
     const { data, error } = await supabase.from("delivery_notes").insert({
       supplier_id:     supplierId,
       supplier_name:   supplierName ?? "",
@@ -2652,6 +2663,18 @@ async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promi
   // Resolve the originating alert so it leaves the active queue.
   if (alertId) {
     await supabase.from("alerts").update({ status: "resolved", resolved: true }).eq("id", alertId);
+  }
+
+  // The statement row goes only now, AFTER the new record exists — and its
+  // Storage file stays, because the new record points at the same path (this
+  // is why it is not deleteStatement, which removes the file too). Alerts raised
+  // about it as a statement are closed: they describe a statement that no
+  // longer exists.
+  if (statementId) {
+    const { error: delErr } = await supabase.from("vendor_statements").delete().eq("id", statementId);
+    if (delErr) return json({ error: `Created ${table} ${recordId}, but the statement was not removed: ${delErr.message}` }, 500);
+    await supabase.from("alerts").update({ status: "resolved", resolved: true })
+      .eq("payload->>statementId", statementId);
   }
 
   return json({ success: true, docType, table, id: recordId }, 201);

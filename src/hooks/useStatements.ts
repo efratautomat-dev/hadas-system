@@ -156,5 +156,27 @@ export function useStatements() {
     setData(prev => prev.filter(s => s.id !== id))
   }
 
-  return { data, loading, error, create, resolve, remove }
+  /**
+   * "שינוי סוג מסמך": the document was never a statement. hadas-api files it as
+   * the chosen type (same route as the misclassified-document alert) and only
+   * then drops the statement row — the stored file stays, the new record uses
+   * it. Returns the new record's table and id.
+   */
+  const changeType = async (
+    stmt: Pick<VendorStatement, 'id' | 'supplier_id' | 'supplier_name' | 'storage_url' | 'drive_file_link'>,
+    docType: string,
+  ): Promise<{ table: string | null; id: string | null }> => {
+    const res = await api.post('/documents/reclassify', {
+      statementId:   stmt.id,
+      docType,
+      supplierId:    stmt.supplier_id ?? undefined,
+      supplierName:  stmt.supplier_name || undefined,
+      storageUrl:    stmt.storage_url ?? undefined,
+      driveFileLink: stmt.drive_file_link ?? undefined,
+    })
+    setData(prev => prev.filter(s => s.id !== stmt.id))
+    return res as { table: string | null; id: string | null }
+  }
+
+  return { data, loading, error, create, resolve, remove, changeType }
 }

@@ -98,6 +98,10 @@ export function resourcesFor(path: string): Resource[] {
   if (path.startsWith('/returns'))        add('returns', 'suppliers')
   if (path.startsWith('/statements') || path.startsWith('/vendor-statements')) add('statements')
   if (path.startsWith('/alerts'))         add('alerts')
+  // Re-filing a document creates an invoice / delivery note / statement (and
+  // possibly a supplier), closes its alert, and may remove the statement it was
+  // filed as — it announced nothing, so the new invoice appeared only on reload.
+  if (path.startsWith('/documents/reclassify')) add('invoices', 'delivery_notes', 'statements', 'alerts', 'suppliers')
   if (path.startsWith('/supplier-notes')) add('supplier_notes')
   // The "טופל" toggle writes to `note_handled`, not to the note — and announced
   // nothing, so the mark landed in the DB and no other screen showing that note
