@@ -3,9 +3,9 @@ import { ledgerRowProps, type OpenLedgerRow } from '../lib/ledgerOpen'
 import {
   Search as SearchIcon, X, ArrowLeftRight, ArrowRight,
   Eye, Download, FileText, ExternalLink, Maximize2, UserCog,
-  AlertTriangle, FileX,
+  AlertTriangle, FileX, Printer,
 } from 'lucide-react'
-import { useStatements, type ChangeTypeResult } from '../hooks/useStatements'
+import { useStatements, type ChangeTypeResult, type ReconcileMarks } from '../hooks/useStatements'
 import type {
   VendorStatementStatus,
   StatementMatchMethod,
@@ -140,7 +140,27 @@ function StatusBadge({ status }: { status: VendorStatementStatus }) {
 // ── Our ledger, rendered once ────────────────────────────────────────────────
 // Used by the left pane AND by the "פתח כרטסת מלאה" overlay, so the two can
 // never show different rows for the same supplier.
-function LedgerTable({ ledger, showOpening, onOpenRow }: { ledger: LedgerResult; showOpening?: boolean; onOpenRow?: OpenLedgerRow }) {
+/** The ledger as the date range shows it: the rows inside, the balance carried
+ *  in from before the range, and the balance at its end. */
+interface LedgerView {
+  rows: LedgerResult['rows']
+  opening: number
+  closing: number
+  /** True when the range starts mid-ledger — the carried-in row is shown. */
+  carried: boolean
+  closingLabel: string
+}
+
+function LedgerTable({ ledger, showOpening, onOpenRow, view, marks }: {
+  ledger: LedgerResult
+  showOpening?: boolean
+  onOpenRow?: OpenLedgerRow
+  view?: LedgerView
+  /** ✓ per row — her "this one also appears on their statement". */
+  marks?: { has: (id: string) => boolean; toggle: (id: string) => void }
+}) {
+  const rows = view?.rows ?? ledger.rows
+  const cols = marks ? 6 : 5
   const th = (align: 'right' | 'left'): React.CSSProperties => ({
     position: 'sticky', top: 0, background: 'white', textAlign: align,
     fontSize: '11px', color: '#9CA3AF', fontWeight: 700, padding: '8px 12px',
@@ -156,30 +176,47 @@ function LedgerTable({ ledger, showOpening, onOpenRow }: { ledger: LedgerResult;
     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
       <thead>
         <tr>
+          {marks && <th style={{ ...th('right'), width: '34px', textAlign: 'center' }} aria-label="סימון">✓</th>}
           {['תאריך', 'תיאור', 'חובה', 'זכות', 'יתרה'].map((h, i) => (
             <th key={h} style={th(i > 1 ? 'left' : 'right')}>{h}</th>
           ))}
         </tr>
       </thead>
       <tbody>
-        {showOpening && (
+        {(showOpening || view?.carried) && (
           <tr>
+            {marks && <td style={td} />}
             <td style={{ ...td, whiteSpace: 'nowrap', color: '#9CA3AF' }}>—</td>
-            <td style={{ ...td, fontWeight: 700 }}>יתרת פתיחה</td>
+            <td style={{ ...td, fontWeight: 700 }}>{view?.carried ? 'יתרה לפני התקופה' : 'יתרת פתיחה'}</td>
             <td style={tdNum}>—</td>
             <td style={tdNum}>—</td>
-            <td style={{ ...tdNum, fontWeight: 700 }}>{formatILS(ledger.periodOpening)}</td>
+            <td style={{ ...tdNum, fontWeight: 700 }}>{formatILS(view ? view.opening : ledger.periodOpening)}</td>
           </tr>
         )}
-        {ledger.rows.length === 0 && (
+        {rows.length === 0 && (
           <tr>
-            <td colSpan={5} style={{ ...td, textAlign: 'center', color: '#9CA3AF', padding: '28px 12px' }}>
-              אין תנועות בכרטסת שלנו
+            <td colSpan={cols} style={{ ...td, textAlign: 'center', color: '#9CA3AF', padding: '28px 12px' }}>
+              {view ? 'אין תנועות בטווח התאריכים' : 'אין תנועות בכרטסת שלנו'}
             </td>
           </tr>
         )}
-        {ledger.rows.map(r => (
-          <tr key={r.id} {...ledgerRowProps(r, onOpenRow, { opacity: r.excluded ? 0.55 : 1 })}>
+        {rows.map(r => (
+          <tr key={r.id} {...ledgerRowProps(r, onOpenRow, {
+            opacity: r.excluded ? 0.55 : 1,
+            ...(marks?.has(r.id) ? { background: '#F0FDF4' } : {}),
+          })}>
+            {marks && (
+              // The tick must not also open the invoice: the row's own click does that.
+              <td style={{ ...td, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={marks.has(r.id)}
+                  onChange={() => marks.toggle(r.id)}
+                  aria-label={`סימון ${r.description}`}
+                  style={{ width: '18px', height: '18px', accentColor: '#166534', cursor: 'pointer' }}
+                />
+              </td>
+            )}
             <td style={{ ...td, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
               {r.undated ? 'ללא תאריך' : r.displayDate}
             </td>
@@ -208,8 +245,8 @@ function LedgerTable({ ledger, showOpening, onOpenRow }: { ledger: LedgerResult;
       </tbody>
       <tfoot>
         <tr>
-          <td colSpan={4} style={foot}>יתרה נכון להיום</td>
-          <td style={{ ...foot, textAlign: 'left', direction: 'ltr' }}>{formatILS(ledger.closingBalance)}</td>
+          <td colSpan={cols - 1} style={foot}>{view ? view.closingLabel : 'יתרה נכון להיום'}</td>
+          <td style={{ ...foot, textAlign: 'left', direction: 'ltr' }}>{formatILS(view ? view.closing : ledger.closingBalance)}</td>
         </tr>
       </tfoot>
     </table>
@@ -284,6 +321,16 @@ interface DetailPageProps {
   onSaveNotes: (id: string, notes: string) => Promise<void>
   /** "שינוי סוג מסמך" — the document was never a statement (e.g. a חשבונית מס ריכוז). */
   onChangeType: () => void
+  /** Persist the ✓ marks and range (debounced by the page). Throws on failure. */
+  onSaveMarks: (id: string, marks: ReconcileMarks) => Promise<void>
+}
+
+// Last day of a statement month, ISO. `month` is 'YYYY-MM'; anything else → ''.
+function monthEnd(month: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(month)
+  if (!m) return ''
+  const last = new Date(Number(m[1]), Number(m[2]), 0).getDate()
+  return `${m[1]}-${m[2]}-${String(last).padStart(2, '0')}`
 }
 
 // Two-pane reconciliation, per the approved mockup: the supplier's document on
@@ -298,7 +345,7 @@ interface DetailPageProps {
 function DetailPage({
   stmt, ledger, paymentArrangement, savedNotes, suppliers, docUrl, isMobile,
   onBack, onExpandDoc, onOpenSource, onVendorBalanceSave,
-  onAssignSupplier, onSaveNotes, onOpenRow, onChangeType,
+  onAssignSupplier, onSaveNotes, onOpenRow, onChangeType, onSaveMarks,
 }: DetailPageProps) {
   const [manualBalance, setManualBalance] = useState('')
   const [notes, setNotes] = useState(savedNotes)
@@ -306,6 +353,53 @@ function DetailPage({
   const [sendVia, setSendVia] = useState<null | 'mail' | 'whatsapp'>(null)
   const [pickSupplier, setPickSupplier] = useState(false)
   const [fullLedger, setFullLedger] = useState(false)
+
+  // ── Range + ✓ marks (21.10) ───────────────────────────────────────────────
+  // She narrows OUR ledger to the dates the supplier's paper covers, then ticks
+  // every row that appears on both. Both are saved on the statement, so reopening
+  // it shows where she stopped. Mounted with key={stmt.id}: this state belongs to
+  // exactly one statement.
+  const saved = stmt.reconcile_marks
+  const [from, setFrom] = useState(saved?.from ?? '')
+  const [to, setTo]     = useState(saved?.to ?? '')
+  const [marked, setMarked] = useState<Set<string>>(() => new Set(saved?.rows ?? []))
+  const [marksState, setMarksState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const firstMarks = useRef(true)
+  // The save callback is a fresh function on every parent render; read through a
+  // ref so a re-render does not cancel the pending save and restart the wait
+  // (which left the tally on "שומר…" forever while the list refreshed).
+  const saveMarksRef = useRef(onSaveMarks)
+  useEffect(() => { saveMarksRef.current = onSaveMarks }, [onSaveMarks])
+  useEffect(() => {
+    // Not on mount — only a change she made is worth a write.
+    if (firstMarks.current) { firstMarks.current = false; return }
+    setMarksState('saving')
+    const t = setTimeout(() => {
+      saveMarksRef.current(stmt.id, { rows: [...marked], from, to })
+        .then(() => setMarksState('saved'))
+        .catch(() => setMarksState('error'))
+    }, 700)
+    return () => clearTimeout(t)
+  }, [marked, from, to, stmt.id])
+
+  const view = useMemo<LedgerView | undefined>(() => {
+    if (!from && !to) return undefined
+    // An undated row cannot be placed in a range, so it is never hidden by one —
+    // the ledger engine's own rule: surface it, do not swallow it.
+    const inRange = (r: LedgerResult['rows'][number]) =>
+      r.undated || ((!from || r.isoDate >= from) && (!to || r.isoDate <= to))
+    const before = from ? ledger.rows.filter(r => !r.undated && r.isoDate < from) : []
+    const opening = before.length ? before[before.length - 1].balance : ledger.periodOpening
+    let running = opening
+    const rows = ledger.rows.filter(inRange).map(r => {
+      running += r.debit - r.credit
+      return { ...r, balance: running }
+    })
+    return {
+      rows, opening, closing: running, carried: before.length > 0,
+      closingLabel: to ? `יתרה ב־${isoToDisplay(to)}` : 'יתרה בסוף הטווח',
+    }
+  }, [ledger, from, to])
 
   const ourBalance = ledger.closingBalance
   const vendor = stmt.vendor_balance
@@ -326,6 +420,50 @@ function DetailPage({
   const diff    = comparable ? statementDiff(ourBalance, vendor as number) : null
   const matched = comparable && statementVerdict(ourBalance, vendor) === 'matched'
   const supplier = suppliers.find(s => s.id === stmt.supplier_id)
+
+  const shown = view?.rows ?? ledger.rows
+  const countable = shown.filter(r => !r.excluded)
+  const markedCount = countable.filter(r => marked.has(r.id)).length
+  const openDebit  = countable.filter(r => !marked.has(r.id)).reduce((a, r) => a + r.debit, 0)
+  const openCredit = countable.filter(r => !marked.has(r.id)).reduce((a, r) => a + r.credit, 0)
+  const rangeClosing = view ? view.closing : ledger.closingBalance
+  const rangeDiff = view && vendor != null && stmt.supplier_id && !paymentArrangement
+    ? statementDiff(rangeClosing, vendor) : null
+  const toggleMark = (id: string) => setMarked(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+
+  function printOurLedger() {
+    const label = from || to
+      ? `${from ? isoToDisplay(from) : 'מתחילת הכרטסת'} – ${to ? isoToDisplay(to) : 'היום'}`
+      : undefined
+    printStatementPDF({
+      id: stmt.id,
+      month: stmt.month,
+      status: stmt.status,
+      our_balance: rangeClosing,
+      vendor_balance: stmt.vendor_balance,
+      diff: rangeDiff ?? stmt.diff,
+      uploaded_at: isoToDisplay(stmt.uploaded_at),
+      supplierName: stmt.supplier_name || 'ספק לא מזוהה',
+      supplierHp: supplier?.hp,
+      activityRows: shown.map(r => ({
+        date: r.undated ? 'ללא תאריך' : r.displayDate,
+        type: r.type,
+        docId: '',
+        description: r.description,
+        debit: r.debit,
+        credit: r.credit,
+        marked: marked.has(r.id),
+      })),
+      openingBalance: view?.carried ? view.opening : undefined,
+      periodLabel: label,
+      notes: notes.trim() || undefined,
+    })
+  }
+
 
   // Notes written here file under this statement's supplier, tagged כרטסות.
   // An orphan statement has no supplier yet, so the panel stays hidden until one
@@ -497,7 +635,10 @@ function DetailPage({
           gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
           gap: '12px',
           height: isMobile ? 'auto' : 'calc(100vh - 330px)',
-          minHeight: isMobile ? 0 : '440px',
+          // 620, not 440: with the range bar and the notes pinned below, 440 left
+          // a landscape tablet (800px tall) two visible rows, and the sticky total
+          // sat on top of the first one. The page scrolls a little instead.
+          minHeight: isMobile ? 0 : '620px',
         }}
       >
         {/* RIGHT (first in RTL): the supplier's document */}
@@ -532,14 +673,55 @@ function DetailPage({
           <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div className="px-4 py-2.5 border-b flex items-center gap-2" style={paneHeader}>
               <h3 className="font-bold text-gray-700" style={{ fontSize: '13px' }}>הכרטסת שלנו</h3>
-              <span className="text-gray-400" style={{ fontSize: '12px' }}>{ledger.rows.length} תנועות</span>
-              <button style={{ ...paneBtn, marginInlineStart: 'auto' }} onClick={() => setFullLedger(true)} title="הצג את הכרטסת המלאה">
-                <Maximize2 className="w-3.5 h-3.5" />
-                פתח כרטסת מלאה
-              </button>
+              <span className="text-gray-400" style={{ fontSize: '12px' }}>{shown.length} תנועות</span>
+              <div className="flex items-center gap-1.5" style={{ marginInlineStart: 'auto' }}>
+                <button style={paneBtn} onClick={printOurLedger} title="הדפסת הכרטסת שלנו — בטווח ועם הסימונים">
+                  <Printer className="w-3.5 h-3.5" />
+                  הדפסה
+                </button>
+                <button style={paneBtn} onClick={() => setFullLedger(true)} title="הצג את הכרטסת המלאה">
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  פתח כרטסת מלאה
+                </button>
+              </div>
+            </div>
+            {/* Range + the tally of what is ticked. Wraps on a narrow tablet. */}
+            <div className="px-4 py-2 border-b flex flex-wrap items-end gap-2" style={{ borderColor: '#EEEEF2', background: 'white' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: '#6B7280', fontWeight: 700 }}>
+                מתאריך
+                <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} style={{ ...field, width: '140px', padding: '5px 8px' }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: '#6B7280', fontWeight: 700 }}>
+                עד תאריך
+                <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={{ ...field, width: '140px', padding: '5px 8px' }} />
+              </label>
+              {monthEnd(stmt.month) && (
+                <button style={paneBtn} onClick={() => setTo(monthEnd(stmt.month))} title="עד היום האחרון של חודש הכרטסת">
+                  עד סוף {stmt.month}
+                </button>
+              )}
+              {(from || to) && <button style={paneBtn} onClick={() => { setFrom(''); setTo('') }}>הכל</button>}
+              <div className="flex flex-wrap items-center gap-1.5" style={{ marginInlineStart: 'auto', fontSize: '12px' }}>
+                <span className="rounded-full font-bold" style={{ background: '#DCFCE7', color: '#166534', padding: '3px 10px' }}>
+                  ✓ {markedCount} מתוך {countable.length}
+                </span>
+                {(openDebit > 0 || openCredit > 0) && (
+                  <span className="rounded-full font-bold" style={{ background: '#FEF3C7', color: '#92400E', padding: '3px 10px' }}>
+                    לא סומנו: {formatILS(openDebit)} חובה · {formatILS(openCredit)} זכות
+                  </span>
+                )}
+                {rangeDiff != null && (
+                  <span className="rounded-full font-bold" style={{ background: rangeDiff === 0 ? '#DCFCE7' : '#FEE2E2', color: rangeDiff === 0 ? '#166534' : '#DC2626', padding: '3px 10px' }}>
+                    הפרש בטווח: {formatILS(rangeDiff)}
+                  </span>
+                )}
+                <span style={{ color: marksState === 'error' ? '#DC2626' : '#9CA3AF' }}>
+                  {marksState === 'saving' ? 'שומר…' : marksState === 'saved' ? 'נשמר' : marksState === 'error' ? 'הסימונים לא נשמרו' : ''}
+                </span>
+              </div>
             </div>
             <div style={{ overflow: 'auto', minHeight: 0 }}>
-              <LedgerTable ledger={ledger} onOpenRow={onOpenRow} />
+              <LedgerTable ledger={ledger} onOpenRow={onOpenRow} view={view} marks={{ has: (id) => marked.has(id), toggle: toggleMark }} />
             </div>
           </div>
 
@@ -680,18 +862,18 @@ function DetailPage({
   )
 }
 
-function useIsMobile() {
-  const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640)
+function useIsMobile(below = 640) {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.innerWidth < below)
   useEffect(() => {
-    const h = () => setV(window.innerWidth < 640)
+    const h = () => setV(window.innerWidth < below)
     window.addEventListener('resize', h)
     return () => window.removeEventListener('resize', h)
-  }, [])
+  }, [below])
   return v
 }
 
 export default function StatementReconciliation({ initialStatementId, onOpenRow }: { initialStatementId?: string | null; onOpenRow?: OpenLedgerRow }) {
-  const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement, changeType } = useStatements()
+  const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement, changeType, saveMarks } = useStatements()
   // The statement whose type is being changed — the popup is open while set.
   const [changingType, setChangingType] = useState<VendorStatement | null>(null)
   // The AI read takes a few seconds — she is told it is running, then what it did.
@@ -713,6 +895,10 @@ export default function StatementReconciliation({ initialStatementId, onOpenRow 
   const [supplierOverride, setSupplierOverride] = useState<Record<string, string>>({})
   const [notesOverride, setNotesOverride] = useState<Record<string, string>>({})
   const isMobile = useIsMobile()
+  // The detail's two panes side by side need room: with the ✓ column and the
+  // range bar, our ledger is unreadable at half of a portrait tablet. Below this
+  // width they stack — the supplier's document on top, our ledger under it.
+  const stackPanes = useIsMobile(1200)
   // minmax(0,…) on flexible tracks so long ids / multiple action buttons can't
   // stretch a column and knock the rows out of alignment with the header. Fixed
   // px tracks for short columns; the actions column gets a wide, wrapping track.
@@ -951,7 +1137,7 @@ export default function StatementReconciliation({ initialStatementId, onOpenRow 
           savedNotes={notesOverride[selectedStmt.id] ?? selectedStmt.resolution_notes ?? ''}
           suppliers={supplierList}
           docUrl={selectedDocUrl}
-          isMobile={isMobile}
+          isMobile={stackPanes}
           onOpenRow={onOpenRow && ((row) => onOpenRow(row, { statementViewId: selectedStmt.id }))}
           onBack={() => setSelectedId(null)}
           onExpandDoc={() => void openDoc(selectedStmt)}
@@ -969,6 +1155,7 @@ export default function StatementReconciliation({ initialStatementId, onOpenRow 
           onVendorBalanceSave={handleVendorBalanceSave}
           onSaveNotes={handleSaveNotes}
           onChangeType={() => setChangingType(selectedStmt)}
+          onSaveMarks={saveMarks}
         />
         {viewDoc && <PdfPreviewModal url={viewDoc} onClose={() => setViewDoc(null)} />}
         {typeBanner}
