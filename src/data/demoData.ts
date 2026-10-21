@@ -470,4 +470,36 @@ export const demoTables: Record<string, Row[]> = {
       created_at: '2026-07-30T11:40:00', updated_at: '2026-07-30T11:40:00' },
   ],
   system_logs: [],
+  // The weekly backup's history. Registered AND seeded: demoClient returns [] for
+  // an unregistered table, which would leave the public demo showing "never
+  // backed up" for a feature it is there to show. The newest row carries a
+  // quarterly anchor so the panel demonstrates that line too.
+  //
+  // The BUTTON stays disabled in the demo (useBackups.canRun) — there is no Drive
+  // behind it, and a button announcing a backup it never made is worse than one
+  // that is honestly out of reach.
+  backup_runs: [
+    { id: 'bk_03', kind: 'backup', status: 'ok', run_date: '2026-10-03',
+      started_at: '2026-10-03T04:05:00', finished_at: '2026-10-03T04:05:41',
+      duration_ms: 41_200, triggered_by: 'cron', actor_email: null,
+      drive_folder_id: 'demo-folder-03', drive_folder_link: null,
+      quarter_anchor: 'רבעון 3 2026', quarter_folder_link: null,
+      total_rows: 13_004, file_count: 20, bytes: 3_512_000, readable_format: 'xlsx',
+      summary: { tables: [{ table: 'invoices', label: 'חשבוניות', rows: 1284, expected: 1284 }], warnings: [] },
+      error: null, error_stage: null },
+    { id: 'bk_02', kind: 'backup', status: 'ok', run_date: '2026-09-26',
+      started_at: '2026-09-26T04:06:00', finished_at: '2026-09-26T04:06:38',
+      duration_ms: 38_400, triggered_by: 'cron', actor_email: null,
+      drive_folder_id: 'demo-folder-02', drive_folder_link: null,
+      quarter_anchor: null, quarter_folder_link: null,
+      total_rows: 12_847, file_count: 20, bytes: 3_460_000, readable_format: 'xlsx',
+      summary: { tables: [], warnings: [] }, error: null, error_stage: null },
+    { id: 'bk_01', kind: 'backup', status: 'ok', run_date: '2026-09-19',
+      started_at: '2026-09-19T04:04:00', finished_at: '2026-09-19T04:04:35',
+      duration_ms: 35_100, triggered_by: 'manual', actor_email: demoMeta.email,
+      drive_folder_id: 'demo-folder-01', drive_folder_link: null,
+      quarter_anchor: null, quarter_folder_link: null,
+      total_rows: 12_610, file_count: 20, bytes: 3_401_000, readable_format: 'xlsx',
+      summary: { tables: [], warnings: [] }, error: null, error_stage: null },
+  ],
 }

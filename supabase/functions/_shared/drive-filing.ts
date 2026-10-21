@@ -1,10 +1,16 @@
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║  drive-filing (shared)                                                    ║
 // ║  Single source of truth for WHERE an invoice's file lives in Google Drive ║
-// ║  — the year / Hebrew-month / 15th-of-month overflow rules — plus the Drive ║
-// ║  folder helpers. Imported by BOTH invoices-ingest (files new uploads) and  ║
-// ║  hadas-api (re-files the copy when an invoice's date is corrected), so the ║
-// ║  rules are defined ONCE and can never drift between the two functions.     ║
+// ║  — the year / Hebrew-month / 15th-of-month overflow rules — plus every     ║
+// ║  Drive helper the functions share: folder find/create/ensure/link/move,    ║
+// ║  and (at the bottom) file upload / trash / list / copy. Imported by        ║
+// ║  invoices-ingest (files new uploads), hadas-api (re-files a corrected date, ║
+// ║  trashes a deleted invoice) and backup-run (writes the weekly backup), so  ║
+// ║  the rules are defined ONCE and cannot drift between them.                 ║
+// ║                                                                            ║
+// ║  NOTE: the INVOICE filing rules below are about invoices only. The backup   ║
+// ║  layout is its own thing and lives in _shared/backup-layout.ts, so this    ║
+// ║  file's promise above stays true.                                          ║
 // ║                                                                            ║
 // ║  Depends only on the Fetch API (a Web/Deno global) — no external imports,  ║
 // ║  so it bundles cleanly into either edge function and is unit-testable in   ║
@@ -184,4 +190,147 @@ export async function resolveInvoiceFolder(
     ? await driveEnsureFolder(token, monthFolder, DRIVE_SUBFOLDERS.partialReturn)
     : monthFolder;
   return { fileFolderId: fileFolder, monthFolderId: monthFolder };
+}
+
+// ── File-level Drive I/O ────────────────────────────────────────────────────
+// Upload / trash / list / copy. These lived unexported inside the functions that
+// happened to need them first — upload in invoices-ingest, trash in hadas-api
+// (and again in drive-reconcile) — which was fine while there was one caller
+// each. The weekly backup needs all four, and a second hand-rolled multipart
+// encoder is the kind of duplicate this repo already keeps a guard script for.
+
+export interface UploadedFile { id: string; webViewLink: string }
+
+/**
+ * Uploads bytes as a new Drive file under `parentId`.
+ *
+ * NOT idempotent: Drive allows two files with the same name in one folder, so a
+ * caller that may run twice has to reconcile names itself rather than rely on an
+ * upsert that does not exist here.
+ */
+export async function driveUploadFile(
+  token:    string,
+  parentId: string,
+  filename: string,
+  mimeType: string,
+  bytes:    Uint8Array,
+): Promise<UploadedFile> {
+  const boundary = "----hadasinvoice" + crypto.randomUUID();
+  const metadata = JSON.stringify({ name: filename, parents: [parentId] });
+
+  const enc = new TextEncoder();
+  const head = enc.encode(
+    `--${boundary}\r\n` +
+    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+    metadata + `\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Type: ${mimeType}\r\n\r\n`,
+  );
+  const tail = enc.encode(`\r\n--${boundary}--\r\n`);
+  const body = new Uint8Array(head.length + bytes.length + tail.length);
+  body.set(head, 0);
+  body.set(bytes, head.length);
+  body.set(tail, head.length + bytes.length);
+
+  const resp = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
+    {
+      method:  "POST",
+      headers: {
+        Authorization:  `Bearer ${token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    },
+  );
+  if (!resp.ok) throw new Error(`drive upload failed: ${resp.status} ${await resp.text()}`);
+  return resp.json() as Promise<UploadedFile>;
+}
+
+/**
+ * Moves a Drive file (or folder — a folder is a file) to trash rather than
+ * deleting it: recoverable for 30 days. 404 is success — it is already gone.
+ *
+ * Every destructive path in this system goes to trash, never to delete. A year
+ * of backups removed by one wrong click has to be recoverable.
+ */
+export async function driveTrashFile(token: string, fileId: string): Promise<void> {
+  const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+    method:  "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body:    JSON.stringify({ trashed: true }),
+  });
+  if (!resp.ok && resp.status !== 404)
+    throw new Error(`drive trash failed: ${resp.status} ${await resp.text()}`);
+}
+
+export interface DriveChild { id: string; name: string; mimeType: string }
+
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+/** True when a listed child is itself a folder. */
+export function isDriveFolder(child: DriveChild): boolean {
+  return child.mimeType === FOLDER_MIME;
+}
+
+/**
+ * Lists the non-trashed children of a folder, following pageToken to the end.
+ *
+ * The paging loop is not optional: Drive's default page size is 100, and a year
+ * folder holding a backup per week plus the quarter folders is already close
+ * enough that "it fit last time" is not a guarantee. A caller that silently saw
+ * only the first page would prune the wrong set.
+ */
+export async function driveListChildren(token: string, parentId: string): Promise<DriveChild[]> {
+  const out: DriveChild[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({
+      q:        `'${parentId}' in parents and trashed = false`,
+      fields:   "nextPageToken, files(id,name,mimeType)",
+      pageSize: "200",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const resp = await fetch(
+      `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!resp.ok) throw new Error(`drive list children failed: ${resp.status} ${await resp.text()}`);
+    const data = await resp.json() as {
+      nextPageToken?: string;
+      files?: DriveChild[];
+    };
+    out.push(...(data.files ?? []));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return out;
+}
+
+/**
+ * Server-side copy of a Drive file into `parentId`, optionally renamed. Google
+ * does the copying — the bytes never travel through the edge function, which is
+ * what makes promoting a whole backup folder to a quarterly anchor cheap.
+ */
+export async function driveCopyFile(
+  token:    string,
+  fileId:   string,
+  parentId: string,
+  name?:    string,
+): Promise<UploadedFile> {
+  const body: Record<string, unknown> = { parents: [parentId] };
+  if (name) body.name = name;
+
+  const resp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}/copy?fields=id,webViewLink`,
+    {
+      method:  "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body:    JSON.stringify(body),
+    },
+  );
+  if (!resp.ok) throw new Error(`drive copy failed: ${resp.status} ${await resp.text()}`);
+  return resp.json() as Promise<UploadedFile>;
 }

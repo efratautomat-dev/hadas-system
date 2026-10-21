@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
-import { Camera, FileText, Truck, RotateCcw, Upload, X, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react'
-import { captureDocument, type CaptureDocType, type CaptureResult } from '../lib/api'
+import { Camera, FileText, Truck, RotateCcw, Upload, X, CheckCircle2, Loader2, Scale } from 'lucide-react'
+import { captureDocument, CaptureError, type CaptureDocType, type CaptureResult } from '../lib/api'
+import { ErrorNotice } from './ui/ErrorNotice'
 import { isNative, takePhoto } from '../lib/native'
 
 interface Props {
@@ -44,6 +45,9 @@ const TYPE_OPTIONS: TypeOption[] = [
   { key: 'delivery',  label: 'תעודת משלוח',  docType: 'delivery_note', Icon: Truck },
   { key: 'return',    label: 'חזרה',         docType: 'return_doc',    Icon: RotateCcw },
   { key: 'credit',    label: 'זיכוי',        docType: 'return_doc',    Icon: RotateCcw },
+  // A statement had no door here, so one uploaded by hand went in as "חשבונית"
+  // and failed half-way through being read as one.
+  { key: 'statement', label: 'כרטסת',        docType: 'statement',     Icon: Scale },
 ]
 
 const ACCENT = 'var(--brand-primary)'
@@ -69,7 +73,7 @@ export default function CaptureDocument({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [result, setResult] = useState<CaptureResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<{ message: string; code?: string; details?: string } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const reset = () => {
@@ -90,7 +94,7 @@ export default function CaptureDocument({
     const isImage = f.type.startsWith('image/')
     const isPdf   = f.type === 'application/pdf'
     if (!isImage && !isPdf) {
-      setError('יש לצלם או לבחור קובץ תמונה או PDF בלבד')
+      setError({ message: 'יש לצלם או לבחור קובץ תמונה או PDF בלבד' })
       return
     }
     setError(null)
@@ -114,9 +118,9 @@ export default function CaptureDocument({
       const f = await takePhoto()
       if (f) accept(f)
     } catch (e) {
-      setError(e instanceof Error && /denied|permission/i.test(e.message)
+      setError({ message: e instanceof Error && /denied|permission/i.test(e.message)
         ? 'אין הרשאת מצלמה. אפשר לאשר בהגדרות המכשיר.'
-        : 'הצילום נכשל. אפשר לנסות שוב או לבחור קובץ.')
+        : 'הצילום נכשל. אפשר לנסות שוב או לבחור קובץ.' })
     }
   }
 
@@ -144,7 +148,9 @@ export default function CaptureDocument({
         if (inputRef.current) inputRef.current.value = ''
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ההעלאה נכשלה')
+      setError(e instanceof CaptureError
+        ? { message: e.message, code: e.code, details: e.details }
+        : { message: 'ההעלאה נכשלה — בדקי את החיבור ונסי שוב.', details: e instanceof Error ? e.message : undefined })
     } finally {
       setUploading(false)
     }
@@ -287,12 +293,7 @@ export default function CaptureDocument({
       )}
 
       {/* Error */}
-      {error && (
-        <div className="flex items-start gap-2 rounded-2xl mt-4" style={{ background: '#FFF0EF', padding: '14px 16px' }}>
-          <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: '#E8645A' }} />
-          <span style={{ color: '#B23B3B', fontSize: '14px' }}>{error}</span>
-        </div>
-      )}
+      {error && <ErrorNotice message={error.message} code={error.code} details={error.details} />}
 
       {/* Result */}
       {result && result.ok && (
@@ -374,12 +375,11 @@ export default function CaptureDocument({
       )}
 
       {result && !result.ok && (
-        <div className="flex items-start gap-2 rounded-2xl mt-4" style={{ background: '#FFF0EF', padding: '14px 16px' }}>
-          <AlertTriangle className="w-5 h-5 flex-shrink-0" style={{ color: '#E8645A' }} />
-          <span style={{ color: '#B23B3B', fontSize: '14px' }}>
-            {result.error ?? 'העיבוד נכשל. נסי שוב או בדקי את החיבור.'}
-          </span>
-        </div>
+        <ErrorNotice
+          message={result.error ?? 'העיבוד נכשל. נסי שוב או בדקי את החיבור.'}
+          code={result.code}
+          details={result.details ?? result.errors?.join(' · ')}
+        />
       )}
     </div>
   )

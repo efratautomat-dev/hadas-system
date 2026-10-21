@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { ledgerRowProps, type OpenLedgerRow } from '../lib/ledgerOpen'
 import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw, Plus, PackageCheck } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { computedAmountNotes } from '../lib/computedAmount'
@@ -65,6 +66,8 @@ export interface Supplier {
   // "בהסדר תשלום": display-only — balance shows 0 and invoices get an informational
   // "בהסדר" tag. Accounting status is unchanged; never mutates rows; reversible.
   paymentArrangement?: boolean
+  /** "החזר חלקי" — new invoices are filed under the month's החזר חלקי folder. */
+  partialReturn?: boolean
 }
 
 interface Props {
@@ -85,6 +88,10 @@ interface Props {
    * then refuses. Absent = the rows stay inert rather than pretending.
    */
   onOpenDelivery?: (deliveryNoteId: string) => void
+  /** A ledger or payment row opens the invoice / payment it came from. */
+  onOpenRow?: OpenLedgerRow
+  /** A statement row opens that statement on the reconciliation screen. */
+  onOpenStatement?: (statementId: string) => void
 }
 
 // invoiceStatusStyle removed: it keyed on the STORED vocabulary (ממתין/שולם/בטיפול),
@@ -216,7 +223,7 @@ function fmtDate(d: string): string {
   return `${day}/${m}/${y}`
 }
 
-export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onMerge, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive, onOpenDelivery }: Props) {
+export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onMerge, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive, onOpenDelivery, onOpenRow, onOpenStatement }: Props) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
@@ -316,10 +323,11 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
 
   const ledger = [
     ...(openingBalance !== 0
-      ? [{ id: 'opening', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false, awaitingLedgerApproval: false, excluded: false, movement: 0, isReset: false, resetReason: '', settledByReceipt: false }]
+      ? [{ id: 'opening', type: 'פתיחה' as const, date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false, awaitingLedgerApproval: false, excluded: false, movement: 0, isReset: false, resetReason: '', settledByReceipt: false }]
       : []),
     ...ledgerResult.rows.map(r => ({
       id: r.id,
+      type: r.type,
       date: r.undated ? 'ללא תאריך' : r.displayDate,
       description: r.description,
       debit: r.debit,
@@ -433,6 +441,15 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               title="ספק בהסדר תשלום — מוחרג ממעקב יתרה, חשבוניות מוצגות כמשולמות"
             >
               בהסדר תשלום
+            </span>
+          )}
+          {supplier.partialReturn && (
+            <span
+              className="rounded-lg font-bold flex-shrink-0"
+              style={{ fontSize: '13px', padding: '5px 12px', background: '#FBF3F5', color: 'var(--brand-primary)' }}
+              title="החזר חלקי — חשבוניות חדשות מתויקות בתיקיית החזר חלקי של החודש"
+            >
+              החזר חלקי
             </span>
           )}
           {/* ── לפני שמעבירים תשלום ────────────────────────────────────────
@@ -663,7 +680,7 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
             <div
               key={entry.id}
               className="grid items-center"
-              style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', minHeight: '56px', padding: '12px 16px', borderBottom: '1px solid #E2E4E9' }}
+              {...ledgerRowProps(entry, onOpenRow, { gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', minHeight: '56px', padding: '12px 16px', borderBottom: '1px solid #E2E4E9' })}
             >
               <span className="text-right text-gray-400" style={{ fontSize: '12px' }}>{fmtDate(entry.date)}</span>
               <span className="text-gray-600 text-right" style={{ fontSize: fs('14px', '13px') }}>
@@ -961,13 +978,13 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               <div
                 key={pay.id}
                 className="grid items-center"
-                style={{ gridTemplateColumns: '1fr 80px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                {...ledgerRowProps({ type: 'תשלום', id: pay.id }, onOpenRow, { gridTemplateColumns: '1fr 80px 120px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' })}
               >
                 <div className="text-right">
                   <p className="text-gray-600 font-medium" style={{ fontSize: '13px' }}>{pay.type}</p>
                   <p className="text-gray-400" style={{ fontSize: '12px' }}>פירעון: {fmtDate(pay.date)}</p>
                 </div>
-                <p className="text-center text-gray-400" style={{ fontSize: '12px' }}>{pay.id}</p>
+                <p className="text-center text-gray-400" dir="ltr" style={{ fontSize: '12px' }}>{pay.id.slice(0, 8)}</p>
                 <span className="text-left font-black text-gray-800" style={{ fontSize: fs('15px', '14px') }}>
                   {formatILS(pay.amount)}
                 </span>
@@ -1012,7 +1029,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
                   <div
                     key={s.id}
                     className="grid items-center"
-                    style={{ gridTemplateColumns: '100px 1fr 1fr 1fr 110px', minWidth: '560px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px' }}
+                    onClick={onOpenStatement ? () => onOpenStatement(s.id) : undefined}
+                    title={onOpenStatement ? 'פתיחת הכרטסת וההתאמה' : undefined}
+                    style={{ gridTemplateColumns: '100px 1fr 1fr 1fr 110px', minWidth: '560px', borderBottom: '1px solid #E2E4E9', minHeight: '56px', padding: '12px 16px', cursor: onOpenStatement ? 'pointer' : undefined }}
                   >
                     <span className="text-right text-gray-600 font-medium" style={{ fontSize: '13px' }}>{s.month}</span>
                     {/* LIVE balance, not the stored our_balance column — the stored

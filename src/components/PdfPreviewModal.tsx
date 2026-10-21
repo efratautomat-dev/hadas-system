@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { isNative, openExternal } from '../lib/native'
+import { isNative, openExternal, externalLinkProps } from '../lib/native'
 import PdfCanvas from './PdfCanvas'
 import { Eye, X, ExternalLink } from 'lucide-react'
 
@@ -195,9 +195,7 @@ export function PdfPreviewModal({ url, previewSrc, onClose }: PdfPreviewModalPro
               <X className="w-5 h-5" />
             </button>
             <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
+              {...externalLinkProps(url)}
               className="flex items-center gap-1.5 rounded-lg font-semibold transition-colors"
               style={{ background: 'var(--brand-active-bg)', color: 'var(--brand-primary)', padding: '8px 14px', fontSize: '13px' }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#FAE6E9')}

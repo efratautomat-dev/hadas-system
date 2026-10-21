@@ -63,7 +63,7 @@ export const api = {
 // which runs the SAME extraction + Drive/Storage upload + DB insert that
 // email-ingested images go through. Type chosen by the user, image as base64.
 
-export type CaptureDocType = 'invoice' | 'delivery_note' | 'return_doc'
+export type CaptureDocType = 'invoice' | 'delivery_note' | 'return_doc' | 'statement'
 
 export interface CaptureResult {
   ok:        boolean
@@ -89,6 +89,21 @@ export interface CaptureResult {
   supplierMismatch?: string
   error?:    string
   errors?:   string[]
+  /** Short code for this upload — the log search finds its whole trail by it. */
+  code?:     string
+  /** The raw technical message, for the "פרטים" toggle — never the headline. */
+  details?:  string
+}
+
+/** A failed capture that still knows its code, so the screen can show it. */
+export class CaptureError extends Error {
+  code?: string
+  details?: string
+  constructor(message: string, code?: string, details?: string) {
+    super(message)
+    this.code = code
+    this.details = details
+  }
 }
 
 const INGEST_BASE = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invoices-ingest`
@@ -123,7 +138,10 @@ export async function captureDocument(input: {
     body:    JSON.stringify({ source: 'camera', ...input }),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`)
+  if (!res.ok) {
+    const d = data as { error?: string; code?: string; details?: string }
+    throw new CaptureError(d.error ?? `השרת לא ענה (HTTP ${res.status}).`, d.code, d.details)
+  }
   return data as CaptureResult
 }
 

@@ -64,6 +64,9 @@
 | [CUTOVER-SEQUENCE.md](./CUTOVER-SEQUENCE.md) | נוהל הקאטאובר של v2 |
 | [LAUNCH-PLAN.md](./LAUNCH-PLAN.md) | תוכנית ההשקה של v2 — היסטוריה, **לא** המצב הנוכחי |
 | [STATUS-REVIEW.md](./STATUS-REVIEW.md) | סקירת קוד מול ספק, יולי 2026 |
+| [14-ORDER-PLAN.md](./14-ORDER-PLAN.md) | **תוכנית הסדר (18.10.2026)** — שלבים 1–4, מה נשאר פתוח מתוך 19 התקלות |
+| [DEPLOY-18-10.md](./DEPLOY-18-10.md) | פקודות פריסה (PowerShell) לגיבוי + שלב 1, ושאילתות בלומנטל |
+| [TESTS-18-10.md](./TESTS-18-10.md) | רשימות בדיקה נפרדות — מחשב ואפליקציה |
 
 ---
 

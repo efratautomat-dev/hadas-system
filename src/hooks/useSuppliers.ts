@@ -133,6 +133,7 @@ export function useSuppliers() {
             hp:             r.hp      ?? '',
             contact:        r.contact ?? '',
             paymentArrangement,
+            partialReturn:  r.partial_return ?? false,
             // Active/inactive: derived from the `active` column. Until that column
             // exists (r.active === undefined) everyone defaults to active ('פעיל');
             // only an explicit active=false marks a supplier inactive ('לא פעיל').

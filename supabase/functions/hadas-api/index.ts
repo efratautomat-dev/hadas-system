@@ -1,5 +1,7 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { resolveInvoiceFolder, driveMoveFile, driveGetFolderLink } from "../_shared/drive-filing.ts";
+import { resolveInvoiceFolder, driveMoveFile, driveGetFolderLink, driveTrashFile,
+         driveEnsureFolder, driveFindFolder, driveListChildren, isDriveFolder } from "../_shared/drive-filing.ts";
+import { getGoogleAccessToken, googleConfigured } from "../_shared/google-auth.ts";
 import { round2 } from "../_shared/vat.ts";
 // The supplier ledger engine — byte-locked twin of src/lib/ledgerEngine.ts (see
 // scripts/check-twins.mjs). Reconciling a statement here MUST use the same engine
@@ -30,22 +32,7 @@ function validateKey(key: string | null): boolean {
 // Same OAuth identity as invoices-ingest (project-wide secrets). That identity
 // uploaded the invoice files to Drive, so it is authorized to trash them.
 
-async function getGoogleAccessToken(): Promise<string> {
-  const resp = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id:     Deno.env.get("GMAIL_CLIENT_ID")!,
-      client_secret: Deno.env.get("GMAIL_CLIENT_SECRET")!,
-      refresh_token: Deno.env.get("GMAIL_REFRESH_TOKEN")!,
-      grant_type:    "refresh_token",
-    }),
-  });
-  if (!resp.ok) throw new Error(`Google token exchange failed: ${resp.status} ${await resp.text()}`);
-  const data = await resp.json() as { access_token?: string; error?: string };
-  if (!data.access_token) throw new Error(`No access_token: ${data.error ?? "unknown"}`);
-  return data.access_token;
-}
+// getGoogleAccessToken moved to ../_shared/google-auth.ts (imported at top).
 
 // Extracts the Drive file id from a stored webViewLink / open?id= / uc?id= URL.
 function driveFileIdFromLink(link: string | null): string | null {
@@ -54,25 +41,17 @@ function driveFileIdFromLink(link: string | null): string | null {
   return m ? m[1] : null;
 }
 
-// Moves a Drive file to trash (recoverable for 30 days) rather than deleting
-// permanently. 404 is treated as success — the file is already gone.
-async function driveTrashFile(token: string, fileId: string): Promise<void> {
-  const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-    method: "PATCH",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ trashed: true }),
-  });
-  if (!resp.ok && resp.status !== 404)
-    throw new Error(`drive trash failed: ${resp.status} ${await resp.text()}`);
-}
+// driveTrashFile moved to ../_shared/drive-filing.ts (imported at top) — the
+// weekly backup trashes folders through the very same helper.
 
 // ─── Suppliers ────────────────────────────────────────────────────────────────
-// Whitelist: id, name, hp, category, contact, email, phone, opening_balance, payment_arrangement, notes, alt_names, linked_invoices
+// Whitelist: id, name, hp, category, contact, email, phone, opening_balance, payment_arrangement, partial_return, notes, alt_names, linked_invoices
 // Excluded (no DB column): opening_balance_date, status, paymentTerms, lastOrderDate, balance
 
 async function createSupplier(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
-  const { name, hp, category, contact, email, phone, openingBalance, paymentArrangement, notes, force } = body;
+  const { name, hp, category, contact, email, phone, openingBalance, paymentArrangement, partialReturn, notes, force } = body;
+  const altNames = cleanAltNames(body.alt_names ?? body.altNames);
   if (!name) return json({ error: "name is required" }, 400);
 
   // Gap #4 — dedup, surfaced to the UI (never silent). Unless `force` ("create anyway"),
@@ -81,7 +60,7 @@ async function createSupplier(req: Request, supabase: SupabaseClient): Promise<R
   // user to "use existing" or "create anyway". (hp back-fill on confirm is the UI's job.)
   if (!force) {
     const normHp = normalizeHp(hp);
-    const { data: existingRows } = await supabase.from("suppliers").select("id, name, hp");
+    const { data: existingRows } = await supabase.from("suppliers").select("id, name, hp, alt_names");
     const suppliers = (existingRows ?? []) as SupplierMatchRow[];
     let dup: SupplierMatchRow | null =
       normHp ? (suppliers.find(s => normalizeHp(s.hp) === normHp) ?? null) : null;
@@ -101,7 +80,11 @@ async function createSupplier(req: Request, supabase: SupabaseClient): Promise<R
       phone:           phone    ?? null,
       opening_balance: openingBalance ?? 0,
       payment_arrangement: paymentArrangement ?? false,
+      // Only when set: a supplier created before the column's migration ran
+      // would otherwise fail on a column that does not exist yet.
+      ...(partialReturn ? { partial_return: true } : {}),
       notes:           notes    ?? null,
+      alt_names:       altNames ?? [],
     })
     .select("id")
     .single();
@@ -121,6 +104,7 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
     phone:          "phone",
     openingBalance: "opening_balance",
     paymentArrangement: "payment_arrangement",   // "בהסדר תשלום" flag — display-only balance exclusion (never mutates invoices/payments)
+    partialReturn:  "partial_return",   // "החזר חלקי" — ingest files this supplier's new invoices under the month's החזר חלקי folder
     notes:          "notes",
     active:         "active",   // active/inactive toggle (deactivation replaces hard delete)
     needsDetails:   "needs_details",   // PART 3C: completing details clears the flag
@@ -130,6 +114,11 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
   for (const [key, col] of Object.entries(ALLOWED)) {
     if (body[key] !== undefined) updates[col] = body[key];
   }
+  // alt_names was sent by the form since 19.08 and silently dropped here — the
+  // whitelist comment above listed it, this map never did. Cleaned, not copied:
+  // ingest matches every entry, so a blank or a repeat of the name is noise.
+  const altNames = cleanAltNames(body.alt_names ?? body.altNames);
+  if (altNames !== undefined) updates.alt_names = altNames;
   if (Object.keys(updates).length === 0) return json({ error: "No fields to update" }, 400);
 
   const { error } = await supabase.from("suppliers").update(updates).eq("id", id);
@@ -145,6 +134,18 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
       .neq("status", "resolved");
   }
   return json({ success: true });
+}
+
+// undefined = "not sent, leave the column alone"; [] = "cleared".
+function cleanAltNames(raw: unknown): string[] | undefined {
+  if (raw === undefined) return undefined;
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split(/[,\n]/) : [];
+  const out: string[] = [];
+  for (const v of list) {
+    const t = String(v ?? "").trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
 }
 
 async function deleteSupplier(supabase: SupabaseClient, id: string): Promise<Response> {
@@ -224,8 +225,10 @@ async function mergeSuppliers(req: Request, supabase: SupabaseClient): Promise<R
 
 // ─── Invoices ─────────────────────────────────────────────────────────────────
 // Accepts camelCase from the frontend AND snake_case from N8N/direct calls.
-// Fields removed: date (display string), isPartialReturn, emailId, uploadDate,
+// Fields removed: date (display string), emailId, uploadDate,
 //                 duplicateFlag, duplicateNote (no DB columns for these).
+// isPartialReturn WAS on that list — wrongly: `partial_return` is a real column
+// (ingest writes it), so the invoice form's "החזר חלקי" box never saved.
 
 function invoiceToRow(body: Record<string, unknown>): Record<string, unknown> {
   const row: Record<string, unknown> = {};
@@ -242,7 +245,7 @@ function invoiceToRow(body: Record<string, unknown>): Record<string, unknown> {
     "message_link", "received_at", "execution_log_url", "ai_confidence",
     "is_duplicate", "has_error", "status", "category",
     "invoice_type", "external_link", "error_reason", "html_content",
-    "ai_missing_fields", "transferred_at", "notes",
+    "ai_missing_fields", "transferred_at", "notes", "partial_return",
   ];
   for (const col of SNAKE) {
     if (body[col] !== undefined) row[col] = body[col];
@@ -271,6 +274,7 @@ function invoiceToRow(body: Record<string, unknown>): Record<string, unknown> {
     status:            "status",
     isDuplicate:       "is_duplicate",
     hasError:          "has_error",
+    isPartialReturn:   "partial_return",
   };
   for (const [fe, db] of Object.entries(CAMEL)) {
     if (body[fe] !== undefined) row[db] = body[fe];
@@ -305,25 +309,26 @@ async function updateInvoice(req: Request, supabase: SupabaseClient, id: string)
   // and refresh the stored folder links. Best-effort: a Drive hiccup or missing
   // credentials must NEVER block the DB update (dev leaves GMAIL_* unset, so this
   // path is skipped there and verified in prod — see driveConfigured guard).
+  //
+  // החזר חלקי moves the file the same way: the month folder's "החזר חלקי"
+  // subfolder (resolveInvoiceFolder), and back out when the mark is removed.
   let drive = "unchanged";
-  if (row.invoice_date !== undefined) {
+  if (row.invoice_date !== undefined || row.partial_return !== undefined) {
     const { data: cur } = await supabase
       .from("invoices")
       .select("invoice_date, drive_file_link, partial_return")
       .eq("id", id)
       .maybeSingle();
 
-    const oldDate = String(cur?.invoice_date ?? "").slice(0, 10);
-    const newDate = String(row.invoice_date ?? "").slice(0, 10);
+    const oldDate    = String(cur?.invoice_date ?? "").slice(0, 10);
+    const newDate    = row.invoice_date !== undefined ? String(row.invoice_date ?? "").slice(0, 10) : oldDate;
+    const oldPartial = !!cur?.partial_return;
+    const newPartial = row.partial_return !== undefined ? !!row.partial_return : oldPartial;
     const fileId  = driveFileIdFromLink(cur?.drive_file_link ?? null);
-    const driveConfigured = !!(
-      Deno.env.get("GMAIL_CLIENT_ID") &&
-      Deno.env.get("GMAIL_CLIENT_SECRET") &&
-      Deno.env.get("GMAIL_REFRESH_TOKEN")
-    );
+    const driveConfigured = googleConfigured();
 
-    if (!newDate || newDate === oldDate) {
-      drive = "unchanged";                 // date not actually changing → nothing to move
+    if (!newDate || (newDate === oldDate && newPartial === oldPartial)) {
+      drive = "unchanged";                 // neither date nor החזר חלקי changing → nothing to move
     } else if (!fileId) {
       drive = "skipped_no_file";           // manual invoice / no Drive copy to move
     } else if (!driveConfigured) {
@@ -331,7 +336,7 @@ async function updateInvoice(req: Request, supabase: SupabaseClient, id: string)
     } else {
       try {
         const token   = await getGoogleAccessToken();
-        const target  = await resolveInvoiceFolder(token, newDate, !!cur?.partial_return);
+        const target  = await resolveInvoiceFolder(token, newDate, newPartial);
         await driveMoveFile(token, fileId, target.fileFolderId);
         const newLink = await driveGetFolderLink(token, target.monthFolderId);
         if (newLink) {
@@ -409,7 +414,7 @@ async function deleteInvoice(supabase: SupabaseClient, id: string): Promise<Resp
   //    OR when Drive credentials aren't configured / the call fails (graceful skip).
   let drive = "skipped";
   const fileId = driveFileIdFromLink(inv.drive_file_link);
-  const driveConfigured = !!(Deno.env.get("GMAIL_CLIENT_ID") && Deno.env.get("GMAIL_CLIENT_SECRET") && Deno.env.get("GMAIL_REFRESH_TOKEN"));
+  const driveConfigured = googleConfigured();
   if (fileId && driveConfigured) {
     try {
       const token = await getGoogleAccessToken();
@@ -2465,7 +2470,7 @@ function normalizeHp(s: string | null | undefined): string {
 // ─── Fuzzy supplier matching (mirrors invoices-ingest findBestSupplier) ────────
 // So the manual/reclassify resolve paths match a name-only supplier despite spelling
 // differences ("תנובה" vs "תנובה בע\"מ"), instead of the old exact-name miss → dup.
-interface SupplierMatchRow { id: string; name: string; hp: string | null }
+interface SupplierMatchRow { id: string; name: string; hp: string | null; alt_names?: string[] | null }
 
 function normalizeForMatch(s: string): string {
   return s.toLowerCase()
@@ -2513,8 +2518,12 @@ function similarityScore(a: string, b: string): number {
 function findBestSupplierRow(typed: string, rows: SupplierMatchRow[], threshold = 0.85): SupplierMatchRow | null {
   let best: { row: SupplierMatchRow; score: number } | null = null;
   for (const s of rows) {
-    const score = similarityScore(typed, s.name);
-    if (!best || score > best.score) best = { row: s, score };
+    // The aliases count exactly like the name — same as findBestSupplier in ingest.
+    for (const candidate of [s.name, ...(s.alt_names ?? [])]) {
+      if (!candidate) continue;
+      const score = similarityScore(typed, candidate);
+      if (!best || score > best.score) best = { row: s, score };
+    }
   }
   return best && best.score >= threshold ? best.row : null;
 }
@@ -2526,7 +2535,7 @@ async function resolveOrCreateSupplier(
 ): Promise<string | null> {
   const normHp = normalizeHp(hp);
   // Load candidates once (small table) so hp + fuzzy-name matching runs in memory.
-  const { data: rows } = await supabase.from("suppliers").select("id, name, hp");
+  const { data: rows } = await supabase.from("suppliers").select("id, name, hp, alt_names");
   const suppliers = (rows ?? []) as SupplierMatchRow[];
 
   // 1. PRIMARY — match by ח.פ (business number). Authoritative.
@@ -2596,12 +2605,23 @@ async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promi
   const storageUrl:     string | undefined = body.storageUrl ?? body.storagePath;
   const messageLink:    string | undefined = body.messageLink;
   const gmailMessageId: string | undefined = body.gmailMessageId;
+  // The second caller: a statement that was really an invoice ("שינוי סוג מסמך"
+  // on the statement page). Its supplier is already known, so it is passed by id
+  // rather than re-guessed from a name.
+  const statementId:    string | undefined = body.statementId;
+  const knownSupplier:  string | undefined = body.supplierId || undefined;
+
+  // A statement may only BECOME something. "אחר" (or "כרטסת") would remove the
+  // row and file nothing — the document would leave the system with no trace.
+  if (statementId && !["חשבונית", "זיכוי", "תעודת משלוח"].includes(docType)) {
+    return json({ error: "a statement can only be changed to an invoice, credit note or delivery note" }, 400);
+  }
 
   let table: string | null = null;
   let recordId: string | null = null;
 
   if (docType === "חשבונית" || docType === "זיכוי") {
-    const supplierId = await resolveOrCreateSupplier(supabase, supplierName);
+    const supplierId = knownSupplier ?? await resolveOrCreateSupplier(supabase, supplierName);
     const { data, error } = await supabase.from("invoices").insert({
       supplier_id:     supplierId,
       supplier_name:   supplierName ?? "",
@@ -2615,7 +2635,7 @@ async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promi
     if (error || !data) return json({ error: `Failed to create invoice: ${error?.message}` }, 500);
     table = "invoices"; recordId = data.id;
   } else if (docType === "תעודת משלוח") {
-    const supplierId = await resolveOrCreateSupplier(supabase, supplierName);
+    const supplierId = knownSupplier ?? await resolveOrCreateSupplier(supabase, supplierName);
     const { data, error } = await supabase.from("delivery_notes").insert({
       supplier_id:     supplierId,
       supplier_name:   supplierName ?? "",
@@ -2629,11 +2649,17 @@ async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promi
     if (error || !data) return json({ error: `Failed to create delivery note: ${error?.message}` }, 500);
     table = "delivery_notes"; recordId = data.id;
   } else if (docType === "כרטסת") {
-    const supplierId = await resolveOrCreateSupplier(supabase, supplierName);
+    // A statement never creates a supplier card (PRD §7.4) — look up only, and
+    // leave it an orphan for "שינוי ספק" when nothing matches. The balance is NULL,
+    // not 0: nobody has read it yet, and a 0 showed the whole ledger as the gap.
+    const { data: supRows } = await supabase.from("suppliers").select("id, name, hp, alt_names");
+    const supplierId = supplierName
+      ? (findBestSupplierRow(supplierName, (supRows ?? []) as SupplierMatchRow[])?.id ?? null)
+      : null;
     const { data, error } = await supabase.from("vendor_statements").insert({
       supplier_id:     supplierId,
       month:           body.month ?? currentMonth(),
-      vendor_balance:  0,
+      vendor_balance:  null,
       our_balance:     0,
       diff:            0,
       status:          "needs_review",
@@ -2651,26 +2677,26 @@ async function reclassifyDocument(req: Request, supabase: SupabaseClient): Promi
     await supabase.from("alerts").update({ status: "resolved", resolved: true }).eq("id", alertId);
   }
 
+  // The statement row goes only now, AFTER the new record exists — and its
+  // Storage file stays, because the new record points at the same path (this
+  // is why it is not deleteStatement, which removes the file too). Alerts raised
+  // about it as a statement are closed: they describe a statement that no
+  // longer exists.
+  if (statementId) {
+    const { error: delErr } = await supabase.from("vendor_statements").delete().eq("id", statementId);
+    if (delErr) return json({ error: `Created ${table} ${recordId}, but the statement was not removed: ${delErr.message}` }, 500);
+    await supabase.from("alerts").update({ status: "resolved", resolved: true })
+      .eq("payload->>statementId", statementId);
+  }
+
   return json({ success: true, docType, table, id: recordId }, 201);
 }
 
 // ─── Gmail helpers (used by createPaymentFromAlert) ───────────────────────────
 
-async function gmailAccessToken(): Promise<string> {
-  const resp = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id:     Deno.env.get("GMAIL_CLIENT_ID")!,
-      client_secret: Deno.env.get("GMAIL_CLIENT_SECRET")!,
-      refresh_token: Deno.env.get("GMAIL_REFRESH_TOKEN")!,
-      grant_type:    "refresh_token",
-    }),
-  });
-  const data = await resp.json() as { access_token?: string };
-  if (!data.access_token) throw new Error("Gmail token exchange failed");
-  return data.access_token;
-}
+// gmailAccessToken was a THIRD copy of the same refresh-token exchange, with
+// weaker error handling (it never checked resp.ok). It now delegates.
+const gmailAccessToken = getGoogleAccessToken;
 
 async function gmailLabelId(token: string, name: string): Promise<string | null> {
   const resp = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/labels", {
@@ -3000,6 +3026,82 @@ async function deleteEmployee(supabase: SupabaseClient, id: string): Promise<Res
   const { error } = await supabase.from("employees").delete().eq("id", id);
   if (error) return json({ error: error.message }, 500);
   return json({ success: true });
+}
+
+// ─── Backups (Settings → גיבוי) ───────────────────────────────────────────────
+// MANAGER-ONLY, and enforced by OMISSION from employeeMayAccess, which returns
+// false for anything unlisted. The reason belongs on the record:
+//
+//   · POST /backups/run produces a file holding every column invoices_v,
+//     suppliers_v and delivery_notes_v exist to hide from an employee — and then
+//     answers with a link to it. The masking-view warning in CLAUDE.md applies at
+//     full strength here: this function runs on the service-role key, and the
+//     entire POINT of this payload is the unmasked rows.
+//   · POST /backups/year-end-cleanup moves folders to the Drive bin. The employee
+//     allowlist exists for judgements about goods in front of her that carry no
+//     figure; this is the opposite on both counts.
+//
+// There is deliberately NO `GET /backups`: the panel reads `backup_runs` through
+// the anon client under RLS, which is the house pattern ("reads through anon,
+// writes through hadas-api") and the same way useLedgerResets reads its table. A
+// read route here would bypass that RLS and have to re-implement the role check.
+
+/** Fires backup-run server-to-server with the machine key, the same shape as the
+ *  ingest re-invocation above. The owner's identity is stamped from the VERIFIED
+ *  JWT, never from the request body. */
+async function runBackupNow(actorEmail?: string): Promise<Response> {
+  const key = Deno.env.get("HADAS_API_KEY");
+  const url = Deno.env.get("SUPABASE_URL");
+  if (!key || !url) return json({ error: "Backup credentials are not configured" }, 500);
+
+  const res = await fetch(`${url}/functions/v1/backup-run`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "x-hadas-key": key },
+    // force: a manual run is a deliberate act and must not be answered with
+    // "there is already one from today" — that is the cron's rule, not hers.
+    body:    JSON.stringify({ mode: "weekly", force: true, triggeredBy: "manual", actorEmail: actorEmail ?? null }),
+  });
+  const out = await res.json().catch(() => ({}));
+  // 409 (already running) is relayed as itself: it is a real answer, not a fault.
+  if (!res.ok) return json({ error: "Backup run failed", details: out }, res.status === 409 ? 409 : 502);
+  return json({ success: true, result: out });
+}
+
+/**
+ * Year-end prune: the month folders of a FINISHED year go to the Drive bin, and
+ * the four quarter folders stay.
+ *
+ * `year` is validated here as well as inside backup-run. A destructive route gets
+ * its guard on both sides of the wire, because the whole point of a second guard
+ * is that it is not the one that was bypassed.
+ */
+async function cleanupBackupYear(req: Request, actorEmail?: string): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const year = Number(body?.year);
+  if (!Number.isInteger(year)) return json({ error: "year is required" }, 400);
+  if (body?.confirm !== true)  return json({ error: "confirm: true is required" }, 400);
+
+  // Israel-local year, so the first days of January are never read as still being
+  // inside the year the prune is about to delete.
+  const thisYear = Number(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jerusalem", year: "numeric",
+  }).format(new Date()));
+  if (year >= thisYear) {
+    return json({ error: `לא ניתן לנקות שנה שלא הסתיימה (${year})` }, 400);
+  }
+
+  const key = Deno.env.get("HADAS_API_KEY");
+  const url = Deno.env.get("SUPABASE_URL");
+  if (!key || !url) return json({ error: "Backup credentials are not configured" }, 500);
+
+  const res = await fetch(`${url}/functions/v1/backup-run`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", "x-hadas-key": key },
+    body:    JSON.stringify({ mode: "year-end-cleanup", year, confirm: true, triggeredBy: "manual", actorEmail: actorEmail ?? null }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) return json({ error: "Cleanup failed", details: out }, res.status === 409 ? 409 : 502);
+  return json({ success: true, result: out });
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -3366,6 +3468,11 @@ Deno.serve(async (req: Request) => {
     const reassign = path.match(/^\/delivery-notes\/([^/]+)\/supplier$/);
     if (reassign && req.method === "PUT")
       return await reassignDeliverySupplier(req, supabase, reassign[1]);
+
+    if (path === "/backups/run" && req.method === "POST")
+      return await runBackupNow(auth.email);
+    if (path === "/backups/year-end-cleanup" && req.method === "POST")
+      return await cleanupBackupYear(req, auth.email);
 
     if (path === "/ingest/parked" && req.method === "GET")
       return await listParkedDocuments(supabase);

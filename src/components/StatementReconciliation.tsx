@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { ledgerRowProps, type OpenLedgerRow } from '../lib/ledgerOpen'
 import {
   Search as SearchIcon, X, ArrowLeftRight, ArrowRight,
   Eye, Download, FileText, ExternalLink, Maximize2, UserCog,
-  AlertTriangle,
+  AlertTriangle, FileX,
 } from 'lucide-react'
-import { useStatements } from '../hooks/useStatements'
+import { useStatements, type ChangeTypeResult } from '../hooks/useStatements'
 import type {
   VendorStatementStatus,
   StatementMatchMethod,
@@ -25,6 +26,9 @@ import SectionHeader from './SectionHeader'
 import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 import { PdfPreviewModal, DocumentBody } from './PdfPreviewModal'
+import { ReclassifyModal } from './ReclassifyModal'
+import { CaptureError } from '../lib/api'
+import { notify, resourcesFor } from '../lib/dataBus'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { FilterTabs } from './ui/FilterTabs'
 
@@ -136,7 +140,7 @@ function StatusBadge({ status }: { status: VendorStatementStatus }) {
 // ── Our ledger, rendered once ────────────────────────────────────────────────
 // Used by the left pane AND by the "פתח כרטסת מלאה" overlay, so the two can
 // never show different rows for the same supplier.
-function LedgerTable({ ledger, showOpening }: { ledger: LedgerResult; showOpening?: boolean }) {
+function LedgerTable({ ledger, showOpening, onOpenRow }: { ledger: LedgerResult; showOpening?: boolean; onOpenRow?: OpenLedgerRow }) {
   const th = (align: 'right' | 'left'): React.CSSProperties => ({
     position: 'sticky', top: 0, background: 'white', textAlign: align,
     fontSize: '11px', color: '#9CA3AF', fontWeight: 700, padding: '8px 12px',
@@ -175,7 +179,7 @@ function LedgerTable({ ledger, showOpening }: { ledger: LedgerResult; showOpenin
           </tr>
         )}
         {ledger.rows.map(r => (
-          <tr key={r.id} style={{ opacity: r.excluded ? 0.55 : 1 }}>
+          <tr key={r.id} {...ledgerRowProps(r, onOpenRow, { opacity: r.excluded ? 0.55 : 1 })}>
             <td style={{ ...td, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
               {r.undated ? 'ללא תאריך' : r.displayDate}
             </td>
@@ -261,6 +265,8 @@ function SupplierPicker({
 }
 
 interface DetailPageProps {
+  /** A ledger row opens its invoice / payment. */
+  onOpenRow?: OpenLedgerRow
   stmt: VendorStatement
   ledger: LedgerResult
   /** Supplier flagged בהסדר תשלום — excluded from balance tracking, so no verdict. */
@@ -276,6 +282,8 @@ interface DetailPageProps {
   onVendorBalanceSave: (id: string, vendorBalance: number) => void
   onAssignSupplier: (id: string, supplierId: string) => void
   onSaveNotes: (id: string, notes: string) => Promise<void>
+  /** "שינוי סוג מסמך" — the document was never a statement (e.g. a חשבונית מס ריכוז). */
+  onChangeType: () => void
 }
 
 // Two-pane reconciliation, per the approved mockup: the supplier's document on
@@ -290,7 +298,7 @@ interface DetailPageProps {
 function DetailPage({
   stmt, ledger, paymentArrangement, savedNotes, suppliers, docUrl, isMobile,
   onBack, onExpandDoc, onOpenSource, onVendorBalanceSave,
-  onAssignSupplier, onSaveNotes,
+  onAssignSupplier, onSaveNotes, onOpenRow, onChangeType,
 }: DetailPageProps) {
   const [manualBalance, setManualBalance] = useState('')
   const [notes, setNotes] = useState(savedNotes)
@@ -459,6 +467,14 @@ function DetailPage({
             <UserCog className="w-3.5 h-3.5" />
             שינוי ספק
           </button>
+          <button
+            onClick={onChangeType}
+            className="rounded-xl font-bold inline-flex items-center gap-1.5"
+            style={{ background: 'white', color: '#B45309', border: '1px solid #E3C27A', padding: '6px 12px', fontSize: '12px', cursor: 'pointer' }}
+          >
+            <FileX className="w-3.5 h-3.5" />
+            שינוי סוג מסמך
+          </button>
         </div>
 
         {/* Same banner the two ledger views show for this flag, so the reason the
@@ -523,7 +539,7 @@ function DetailPage({
               </button>
             </div>
             <div style={{ overflow: 'auto', minHeight: 0 }}>
-              <LedgerTable ledger={ledger} />
+              <LedgerTable ledger={ledger} onOpenRow={onOpenRow} />
             </div>
           </div>
 
@@ -604,7 +620,7 @@ function DetailPage({
               <button onClick={() => setFullLedger(false)} className="text-gray-400" style={{ marginInlineStart: 'auto', background: 'none', border: 'none', cursor: 'pointer' }}><X className="w-5 h-5" /></button>
             </div>
             <div style={{ flex: 1, overflow: 'auto' }}>
-              <LedgerTable ledger={ledger} showOpening />
+              <LedgerTable ledger={ledger} showOpening onOpenRow={onOpenRow} />
             </div>
           </div>
         </div>
@@ -674,8 +690,13 @@ function useIsMobile() {
   return v
 }
 
-export default function StatementReconciliation({ initialStatementId }: { initialStatementId?: string | null }) {
-  const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement } = useStatements()
+export default function StatementReconciliation({ initialStatementId, onOpenRow }: { initialStatementId?: string | null; onOpenRow?: OpenLedgerRow }) {
+  const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement, changeType } = useStatements()
+  // The statement whose type is being changed — the popup is open while set.
+  const [changingType, setChangingType] = useState<VendorStatement | null>(null)
+  // The AI read takes a few seconds — she is told it is running, then what it did.
+  const [typeBusy, setTypeBusy] = useState(false)
+  const [typeNotice, setTypeNotice] = useState<{ text: string; ok: boolean } | null>(null)
   // Deleting is irreversible and the row carries a document, so it goes through a
   // confirmation naming the supplier and month — not a bare icon.
   const [confirmDelete, setConfirmDelete] = useState<VendorStatement | null>(null)
@@ -777,11 +798,15 @@ export default function StatementReconciliation({ initialStatementId }: { initia
 
   // Deep-link from a statement alert → open that statement's detail once the list
   // has loaded (once per id). The back control returns to the list, so this is a
-  // way IN, never a dead end.
+  // way IN, never a dead end. "Once" is the ref: serverStatements is reloaded by
+  // the 60-second auto-refresh, and without it a statement she had closed opened
+  // itself again a minute later — same guard as Payments.
+  const autoOpenedRef = useRef<string | null>(null)
   useEffect(() => {
-    if (initialStatementId && serverStatements.some(s => s.id === initialStatementId)) {
-      setSelectedId(initialStatementId)
-    }
+    if (!initialStatementId || autoOpenedRef.current === initialStatementId) return
+    if (!serverStatements.some(s => s.id === initialStatementId)) return
+    autoOpenedRef.current = initialStatementId
+    setSelectedId(initialStatementId)
   }, [initialStatementId, serverStatements])
 
   const counts = {
@@ -885,6 +910,33 @@ export default function StatementReconciliation({ initialStatementId }: { initia
     )
   }
 
+  // Shown on the detail AND on the list — after a successful change the
+  // statement is gone and she lands on the list, which is where she reads it.
+  const typeBanner = (typeBusy || typeNotice) && (
+    <div
+      role="status"
+      dir="rtl"
+      style={{
+        position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 120,
+        maxWidth: 'min(560px, calc(100vw - 32px))', borderRadius: '12px', padding: '12px 16px',
+        fontSize: '14px', lineHeight: 1.6, boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+        display: 'flex', alignItems: 'flex-start', gap: '10px',
+        ...(typeBusy
+          ? { background: '#1F2937', color: 'white' }
+          : typeNotice?.ok
+            ? { background: '#ECFDF5', color: '#065F46', border: '1px solid #A7F3D0' }
+            : { background: '#FEF2F2', color: '#991B1B', border: '1px solid #FECACA' }),
+      }}
+    >
+      <span style={{ flex: 1 }}>{typeBusy ? 'קורא את המסמך וקולט אותו… (כמה שניות)' : typeNotice?.text}</span>
+      {!typeBusy && (
+        <button onClick={() => setTypeNotice(null)} aria-label="סגירה" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '2px' }}>
+          <X className="w-4 h-4" />
+        </button>
+      )}
+    </div>
+  )
+
   // ── Detail takes over the whole page (mockup): the list is not rendered
   // underneath it, and "חזרה לרשימת הכרטסות" brings it back. `selectedId` stays
   // internal to this component, so Layout's routing is untouched.
@@ -900,6 +952,7 @@ export default function StatementReconciliation({ initialStatementId }: { initia
           suppliers={supplierList}
           docUrl={selectedDocUrl}
           isMobile={isMobile}
+          onOpenRow={onOpenRow && ((row) => onOpenRow(row, { statementViewId: selectedStmt.id }))}
           onBack={() => setSelectedId(null)}
           onExpandDoc={() => void openDoc(selectedStmt)}
           onOpenSource={() => void openStoredFile(selectedStmt.drive_file_link || selectedStmt.storage_url)}
@@ -915,14 +968,49 @@ export default function StatementReconciliation({ initialStatementId }: { initia
           }}
           onVendorBalanceSave={handleVendorBalanceSave}
           onSaveNotes={handleSaveNotes}
+          onChangeType={() => setChangingType(selectedStmt)}
         />
         {viewDoc && <PdfPreviewModal url={viewDoc} onClose={() => setViewDoc(null)} />}
+        {typeBanner}
+        {changingType && (
+          <ReclassifyModal
+            doc={{ documentUrl: selectedDocUrl ?? undefined }}
+            types={['חשבונית', 'זיכוי', 'תעודת משלוח']}
+            onClose={() => setChangingType(null)}
+            onConfirm={async (docType) => {
+              const stmt = changingType
+              setChangingType(null)
+              setTypeNotice(null)
+              setTypeBusy(true)
+              let r: ChangeTypeResult
+              try {
+                r = await changeType(stmt, docType)
+              } catch (e) {
+                // Nothing was removed — the statement stays where it was.
+                const code = e instanceof CaptureError && e.code ? ` · קוד ${e.code}` : ''
+                setTypeNotice({ ok: false, text: `סוג המסמך לא שונה — הכרטסת נשארה במקומה. ${e instanceof Error ? e.message : ''}${code}` })
+                return
+              } finally {
+                setTypeBusy(false)
+              }
+              // Capture writes invoices / delivery notes / alerts without going
+              // through api.call, so the other screens are told here.
+              notify(resourcesFor('/ingest'))
+              setTypeNotice({ ok: r.removed, text: r.message + (r.code ? ` · קוד ${r.code}` : '') })
+              if (!r.removed) return
+              setSelectedId(null)
+              // Already on file → open that invoice rather than leave her looking for it.
+              if (r.invoiceId && onOpenRow) onOpenRow({ type: 'חשבונית', id: r.invoiceId })
+            }}
+          />
+        )}
       </>
     )
   }
 
   return (
     <div className="space-y-6" dir="rtl">
+      {typeBanner}
       {error && (
         <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
           לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל

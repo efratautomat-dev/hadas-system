@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import type { OpenLedgerRow } from '../lib/ledgerOpen'
 import { Users, UserCheck, Wallet, Plus, Search, Pencil, ChevronLeft, ChevronRight, X, LayoutGrid, Table2, AlertTriangle, GitMerge, ArrowRightLeft, StickyNote } from 'lucide-react'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
 import { supplierAttention, ATTENTION_COLOR } from '../lib/supplierAttention'
@@ -13,6 +14,7 @@ import { SummaryCards } from './ui/SummaryCards'
 // Same primitives as the categories form in Settings — shared, not copied.
 import { SectionCard, Field, FieldRow, TextInput, Select, Textarea } from './ui/form'
 import { FilterTabs } from './ui/FilterTabs'
+import PartialReturnBulk from './PartialReturnBulk'
 
 // Active/inactive uses the FIXED functional tokens (green = active, gray = inactive),
 // never the brand palette — so the state reads the same after any reskin.
@@ -99,6 +101,18 @@ function ArrangementPill() {
   )
 }
 
+function PartialPill() {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full font-semibold whitespace-nowrap"
+      style={{ fontSize: '12px', padding: '4px 11px', background: '#FBF3F5', color: 'var(--brand-primary)' }}
+      title="החזר חלקי — חשבוניות חדשות מתויקות בתיקיית החזר חלקי"
+    >
+      החזר חלקי
+    </span>
+  )
+}
+
 function CategoryChip({ category }: { category: string }) {
   const c = categoryColors[category] ?? { bg: '#F3F4F6', color: '#6B7280' }
   return (
@@ -124,6 +138,8 @@ type EditFormState = {
   openingBalance: string
   openingBalanceDate: string
   paymentArrangement: boolean
+  /** "החזר חלקי" — new invoices of this supplier are filed under the month's החזר חלקי folder. */
+  partialReturn: boolean
   notes: string
   /** Extra spellings this supplier is known by, one per line. Fed to the same
    *  0.85 fuzzy matcher as `name`, so an unrecognised heading on a statement or
@@ -136,6 +152,7 @@ const emptyForm: EditFormState = {
   contact: '', email: '', phone: '',
   openingBalance: '', openingBalanceDate: '',
   paymentArrangement: false,
+  partialReturn: false,
   notes: '',
   altNames: '',
 }
@@ -249,6 +266,26 @@ function SupplierFormCard({
               </span>
             </span>
           </label>
+          {/* "החזר חלקי": a filing rule, not a balance rule — new invoices go to the
+              month's החזר חלקי Drive folder. Switching it on offers to move the
+              existing ones too (PartialReturnBulk). */}
+          <label
+            className="flex items-start gap-2.5 cursor-pointer text-right rounded-xl p-3.5"
+            style={{ fontSize: '14px', color: '#1F2937', background: '#F8F9FA' }}
+          >
+            <input
+              type="checkbox"
+              checked={form.partialReturn}
+              onChange={(e) => upd('partialReturn')(e.target.checked)}
+              style={{ width: '18px', height: '18px', accentColor: 'var(--brand-primary)', cursor: 'pointer', marginTop: '2px', flexShrink: 0 }}
+            />
+            <span>
+              החזר חלקי
+              <span className="block text-gray-400 mt-0.5" style={{ fontSize: '12px' }}>
+                כל חשבונית חדשה של הספק תתויק בדרייב בתיקיית "החזר חלקי" של החודש
+              </span>
+            </span>
+          </label>
         </div>
       </SectionCard>
 
@@ -322,6 +359,7 @@ function supplierToForm(sup: Supplier): EditFormState {
     openingBalance: sup.openingBalance !== undefined ? String(sup.openingBalance) : '',
     openingBalanceDate: sup.openingBalanceDate ?? '',
     paymentArrangement: sup.paymentArrangement ?? false,
+    partialReturn: sup.partialReturn ?? false,
     notes: sup.notes ?? '',
     altNames: (Array.isArray((sup as { alt_names?: string[] }).alt_names)
       ? (sup as { alt_names?: string[] }).alt_names!
@@ -347,6 +385,8 @@ interface SuppliersProps {
   onCloseDetail?: () => void
   onOpenInvoice?: (invoiceId: string) => void
   onOpenDelivery?: (deliveryNoteId: string) => void
+  onOpenRow?: OpenLedgerRow
+  onOpenStatement?: (statementId: string) => void
   prefillForAlert?: AlertPrefill | null
   onAlertSupplierCreated?: (supplierId: string, alertId: string, payload: Record<string, unknown>) => Promise<void>
   onCancelAlertPrefill?: () => void
@@ -361,6 +401,8 @@ export default function Suppliers({
   onCloseDetail,
   onOpenInvoice,
   onOpenDelivery,
+  onOpenRow,
+  onOpenStatement,
   prefillForAlert,
   onAlertSupplierCreated,
   onCancelAlertPrefill,
@@ -382,6 +424,8 @@ export default function Suppliers({
   const openDetail  = (id: string) => onOpenDetail  ? onOpenDetail(id)  : setInternalViewId(id)
   const closeDetail = ()           => onCloseDetail ? onCloseDetail()    : setInternalViewId(null)
   const [editingId,  setEditingId]     = useState<string | null>(null)
+  // "החזר חלקי" was just switched on → which supplier's existing invoices to offer.
+  const [bulkFor, setBulkFor] = useState<{ id: string; name: string } | null>(null)
   const [editForm,   setEditForm]      = useState<EditFormState | null>(null)
   const [showAdd,    setShowAdd]       = useState(false)
   const [addForm,    setAddForm]       = useState<EditFormState>({ ...emptyForm })
@@ -417,55 +461,6 @@ export default function Suppliers({
     }
   }, [prefillForAlert])
 
-  // ── Detail view ───────────────────────────────────────────────────────────
-  if (viewId) {
-    const sup = suppliers.find((s) => s.id === viewId)
-    if (!sup) return null
-    return (
-      <>
-        <SupplierDetail
-          supplier={sup}
-          onBack={closeDetail}
-          onEdit={() => {
-            closeDetail()
-            setEditingId(sup.id)
-            setEditForm(supplierToForm(sup))
-          }}
-          onDelete={async () => {
-            closeDetail()
-            try {
-              await removeSupplier(sup.id)
-            } catch {
-              // hook sets error state
-            }
-          }}
-          onMerge={() => setMergeFromId(sup.id)}
-          onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
-          onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
-          onOpenInvoice={onOpenInvoice}
-          onOpenDelivery={onOpenDelivery}
-          onToggleActive={async (nextActive: boolean) => {
-            try {
-              await updateSupplier(sup.id, { active: nextActive })
-            } catch {
-              // hook sets error state
-            }
-          }}
-        />
-        {mergeFromId && (
-          <MergeSuppliersModal
-            fromId={mergeFromId}
-            suppliers={suppliers}
-            invoiceCounts={invoiceCounts}
-            merge={mergeSuppliers}
-            onClose={() => setMergeFromId(null)}
-            onDone={() => { setMergeFromId(null); closeDetail() }}
-          />
-        )}
-      </>
-    )
-  }
-
   // ── Helpers ───────────────────────────────────────────────────────────────
   const startEdit = (sup: Supplier) => {
     setEditingId(sup.id)
@@ -480,14 +475,23 @@ export default function Suppliers({
       contact: editForm.contact, email: editForm.email, phone: editForm.phone,
       openingBalance: balance, openingBalanceDate: editForm.openingBalanceDate,
       paymentArrangement: editForm.paymentArrangement,
+      partialReturn: editForm.partialReturn,
       notes: editForm.notes,
       alt_names: splitAltNames(editForm.altNames),
+      // Saving the form IS completing the details: the server clears the flag and
+      // resolves the "new supplier — complete details" alert. Nothing sent it before,
+      // so that alert could only ever be dismissed by hand.
+      needsDetails: false,
     }
     const savedId = editingId
+    // Switched ON just now → offer to move the invoices already filed (21.10).
+    const before = suppliers.find(s => s.id === savedId)
+    const turnedOn = editForm.partialReturn && !before?.partialReturn
     setEditingId(null)
     setEditForm(null)
     try {
       await updateSupplier(savedId, body)
+      if (turnedOn) setBulkFor({ id: savedId, name: editForm.name })
     } catch {
       // hook sets error state
     }
@@ -502,6 +506,7 @@ export default function Suppliers({
       contact: form.contact, email: form.email, phone: form.phone,
       openingBalance: balance, openingBalanceDate: form.openingBalanceDate,
       paymentArrangement: form.paymentArrangement,
+      partialReturn: form.partialReturn,
       notes: form.notes,
       alt_names: splitAltNames(form.altNames),
     }
@@ -584,6 +589,65 @@ export default function Suppliers({
     openDetail(existing.id)
   }
 
+  // ── Detail view ───────────────────────────────────────────────────────────
+  const bulkModal = bulkFor && (
+    <PartialReturnBulk supplierId={bulkFor.id} supplierName={bulkFor.name} onClose={() => setBulkFor(null)} />
+  )
+
+  if (viewId) {
+    const sup = suppliers.find((s) => s.id === viewId)
+    if (!sup) return null
+    return (
+      <>
+        {bulkModal}
+        <SupplierDetail
+          supplier={sup}
+          onBack={closeDetail}
+          // NOT closeDetail() first: that is goBack(), which pops to whatever opened
+          // the card (Alerts, an invoice, the notes panel) and unmounts this screen
+          // with the edit state in it. The form page below renders while viewId is
+          // still set, so saving or cancelling lands back on this card.
+          onEdit={() => {
+            setEditingId(sup.id)
+            setEditForm(supplierToForm(sup))
+          }}
+          onDelete={async () => {
+            closeDetail()
+            try {
+              await removeSupplier(sup.id)
+            } catch {
+              // hook sets error state
+            }
+          }}
+          onMerge={() => setMergeFromId(sup.id)}
+          onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
+          onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
+          onOpenInvoice={onOpenInvoice}
+          onOpenDelivery={onOpenDelivery}
+          onOpenRow={onOpenRow}
+          onOpenStatement={onOpenStatement}
+          onToggleActive={async (nextActive: boolean) => {
+            try {
+              await updateSupplier(sup.id, { active: nextActive })
+            } catch {
+              // hook sets error state
+            }
+          }}
+        />
+        {mergeFromId && (
+          <MergeSuppliersModal
+            fromId={mergeFromId}
+            suppliers={suppliers}
+            invoiceCounts={invoiceCounts}
+            merge={mergeSuppliers}
+            onClose={() => setMergeFromId(null)}
+            onDone={() => { setMergeFromId(null); closeDetail() }}
+          />
+        )}
+      </>
+    )
+  }
+
   // ── Derived state ──────────────────────────────────────────────────────────
   const filtered = suppliers.filter((s) => {
     const q = search.trim().toLowerCase()
@@ -597,6 +661,7 @@ export default function Suppliers({
       (s.contact || '').toLowerCase().includes(q) ||
       (s.category || '').toLowerCase().includes(q) ||
       (s.hp || '').toLowerCase().includes(q) ||
+      ((s as { alt_names?: string[] }).alt_names ?? []).some((n) => n.toLowerCase().includes(q)) ||
       (qDigits.length > 0 && hpDigits.includes(qDigits))
     const matchStatus = statusFilter === 'all' || s.status === statusFilter
     return matchSearch && matchStatus
@@ -617,6 +682,7 @@ export default function Suppliers({
 
   return (
     <div className="space-y-5">
+      {bulkModal}
       {error && (
         <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
           {error}
@@ -741,6 +807,7 @@ export default function Suppliers({
                       <AttentionDot supplierId={sup.id} />
                       <StatusPill status={sup.status} />
                       {sup.paymentArrangement && <ArrangementPill />}
+                      {sup.partialReturn && <PartialPill />}
                     </div>
                     <span className="min-w-0" style={{ maxWidth: '58%' }}><CategoryChip category={sup.category} /></span>
                   </div>
@@ -843,6 +910,7 @@ export default function Suppliers({
                     <div className="text-right flex flex-col items-end gap-1">
                       <StatusPill status={sup.status} />
                       {sup.paymentArrangement && <ArrangementPill />}
+                      {sup.partialReturn && <PartialPill />}
                     </div>
                     <div className="flex items-center justify-end gap-1.5">
                       <button

@@ -145,6 +145,21 @@ Unmatched path/method → `404 {"error":"Not Found"}`; thrown errors → `500` w
 
 ---
 
+### Backups (manager-only)
+
+| Method | Path | Body | What it does |
+|---|---|---|---|
+| POST | `/backups/run` | `{}` | Proxies to `backup-run` with `x-hadas-key`, `force: true`, `triggeredBy: 'manual'` and the caller's **verified JWT email**. Relays a 409 ("already running") as itself. |
+| POST | `/backups/year-end-cleanup` | `{ year, confirm: true }` | Moves the month folders of a FINISHED year to the Drive bin; the four quarter folders stay. `year >= ` the Israel-local current year is refused **here and again inside `backup-run`**. |
+
+There is deliberately **no `GET /backups`** — the panel reads `backup_runs` through the
+anon client under RLS (manager-only policy), which is the house pattern. A read route on
+`hadas-api` would bypass that RLS and have to re-implement the role check.
+
+Neither route is in `employeeMayAccess`, so both are closed to an employee. That is not
+incidental: `POST /backups/run` produces a file containing every column `invoices_v` /
+`suppliers_v` / `delivery_notes_v` exist to hide, and answers with a link to it.
+
 ## 2. `invoices-ingest` (`supabase/functions/invoices-ingest/index.ts`)
 
 **Path:** `/functions/v1/invoices-ingest` · **verify_jwt:** false · **Auth:** `x-hadas-key`
@@ -209,6 +224,28 @@ slash-in-name ambiguity). Returns file listings per resolved folder, plus `ROOT_
 when no path is given (used to discover exact RTL/slash folder names).
 
 ---
+
+## 6b. `backup-run` (`supabase/functions/backup-run/index.ts`)
+
+The weekly database → Drive snapshot. `POST` only, authenticated by **`x-hadas-key`
+alone** — no JWT path, because both callers are machines (pg_cron, and `hadas-api`
+proxying the owner's button after its own manager check).
+
+| Body | Mode |
+|---|---|
+| `{}` | the weekly backup (what the cron sends) |
+| `{ force: true, triggeredBy: 'manual', actorEmail }` | the Settings button, via hadas-api |
+| `{ dryRun: true }` | plan + row counts; writes NO Drive files and NO run row |
+| `{ pageSize, debugMaxPages }` | test knobs for the completeness guard |
+| `{ now: '<iso>' }` | test only: pretend it is another date, to exercise a quarter boundary |
+| `{ mode: 'year-end-cleanup', year, confirm: true }` | the prune |
+
+Writes `<table>.json` ×18, one `.xlsx`, and `_manifest.json` **last** — the manifest is
+the completeness mark, so a folder without one is a run that died mid-upload. Records
+everything in `backup_runs`; raises `backup_failed` and `backup_table_unlisted`.
+
+Full documentation, including the five rules it is built around and the deploy order:
+`supabase/functions/backup-run/README.md`.
 
 ## 7. `test-api` (`supabase/functions/test-api/index.ts`)
 

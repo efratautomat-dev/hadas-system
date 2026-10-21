@@ -3,12 +3,14 @@ import {
   Truck, Copy, Scale, Check, Eye, Trash2, Bell, UserPlus,
   HelpCircle, FileX, Paperclip, Unlink, AlertTriangle, Clock,
   FileWarning, Receipt, AlertCircle, Tag, Mail, X, ShieldCheck, AlertOctagon, Coins, Package,
+  DatabaseBackup, TableProperties,
 } from 'lucide-react'
 import type { Alert, AlertStatus } from '../data/mockData'
 import { openStoredFile } from '../lib/storage'
-import { openEmail, type EmailOpen } from '../lib/native'
+import { openEmail, emailOpenNote, externalLinkProps, type EmailOpen } from '../lib/native'
 import { DocumentBody } from './PdfPreviewModal'
 import { supabase } from '../lib/supabase'
+import { ReclassifyModal } from './ReclassifyModal'
 import { api } from '../lib/api'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 import { SummaryCards } from './ui/SummaryCards'
@@ -114,8 +116,14 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
   customer_order_joins_shipment:  b('הזמנת לקוחה — אפשר לצרף למשלוח', Package, 'action'),
 
   // ── Check (yellow): worth a look / verify ──
+  // The weekly backup. URGENT, and in the "broken pipeline" family rather than
+  // the "check this" one: nothing is wrong with the data, the safety net is not
+  // there. A type missing from this map renders as a grey English string inside a
+  // Hebrew screen, which is why registering here is not optional.
+  backup_failed:               b('הגיבוי השבועי נכשל',      DatabaseBackup,  'urgent'),
   invoice_low_confidence:      b('וודאות נמוכה',            AlertTriangle, 'check'),
   document_misclassified:      b('מסמך לא חשבונית',         FileX,         'check'),
+  backup_table_unlisted:       b('טבלה חדשה אינה מגובה',    TableProperties, 'check'),
   invoice_no_attachment:       b('ללא קובץ',                Paperclip,     'check'),
   invoice_no_valid_attachment: b('ללא קובץ תקין',           FileX,         'check'),
   invoice_link_failed:         b('הורדה נכשלה',             Unlink,        'check'),
@@ -131,6 +139,7 @@ const ALERT_TYPE_CONFIG: Record<string, AlertTypeConf> = {
 
   // ── Info (gray): informational ──
   invoice_old_date:            b('תאריך מוקדם',             Clock,         'info'),
+  receipt_skipped:             b('קבלה — לא נקלטה',         Receipt,       'info'),
 
   // ── Legacy / mock-only types (kept so demo + mock data still render; no
   //     bucket → intentionally absent from the bucket type filter) ──
@@ -291,11 +300,7 @@ function AlertCard({ alert, onMarkRead, onMarkResolved, onDelete, onClick }: Ale
             )}
             {mailResult && (
               <span style={{ fontSize: '11.5px', color: '#6B7280', lineHeight: 1.5 }}>
-                {mailResult === 'gmail-app'
-                  ? 'נושא המייל הועתק — הדביקי אותו בחיפוש של Gmail שנפתח'
-                  : mailResult === 'copied-subject'
-                    ? 'נושא המייל הועתק — אפשר להדביק אותו בחיפוש של Gmail'
-                    : 'אין במכשיר אפליקציה שפותחת את הקישור — הוא הועתק, אפשר להדביק אותו בטלפון או במחשב'}
+                {emailOpenNote(mailResult)}
               </span>
             )}
             {!isResolved && alert.status === 'new' && (
@@ -713,28 +718,41 @@ export default function Alerts({
 
       {reclassifyAlert && (
         <ReclassifyModal
-          alert={reclassifyAlert}
+          doc={(() => {
+            const p = (reclassifyAlert.payload ?? {}) as Record<string, unknown>
+            // Ingest writes `storageUrl` (a Storage PATH, same key ApprovalModal
+            // reads); `storagePath` is the older name the dev seed used.
+            return {
+              documentUrl: p.documentUrl as string | undefined,
+              storagePath: (p.storageUrl ?? p.storagePath) as string | undefined,
+              messageLink: p.messageLink as string | undefined,
+              subject:     p.subject as string | undefined,
+            }
+          })()}
           onClose={() => setReclassifyAlert(null)}
           onConfirm={async (docType) => {
             const a = reclassifyAlert
             const p = (a.payload ?? {}) as Record<string, unknown>
             setReclassifyAlert(null)
-            // Re-file the document into the correct table via hadas-api. When the
-            // function is unavailable (e.g. not deployed in dev) this throws — we
-            // still resolve the alert so it leaves the queue; the record move lights
-            // up once hadas-api is deployed. (createAlert path resolves via anon RLS.)
+            // Re-file the document into the correct table via hadas-api. If that
+            // fails the alert STAYS OPEN: it used to be resolved anyway, and since
+            // the alert is the only place an unclassified document lives, a failed
+            // move made the document disappear from the system.
+            const extracted = (p.extracted ?? {}) as Record<string, unknown>
             try {
               await api.post('/documents/reclassify', {
                 alertId: a.id,
                 docType,
-                typedSupplierName: p.typedSupplierName,
+                typedSupplierName: p.typedSupplierName ?? extracted.vendor_name,
                 documentUrl:       p.documentUrl,
-                storagePath:       p.storagePath,
+                storageUrl:        p.storageUrl ?? p.storagePath,
                 messageLink:       p.messageLink,
                 gmailMessageId:    p.gmailMessageId,
               })
             } catch (e) {
-              console.warn('[reclassify] hadas-api unavailable; resolving alert only:', e)
+              console.warn('[reclassify] failed; alert left open:', e)
+              window.alert(`הסיווג לא נשמר — ההתראה נשארה פתוחה.\n${e instanceof Error ? e.message : ''}`)
+              return
             }
             onMarkResolved(a.id)
           }}
@@ -840,12 +858,12 @@ function ApprovalModal({
             {(driveLink || mailLink) && (
               <div style={{ display: 'flex', gap: '10px', marginTop: '8px', flexWrap: 'wrap' }}>
                 {driveLink && (
-                  <a href={driveLink} target="_blank" rel="noreferrer" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                  <a {...externalLinkProps(driveLink)} style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
                     פתיחה ב-Drive ↗
                   </a>
                 )}
                 {mailLink && (
-                  <a href={mailLink} target="_blank" rel="noreferrer" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
+                  <a href={mailLink} onClick={(e) => { e.preventDefault(); void openEmail(mailLink, p.subject as string | undefined) }} style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)' }}>
                     פתיחת המייל ↗
                   </a>
                 )}
@@ -923,108 +941,6 @@ function ApprovalModal({
               </div>
             </div>
           )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Re-classify popup (document_misclassified) ──────────────────────────────
-// Shows the source document alongside a document-type picker so the owner can
-// correct the AI's classification (spec 07-ALERTS #8: "open the document to
-// re-classify"). The image comes from payload.documentUrl (direct URL) or a
-// signed URL minted from payload.storagePath (private "documents" bucket).
-const DOC_TYPES = ['חשבונית', 'זיכוי', 'תעודת משלוח', 'כרטסת', 'אחר'] as const
-
-function ReclassifyModal({
-  alert, onClose, onConfirm,
-}: {
-  alert: Alert
-  onClose: () => void
-  onConfirm: (docType: string) => void
-}) {
-  const p = (alert.payload ?? {}) as Record<string, unknown>
-  const directUrl  = p.documentUrl as string | undefined
-  const storagePath = p.storagePath as string | undefined
-  const [docUrl, setDocUrl]   = useState<string | null>(directUrl ?? null)
-  const [choice, setChoice]   = useState<string>('')
-
-  useLayoutEffect(() => {
-    if (docUrl || !storagePath) return
-    let alive = true
-    supabase.storage.from('documents').createSignedUrl(storagePath, 120).then(({ data }) => {
-      if (alive && data?.signedUrl) setDocUrl(data.signedUrl)
-    })
-    return () => { alive = false }
-  // storagePath is stable for the lifetime of this modal
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        dir="rtl"
-        style={{ background: 'white', borderRadius: '20px', width: '100%', maxWidth: '560px', maxHeight: '90vh', overflowY: 'auto' }}
-      >
-        {/* Header */}
-        <div style={{ padding: '18px 22px', borderBottom: '1px solid #EEEEF2', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: '4px' }}>
-            <X className="w-5 h-5" />
-          </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h2 style={{ fontSize: '17px', fontWeight: 600, color: '#1F2937', margin: 0 }}>סיווג מחדש של המסמך</h2>
-            <FileX className="w-5 h-5" style={{ color: '#B45309' }} />
-          </div>
-        </div>
-
-        {/* Document image */}
-        <div style={{ padding: '16px 22px 8px' }}>
-          {docUrl ? (
-            <div style={{ height: '340px', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB', overflow: 'hidden' }}>
-              <DocumentBody url={docUrl} previewSrc={docUrl} />
-            </div>
-          ) : (
-            <div style={{ height: '340px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #E2E4E9', borderRadius: '12px', background: '#F9FAFB', color: '#9CA3AF', fontSize: '13px' }}>
-              אין תצוגת מסמך זמינה
-            </div>
-          )}
-        </div>
-
-        {/* Type picker */}
-        <div style={{ padding: '8px 22px 22px' }}>
-          <p style={{ fontSize: '13px', fontWeight: 600, color: '#374151', textAlign: 'right', margin: '0 0 10px' }}>בחר את סוג המסמך הנכון:</p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px' }}>
-            {DOC_TYPES.map(dt => (
-              <button
-                key={dt}
-                onClick={() => setChoice(dt)}
-                style={{
-                  padding: '8px 14px', borderRadius: '10px', fontSize: '14px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                  background: choice === dt ? 'var(--brand-primary-dark)' : 'white',
-                  color:      choice === dt ? 'white'   : '#6B7280',
-                  border: `1.5px solid ${choice === dt ? 'var(--brand-primary-dark)' : '#E2E4E9'}`,
-                }}
-              >
-                {dt}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => choice && onConfirm(choice)}
-            disabled={!choice}
-            style={{
-              width: '100%', height: '46px', borderRadius: '12px', border: 'none', fontWeight: 700, fontSize: '15px', fontFamily: 'inherit',
-              cursor: choice ? 'pointer' : 'not-allowed',
-              background: choice ? 'var(--brand-primary)' : '#F3F4F6',
-              color:      choice ? 'white'   : '#9CA3AF',
-            }}
-          >
-            שמור סיווג
-          </button>
         </div>
       </div>
     </div>
