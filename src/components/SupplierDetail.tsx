@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { ledgerRowProps, type OpenLedgerRow } from '../lib/ledgerOpen'
-import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw, Plus, PackageCheck } from 'lucide-react'
+import { FileText, CreditCard, Pencil, BookOpen, User, Phone, Mail, Hash, Tag, MessageSquare, Trash2, AlertCircle, AlertTriangle, Power, GitMerge, Truck, RotateCcw, Plus, PackageCheck, Printer } from 'lucide-react'
 import { useInvoices } from '../hooks/useInvoices'
 import { computedAmountNotes } from '../lib/computedAmount'
 import { useDeliveryLinks } from '../hooks/useDeliveryLinks'
@@ -25,6 +25,10 @@ import { invoiceStatusKey } from '../lib/invoiceStatus'
 import { StatusBadge } from './StatusBadge'
 import SectionHeader from './SectionHeader'
 import { Button } from './ui/Button'
+import { DateField } from './ui/form'
+import { useAppLogo } from '../hooks/useAppLogo'
+import { isoToDisplay } from '../lib/dates'
+import { printSupplierLedger } from '../utils/pdf/supplierLedgerPdf'
 
 function useIsTablet() {
   const [v, setV] = useState(
@@ -76,7 +80,6 @@ interface Props {
   onEdit: () => void
   onDelete: () => void
   onMerge?: () => void
-  onViewLedger?: () => void
   onViewPayments?: () => void
   onOpenInvoice?: (invoiceId: string) => void
   onToggleActive?: (nextActive: boolean) => void
@@ -129,19 +132,19 @@ function formatILS(n: number | null | undefined) {
 
 type TabKey = 'ledger' | 'invoices' | 'notes' | 'returns' | 'payments' | 'statements'
 
-// One summary card. Clicking it opens that section in the panel below; the
-// selected card carries the brand border + tint so the connection is obvious.
+// One tab in the section bar. These used to be six summary CARDS ("קוביות") in
+// a grid above the panel; the owner asked for the orders screen's shape instead
+// (21.10): one row of tabs, the open section's table under it. The figure rides
+// along as a small count — the headline money already sits in the strip above.
 function TabCard({
-  label, Icon, value, sub, selected, onClick, alerts = 0,
+  label, value, selected, onClick, alerts = 0,
 }: {
   label: string
-  Icon: typeof FileText
-  /** The headline figure — a count, or a sum for the ledger. */
+  /** A count, shown small beside the label. */
   value: string
-  sub?: string
   selected: boolean
   onClick: () => void
-  /** Rows needing attention; surfaced as a red badge on the card. */
+  /** Rows needing attention; surfaced as a red badge on the tab. */
   alerts?: number
 }) {
   return (
@@ -150,37 +153,22 @@ function TabCard({
       role="tab"
       aria-selected={selected}
       onClick={onClick}
-      className="bg-white rounded-2xl text-right transition-all relative"
+      className="inline-flex items-center gap-1.5 whitespace-nowrap"
       style={{
-        border: `1.5px solid ${selected ? 'var(--brand-primary)' : '#E2E4E9'}`,
-        background: selected ? 'var(--brand-active-bg)' : 'white',
-        padding: '14px 16px',
-        // Touch target — the supplier screen is used on tablet (04-DESIGN).
-        minHeight: '76px',
-        cursor: 'pointer',
-        boxShadow: selected ? 'none' : '0 1px 2px rgba(16,17,21,.04)',
+        background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+        padding: '11px 14px', minHeight: '44px', marginBottom: '-2px',
+        fontSize: '14.5px', fontWeight: selected ? 800 : 600,
+        color: selected ? 'var(--brand-primary)' : '#4B5563',
+        borderBottom: `3px solid ${selected ? 'var(--brand-primary)' : 'transparent'}`,
       }}
-      onMouseEnter={(e) => { if (!selected) (e.currentTarget as HTMLElement).style.background = '#FAFAFC' }}
-      onMouseLeave={(e) => { if (!selected) (e.currentTarget as HTMLElement).style.background = 'white' }}
     >
-      <div className="flex items-center justify-between gap-2">
-        <Icon className="w-4 h-4" style={{ color: selected ? 'var(--brand-primary)' : '#9CA3AF' }} />
-        <span
-          className="font-semibold truncate"
-          style={{ fontSize: '13px', color: selected ? 'var(--brand-primary)' : '#6B7280' }}
-        >
-          {label}
-        </span>
-      </div>
-      <p className="font-black mt-1" style={{ fontSize: '19px', color: selected ? 'var(--brand-primary)' : '#1F2937' }}>
-        {value}
-      </p>
-      {sub && <p className="text-gray-400" style={{ fontSize: '11px' }}>{sub}</p>}
+      {label}
+      {value !== '' && <span style={{ fontSize: '12px', color: '#9CA3AF', fontWeight: 600 }}>{value}</span>}
       {alerts > 0 && (
         <span
-          className="absolute rounded-full font-bold flex items-center justify-center"
+          className="rounded-full font-bold inline-flex items-center justify-center"
           title={`${alerts} דורשות טיפול`}
-          style={{ top: '8px', insetInlineStart: '8px', minWidth: '20px', height: '20px', padding: '0 6px', background: '#FEE2E2', color: '#DC2626', fontSize: '11px' }}
+          style={{ minWidth: '20px', height: '20px', padding: '0 6px', background: '#FEE2E2', color: '#DC2626', fontSize: '11px' }}
         >
           {alerts}
         </span>
@@ -209,6 +197,18 @@ function Panel({ title, Icon, action, children }: {
   )
 }
 
+// The ledger tab's range bar — sized like the rest of the card's controls, and
+// tall enough for a finger on the tablet.
+const ledDateStyle: React.CSSProperties = {
+  height: '40px', width: '150px', padding: '0 10px', fontSize: '14px',
+  border: '1px solid #E2E4E9', borderRadius: '10px', background: 'white',
+}
+const ledBtnStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: '6px', height: '40px', padding: '0 14px',
+  fontSize: '13.5px', fontWeight: 700, borderRadius: '10px', background: 'white',
+  color: '#374151', border: '1px solid #D1D5DB', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+}
+
 function EmptyPanel({ text }: { text: string }) {
   return <p className="text-center text-gray-400 py-10" style={{ fontSize: '15px' }}>{text}</p>
 }
@@ -223,7 +223,7 @@ function fmtDate(d: string): string {
   return `${day}/${m}/${y}`
 }
 
-export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onMerge, onViewLedger, onViewPayments, onOpenInvoice, onToggleActive, onOpenDelivery, onOpenRow, onOpenStatement }: Props) {
+export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onMerge, onViewPayments, onOpenInvoice, onToggleActive, onOpenDelivery, onOpenRow, onOpenStatement }: Props) {
   const isTablet = useIsTablet()
   const isMobile = useIsMobile()
   const [modal, setModal] = useState<null | 'blocked' | 'confirm'>(null)
@@ -236,6 +236,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   const [newOrder, setNewOrder] = useState(false)
   const [intake, setIntake] = useState(false)
   const [tab, setTab] = useState<TabKey>('ledger')
+  const [ledFrom, setLedFrom] = useState('')
+  const [ledTo, setLedTo]     = useState('')
+  const { logoUrl } = useAppLogo()
   const [resetOpen, setResetOpen] = useState(false)
   const { data: allInvoices } = useInvoices()
   const { data: allPayments } = usePayments()
@@ -323,11 +326,12 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
 
   const ledger = [
     ...(openingBalance !== 0
-      ? [{ id: 'opening', type: 'פתיחה' as const, date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false, awaitingLedgerApproval: false, excluded: false, movement: 0, isReset: false, resetReason: '', settledByReceipt: false }]
+      ? [{ id: 'opening', type: 'פתיחה' as const, iso: '', date: fmtDate(supplier.openingBalanceDate ?? ''), description: 'יתרת פתיחה', debit: 0, credit: 0, balance: openingBalance, undated: false, pendingApproval: false, awaitingLedgerApproval: false, excluded: false, movement: 0, isReset: false, resetReason: '', settledByReceipt: false }]
       : []),
     ...ledgerResult.rows.map(r => ({
       id: r.id,
       type: r.type,
+      iso: r.isoDate,
       date: r.undated ? 'ללא תאריך' : r.displayDate,
       description: r.description,
       debit: r.debit,
@@ -352,8 +356,45 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
   // running (final) equals currentBalance from the shared helper — same formula.
   const totalDebit  = txEntries.reduce((s, e) => s + e.debit, 0)
   const totalCredit = txEntries.reduce((s, e) => s + e.credit, 0)
+  // ── Date range on the ledger tab (21.10) ──────────────────────────────────
+  // A DISPLAY filter, the old ledger screen's rule: every row keeps the running
+  // balance it has in the whole ledger, so a row's figure never changes with the
+  // range, and the balance at the range's end is simply the last row shown. An
+  // undated row cannot be placed in a range, so a range never hides it.
+  const inLedgerRange = (e: { id: string; iso: string; undated: boolean }) =>
+    e.id === 'opening' ? !ledFrom
+      : e.undated || ((!ledFrom || e.iso >= ledFrom) && (!ledTo || e.iso <= ledTo))
+  const ranged = !!(ledFrom || ledTo)
+  const ledgerShown = ranged ? ledger.filter(inLedgerRange) : ledger
+  const carriedIn = ledFrom ? ledger.filter(e => e.id !== 'opening' && !e.undated && e.iso < ledFrom) : []
+  const shownTx = ledgerShown.filter(e => e.id !== 'opening')
+  const shownDebit  = shownTx.reduce((s, e) => s + e.debit, 0)
+  const shownCredit = shownTx.reduce((s, e) => s + e.credit, 0)
+  const shownClosing = ranged
+    ? (ledgerShown.length ? ledgerShown[ledgerShown.length - 1].balance
+      : carriedIn.length ? carriedIn[carriedIn.length - 1].balance : openingBalance)
+    : currentBalance
   // In-card ledger shows NEWEST entry on top (opening row falls to the bottom).
-  const ledgerDisplay = [...ledger].reverse()
+  const ledgerDisplay = [...ledgerShown].reverse()
+
+  // "הדפסת כרטסת" — moved here from the old ledger screen, which is gone.
+  const printLedger = () => printSupplierLedger({
+    supplier: { name: supplier.name, contact: supplier.contact, phone: supplier.phone },
+    rows: [
+      ...(carriedIn.length
+        ? [{ displayDate: isoToDisplay(ledFrom), description: 'יתרה לפני התקופה', type: 'פתיחה', debit: 0, credit: 0,
+             runningBalance: carriedIn[carriedIn.length - 1].balance, isReset: false }]
+        : []),
+      ...ledgerShown.map(e => ({
+        displayDate: e.date, description: e.description, type: e.type,
+        debit: e.debit, credit: e.credit, runningBalance: e.balance, isReset: e.isReset,
+      })),
+    ],
+    fromDisplay: ledFrom ? isoToDisplay(ledFrom) : '',
+    toDisplay: ledTo ? isoToDisplay(ledTo) : '',
+    finalBalance: shownClosing,
+    logoUrl,
+  })
   const todayStr = new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
   const fs = (big: string, small: string) => (isTablet ? big : small)
@@ -559,29 +600,19 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
       </div>
 
       {/* ── Section cards — click one to open it in the panel below ── */}
-      <div role="tablist" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div
+        role="tablist"
+        aria-label="אזורי הספק"
+        className="flex flex-wrap"
+        style={{ borderBottom: '2px solid #E2E4E9', gap: '2px' }}
+      >
+        <TabCard label="כרטסת" value="" selected={tab === 'ledger'} onClick={() => setTab('ledger')} />
+        <TabCard label="חשבוניות" value={String(invoices.length)} selected={tab === 'invoices'} onClick={() => setTab('invoices')} />
+        <TabCard label="הזמנות וסחורה" value={String(orders.length + notes.length)} selected={tab === 'notes'} onClick={() => setTab('notes')} />
+        <TabCard label="חזרות" value={String(returns.length)} selected={tab === 'returns'} onClick={() => setTab('returns')} />
+        <TabCard label="תשלומים" value={String(payments.length)} selected={tab === 'payments'} onClick={() => setTab('payments')} />
         <TabCard
-          label="כרטסת" Icon={CreditCard} value={formatILS(currentBalance)} sub={`${ledger.length} תנועות`}
-          selected={tab === 'ledger'} onClick={() => setTab('ledger')}
-        />
-        <TabCard
-          label="חשבוניות" Icon={FileText} value={String(invoices.length)}
-          selected={tab === 'invoices'} onClick={() => setTab('invoices')}
-        />
-        <TabCard
-          label="הזמנות וסחורה" Icon={Truck} value={String(orders.length + notes.length)}
-          selected={tab === 'notes'} onClick={() => setTab('notes')}
-        />
-        <TabCard
-          label="חזרות" Icon={RotateCcw} value={String(returns.length)}
-          selected={tab === 'returns'} onClick={() => setTab('returns')}
-        />
-        <TabCard
-          label="תשלומים" Icon={CreditCard} value={String(payments.length)}
-          selected={tab === 'payments'} onClick={() => setTab('payments')}
-        />
-        <TabCard
-          label="התאמת כרטסת" Icon={BookOpen} value={String(statements.length)} alerts={statementAlerts}
+          label="התאמת כרטסת" value={String(statements.length)} alerts={statementAlerts}
           selected={tab === 'statements'} onClick={() => setTab('statements')}
         />
       </div>
@@ -593,14 +624,31 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
         </Panel>
       ) : (
         <div className="bg-white rounded-2xl shadow-sm border overflow-hidden" style={{ borderColor: '#E2E4E9' }}>
-          <SectionHeader
-            className="px-5 py-4 border-b"
-            style={{ borderColor: '#E2E4E9', cursor: onViewLedger ? 'pointer' : 'default' }}
-            onClick={onViewLedger}
-            hoverBg={onViewLedger ? '#FAFAFC' : undefined}
-            title={<><h2 className="font-bold text-gray-800">כרטסת</h2><CreditCard className="w-4 h-4 text-gray-400" /></>}
-            action={onViewLedger ? <span className="text-sm font-semibold" style={{ color: 'var(--brand-primary)' }}>פתח כרטסת ←</span> : undefined}
-          />
+          {/* Range + print. This is where the ledger is LOOKED AT and printed for
+              the supplier; comparing against their statement is התאמת כרטסות. */}
+          <div className="px-5 py-3 border-b flex flex-wrap items-end gap-2" style={{ borderColor: '#E2E4E9' }}>
+            <h2 className="font-bold text-gray-800" style={{ alignSelf: 'center', marginInlineEnd: '8px' }}>כרטסת</h2>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: '#6B7280', fontWeight: 700 }}>
+              מתאריך
+              <DateField value={ledFrom} onChange={e => setLedFrom(e.target.value)} style={ledDateStyle} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: '#6B7280', fontWeight: 700 }}>
+              עד תאריך
+              <DateField value={ledTo} onChange={e => setLedTo(e.target.value)} style={ledDateStyle} />
+            </label>
+            {ranged && (
+              <button type="button" onClick={() => { setLedFrom(''); setLedTo('') }} style={ledBtnStyle}>הכל</button>
+            )}
+            <div className="flex flex-wrap gap-2" style={{ marginInlineStart: 'auto' }}>
+              <button type="button" onClick={printLedger} style={{ ...ledBtnStyle, color: 'var(--brand-primary)', borderColor: 'var(--brand-primary)' }}>
+                <Printer className="w-4 h-4" />
+                הדפסת כרטסת
+              </button>
+              {onOpenStatement && statements.length > 0 && (
+                <button type="button" onClick={() => setTab('statements')} style={ledBtnStyle}>להתאמת כרטסת ←</button>
+              )}
+            </div>
+          </div>
 
           {paymentArrangement && (
             <div className="text-right" style={{ padding: '10px 20px', background: '#DBEAFE', color: '#1E40AF', fontSize: '13px', fontWeight: 600 }}>
@@ -645,6 +693,9 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
             <span className="text-center">זכות</span>
             <span className="text-right">יתרה</span>
           </div>
+          {ledgerDisplay.length === 0 && (
+            <p className="text-center text-gray-400 py-8" style={{ fontSize: '14px' }}>אין תנועות בטווח התאריכים</p>
+          )}
           {ledgerDisplay.map((entry) => entry.isReset ? (
             /* A LINE, not a row. It carries no debit and no credit of its own to
                show — the figure it holds is the arithmetic of everything above it,
@@ -732,15 +783,17 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
             style={{ gridTemplateColumns: '1fr 2fr 1fr 1fr 1fr', minWidth: '480px', padding: '12px 16px', borderTop: '2px solid var(--brand-primary)', background: 'var(--brand-active-bg)' }}
           >
             <span />
-            <span className="font-bold text-right text-gray-600" style={{ fontSize: fs('13px', '12px') }}>סה"כ · יתרה עדכנית</span>
+            <span className="font-bold text-right text-gray-600" style={{ fontSize: fs('13px', '12px') }}>
+              {ranged ? (ledTo ? `סה"כ בטווח · יתרה ב־${isoToDisplay(ledTo)}` : 'סה"כ בטווח · יתרה עדכנית') : 'סה"כ · יתרה עדכנית'}
+            </span>
             <span className="text-center font-semibold" style={{ color: '#A16207', fontSize: fs('14px', '13px') }}>
-              {totalDebit > 0 ? formatILS(totalDebit) : '—'}
+              {(ranged ? shownDebit : totalDebit) > 0 ? formatILS(ranged ? shownDebit : totalDebit) : '—'}
             </span>
             <span className="text-center font-semibold" style={{ color: '#166534', fontSize: fs('14px', '13px') }}>
-              {totalCredit > 0 ? formatILS(totalCredit) : '—'}
+              {(ranged ? shownCredit : totalCredit) > 0 ? formatILS(ranged ? shownCredit : totalCredit) : '—'}
             </span>
             <span className="font-black text-right" style={{ color: 'var(--brand-primary)', fontSize: fs('16px', '14px') }}>
-              {formatILS(currentBalance)}
+              {formatILS(shownClosing)}
             </span>
           </div>
           </div>

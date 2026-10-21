@@ -11,7 +11,6 @@ import Dashboard from './Dashboard'
 import Suppliers from './Suppliers'
 import Invoices, { type DuplicateResolution } from './Invoices'
 import Payments from '../pages/Payments'
-import SupplierLedger from './SupplierLedger'
 import GoodsTracking from './pipeline/GoodsTracking'
 import StatementReconciliation from './StatementReconciliation'
 import Returns from './Returns'
@@ -158,9 +157,15 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   // so resolving a duplicate and returning lands them where they left off.
   const alertsScrollY = useRef(0)
 
-  const currentNav       = navStack[navStack.length - 1]
+  // "כרטסת ספק" was folded into the supplier card (21.10): view and print there,
+  // compare in התאמת כרטסות. A 'ledger' entry can still arrive from browser
+  // history or an old link — it opens that supplier's card (or the suppliers list
+  // when it named none) rather than a screen that no longer exists.
+  const rawNav           = navStack[navStack.length - 1]
+  const currentNav: NavEntry = rawNav.page === 'ledger'
+    ? { ...rawNav, page: 'suppliers', supplierViewId: rawNav.ledgerSupplierId }
+    : rawNav
   const activePage       = currentNav.page
-  const ledgerSupplierId = currentNav.ledgerSupplierId
   const canGoBack        = navStack.length > 1
 
   // ── Browser back/forward: mirror navStack into window.history ──────────────
@@ -360,7 +365,6 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     if (activePage === 'suppliers')      return (
       <Suppliers
         onOpenDelivery={(id) => pushNav({ page: 'deliveries', deliverySelectedId: id })}
-        onViewLedger={(id) => pushNav({ page: 'ledger', ledgerSupplierId: id })}
         onViewPayments={(name) => pushNav({ page: 'payments', paymentsSupplierFilter: name })}
         controlledViewId={currentNav.supplierViewId ?? null}
         controlledViewName={currentNav.supplierViewName ?? null}
@@ -382,7 +386,6 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onCancelAlertPrefill={() => setAlertForSupplier(null)}
       />
     )
-    if (activePage === 'ledger')         return <SupplierLedger initialSupplierId={ledgerSupplierId} onOpenRow={openLedgerRow} />
     if (activePage === 'invoices') return (
       <Invoices
         key="invoices"

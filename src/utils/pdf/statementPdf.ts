@@ -7,6 +7,8 @@ export interface StatementActivityRow {
   description: string
   debit: number
   credit: number
+  /** Ticked ✓ on the statement page. Omitted on every row → no ✓ column. */
+  marked?: boolean
 }
 
 export interface StatementPDFData {
@@ -22,6 +24,11 @@ export interface StatementPDFData {
   supplierContact?: string
   supplierPhone?: string
   activityRows?: StatementActivityRow[]
+  /** Balance BEFORE the first activity row — a range that starts mid-ledger
+   *  carries it, so the running balance is the real one, not counted from 0. */
+  openingBalance?: number
+  /** "01/04/2026 – 30/06/2026" — printed in the activity section's title. */
+  periodLabel?: string
   notes?: string
 }
 
@@ -30,6 +37,7 @@ const STATUS_HE: Record<string, string> = {
   mismatch:      'אי-התאמה',
   pending:       'ממתין',
   investigating: 'בבדיקה',
+  needs_review:  'לבדיקה',
 }
 
 const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
@@ -37,6 +45,7 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
   mismatch:      { bg: '#FEE2E2', color: '#DC2626' },
   pending:       { bg: '#FEF9C3', color: '#A16207' },
   investigating: { bg: '#DBEAFE', color: '#1E40AF' },
+  needs_review:  { bg: '#FEF9C3', color: '#A16207' },
 }
 
 export function printStatementPDF(data: StatementPDFData): void {
@@ -47,7 +56,7 @@ export function printStatementPDF(data: StatementPDFData): void {
   const suppSlug  = data.supplierName.replace(/[^א-תa-zA-Z0-9]/g, '-')
   const title     = `התאמת-כרטסת-${data.id}-ספק-${suppSlug}-${data.month.replace('/', '-')}`
 
-  const activityTable = buildActivityTable(data.activityRows)
+  const activityTable = buildActivityTable(data.activityRows, data.openingBalance, data.periodLabel)
 
   const html = `<!DOCTYPE html>
 <html dir="rtl" lang="he">
@@ -177,14 +186,22 @@ const TYPE_BADGE: Record<string, { bg: string; color: string }> = {
   'זיכוי':   { bg: '#F3E8FF', color: '#7C3AED' },
 }
 
-function buildActivityTable(rows: StatementActivityRow[] | undefined): string {
+function buildActivityTable(rows: StatementActivityRow[] | undefined, opening?: number, periodLabel?: string): string {
   if (!rows || rows.length === 0) return ''
 
-  let runningBalance = 0
-  const rowsHtml = rows.map(row => {
+  const withMarks = rows.some(r => r.marked !== undefined)
+  const markTh = withMarks ? '<th style="width:28px;text-align:center">✓</th>' : ''
+  const markTd = (r: StatementActivityRow) => withMarks
+    ? `<td style="text-align:center;font-weight:800;color:#166534">${r.marked ? '✓' : ''}</td>` : ''
+  let runningBalance = opening ?? 0
+  const openingRow = opening !== undefined
+    ? `<tr>${withMarks ? '<td></td>' : ''}<td>—</td><td></td><td></td><td style="font-weight:700">יתרה לפני התקופה</td><td class="num">—</td><td class="num">—</td><td class="num" style="font-weight:700">${fmtILS(opening)}</td></tr>`
+    : ''
+  const rowsHtml = openingRow + rows.map(row => {
     runningBalance += row.debit - row.credit
     const tb = TYPE_BADGE[row.type] ?? { bg: '#F3F4F6', color: '#6B7280' }
     return `<tr>
+      ${markTd(row)}
       <td>${escHtml(row.date)}</td>
       <td><span class="type-badge" style="background:${tb.bg};color:${tb.color}">${escHtml(row.type)}</span></td>
       <td style="direction:ltr;text-align:right">${escHtml(row.docId)}</td>
@@ -196,10 +213,11 @@ function buildActivityTable(rows: StatementActivityRow[] | undefined): string {
   }).join('')
 
   return `<div class="sec">
-    <p class="sec-title">פירוט תנועות בתקופה</p>
+    <p class="sec-title">פירוט תנועות ${periodLabel ? escHtml(periodLabel) : 'בתקופה'}</p>
     <table class="tbl">
       <thead>
         <tr>
+          ${markTh}
           <th>תאריך</th>
           <th>סוג</th>
           <th>מס׳ מסמך</th>
@@ -212,7 +230,7 @@ function buildActivityTable(rows: StatementActivityRow[] | undefined): string {
       <tbody>${rowsHtml}</tbody>
       <tfoot>
         <tr>
-          <td colspan="4" style="color:#6B7280;font-size:12px">סה"כ</td>
+          <td colspan="${withMarks ? 5 : 4}" style="color:#6B7280;font-size:12px">סה"כ</td>
           <td class="num" style="color:#A16207">${fmtILS(rows.reduce((s, r) => s + r.debit, 0))}</td>
           <td class="num" style="color:#166534">${fmtILS(rows.reduce((s, r) => s + r.credit, 0))}</td>
           <td class="num" style="color:${PDF_BRAND};font-size:14px">${fmtILS(runningBalance)}</td>

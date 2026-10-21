@@ -53,6 +53,7 @@ export const BACKUP_TABLES: BackupTableSpec[] = [
   { table: "vendor_statements",      orderBy: ["id"],    label: "כרטסות",             sheet: "כרטסות" },
   { table: "supplier_notes",         orderBy: ["id"],    label: "הערות ספק",           sheet: "הערות ספק" },
   { table: "ledger_resets",          orderBy: ["id"],    label: "איפוסי כרטסת",        sheet: "איפוסי כרטסת" },
+  { table: "ledger_marks",           orderBy: ["supplier_id", "row_id"], label: "סימוני ✓ בכרטסת", sheet: "סימוני כרטסת" },
   { table: "alerts",                 orderBy: ["id"],    label: "התראות",             sheet: "התראות" },
   { table: "app_settings",           orderBy: ["key"],   label: "הגדרות",             sheet: "הגדרות" },
   { table: "ingest_failures",        orderBy: ["gmail_message_id"], label: "כשלי קליטה", sheet: "כשלי קליטה" },
@@ -110,6 +111,7 @@ export const RESTORE_ORDER: string[] = [
   "supplier_notes",
   "note_handled",         // references suppliers; record_id is deliberately not an FK
   "ledger_resets",
+  "ledger_marks",         // supplier_id deliberately not an FK (merge_suppliers)
   "invoices",
   "payments",
   "returns",

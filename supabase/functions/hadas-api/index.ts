@@ -2872,6 +2872,31 @@ async function createSupplierNote(
 // MANAGER-ONLY. Not listed in employeeMayAccess, and it must stay that way: an
 // employee never sees a balance, so there is nothing here she could be asked to
 // judge — and `reason` is free text that will contain figures.
+// ✓ on a row of OUR ledger: "this one is on the supplier's statement too".
+// Keyed by supplier + ledger row id, never by statement — the owner's rule is
+// that a tick is certain and stays (20261021010000). `marked: false` removes it.
+async function setLedgerMark(req: Request, supabase: SupabaseClient, authorEmail?: string): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const supplierId = String(body.supplierId ?? "").trim();
+  const rowId      = String(body.rowId ?? "").trim();
+  if (!supplierId || !rowId) return json({ error: "supplierId and rowId are required" }, 400);
+  // A reset line is a declaration, not a movement the supplier could list.
+  if (rowId.startsWith("reset:")) return json({ error: "a reset line cannot be marked" }, 400);
+
+  if (body.marked === false) {
+    const { error } = await supabase.from("ledger_marks").delete()
+      .eq("supplier_id", supplierId).eq("row_id", rowId);
+    if (error) return json({ error: error.message }, 500);
+    return json({ success: true, marked: false });
+  }
+  const { error } = await supabase.from("ledger_marks").upsert(
+    { supplier_id: supplierId, row_id: rowId, marked_by: authorEmail ?? null, marked_at: new Date().toISOString() },
+    { onConflict: "supplier_id,row_id" },
+  );
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, marked: true });
+}
+
 async function createLedgerReset(
   req: Request, supabase: SupabaseClient, supplierId: string, authorEmail?: string,
 ): Promise<Response> {
@@ -3542,6 +3567,10 @@ Deno.serve(async (req: Request) => {
       if (req.method === "PUT")    return await updateSupplierNote(req, supabase, noteIdMatch[1]);
       if (req.method === "DELETE") return await deleteSupplierNote(supabase, noteIdMatch[1]);
     }
+
+    // ── ✓ on our ledger (manager-only — employeeMayAccess does not list it) ──
+    if (path === "/ledger-marks" && req.method === "PUT")
+      return await setLedgerMark(req, supabase, auth.email);
 
     // ── Ledger resets (manager-only) ──────────────────────────────────────────
     const resetMatch = path.match(/^\/suppliers\/([^/]+)\/ledger-reset$/);

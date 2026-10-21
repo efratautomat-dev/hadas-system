@@ -40,7 +40,6 @@ const BASIC_PAGES = [
 // supplier's own statement measured against ours.
 const ADVANCED_PAGES = [
   ...BASIC_PAGES,
-  'ledger',
   'payments',
   'deliveries',
   'returns',
