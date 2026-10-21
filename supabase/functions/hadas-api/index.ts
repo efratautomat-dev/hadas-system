@@ -45,12 +45,12 @@ function driveFileIdFromLink(link: string | null): string | null {
 // weekly backup trashes folders through the very same helper.
 
 // ─── Suppliers ────────────────────────────────────────────────────────────────
-// Whitelist: id, name, hp, category, contact, email, phone, opening_balance, payment_arrangement, notes, alt_names, linked_invoices
+// Whitelist: id, name, hp, category, contact, email, phone, opening_balance, payment_arrangement, partial_return, notes, alt_names, linked_invoices
 // Excluded (no DB column): opening_balance_date, status, paymentTerms, lastOrderDate, balance
 
 async function createSupplier(req: Request, supabase: SupabaseClient): Promise<Response> {
   const body = await req.json();
-  const { name, hp, category, contact, email, phone, openingBalance, paymentArrangement, notes, force } = body;
+  const { name, hp, category, contact, email, phone, openingBalance, paymentArrangement, partialReturn, notes, force } = body;
   const altNames = cleanAltNames(body.alt_names ?? body.altNames);
   if (!name) return json({ error: "name is required" }, 400);
 
@@ -80,6 +80,9 @@ async function createSupplier(req: Request, supabase: SupabaseClient): Promise<R
       phone:           phone    ?? null,
       opening_balance: openingBalance ?? 0,
       payment_arrangement: paymentArrangement ?? false,
+      // Only when set: a supplier created before the column's migration ran
+      // would otherwise fail on a column that does not exist yet.
+      ...(partialReturn ? { partial_return: true } : {}),
       notes:           notes    ?? null,
       alt_names:       altNames ?? [],
     })
@@ -101,6 +104,7 @@ async function updateSupplier(req: Request, supabase: SupabaseClient, id: string
     phone:          "phone",
     openingBalance: "opening_balance",
     paymentArrangement: "payment_arrangement",   // "בהסדר תשלום" flag — display-only balance exclusion (never mutates invoices/payments)
+    partialReturn:  "partial_return",   // "החזר חלקי" — ingest files this supplier's new invoices under the month's החזר חלקי folder
     notes:          "notes",
     active:         "active",   // active/inactive toggle (deactivation replaces hard delete)
     needsDetails:   "needs_details",   // PART 3C: completing details clears the flag
@@ -221,8 +225,10 @@ async function mergeSuppliers(req: Request, supabase: SupabaseClient): Promise<R
 
 // ─── Invoices ─────────────────────────────────────────────────────────────────
 // Accepts camelCase from the frontend AND snake_case from N8N/direct calls.
-// Fields removed: date (display string), isPartialReturn, emailId, uploadDate,
+// Fields removed: date (display string), emailId, uploadDate,
 //                 duplicateFlag, duplicateNote (no DB columns for these).
+// isPartialReturn WAS on that list — wrongly: `partial_return` is a real column
+// (ingest writes it), so the invoice form's "החזר חלקי" box never saved.
 
 function invoiceToRow(body: Record<string, unknown>): Record<string, unknown> {
   const row: Record<string, unknown> = {};
@@ -239,7 +245,7 @@ function invoiceToRow(body: Record<string, unknown>): Record<string, unknown> {
     "message_link", "received_at", "execution_log_url", "ai_confidence",
     "is_duplicate", "has_error", "status", "category",
     "invoice_type", "external_link", "error_reason", "html_content",
-    "ai_missing_fields", "transferred_at", "notes",
+    "ai_missing_fields", "transferred_at", "notes", "partial_return",
   ];
   for (const col of SNAKE) {
     if (body[col] !== undefined) row[col] = body[col];
@@ -268,6 +274,7 @@ function invoiceToRow(body: Record<string, unknown>): Record<string, unknown> {
     status:            "status",
     isDuplicate:       "is_duplicate",
     hasError:          "has_error",
+    isPartialReturn:   "partial_return",
   };
   for (const [fe, db] of Object.entries(CAMEL)) {
     if (body[fe] !== undefined) row[db] = body[fe];
@@ -302,21 +309,26 @@ async function updateInvoice(req: Request, supabase: SupabaseClient, id: string)
   // and refresh the stored folder links. Best-effort: a Drive hiccup or missing
   // credentials must NEVER block the DB update (dev leaves GMAIL_* unset, so this
   // path is skipped there and verified in prod — see driveConfigured guard).
+  //
+  // החזר חלקי moves the file the same way: the month folder's "החזר חלקי"
+  // subfolder (resolveInvoiceFolder), and back out when the mark is removed.
   let drive = "unchanged";
-  if (row.invoice_date !== undefined) {
+  if (row.invoice_date !== undefined || row.partial_return !== undefined) {
     const { data: cur } = await supabase
       .from("invoices")
       .select("invoice_date, drive_file_link, partial_return")
       .eq("id", id)
       .maybeSingle();
 
-    const oldDate = String(cur?.invoice_date ?? "").slice(0, 10);
-    const newDate = String(row.invoice_date ?? "").slice(0, 10);
+    const oldDate    = String(cur?.invoice_date ?? "").slice(0, 10);
+    const newDate    = row.invoice_date !== undefined ? String(row.invoice_date ?? "").slice(0, 10) : oldDate;
+    const oldPartial = !!cur?.partial_return;
+    const newPartial = row.partial_return !== undefined ? !!row.partial_return : oldPartial;
     const fileId  = driveFileIdFromLink(cur?.drive_file_link ?? null);
     const driveConfigured = googleConfigured();
 
-    if (!newDate || newDate === oldDate) {
-      drive = "unchanged";                 // date not actually changing → nothing to move
+    if (!newDate || (newDate === oldDate && newPartial === oldPartial)) {
+      drive = "unchanged";                 // neither date nor החזר חלקי changing → nothing to move
     } else if (!fileId) {
       drive = "skipped_no_file";           // manual invoice / no Drive copy to move
     } else if (!driveConfigured) {
@@ -324,7 +336,7 @@ async function updateInvoice(req: Request, supabase: SupabaseClient, id: string)
     } else {
       try {
         const token   = await getGoogleAccessToken();
-        const target  = await resolveInvoiceFolder(token, newDate, !!cur?.partial_return);
+        const target  = await resolveInvoiceFolder(token, newDate, newPartial);
         await driveMoveFile(token, fileId, target.fileFolderId);
         const newLink = await driveGetFolderLink(token, target.monthFolderId);
         if (newLink) {

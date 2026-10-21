@@ -66,6 +66,8 @@ export interface Supplier {
   // "בהסדר תשלום": display-only — balance shows 0 and invoices get an informational
   // "בהסדר" tag. Accounting status is unchanged; never mutates rows; reversible.
   paymentArrangement?: boolean
+  /** "החזר חלקי" — new invoices are filed under the month's החזר חלקי folder. */
+  partialReturn?: boolean
 }
 
 interface Props {
@@ -439,6 +441,15 @@ export default function SupplierDetail({ supplier, onBack, onEdit, onDelete, onM
               title="ספק בהסדר תשלום — מוחרג ממעקב יתרה, חשבוניות מוצגות כמשולמות"
             >
               בהסדר תשלום
+            </span>
+          )}
+          {supplier.partialReturn && (
+            <span
+              className="rounded-lg font-bold flex-shrink-0"
+              style={{ fontSize: '13px', padding: '5px 12px', background: '#FBF3F5', color: 'var(--brand-primary)' }}
+              title="החזר חלקי — חשבוניות חדשות מתויקות בתיקיית החזר חלקי של החודש"
+            >
+              החזר חלקי
             </span>
           )}
           {/* ── לפני שמעבירים תשלום ────────────────────────────────────────

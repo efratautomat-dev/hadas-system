@@ -1463,6 +1463,16 @@ function similarityScore(a: string, b: string): number {
   return Math.max(editScore, tokenScore, containScore);
 }
 
+// Read on its own, and tolerantly: if this function is deployed before the
+// migration that adds the column, the select fails — and that must cost the
+// supplier setting, never the invoice.
+async function supplierIsPartialReturn(supabase: SupabaseClient, supplierId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("suppliers").select("partial_return").eq("id", supplierId).maybeSingle();
+  if (error) return false;
+  return !!(data as { partial_return?: boolean | null } | null)?.partial_return;
+}
+
 interface SupplierRow {
   id: string; name: string; category: string | null; hp: string | null;
   alt_names?: string[] | null;
@@ -2031,7 +2041,11 @@ async function handleInvoiceFile(
     }
   }
 
-  const partialReturn = ctx.partialRefundLabelId !== null && ctx.labelIds.includes(ctx.partialRefundLabelId);
+  // החזר חלקי: the Gmail label (the owner applies it by hand) OR the supplier's
+  // own setting (suppliers.partial_return, "החזר חלקי" on the supplier card).
+  const partialReturn =
+    (ctx.partialRefundLabelId !== null && ctx.labelIds.includes(ctx.partialRefundLabelId)) ||
+    (supplierId ? await supplierIsPartialReturn(supabase, supplierId) : false);
 
   // Per-file dedup discriminator: invoice_number when present, else the stable
   // Gmail attachmentId ("link" for link docs). Goes into the Storage key so two

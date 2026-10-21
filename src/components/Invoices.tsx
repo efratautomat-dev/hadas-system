@@ -784,6 +784,15 @@ export function InvoiceDetail({
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
               <div style={{ width: '100%' }}>
                 <TCheckbox label="האם החזר חלקי" checked={form.isPartialReturn} onChange={set('isPartialReturn')} />
+                {/* It used to be dropped by the API and never saved. It saves now, and
+                    the server re-files the Drive copy — say so before she presses save. */}
+                {form.isPartialReturn !== (invoice.isPartialReturn ?? false) && (
+                  <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#065F46', lineHeight: 1.5 }}>
+                    {form.isPartialReturn
+                      ? 'בשמירה הקובץ יעבור בדרייב לתיקיית "החזר חלקי" של החודש'
+                      : 'בשמירה הקובץ יחזור בדרייב לתיקיית החודש'}
+                  </p>
+                )}
               </div>
             </div>
           </Row2>
