@@ -5,7 +5,7 @@ import {
   Eye, Download, FileText, ExternalLink, Maximize2, UserCog,
   AlertTriangle, FileX,
 } from 'lucide-react'
-import { useStatements } from '../hooks/useStatements'
+import { useStatements, type ChangeTypeResult } from '../hooks/useStatements'
 import type {
   VendorStatementStatus,
   StatementMatchMethod,
@@ -27,6 +27,8 @@ import { SearchableSelect } from './SearchableSelect'
 import { StatusBadge as SharedStatusBadge } from './StatusBadge'
 import { PdfPreviewModal, DocumentBody } from './PdfPreviewModal'
 import { ReclassifyModal } from './ReclassifyModal'
+import { CaptureError } from '../lib/api'
+import { notify, resourcesFor } from '../lib/dataBus'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { FilterTabs } from './ui/FilterTabs'
 
@@ -692,6 +694,9 @@ export default function StatementReconciliation({ initialStatementId, onOpenRow 
   const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement, changeType } = useStatements()
   // The statement whose type is being changed — the popup is open while set.
   const [changingType, setChangingType] = useState<VendorStatement | null>(null)
+  // The AI read takes a few seconds — she is told it is running, then what it did.
+  const [typeBusy, setTypeBusy] = useState(false)
+  const [typeNotice, setTypeNotice] = useState<{ text: string; ok: boolean } | null>(null)
   // Deleting is irreversible and the row carries a document, so it goes through a
   // confirmation naming the supplier and month — not a bare icon.
   const [confirmDelete, setConfirmDelete] = useState<VendorStatement | null>(null)
@@ -905,6 +910,33 @@ export default function StatementReconciliation({ initialStatementId, onOpenRow 
     )
   }
 
+  // Shown on the detail AND on the list — after a successful change the
+  // statement is gone and she lands on the list, which is where she reads it.
+  const typeBanner = (typeBusy || typeNotice) && (
+    <div
+      role="status"
+      dir="rtl"
+      style={{
+        position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 120,
+        maxWidth: 'min(560px, calc(100vw - 32px))', borderRadius: '12px', padding: '12px 16px',
+        fontSize: '14px', lineHeight: 1.6, boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+        display: 'flex', alignItems: 'flex-start', gap: '10px',
+        ...(typeBusy
+          ? { background: '#1F2937', color: 'white' }
+          : typeNotice?.ok
+            ? { background: '#ECFDF5', color: '#065F46', border: '1px solid #A7F3D0' }
+            : { background: '#FEF2F2', color: '#991B1B', border: '1px solid #FECACA' }),
+      }}
+    >
+      <span style={{ flex: 1 }}>{typeBusy ? 'קורא את המסמך וקולט אותו… (כמה שניות)' : typeNotice?.text}</span>
+      {!typeBusy && (
+        <button onClick={() => setTypeNotice(null)} aria-label="סגירה" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '2px' }}>
+          <X className="w-4 h-4" />
+        </button>
+      )}
+    </div>
+  )
+
   // ── Detail takes over the whole page (mockup): the list is not rendered
   // underneath it, and "חזרה לרשימת הכרטסות" brings it back. `selectedId` stays
   // internal to this component, so Layout's routing is untouched.
@@ -939,6 +971,7 @@ export default function StatementReconciliation({ initialStatementId, onOpenRow 
           onChangeType={() => setChangingType(selectedStmt)}
         />
         {viewDoc && <PdfPreviewModal url={viewDoc} onClose={() => setViewDoc(null)} />}
+        {typeBanner}
         {changingType && (
           <ReclassifyModal
             doc={{ documentUrl: selectedDocUrl ?? undefined }}
@@ -947,20 +980,27 @@ export default function StatementReconciliation({ initialStatementId, onOpenRow 
             onConfirm={async (docType) => {
               const stmt = changingType
               setChangingType(null)
-              let created: { table: string | null; id: string | null }
+              setTypeNotice(null)
+              setTypeBusy(true)
+              let r: ChangeTypeResult
               try {
-                created = await changeType(stmt, docType)
+                r = await changeType(stmt, docType)
               } catch (e) {
                 // Nothing was removed — the statement stays where it was.
-                window.alert(`סוג המסמך לא שונה — הכרטסת נשארה במקומה.\n${e instanceof Error ? e.message : ''}`)
+                const code = e instanceof CaptureError && e.code ? ` · קוד ${e.code}` : ''
+                setTypeNotice({ ok: false, text: `סוג המסמך לא שונה — הכרטסת נשארה במקומה. ${e instanceof Error ? e.message : ''}${code}` })
                 return
+              } finally {
+                setTypeBusy(false)
               }
+              // Capture writes invoices / delivery notes / alerts without going
+              // through api.call, so the other screens are told here.
+              notify(resourcesFor('/ingest'))
+              setTypeNotice({ ok: r.removed, text: r.message + (r.code ? ` · קוד ${r.code}` : '') })
+              if (!r.removed) return
               setSelectedId(null)
-              // An invoice / credit note opens at once: it was created with the
-              // document only, and the number, date and amounts are hers to fill.
-              if (created.table === 'invoices' && created.id && onOpenRow) {
-                onOpenRow({ type: docType === 'זיכוי' ? 'זיכוי' : 'חשבונית', id: created.id })
-              }
+              // Already on file → open that invoice rather than leave her looking for it.
+              if (r.invoiceId && onOpenRow) onOpenRow({ type: 'חשבונית', id: r.invoiceId })
             }}
           />
         )}
@@ -970,6 +1010,7 @@ export default function StatementReconciliation({ initialStatementId, onOpenRow 
 
   return (
     <div className="space-y-6" dir="rtl">
+      {typeBanner}
       {error && (
         <div className="rounded-xl p-3 text-sm text-right" style={{ background: '#FEF9C3', color: '#92400E' }}>
           לא ניתן לטעון נתונים מהשרת — מוצגים נתוני ברירת מחדל

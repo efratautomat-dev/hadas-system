@@ -592,8 +592,10 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         <main
           className="flex-1"
           style={{
-            padding: pad,
-            paddingTop: padTop,
+            // Four longhands, not `padding` + `paddingTop`: React warns on every
+            // resize that changes them (tablet rotation does), since mixing a
+            // shorthand with its own longhand can leave a stale value behind.
+            paddingTop: padTop, paddingRight: pad, paddingBottom: pad, paddingLeft: pad,
             // The page must never scroll sideways — that is what slid the content
             // under the fixed menu on the shop's tablet. But `hidden` was the wrong
             // cure: four screens have content wider than this pane, and hiding it

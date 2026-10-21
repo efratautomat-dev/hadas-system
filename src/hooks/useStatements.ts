@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { api } from '../lib/api'
+import { api, captureDocument, type CaptureDocType } from '../lib/api'
 import { subscribe } from '../lib/dataBus'
 
 export type VendorStatementStatus = 'matched' | 'mismatch' | 'pending' | 'investigating' | 'needs_review'
@@ -9,6 +9,23 @@ export type VendorStatementStatus = 'matched' | 'mismatch' | 'pending' | 'invest
  *  line and the manual-override button on the statements screen.
  *  `none` = arrived but unmatched (orphan); null = row predates the column. */
 export type StatementMatchMethod = 'hp' | 'name' | 'email' | 'invoice_email' | 'manual' | 'none'
+
+/** What "שינוי סוג מסמך" did — said to her in one sentence. */
+export interface ChangeTypeResult {
+  /** false = nothing changed, the statement is still on the list. */
+  removed:    boolean
+  message:    string
+  /** Set when the document turned out to be an invoice already on file. */
+  invoiceId?: string
+  code?:      string
+}
+
+// The statement page offers three types; capture names them in English.
+const CAPTURE_TYPE: Record<string, CaptureDocType> = {
+  'חשבונית':     'invoice',
+  'זיכוי':       'return_doc',
+  'תעודת משלוח': 'delivery_note',
+}
 
 export interface VendorStatement {
   id: string
@@ -157,25 +174,71 @@ export function useStatements() {
   }
 
   /**
-   * "שינוי סוג מסמך": the document was never a statement. hadas-api files it as
-   * the chosen type (same route as the misclassified-document alert) and only
-   * then drops the statement row — the stored file stays, the new record uses
-   * it. Returns the new record's table and id.
+   * "שינוי סוג מסמך": the document was never a statement.
+   *
+   * The stored file goes through the CAMERA CAPTURE path with the chosen type —
+   * the same AI read as any uploaded invoice (number, date, amounts, supplier),
+   * filed to Drive and Storage like one. Only once the document has a home does
+   * the statement go (with its own Storage copy; the capture made a new one):
+   *  - `created` / `exists` (already on file) / `alerted` (filed into an alert
+   *    that holds the document) → the statement is removed;
+   *  - `skipped` / an error → the statement STAYS, nothing was lost.
+   * A statement with no stored file (Drive only) cannot be read from the
+   * browser, so it falls back to the reclassify route: a blank record carrying
+   * the same link, for her to fill in.
    */
   const changeType = async (
     stmt: Pick<VendorStatement, 'id' | 'supplier_id' | 'supplier_name' | 'storage_url' | 'drive_file_link'>,
     docType: string,
-  ): Promise<{ table: string | null; id: string | null }> => {
-    const res = await api.post('/documents/reclassify', {
-      statementId:   stmt.id,
-      docType,
-      supplierId:    stmt.supplier_id ?? undefined,
-      supplierName:  stmt.supplier_name || undefined,
-      storageUrl:    stmt.storage_url ?? undefined,
-      driveFileLink: stmt.drive_file_link ?? undefined,
+  ): Promise<ChangeTypeResult> => {
+    const path = (stmt.storage_url ?? '').trim()
+    if (!path || /^https?:\/\//i.test(path)) {
+      const res = await api.post('/documents/reclassify', {
+        statementId:   stmt.id,
+        docType,
+        supplierId:    stmt.supplier_id ?? undefined,
+        supplierName:  stmt.supplier_name || undefined,
+        storageUrl:    stmt.storage_url ?? undefined,
+        driveFileLink: stmt.drive_file_link ?? undefined,
+      }) as { table: string | null; id: string | null }
+      setData(prev => prev.filter(s => s.id !== stmt.id))
+      return { removed: true, invoiceId: res.table === 'invoices' ? res.id ?? undefined : undefined,
+        message: 'נוצרה רשומה ריקה עם המסמך (לכרטסת לא היה קובץ שמור לקריאה) — יש להשלים את הפרטים.' }
+    }
+
+    const { data: signed, error: signErr } = await supabase.storage.from('documents').createSignedUrl(path, 120)
+    if (signErr || !signed?.signedUrl) throw new Error('לא הצלחתי לפתוח את הקובץ השמור של הכרטסת.')
+    const blob = await (await fetch(signed.signedUrl)).blob()
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(new Error('קריאת הקובץ נכשלה.'))
+      reader.readAsDataURL(blob)
     })
+    const captureType = CAPTURE_TYPE[docType]
+    if (!captureType) throw new Error(`סוג לא נתמך: ${docType}`)
+    const res = await captureDocument({
+      docType:     captureType,
+      imageBase64: dataUrl,
+      mimeType:    blob.type || (path.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+      filename:    path.split('/').pop(),
+    })
+
+    if (res.outcome === 'skipped' || !res.ok) {
+      return { removed: false, code: res.code,
+        message: 'המסמך לא נקלט (' + (res.error ?? 'המערכת דילגה עליו') + ') — הכרטסת נשארה במקומה.' }
+    }
+    await api.delete(`/statements/${stmt.id}`)
     setData(prev => prev.filter(s => s.id !== stmt.id))
-    return res as { table: string | null; id: string | null }
+    const label = docType === 'תעודת משלוח' ? 'תעודת משלוח' : docType === 'זיכוי' ? 'זיכוי' : 'חשבונית'
+    return {
+      removed: true, invoiceId: res.invoiceId, code: res.code,
+      message: res.outcome === 'exists'
+        ? `המסמך כבר קיים במערכת${res.invoiceNumber ? ` (${res.invoiceNumber})` : ''} — הכרטסת הוסרה.`
+        : res.outcome === 'alerted'
+          ? `המסמך נקלט עם התראה לבדיקה — הכרטסת הוסרה. ההתראה במסך ההתראות.`
+          : `נוצרה ${label} מהמסמך, אחרי קריאה אוטומטית — היא במסך ${label === 'תעודת משלוח' ? 'תעודות המשלוח' : 'החשבוניות'}.`,
+    }
   }
 
   return { data, loading, error, create, resolve, remove, changeType }
