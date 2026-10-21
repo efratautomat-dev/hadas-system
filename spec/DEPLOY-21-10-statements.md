@@ -35,5 +35,4 @@ https://github.com/efratautomat-dev/hadas-system/compare/main...feat/statement-m
 → Create pull request → Merge. לכתוב "מוזג" — אני בודק שורסל באמת עלה ומעדכן את ההדגמה.
 
 ## בדיקות
-`spec/TESTS-21-10.md` → סעיפים 3, 8 (מחשב) ו-D, E (טאבלט) — המסומנים 🟡. ("כרטיס ספק — לשוניות
-במקום קוביות" (מחשב), ו"כרטיס ספק" + "התאמת כרטסת" (טאבלט).
+`spec/TESTS-21-10.md` → סעיפים 3 ו-8 (מחשב), D ו-E (טאבלט) — המסומנים 🟡.
