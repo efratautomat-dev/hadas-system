@@ -13,7 +13,7 @@
 ## שלב א · להביא את הקוד
 
 ```powershell
-cd C:\Users\<user>\Desktop\hadas-deploy
+cd $HOME\Desktop\hadas-deploy
 git fetch origin
 git checkout fix/phase2-daily
 git pull
