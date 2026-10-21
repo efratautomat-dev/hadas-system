@@ -90,15 +90,31 @@ export function DateField({
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
 }) {
   const d = useDateField(value)
+  const ref = React.useRef<HTMLInputElement>(null)
+  // An EMPTY field is a text box (so it can show DD/MM/YYYY) and turns into a
+  // date input on focus — which used to cost a second tap before the calendar
+  // appeared. Open it on the first tap instead, once the type has switched.
+  // `showPicker` is Chrome 99+; an older tablet WebView simply keeps the old
+  // two-tap behaviour, and a browser that refuses (no user gesture) throws —
+  // both are caught, never surfaced.
+  const openPicker = () => {
+    requestAnimationFrame(() => {
+      const el = ref.current as (HTMLInputElement & { showPicker?: () => void }) | null
+      if (el?.type === 'date' && typeof el.showPicker === 'function') {
+        try { el.showPicker() } catch { /* not allowed here — the icon still works */ }
+      }
+    })
+  }
   return (
     <input
       {...rest}
+      ref={ref}
       type={d.type}
       placeholder={d.placeholder}
       dir={d.dir}
       value={value}
       onChange={onChange}
-      onFocus={e => { d.onFocus(); onFocus?.(e) }}
+      onFocus={e => { const wasEmpty = d.type === 'text'; d.onFocus(); onFocus?.(e); if (wasEmpty) openPicker() }}
       onBlur={e => { d.onBlur(); onBlur?.(e) }}
     />
   )
