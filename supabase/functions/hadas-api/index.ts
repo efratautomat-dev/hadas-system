@@ -2234,18 +2234,6 @@ async function resolveStatement(req: Request, supabase: SupabaseClient, id: stri
   // came back "No fields to update" — the note lived only until the page closed.
   if (body.resolution_notes !== undefined) updates.resolution_notes = body.resolution_notes;
   if (body.resolutionNotes  !== undefined) updates.resolution_notes = body.resolutionNotes;
-  // The owner's ✓ marks and date range on our ledger (20261021010000). Shaped
-  // here rather than trusted: ids are strings, dates are ISO days or "", and the
-  // list is capped so a runaway client cannot write an unbounded blob.
-  if (body.reconcileMarks !== undefined) {
-    const m = (body.reconcileMarks ?? {}) as { rows?: unknown; from?: unknown; to?: unknown };
-    const day = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "";
-    updates.reconcile_marks = {
-      rows: Array.isArray(m.rows) ? [...new Set(m.rows.filter((x): x is string => typeof x === "string"))].slice(0, 5000) : [],
-      from: day(m.from),
-      to:   day(m.to),
-    };
-  }
 
   // Assigning a supplier HERE is by definition a hand correction — that is what the
   // screen's "change supplier" override does — so the route is recorded as 'manual'.
@@ -2884,6 +2872,31 @@ async function createSupplierNote(
 // MANAGER-ONLY. Not listed in employeeMayAccess, and it must stay that way: an
 // employee never sees a balance, so there is nothing here she could be asked to
 // judge — and `reason` is free text that will contain figures.
+// ✓ on a row of OUR ledger: "this one is on the supplier's statement too".
+// Keyed by supplier + ledger row id, never by statement — the owner's rule is
+// that a tick is certain and stays (20261021010000). `marked: false` removes it.
+async function setLedgerMark(req: Request, supabase: SupabaseClient, authorEmail?: string): Promise<Response> {
+  const body = await req.json().catch(() => ({}));
+  const supplierId = String(body.supplierId ?? "").trim();
+  const rowId      = String(body.rowId ?? "").trim();
+  if (!supplierId || !rowId) return json({ error: "supplierId and rowId are required" }, 400);
+  // A reset line is a declaration, not a movement the supplier could list.
+  if (rowId.startsWith("reset:")) return json({ error: "a reset line cannot be marked" }, 400);
+
+  if (body.marked === false) {
+    const { error } = await supabase.from("ledger_marks").delete()
+      .eq("supplier_id", supplierId).eq("row_id", rowId);
+    if (error) return json({ error: error.message }, 500);
+    return json({ success: true, marked: false });
+  }
+  const { error } = await supabase.from("ledger_marks").upsert(
+    { supplier_id: supplierId, row_id: rowId, marked_by: authorEmail ?? null, marked_at: new Date().toISOString() },
+    { onConflict: "supplier_id,row_id" },
+  );
+  if (error) return json({ error: error.message }, 500);
+  return json({ success: true, marked: true });
+}
+
 async function createLedgerReset(
   req: Request, supabase: SupabaseClient, supplierId: string, authorEmail?: string,
 ): Promise<Response> {
@@ -3554,6 +3567,10 @@ Deno.serve(async (req: Request) => {
       if (req.method === "PUT")    return await updateSupplierNote(req, supabase, noteIdMatch[1]);
       if (req.method === "DELETE") return await deleteSupplierNote(supabase, noteIdMatch[1]);
     }
+
+    // ── ✓ on our ledger (manager-only — employeeMayAccess does not list it) ──
+    if (path === "/ledger-marks" && req.method === "PUT")
+      return await setLedgerMark(req, supabase, auth.email);
 
     // ── Ledger resets (manager-only) ──────────────────────────────────────────
     const resetMatch = path.match(/^\/suppliers\/([^/]+)\/ledger-reset$/);

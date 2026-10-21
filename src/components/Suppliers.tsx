@@ -374,7 +374,6 @@ interface AlertPrefill {
 }
 
 interface SuppliersProps {
-  onViewLedger?: (supplierId: string) => void
   onViewPayments?: (supplierName: string) => void
   controlledViewId?: string | null
   // When set, the supplier whose name matches is opened in detail view.
@@ -393,7 +392,6 @@ interface SuppliersProps {
 }
 
 export default function Suppliers({
-  onViewLedger,
   onViewPayments,
   controlledViewId,
   controlledViewName,
@@ -620,7 +618,6 @@ export default function Suppliers({
             }
           }}
           onMerge={() => setMergeFromId(sup.id)}
-          onViewLedger={onViewLedger ? () => onViewLedger(sup.id) : undefined}
           onViewPayments={onViewPayments ? () => onViewPayments(sup.name) : undefined}
           onOpenInvoice={onOpenInvoice}
           onOpenDelivery={onOpenDelivery}

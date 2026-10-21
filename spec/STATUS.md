@@ -58,12 +58,16 @@
 `PUT /invoices/:id {isPartialReturn}` — שעכשיו **נשמר** (היה ברשימת "שדות בלי עמודה"
 ונזרק) ומעביר את הקובץ בדרייב כמו שינוי תאריך (`updateInvoice`).
 
-**התאמת כרטסת — טווח, וי, הדפסה — 21.10, ענף `feat/statement-marks`:** בכרטסת שלנו
-בדף הכרטסת: טווח תאריכים (יתרה נגררת מלפני הטווח, שורות בלי תאריך תמיד מוצגות), ✓ לכל
-שורה, סיכום "לא סומנו", "הפרש בטווח", והדפסה (`printStatementPDF` קיבל `openingBalance`,
-`periodLabel` ועמודת ✓). הסימונים והטווח נשמרים ב-`vendor_statements.reconcile_marks`
-(מיגרציה `20261021010000`; `PUT /statements/:id/resolve {reconcileMarks}`, בלי רענון
-רשימה). לא משנה שום יתרה או סטטוס. מתחת ל-1200px רוחב שני החלונות נערמים.
+**כרטסות — 21.10, ענף `feat/statement-marks`:** (1) **התאמת כרטסות** — בכרטסת: טווח תאריכים
+(ברירת מחדל: עד סוף חודש הכרטסת; יתרה נגררת מלפני הטווח), ✓ "מופיע גם אצל הספק" **לפי שורה
+ולפי ספק** (`ledger_marks`, מיגרציה `20261021010000`, `PUT /ledger-marks`, `useLedgerMarks` —
+נשאר בכל כרטסת של הספק, בלי FK בכוונה בגלל `merge_suppliers`), מעבר בין כרטסות של אותו ספק,
+הדפסה (`printStatementPDF` + `openingBalance`/`periodLabel`/עמודת ✓). (2) **כרטיס ספק** —
+הקוביות הוחלפו בשורת לשוניות; בלשונית כרטסת טווח + "הדפסת כרטסת"
+(`utils/pdf/supplierLedgerPdf.ts`, הועבר מהמסך הישן). (3) **המסך "כרטסת ספק" נמחק**
+(`SupplierLedger.tsx`, מהתפריט ומ-tiers); ניווט `page:'ledger'` ישן מנותב לכרטיס הספק
+ב-Layout. `ledger_marks` נוסף לרשימת הגיבוי (`_shared/backup-tables.ts`) — לכן גם
+`backup-run` נפרס. lint 42 (useLedgerMarks מוסיף את שגיאת ה-hook הצפויה; מחיקת המסך הורידה).
 
 **מסמכים:** תוכנית `spec/14-ORDER-PLAN.md` · פריסה `spec/DEPLOY-18-10.md` · בדיקות `spec/TESTS-18-10.md`.
 

@@ -5,7 +5,8 @@ import {
   Eye, Download, FileText, ExternalLink, Maximize2, UserCog,
   AlertTriangle, FileX, Printer,
 } from 'lucide-react'
-import { useStatements, type ChangeTypeResult, type ReconcileMarks } from '../hooks/useStatements'
+import { useStatements, type ChangeTypeResult } from '../hooks/useStatements'
+import { useLedgerMarks } from '../hooks/useLedgerMarks'
 import type {
   VendorStatementStatus,
   StatementMatchMethod,
@@ -31,6 +32,7 @@ import { CaptureError } from '../lib/api'
 import { notify, resourcesFor } from '../lib/dataBus'
 import { tableWrap, tableHeadRow, tableHeadCell, tableRow, TABLE_HOVER } from './ui/tableStyles'
 import { FilterTabs } from './ui/FilterTabs'
+import { DateField } from './ui/form'
 
 type VendorStatement = ServerStatement
 
@@ -208,13 +210,13 @@ function LedgerTable({ ledger, showOpening, onOpenRow, view, marks }: {
             {marks && (
               // The tick must not also open the invoice: the row's own click does that.
               <td style={{ ...td, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                <input
+                {!r.id.startsWith('reset:') && <input
                   type="checkbox"
                   checked={marks.has(r.id)}
                   onChange={() => marks.toggle(r.id)}
                   aria-label={`סימון ${r.description}`}
                   style={{ width: '18px', height: '18px', accentColor: '#166534', cursor: 'pointer' }}
-                />
+                />}
               </td>
             )}
             <td style={{ ...td, whiteSpace: 'nowrap', direction: 'ltr', textAlign: 'right' }}>
@@ -321,8 +323,9 @@ interface DetailPageProps {
   onSaveNotes: (id: string, notes: string) => Promise<void>
   /** "שינוי סוג מסמך" — the document was never a statement (e.g. a חשבונית מס ריכוז). */
   onChangeType: () => void
-  /** Persist the ✓ marks and range (debounced by the page). Throws on failure. */
-  onSaveMarks: (id: string, marks: ReconcileMarks) => Promise<void>
+  /** This supplier's other statements, newest first — switching between them. */
+  siblings: VendorStatement[]
+  onSwitch: (id: string) => void
 }
 
 // Last day of a statement month, ISO. `month` is 'YYYY-MM'; anything else → ''.
@@ -345,7 +348,7 @@ function monthEnd(month: string): string {
 function DetailPage({
   stmt, ledger, paymentArrangement, savedNotes, suppliers, docUrl, isMobile,
   onBack, onExpandDoc, onOpenSource, onVendorBalanceSave,
-  onAssignSupplier, onSaveNotes, onOpenRow, onChangeType, onSaveMarks,
+  onAssignSupplier, onSaveNotes, onOpenRow, onChangeType, siblings, onSwitch,
 }: DetailPageProps) {
   const [manualBalance, setManualBalance] = useState('')
   const [notes, setNotes] = useState(savedNotes)
@@ -356,31 +359,12 @@ function DetailPage({
 
   // ── Range + ✓ marks (21.10) ───────────────────────────────────────────────
   // She narrows OUR ledger to the dates the supplier's paper covers, then ticks
-  // every row that appears on both. Both are saved on the statement, so reopening
-  // it shows where she stopped. Mounted with key={stmt.id}: this state belongs to
-  // exactly one statement.
-  const saved = stmt.reconcile_marks
-  const [from, setFrom] = useState(saved?.from ?? '')
-  const [to, setTo]     = useState(saved?.to ?? '')
-  const [marked, setMarked] = useState<Set<string>>(() => new Set(saved?.rows ?? []))
-  const [marksState, setMarksState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const firstMarks = useRef(true)
-  // The save callback is a fresh function on every parent render; read through a
-  // ref so a re-render does not cancel the pending save and restart the wait
-  // (which left the tally on "שומר…" forever while the list refreshed).
-  const saveMarksRef = useRef(onSaveMarks)
-  useEffect(() => { saveMarksRef.current = onSaveMarks }, [onSaveMarks])
-  useEffect(() => {
-    // Not on mount — only a change she made is worth a write.
-    if (firstMarks.current) { firstMarks.current = false; return }
-    setMarksState('saving')
-    const t = setTimeout(() => {
-      saveMarksRef.current(stmt.id, { rows: [...marked], from, to })
-        .then(() => setMarksState('saved'))
-        .catch(() => setMarksState('error'))
-    }, 700)
-    return () => clearTimeout(t)
-  }, [marked, from, to, stmt.id])
+  // every row that appears on both. The range opens at the statement's month (to
+  // its last day) and is hers to move; the ✓ is a fact about the ROW, kept per
+  // supplier, so it shows on every statement of theirs (useLedgerMarks).
+  const [from, setFrom] = useState('')
+  const [to, setTo]     = useState(() => monthEnd(stmt.month))
+  const { marked, toggle: toggleMark, error: marksError } = useLedgerMarks(stmt.supplier_id || null)
 
   const view = useMemo<LedgerView | undefined>(() => {
     if (!from && !to) return undefined
@@ -429,11 +413,6 @@ function DetailPage({
   const rangeClosing = view ? view.closing : ledger.closingBalance
   const rangeDiff = view && vendor != null && stmt.supplier_id && !paymentArrangement
     ? statementDiff(rangeClosing, vendor) : null
-  const toggleMark = (id: string) => setMarked(prev => {
-    const next = new Set(prev)
-    if (next.has(id)) next.delete(id); else next.add(id)
-    return next
-  })
 
   function printOurLedger() {
     const label = from || to
@@ -629,6 +608,35 @@ function DetailPage({
       </div>
 
       {/* ── Two panes ── */}
+      {/* This supplier's statements, newest first — switch without going back to
+          the list. Only when there is more than one; the ✓ marks travel along,
+          because they belong to the rows, not to a statement. */}
+      {siblings.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="כרטסות של הספק">
+          <span style={{ fontSize: '12.5px', color: '#6B7280', fontWeight: 700 }}>כרטסות של הספק:</span>
+          {siblings.map(sib => {
+            const on = sib.id === stmt.id
+            return (
+              <button
+                key={sib.id}
+                role="tab"
+                aria-selected={on}
+                onClick={() => { if (!on) onSwitch(sib.id) }}
+                className="rounded-full"
+                style={{
+                  fontSize: '13px', padding: '7px 14px', minHeight: '36px', cursor: on ? 'default' : 'pointer',
+                  fontWeight: on ? 700 : 600,
+                  background: on ? '#1F2937' : 'white', color: on ? 'white' : '#4B5563',
+                  border: `1px solid ${on ? '#1F2937' : '#E2E4E9'}`,
+                }}
+              >
+                {sib.month || 'ללא חודש'} · הגיעה {isoToDisplay((sib.uploaded_at || '').slice(0, 10))}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <div
         className="grid"
         style={{
@@ -689,11 +697,11 @@ function DetailPage({
             <div className="px-4 py-2 border-b flex flex-wrap items-end gap-2" style={{ borderColor: '#EEEEF2', background: 'white' }}>
               <label style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: '#6B7280', fontWeight: 700 }}>
                 מתאריך
-                <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} style={{ ...field, width: '140px', padding: '5px 8px' }} />
+                <DateField value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...field, width: '150px', padding: '6px 8px' }} />
               </label>
               <label style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px', color: '#6B7280', fontWeight: 700 }}>
                 עד תאריך
-                <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={{ ...field, width: '140px', padding: '5px 8px' }} />
+                <DateField value={to} onChange={(e) => setTo(e.target.value)} style={{ ...field, width: '150px', padding: '6px 8px' }} />
               </label>
               {monthEnd(stmt.month) && (
                 <button style={paneBtn} onClick={() => setTo(monthEnd(stmt.month))} title="עד היום האחרון של חודש הכרטסת">
@@ -715,13 +723,15 @@ function DetailPage({
                     הפרש בטווח: {formatILS(rangeDiff)}
                   </span>
                 )}
-                <span style={{ color: marksState === 'error' ? '#DC2626' : '#9CA3AF' }}>
-                  {marksState === 'saving' ? 'שומר…' : marksState === 'saved' ? 'נשמר' : marksState === 'error' ? 'הסימונים לא נשמרו' : ''}
-                </span>
+                {marksError && <span style={{ color: '#DC2626' }}>הסימון לא נשמר — נסי שוב</span>}
               </div>
             </div>
             <div style={{ overflow: 'auto', minHeight: 0 }}>
-              <LedgerTable ledger={ledger} onOpenRow={onOpenRow} view={view} marks={{ has: (id) => marked.has(id), toggle: toggleMark }} />
+              <LedgerTable
+                ledger={ledger} onOpenRow={onOpenRow} view={view}
+                // No supplier → no ledger of ours to tick against.
+                marks={stmt.supplier_id ? { has: (id) => marked.has(id), toggle: (id) => void toggleMark(id) } : undefined}
+              />
             </div>
           </div>
 
@@ -873,7 +883,7 @@ function useIsMobile(below = 640) {
 }
 
 export default function StatementReconciliation({ initialStatementId, onOpenRow }: { initialStatementId?: string | null; onOpenRow?: OpenLedgerRow }) {
-  const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement, changeType, saveMarks } = useStatements()
+  const { data: serverStatements, loading, error, resolve: resolveStatement, remove: removeStatement, changeType } = useStatements()
   // The statement whose type is being changed — the popup is open while set.
   const [changingType, setChangingType] = useState<VendorStatement | null>(null)
   // The AI read takes a few seconds — she is told it is running, then what it did.
@@ -1155,7 +1165,8 @@ export default function StatementReconciliation({ initialStatementId, onOpenRow 
           onVendorBalanceSave={handleVendorBalanceSave}
           onSaveNotes={handleSaveNotes}
           onChangeType={() => setChangingType(selectedStmt)}
-          onSaveMarks={saveMarks}
+          siblings={selectedStmt.supplier_id ? statements.filter(x => x.supplier_id === selectedStmt.supplier_id) : [selectedStmt]}
+          onSwitch={(id) => setSelectedId(id)}
         />
         {viewDoc && <PdfPreviewModal url={viewDoc} onClose={() => setViewDoc(null)} />}
         {typeBanner}

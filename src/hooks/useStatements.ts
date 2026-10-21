@@ -43,15 +43,6 @@ export interface VendorStatement {
   match_method: StatementMatchMethod | null
   /** The manager's reconciliation note, written while comparing the two ledgers. */
   resolution_notes: string | null
-  /** Her ✓ marks on our ledger and the date range she compared over. */
-  reconcile_marks: ReconcileMarks | null
-}
-
-/** Ledger row ids she ticked, and the range (ISO days, '' = open). */
-export interface ReconcileMarks {
-  rows: string[]
-  from: string
-  to:   string
 }
 
 export function useStatements() {
@@ -97,7 +88,6 @@ export function useStatements() {
           email_sender:    r.email_sender    ?? null,
           match_method:    (r.match_method as StatementMatchMethod) ?? null,
           resolution_notes: r.resolution_notes ?? null,
-          reconcile_marks:  (r.reconcile_marks as ReconcileMarks | null) ?? null,
         })) as VendorStatement[]
 
         // The `.order()` above is what the real backend honours; this repeats it on
@@ -251,16 +241,5 @@ export function useStatements() {
     }
   }
 
-  /**
-   * Save the ✓ marks and range. Unlike `resolve` it does NOT reload the list:
-   * it runs on every tick (debounced), and a full reload per tick would be a
-   * network round-trip for state the screen already holds. Throws on failure so
-   * the page can say the marks were not saved.
-   */
-  const saveMarks = async (id: string, marks: ReconcileMarks) => {
-    await api.put(`/statements/${id}/resolve`, { reconcileMarks: marks })
-    setData(prev => prev.map(s => s.id === id ? { ...s, reconcile_marks: marks } : s))
-  }
-
-  return { data, loading, error, create, resolve, remove, changeType, saveMarks }
+  return { data, loading, error, create, resolve, remove, changeType }
 }
