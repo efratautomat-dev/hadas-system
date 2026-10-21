@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import type { Alert, AlertType, AlertStatus } from '../data/mockData'
 import { mockAlerts } from '../data/mockData'
 import { tierAllowsAlert } from '../lib/tiers'
+import { loadDisabledAlertTypes } from '../lib/alertPrefs'
 import { subscribe } from '../lib/dataBus'
 
 function fmtDate(iso: string): string {
@@ -21,10 +22,15 @@ export function useAlerts() {
 
   const load = useCallback(async () => {
     try {
-      const { data: rows, error } = await supabase
-        .from('alerts')
-        .select('*')
-        .order('created_at', { ascending: false })
+      const [{ data: rows, error }, disabled] = await Promise.all([
+        supabase.from('alerts').select('*').order('created_at', { ascending: false }),
+        loadDisabledAlertTypes(),
+      ])
+      // Tier AND her own switches (Settings → התראות) — one predicate, applied
+      // here and only here. A type she turned off is gone from the feed, the
+      // screen, every counter and the badge at once; a type with no switch
+      // stays visible (alertPrefs.ts).
+      const shown = (type: string) => tierAllowsAlert(type) && !disabled.has(type)
 
       if (!error && rows && rows.length > 0) {
         setData(
@@ -32,7 +38,7 @@ export function useAlerts() {
           // the dashboard feed, the alerts screen, its status counters and the
           // sidebar badge. Filtering at each call site would let one of them
           // drift and quietly surface a feature the viewer's tier excludes.
-          rows.filter((r) => tierAllowsAlert(r.type as string)).map((r) => {
+          rows.filter((r) => shown(r.type as string)).map((r) => {
             const payload = (r.payload ?? r.details) as Record<string, unknown> | null
             return {
               id:          String(r.id),
@@ -54,7 +60,7 @@ export function useAlerts() {
           '[useAlerts] falling back to mockAlerts — supabase returned no rows or an error:',
           error ?? '(no rows)',
         )
-        setData(mockAlerts.filter((a) => tierAllowsAlert(a.type)))
+        setData(mockAlerts.filter((a) => shown(a.type)))
       }
     } catch (e) {
       console.warn('[useAlerts] falling back to mockAlerts — exception thrown:', e)

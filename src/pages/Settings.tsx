@@ -13,6 +13,7 @@ import BackupPanel from '../components/BackupPanel'
 // Shared with the supplier form so the two screens stay visually identical.
 import { SectionCard, FieldLabel, TextInput } from '../components/ui/form'
 import { inspectTemplateFile, TEMPLATE_BUCKET, TEMPLATE_PATH, BUNDLED_TEMPLATE_URL, loadBizboxTemplate } from '../lib/bizboxTemplate'
+import AlertSettingsPanel from '../components/AlertSettingsPanel'
 
 function useIsTablet() {
   const [v] = useState(
@@ -36,13 +37,6 @@ interface ProfileState {
 interface PreferencesState {
   dateFormat: string
   primaryColor: string
-}
-
-interface NotificationsState {
-  duplicates: boolean
-  mismatches: boolean
-  futurePayments: boolean
-  pendingDeliveries: boolean
 }
 
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -79,7 +73,7 @@ function SaveToast({ visible }: { visible: boolean }) {
   )
 }
 
-// Non-persisting settings (profile / preferences prefs / notifications / backup
+// Non-persisting settings (profile / preferences prefs / backup
 // export) show this "not available yet" state instead of controls that silently
 // fail to save. The original panels are kept in the file behind `SHOW_LEGACY`
 // (never rendered) so no handler/state is deleted — flip to true to restore them.
@@ -445,13 +439,6 @@ export default function Settings() {
     primaryColor: '#E8645A',
   })
 
-  const [notifs, setNotifs] = useState<NotificationsState>({
-    duplicates: true,
-    mismatches: true,
-    futurePayments: false,
-    pendingDeliveries: true,
-  })
-
   // ── Employees state ──────────────────────────────────────────────────────────
   const { data: employees, loading: empLoading, create: createEmp, update: updateEmp, remove: removeEmp } = useEmployees()
   const [showEmpForm, setShowEmpForm] = useState(false)
@@ -559,11 +546,6 @@ export default function Settings() {
 
   function updatePref(key: keyof PreferencesState, value: string) {
     setPrefs(p => ({ ...p, [key]: value }))
-    showToast()
-  }
-
-  function updateNotif(key: keyof NotificationsState, value: boolean) {
-    setNotifs(p => ({ ...p, [key]: value }))
     showToast()
   }
 
@@ -988,65 +970,9 @@ export default function Settings() {
       </div>
     ),
 
-    notifications: (
-      <div className="space-y-5">
-        <NotAvailable />
-        {SHOW_LEGACY && (<>
-        <SectionCard title="סוגי התראות">
-          <Toggle
-            value={notifs.duplicates}
-            onChange={v => updateNotif('duplicates', v)}
-            label="חשבוניות כפולות"
-            sub="התראה כאשר מתגלות חשבוניות עם מספר זהה"
-          />
-          <Toggle
-            value={notifs.mismatches}
-            onChange={v => updateNotif('mismatches', v)}
-            label="אי-התאמות בכרטסות"
-            sub="התראה כאשר יש פערים בין הכרטסת לדף החשבון"
-          />
-          <Toggle
-            value={notifs.futurePayments}
-            onChange={v => updateNotif('futurePayments', v)}
-            label="תשלומים קרובים"
-            sub="תזכורת 3 ימים לפני מועד פירעון"
-          />
-          <Toggle
-            value={notifs.pendingDeliveries}
-            onChange={v => updateNotif('pendingDeliveries', v)}
-            label="תעודות משלוח ממתינות"
-            sub="התראה על תעודות שלא שויכו לחשבונית"
-          />
-        </SectionCard>
-
-        <SectionCard title="ערוצי התראה">
-          <div
-            className="flex items-center gap-3 p-4 rounded-xl"
-            style={{ background: '#F8F9FA' }}
-          >
-            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#22C55E' }} />
-            <div>
-              <p className="text-sm font-semibold text-gray-700">התראות בתוך המערכת</p>
-              <p className="text-xs text-gray-400 mt-0.5">התראות מוצגות בפעמון בסרגל העליון</p>
-            </div>
-          </div>
-          <div
-            className="flex items-center gap-3 p-4 rounded-xl mt-2 border border-dashed"
-            style={{ borderColor: '#E2E4E9' }}
-          >
-            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#D1D5DB' }} />
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-gray-400">התראות במייל</p>
-              <p className="text-xs text-gray-400 mt-0.5">יהיה זמין בקרוב</p>
-            </div>
-            <span className="text-xs px-2 py-1 rounded-lg font-bold" style={{ background: '#F3F4F6', color: '#9CA3AF' }}>
-              בפיתוח
-            </span>
-          </div>
-        </SectionCard>
-        </>)}
-      </div>
-    ),
+    // Every alert type with an on/off switch (approved mockup, 19.10). Replaces
+    // the four placeholder toggles that saved nothing.
+    notifications: <AlertSettingsPanel />,
 
     // The placeholder "ייצא הכל ל-Excel" used to live here, behind SHOW_LEGACY.
     // It is gone with the panel that replaced it: it produced a workbook holding
