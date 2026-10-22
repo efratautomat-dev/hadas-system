@@ -142,6 +142,20 @@ function normalizeBizboxType(type: string): string {
   return LEGACY_TYPE_MAP[type] ?? 'אחר'
 }
 
+// Bizibox stores imported text in a legacy Hebrew code page with no gershayim,
+// geresh or typographic quotes, and turns each one into "?" — so "בע״מ" arrived
+// as "בע?מ". The xlsx itself is UTF-8 and fine; it is the import that narrows
+// it. Fold those characters to their plain ASCII look-alikes before writing.
+function bizboxSafeText(s: string): string {
+  return s
+    .replace(/[\u05F4\u201C\u201D\u201E\u201F\u2033\u00AB\u00BB]/g, '"')
+    .replace(/[\u05F3\u2018\u2019\u201A\u201B\u2032]/g, "'")
+    .replace(/[\u2010-\u2015\u05BE]/g, '-')
+    .replace(/[\u00A0\u2007\u202F]/g, ' ')
+    .replace(/\u2026/g, '...')
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, '')
+}
+
 const TYPE_EMOJI: Record<string, string> = {
   "צ'ק":                    '📄',
   'עמלה':                   '💸',
@@ -411,7 +425,10 @@ export default function Payments({ initialSupplier, initialPaymentId }: Payments
       // POSITIVE magnitude. Refunds are detected via a negative p.amount, flipped
       // to income, and written as |amount|.
       const cellRows = rows.map(p =>
-        headers.map(h => (COLUMN_BUILDERS[h] ? COLUMN_BUILDERS[h](p) : ''))
+        headers.map(h => {
+          const v = COLUMN_BUILDERS[h] ? COLUMN_BUILDERS[h](p) : ''
+          return typeof v === 'string' ? bizboxSafeText(v) : v
+        })
       )
 
       // Rows are injected into the template's own bytes — see lib/bizboxWrite for
