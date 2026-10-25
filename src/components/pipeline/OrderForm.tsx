@@ -102,8 +102,16 @@ export default function OrderForm({
   //
   // Not shown on the employee's own customer-order form: she is taking one order
   // for one person and has nothing to add to it.
+  //
+  // WAITING only. A customer order she already carried on an earlier order is
+  // `customer_ordered` or further along (arrived, notified) — offering it again
+  // asks her to order the same item twice. It used to exclude only `delivered`,
+  // so a customer who had already been told her item was in kept coming back
+  // here (25.10.2026). A row from before the column existed has no status and
+  // is treated as waiting, as the notebook does.
   const waitingCustomers = customerOnly ? [] : siblings.filter(
-    o => (o.customerName ?? '').trim() !== '' && o.customerStatus !== 'customer_delivered',
+    o => (o.customerName ?? '').trim() !== '' &&
+      (o.customerStatus ?? 'customer_waiting') === 'customer_waiting',
   )
   // The plain notice keeps only the restocks, so the two blocks never say the
   // same thing twice.
