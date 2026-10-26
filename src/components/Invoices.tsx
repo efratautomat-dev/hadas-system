@@ -3,6 +3,7 @@ import { FileText, Search, ChevronRight, ChevronDown, ExternalLink, Eye, Save, A
 import { type Invoice, type Alert, type PipelineStage } from '../data/mockData'
 import { useInvoices } from '../hooks/useInvoices'
 import { useDeliveryNotes } from '../hooks/useDeliveryNotes'
+import { DEMO_MODE } from '../lib/demo'
 import { useDeliveryLinks } from '../hooks/useDeliveryLinks'
 import { useSuppliers } from '../hooks/useSuppliers'
 import { useCategories } from '../hooks/useCategories'
@@ -1417,12 +1418,15 @@ export default function Invoices({
   // shared between them, never absorbed by a single column. That kills the
   // "supplier on the right, everything else clumped on the left" gap.
   // Amount and status keep fixed widths so numbers and badges stay tight.
+  // The demo shows the delivery note each invoice points at (the 21.10
+  // prototype's two-way link; 26.10.2026, demo only).
+  const showNoteCol = DEMO_MODE && !isMobile && !isTablet
   const COL = isMobile
     ? '1fr 110px 90px'
     : isTablet
       ? '1.5fr 1fr 110px 100px'
-      : '1.5fr 1fr 1fr 120px 100px'
-  const MIN_W = isMobile ? '360px' : isTablet ? '620px' : '820px'
+      : showNoteCol ? '1.5fr 1fr 1fr 130px 120px 100px' : '1.5fr 1fr 1fr 120px 100px'
+  const MIN_W = isMobile ? '360px' : isTablet ? '620px' : showNoteCol ? '950px' : '820px'
 
   const counts = invoices.reduce(
     (acc, inv) => {
@@ -1554,6 +1558,7 @@ export default function Invoices({
               <span style={tableHeadCell}>ספק</span>
               {!isMobile && <span style={tableHeadCell}>מסמך · תאריך</span>}
               {!isMobile && !isTablet && <span style={tableHeadCell}>קטגוריה</span>}
+              {showNoteCol && <span style={tableHeadCell}>תעודת משלוח</span>}
               <span style={tableHeadCell}>סכום</span>
               <span className="text-center" style={tableHeadCell}>סטטוס</span>
             </div>
@@ -1665,6 +1670,23 @@ export default function Invoices({
                   {/* Col 3: קטגוריה (desktop only) */}
                   {!isMobile && !isTablet && (
                     <span style={{ fontSize: '12px', color: '#6B7280' }}>{inv.category || ''}</span>
+                  )}
+
+                  {showNoteCol && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {deliveriesFor(inv.id).length === 0
+                        ? <span style={{ fontSize: '12px', color: '#9CA3AF' }}>—</span>
+                        : deliveriesFor(inv.id).map(nid => {
+                            const n = pipelineNotes.find(x => x.id === nid)
+                            return (
+                              <button key={nid} type="button"
+                                onClick={e => { e.stopPropagation(); onOpenDelivery?.(nid) }}
+                                style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--brand-primary)', textDecoration: 'underline', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+                                תעודה {n?.noteNumber || n?.date || ''}
+                              </button>
+                            )
+                          })}
+                    </div>
                   )}
 
                   {/* Col 4: סכום */}

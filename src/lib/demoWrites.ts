@@ -262,7 +262,13 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
     const joined: string[] = Array.isArray(b.joined_order_ids) ? b.joined_order_ids.map(String) : []
     for (const id of joined) {
       const target = orders.find(o => o.id === id && o.supplier_id === row.supplier_id && o.customer_name)
-      if (target) target.customer_status = 'customer_ordered'
+      if (target) {
+        target.customer_status = 'customer_ordered'
+        // The demo carries the link the live system still lacks (spec/STATUS.md,
+        // 25.10): which order this customer's item rides on, so it stops showing
+        // as a separate order and arrives WITH the carrying one.
+        target.carried_by = row.id
+      }
     }
     return row
   }
@@ -320,6 +326,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
           order.delivery_note_id = null
         } else {
           order.status = 'order_arrived'
+          carryArrival(order)
           order.arrived_at = nowIso()
           // The one automatic step, and only forward.
           if (order.customer_name && ['customer_waiting', 'customer_ordered', null, undefined]
@@ -341,6 +348,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
           })
         } else {
           order.status = 'order_arrived'
+          carryArrival(order)
           order.arrived_at = nowIso()
           order.delivery_note_id = adopted.id
         }
@@ -380,6 +388,7 @@ function applyPipelineWrite(method: string, path: string, b: Row): Row | null {
       })
     } else {
       order.status = 'order_arrived'
+      carryArrival(order)
       order.arrived_at = nowIso()
       order.delivery_note_id = note.id
     }
@@ -837,4 +846,16 @@ function applyPersonalWrite(method: string, path: string, b: Row): Row | null {
     return row
   }
   return null
+}
+
+/** A carrying order arrived: the customer orders riding on it arrived too. */
+function carryArrival(order: Row) {
+  for (const o of demoTables.orders ?? []) {
+    if (o.carried_by === order.id && ['customer_waiting', 'customer_ordered', null, undefined]
+        .includes(o.customer_status as string | null)) {
+      o.customer_status = 'customer_arrived'
+      o.status = 'order_arrived'
+      o.arrived_at = order.arrived_at ?? null
+    }
+  }
 }

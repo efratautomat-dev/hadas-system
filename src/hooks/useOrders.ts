@@ -60,6 +60,8 @@ export interface Order {
    */
   cancelledAt: string | null
   cancelReason: string | null
+  /** The order this customer order rides on. Demo only so far — no live column. */
+  carriedBy?: string | null
 }
 
 export function useOrders() {
@@ -95,6 +97,7 @@ export function useOrders() {
           expectedDate:   isoToDisplay(r.expected_date ?? ''),
           cancelledAt:    r.cancelled_at  ?? null,
           cancelReason:   r.cancel_reason ?? null,
+          carriedBy:      r.carried_by    ?? null,
         })))
         setError(null)
       }

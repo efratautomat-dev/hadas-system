@@ -15,6 +15,8 @@ import Suppliers from './Suppliers'
 import Invoices, { type DuplicateResolution } from './Invoices'
 import Payments from '../pages/Payments'
 import GoodsTracking from './pipeline/GoodsTracking'
+import OrdersHub from './orders/OrdersHub'
+import DeliveryNotesPage from './orders/DeliveryNotesPage'
 import StatementReconciliation from './StatementReconciliation'
 import Returns from './Returns'
 import CaptureDocument from './CaptureDocument'
@@ -75,7 +77,8 @@ const pageLabels: Record<string, string> = {
   invoices:              'חשבוניות',
   'invoices-duplicates': 'חשבוניות',
   payments:              'תשלומים',
-  deliveries:            'מעקב הזמנות וסחורה',
+  deliveries:            DEMO_MODE ? 'הזמנות וסחורה' : 'מעקב הזמנות וסחורה',
+  'delivery-notes':      'תעודות משלוח',
   returns:               'חזרות',
   reconciliation:        'התאמת כרטסות',
   'system-logs':         'לוגי מערכת',
@@ -408,7 +411,7 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
         onOpenInvoice={(id) => pushNav({ page: 'invoices', invoiceSelectedId: id })}
         onCloseInvoice={goBack}
         onOpenSupplier={(id) => pushNav({ page: 'suppliers', supplierViewId: id })}
-        onOpenDelivery={(id) => pushNav({ page: 'deliveries', deliverySelectedId: id })}
+        onOpenDelivery={(id) => pushNav({ page: DEMO_MODE ? 'delivery-notes' : 'deliveries', deliverySelectedId: id })}
         onDuplicateResolved={handleDuplicateResolved}
         onDuplicateDismissed={goBack}
       />
@@ -439,8 +442,22 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     // own vocabulary — sitting below a screen describing the same records. Two
     // pictures of one thing is worse than a missing feature, and everything it did
     // is now here: attach and detach in the delivery panel, intake behind one door.
-    if (activePage === 'deliveries') return (
+    if (activePage === 'deliveries') return DEMO_MODE ? (
+      <OrdersHub
+        userEmail={userEmail}
+        initialNoteId={currentNav.deliverySelectedId ?? null}
+        onOpenInvoice={(id) => pushNav({ page: 'invoices', invoiceSelectedId: id })}
+        onGoNotesPage={() => pushNav({ page: 'delivery-notes' })}
+      />
+    ) : (
       <GoodsTracking userEmail={userEmail} initialNoteId={currentNav.deliverySelectedId ?? null} />
+    )
+    if (activePage === 'delivery-notes' && DEMO_MODE) return (
+      <DeliveryNotesPage
+        key={currentNav.deliverySelectedId ?? 'list'}
+        initialNoteId={currentNav.deliverySelectedId ?? null}
+        onOpenInvoice={(id) => pushNav({ page: 'invoices', invoiceSelectedId: id })}
+      />
     )
     if (activePage === 'reconciliation') return <StatementReconciliation initialStatementId={currentNav.statementViewId ?? null} onOpenRow={openLedgerRow} />
     if (activePage === 'returns')        return <Returns initialEditId={currentNav.returnsEditId} />

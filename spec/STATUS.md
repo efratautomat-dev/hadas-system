@@ -59,6 +59,14 @@
 `PUT /invoices/:id {isPartialReturn}` — שעכשיו **נשמר** (היה ברשימת "שדות בלי עמודה"
 ונזרק) ומעביר את הקובץ בדרייב כמו שינוי תאריך (`updateInvoice`).
 
+**ענף `demo/next` — לדמו בלבד, לא ממוזג ל-main (26.10, בעלת העסק: "רק במערכת הדמיה").**
+main + מסך הבית (`feat/demo-home-dashboard`) + בקרת תשומות (`VatControlPanel`, `lib/vatControl.ts`,
+הגדרות) + הזמנות/תעודות לפי ההדמיה מ-21.10 (`components/orders/`: `OrdersHub` שלוש לשוניות,
+`DeliveryNotesPage`, `DeliveryNotePopup`, הצעת חשבונית `lib/dnSuggest.ts` → "נעל התאמה" = `/link`
+הקיים; עמודת "תעודת משלוח" בחשבוניות; `carried_by` בדמו בלבד — הזמנת לקוחה רוכבת על ההזמנה
+ומגיעה איתה). הכל מאחורי `DEMO_MODE`. ⚠️ **הדמו נפרס מהענף הזה, לא מ-main** — פריסת דמו מ-main
+מוחקת את כל זה (קרה ב-21.10 וב-25.10 למסך הבית).
+
 **צירוף הזמנות לקוחה — 25.10, ענף `fix/customer-orders-join`:** בפתיחת הזמנה חדשה אצל ספק
 `OrderForm` הציע לצרף כל הזמנת לקוחה שלא "נמסר" — גם כאלה שכבר צורפו (`customer_ordered`)
 ואפילו "נמסרה הודעה". עכשיו רק `customer_waiting` (או ריק), אותה הגדרה כמו `ordered()` במחברת.

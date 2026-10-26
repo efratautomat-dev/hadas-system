@@ -42,6 +42,7 @@ const ADVANCED_PAGES = [
   ...BASIC_PAGES,
   'payments',
   'deliveries',
+  'delivery-notes',
   'returns',
   'reconciliation',
 ]

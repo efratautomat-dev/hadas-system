@@ -1,3 +1,4 @@
+import { DEMO_MODE } from '../lib/demo'
 import { useState, useEffect } from 'react'
 import { useAppLogo } from '../hooks/useAppLogo'
 import { brand } from '../brand.config'
@@ -17,6 +18,7 @@ import {
   ScrollText,
   Camera,
   Plug,
+  ClipboardList,
 } from 'lucide-react'
 
 function useIsTablet() {
@@ -56,7 +58,10 @@ const navItems = [
   { id: 'suppliers', label: 'ספקים', Icon: Users },
   { id: 'invoices',  label: 'חשבוניות', Icon: FileText },
   { id: 'payments', label: 'תשלומים', Icon: CreditCard },
-  { id: 'deliveries', label: 'מעקב הזמנות וסחורה', Icon: Truck },
+  // The demo runs the 21.10 layout: orders and goods on one screen, delivery
+  // notes on their own page like invoices (26.10.2026, demo only).
+  { id: 'deliveries', label: DEMO_MODE ? 'הזמנות וסחורה' : 'מעקב הזמנות וסחורה', Icon: Truck },
+  ...(DEMO_MODE ? [{ id: 'delivery-notes', label: 'תעודות משלוח', Icon: ClipboardList }] : []),
   { id: 'returns', label: 'חזרות', Icon: RotateCcw },
   { id: 'reconciliation', label: 'התאמת כרטסות', Icon: BookOpen },
   { id: 'integrations',   label: 'אינטגרציות',    Icon: Plug },
