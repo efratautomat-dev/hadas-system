@@ -8,6 +8,9 @@ import { Bell, Search, Menu, ArrowRight } from 'lucide-react'
 import Sidebar from './Sidebar'
 import UpdateBanner from './UpdateBanner'
 import Dashboard from './Dashboard'
+import Home from './home/Home'
+import WishButton from './home/WishButton'
+import { DEMO_MODE } from '../lib/demo'
 import Suppliers from './Suppliers'
 import Invoices, { type DuplicateResolution } from './Invoices'
 import Payments from '../pages/Payments'
@@ -307,39 +310,49 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
     setMobileMenuOpen(false)
   }
 
+  // The home screen. The new one (who is waiting, and why — src/components/home)
+  // is DEMO-ONLY until the owner has tried it: the live system keeps the old
+  // Dashboard. Both are reached from the same two places below, so the switch is
+  // this one function and nothing else.
+  const renderHome = () => DEMO_MODE ? (
+    <Home
+      alerts={alerts}
+      onPageChange={handlePageChange}
+      onMarkRead={handleMarkRead}
+      onOpenInvoice={(id)                => pushNav({ page: 'invoices',  invoiceSelectedId:  id   })}
+      onOpenInvoiceDuplicate={(id)       => pushNav({ page: 'invoices',  invoiceDuplicateId: id   })}
+      onOpenInvoiceByGmailMessageId={handleOpenInvoiceByGmailMessageId}
+      onOpenSupplier={(id)               => pushNav({ page: 'suppliers', supplierViewId:     id   })}
+      onOpenSupplierByName={(name)       => pushNav({ page: 'suppliers', supplierViewName:   name })}
+      onOpenReturn={(id)                 => pushNav({ page: 'returns',   returnsEditId:      id   })}
+      onOpenStatement={(id)              => pushNav({ page: 'reconciliation', statementViewId: id })}
+      onOpenDeliveryNote={(id)           => pushNav({ page: 'deliveries', deliverySelectedId: id })}
+      onOpenPayment={(id)                => pushNav({ page: 'payments',  paymentOpenId:      id   })}
+      onCreateSupplierFromAlert={handleCreateSupplierFromAlert}
+      onNavigate={handleOpenNoteRecord}
+    />
+  ) : (
+    <Dashboard
+      onPageChange={handlePageChange}
+      alerts={alerts}
+      onMarkRead={handleMarkRead}
+      onOpenInvoice={(id)                => pushNav({ page: 'invoices',  invoiceSelectedId:  id   })}
+      onOpenInvoiceDuplicate={(id)       => pushNav({ page: 'invoices',  invoiceDuplicateId: id   })}
+      onOpenInvoiceByGmailMessageId={handleOpenInvoiceByGmailMessageId}
+      onOpenSupplier={(id)               => pushNav({ page: 'suppliers', supplierViewId:     id   })}
+      onOpenSupplierByName={(name)       => pushNav({ page: 'suppliers', supplierViewName:   name })}
+      onOpenReturn={(id)                 => pushNav({ page: 'returns',   returnsEditId:      id   })}
+      onCreateSupplierFromAlert={handleCreateSupplierFromAlert}
+    />
+  )
+
   const renderPage = () => {
     // A screen outside the viewer's tier is not reachable from the nav, but it is
     // still reachable through history state (a back button into a page that was
     // open before, a restored session). Falling back to the dashboard keeps the
     // tier honest wherever the navigation came from.
-    if (!tierAllows(activePage)) return (
-      <Dashboard
-        onPageChange={handlePageChange}
-        alerts={alerts}
-        onMarkRead={handleMarkRead}
-        onOpenInvoice={(id)                => pushNav({ page: 'invoices',  invoiceSelectedId:  id   })}
-        onOpenInvoiceDuplicate={(id)       => pushNav({ page: 'invoices',  invoiceDuplicateId: id   })}
-        onOpenInvoiceByGmailMessageId={handleOpenInvoiceByGmailMessageId}
-        onOpenSupplier={(id)               => pushNav({ page: 'suppliers', supplierViewId:     id   })}
-        onOpenSupplierByName={(name)       => pushNav({ page: 'suppliers', supplierViewName:   name })}
-        onOpenReturn={(id)                 => pushNav({ page: 'returns',   returnsEditId:      id   })}
-        onCreateSupplierFromAlert={handleCreateSupplierFromAlert}
-      />
-    )
-    if (activePage === 'dashboard')      return (
-      <Dashboard
-        onPageChange={handlePageChange}
-        alerts={alerts}
-        onMarkRead={handleMarkRead}
-        onOpenInvoice={(id)                => pushNav({ page: 'invoices',  invoiceSelectedId:  id   })}
-        onOpenInvoiceDuplicate={(id)       => pushNav({ page: 'invoices',  invoiceDuplicateId: id   })}
-        onOpenInvoiceByGmailMessageId={handleOpenInvoiceByGmailMessageId}
-        onOpenSupplier={(id)               => pushNav({ page: 'suppliers', supplierViewId:     id   })}
-        onOpenSupplierByName={(name)       => pushNav({ page: 'suppliers', supplierViewName:   name })}
-        onOpenReturn={(id)                 => pushNav({ page: 'returns',   returnsEditId:      id   })}
-        onCreateSupplierFromAlert={handleCreateSupplierFromAlert}
-      />
-    )
+    if (!tierAllows(activePage)) return renderHome()
+    if (activePage === 'dashboard')      return renderHome()
     if (activePage === 'alerts')         return (
       <Alerts
         alerts={alerts}
@@ -539,13 +552,21 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
               {!isMobile && <span>חיפוש...</span>}
               <Search className="w-4 h-4 flex-shrink-0" />
             </button>
+            {/* Demo-only, like the home screen it was designed with. */}
+            {DEMO_MODE && (
+              <WishButton
+                page={activePage}
+                pageLabel={pageLabels[activePage] ?? activePage}
+                compact={isMobile || isTablet}
+              />
+            )}
           </div>
 
           {/* Right: title + bell + avatar */}
           <div className="flex items-center gap-3">
             {!isMobile && (
               <h2 className="font-medium" style={{ fontSize: isTablet ? '17px' : '16px', color: '#1A1A2E' }}>
-                {activePage === 'dashboard' ? getGreeting() : pageLabels[activePage]}
+                {activePage === 'dashboard' ? (DEMO_MODE ? pageLabels.dashboard : getGreeting()) : pageLabels[activePage]}
               </h2>
             )}
             {isMobile && (

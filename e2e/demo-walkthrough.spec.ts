@@ -44,7 +44,9 @@ test('Hadas marketing walkthrough (demo mode)', async ({ page }) => {
 
   // ── a. Dashboard overview + alert count ────────────────────────────────────
   await expect(sidebar).toBeVisible()
-  await expect(page.getByText('ספקים פעילים')).toBeVisible()
+  // Demo mode renders the new home screen (src/components/home/Home.tsx), whose
+  // anchor is the per-supplier "מחכים לך" block — the old stat tiles are gone here.
+  await expect(page.getByRole('heading', { name: 'מחכים לך' })).toBeVisible()
   await pause(1500)
   // Linger on the unread-alerts badge (red "4") next to the bell.
   await glideTo(sidebar.getByRole('button', { name: /התראות/ }))

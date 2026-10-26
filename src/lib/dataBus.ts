@@ -30,6 +30,8 @@ export type Resource =
   | 'ledger_resets'
   | 'ledger_marks'
   | 'backup_runs'
+  | 'tasks'
+  | 'wishes'
 
 /**
  * Every topic, in one array — the list a time-based refresh announces.
@@ -41,6 +43,7 @@ export type Resource =
 export const ALL_RESOURCES: Resource[] = [
   'delivery_notes', 'orders', 'invoices', 'suppliers', 'payments',
   'returns', 'statements', 'alerts', 'supplier_notes', 'ledger_resets', 'ledger_marks',
+  'tasks', 'wishes',
 ]
 
 type Listener = () => void
@@ -112,6 +115,8 @@ export function resourcesFor(path: string): Resource[] {
   // announces `suppliers` as well as itself.
   if (path.startsWith('/ledger-resets')) add('ledger_resets', 'suppliers')
   if (path.startsWith('/ledger-marks'))  add('ledger_marks')
+  if (path.startsWith('/tasks'))          add('tasks')
+  if (path.startsWith('/wishes'))         add('wishes')
   if (path.startsWith('/ingest'))         add('delivery_notes', 'invoices', 'alerts')
   // A backup can raise an alert of its own (a failed run, an unclassified table),
   // so the feed has to hear about it too — not only the panel that started it.
