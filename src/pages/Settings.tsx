@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { checkForUpdate, isBrandedBuild, isNative, openExternal, resetStoreCode, type AppUpdate } from '../lib/native'
-import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw, Tag, GitMerge, X, FileSpreadsheet, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { User, Settings2, Bell, Download, Upload, Camera, Users, Plus, Pencil, Trash2, RefreshCw, Tag, GitMerge, X, FileSpreadsheet, CheckCircle2, AlertTriangle, FileCheck2 } from 'lucide-react'
 import { useEmployees } from '../hooks/useEmployees'
 import type { Employee } from '../hooks/useEmployees'
 import { useCategories } from '../hooks/useCategories'
@@ -14,6 +14,8 @@ import BackupPanel from '../components/BackupPanel'
 import { SectionCard, FieldLabel, TextInput } from '../components/ui/form'
 import { inspectTemplateFile, TEMPLATE_BUCKET, TEMPLATE_PATH, BUNDLED_TEMPLATE_URL, loadBizboxTemplate } from '../lib/bizboxTemplate'
 import AlertSettingsPanel from '../components/AlertSettingsPanel'
+import VatControlPanel from '../components/VatControlPanel'
+import { DEMO_MODE } from '../lib/demo'
 
 function useIsTablet() {
   const [v] = useState(
@@ -22,7 +24,7 @@ function useIsTablet() {
   return v
 }
 
-type Tab = 'profile' | 'preferences' | 'notifications' | 'backup' | 'employees' | 'categories' | 'bizbox'
+type Tab = 'profile' | 'preferences' | 'notifications' | 'backup' | 'employees' | 'categories' | 'bizbox' | 'vat'
 
 interface ProfileState {
   businessName: string
@@ -47,6 +49,8 @@ const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ className?: st
   { id: 'employees',     label: 'עובדים',         Icon: Users },
   { id: 'categories',    label: 'קטגוריות',       Icon: Tag },
   { id: 'bizbox',        label: 'ייצוא לביזיבוקס', Icon: FileSpreadsheet },
+  // DEMO ONLY (26.10.2026) — filtered out of the tab bar below outside the demo.
+  { id: 'vat',           label: 'בקרת תשומות',   Icon: FileCheck2 },
 ]
 
 const DATE_FORMATS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'DD.MM.YYYY']
@@ -981,6 +985,7 @@ export default function Settings() {
     // resurrects a convincing, empty one. (It was correctly wired for the tablet
     // via saveOrShareFile — that was not the problem with it.)
     backup: <BackupPanel />,
+    vat: DEMO_MODE ? <VatControlPanel /> : null,
 
     employees: (
       <div className="space-y-5">
@@ -1166,7 +1171,7 @@ export default function Settings() {
       >
         {/* Bizibox export is one of the integrations the top tier sells, so the
             tab follows the same catalogue as the rest of the app. */}
-        {TABS.filter(({ id }) => id !== 'bizbox' || tierAllowsIntegrations()).map(({ id, label, Icon }) => (
+        {TABS.filter(({ id }) => (id !== 'bizbox' || tierAllowsIntegrations()) && (id !== 'vat' || DEMO_MODE)).map(({ id, label, Icon }) => (
           <button
             key={id}
             onClick={() => setActiveTab(id)}
