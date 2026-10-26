@@ -111,25 +111,33 @@ export default function VatControlPanel() {
 
   async function onPick(f: File | undefined) {
     if (!f) return
-    try { takeSheet(f.name, await readSheet(f)) } catch { setErr('לא הצלחתי לקרוא את הקובץ. צריך קובץ Excel או CSV.') }
+    try { takeSheet(f.name, await readSheet(f)); setSample(null) } catch { setErr('לא הצלחתי לקרוא את הקובץ. צריך קובץ Excel או CSV.') }
   }
 
-  function useSample() {
-    takeSheet(`תשומות_${per.slice(5, 7)}-${per.slice(0, 4)}.xlsx`, sampleCpaSheet(per, ourAll))
+  // Which built-in sample is loaded, if any — the demo's "עם פערים / הכל תואם"
+  // switch swaps between the two and re-runs, so both outcomes can be shown.
+  const [sample, setSample] = useState<null | 'gaps' | 'ok'>(null)
+  const sampleName = () => `תשומות_${per.slice(5, 7)}-${per.slice(0, 4)}.xlsx`
+
+  function loadSample(kind: 'gaps' | 'ok', andRun = false) {
+    const sheet = sampleCpaSheet(per, ourAll, kind === 'ok')
+    takeSheet(sampleName(), sheet)
+    setSample(kind)
+    if (andRun) run('קובץ לדוגמה', { name: sampleName(), sheet }, autoMap(sheet.headers))
   }
 
   async function downloadSample() {
-    await saveOrShareFile(`תשומות_לדוגמה_${per}.xlsx`, sheetToXlsx(sampleCpaSheet(per, ourAll)))
+    await saveOrShareFile(`תשומות_לדוגמה_${per}.xlsx`, sheetToXlsx(sampleCpaSheet(per, ourAll, sample === 'ok')))
   }
 
-  function run(source = 'העלאה ידנית') {
-    if (!file) return
-    const missing = (['number', 'vat'] as Field[]).filter(f => !mapping[f])
-    if (missing.length) { setErr(`חסר מיפוי ל: ${missing.map(f => FIELD_LABEL[f]).join(', ')}`); return }
-    const res = reconcile(per, file.name, ourAll, toCpaRows(file.sheet, mapping))
+  function run(source = 'העלאה ידנית', f = file, map = mapping) {
+    if (!f) return
+    const missing = (['number', 'vat'] as Field[]).filter(k => !map[k])
+    if (missing.length) { setErr(`חסר מיפוי ל: ${missing.map(k => FIELD_LABEL[k]).join(', ')}`); return }
+    const res = reconcile(per, f.name, ourAll, toCpaRows(f.sheet, map))
     setResult(res)
     setOpenSup(null)
-    setFilter('bad')
+    setFilter(res.suppliers.some(x => x.docs.some(d => d.kind)) ? 'bad' : 'all')
     const open = res.suppliers.reduce((a, s) => a + s.docs.filter(d => d.kind).length, 0)
     setHistory(h => [{ period: per, source, at: new Date().toISOString(), open }, ...h.filter(x => x.period !== per)].slice(0, 12))
     flash(open ? `הבדיקה הסתיימה — נמצאו ${open} פערים` : 'הבדיקה הסתיימה — הכל תואם')
@@ -207,8 +215,10 @@ export default function VatControlPanel() {
             </div>
           )}
           <div className="text-xs text-gray-500 mt-3 leading-relaxed">
-            אין קובץ בהישג יד?{' '}
-            <button type="button" className="font-bold underline" style={{ color: 'var(--brand-primary)' }} onClick={useSample}>להשתמש בקובץ לדוגמה</button>
+            אין קובץ בהישג יד? קובץ לדוגמה:{' '}
+            <button type="button" className="font-bold underline" style={{ color: 'var(--brand-primary)' }} onClick={() => loadSample('gaps')}>עם פערים</button>
+            {' · '}
+            <button type="button" className="font-bold underline" style={{ color: 'var(--brand-primary)' }} onClick={() => loadSample('ok')}>הכל תואם</button>
             {' · '}
             <button type="button" className="font-bold underline" style={{ color: 'var(--brand-primary)' }} onClick={() => void downloadSample()}>להוריד אותו</button>
           </div>
@@ -281,6 +291,19 @@ export default function VatControlPanel() {
       )}
 
       {/* ── התוצאה ── */}
+      {result && sample && (
+        <div className="flex items-center gap-1.5 flex-wrap text-xs text-gray-500">
+          <span>להדגמה:</span>
+          {([['gaps', 'עם פערים'], ['ok', 'הכל תואם']] as const).map(([k, l]) => (
+            <button key={k} type="button" onClick={() => loadSample(k, true)}
+              className="rounded-lg px-2.5 py-1.5 font-bold bg-white"
+              style={{ border: `1px solid ${sample === k ? 'var(--brand-primary)' : '#D1D5DB'}`, color: sample === k ? 'var(--brand-primary)' : '#374151' }}>
+              {l}
+            </button>
+          ))}
+        </div>
+      )}
+
       {result && (openCount === 0 ? (
         <div className="rounded-2xl p-5 flex items-center gap-4 flex-wrap" style={{ background: '#F0FDF4', border: '1px solid #BBF7D0' }}>
           <CheckCircle2 className="w-9 h-9" style={{ color: STATUS.green.fg }} />
@@ -317,57 +340,60 @@ export default function VatControlPanel() {
             <Stat label="מע״מ אצלנו / אצל הרו״ח" value={<span className="text-base">{fmt(vatOurs)} / {fmt(vatCpa)}</span>} />
           </div>
 
-          <SectionCard>
-            <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
-              <h3 className="font-extrabold text-gray-800">התאמה לפי ספק</h3>
-              <div className="flex gap-1.5 flex-wrap">
-                {([['bad', 'לא תואם', bad.length], ['ok', 'תואם', rows.length - bad.length], ['all', 'הכל', rows.length]] as const).map(([k, l, n]) => (
-                  <button key={k} type="button" onClick={() => setFilter(k)}
-                    className="text-sm rounded-full px-3 py-1.5"
-                    style={filter === k
-                      ? { background: 'var(--brand-primary)', color: 'white', border: '1px solid var(--brand-primary)' }
-                      : { background: 'white', color: '#374151', border: '1px solid #D1D5DB' }}
-                  >{l} · {n}</button>
-                ))}
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr className="text-xs text-gray-500 text-right">
-                    {['ספק', 'ח.פ', 'מסמכים אצלנו', 'אצל הרו״ח', 'מע״מ אצלנו', 'מע״מ אצל הרו״ח', 'הפרש', 'מצב', ''].map(h =>
-                      <th key={h} className="font-semibold px-3 py-2 whitespace-nowrap" style={{ borderBottom: `1px solid ${HAIRLINE}` }}>{h}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.map(r => (
-                    <tr key={r.key} onClick={() => setOpenSup(r.key)} className="cursor-pointer hover:bg-gray-50"
-                      style={{ background: openSup === r.key ? '#FDF2F4' : undefined }}>
-                      <td className="px-3 py-2.5 font-bold" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.name}</td>
-                      <td className="px-3 py-2.5" dir="ltr" style={{ borderBottom: '1px solid #EEF0F3', textAlign: 'right' }}>{r.hp || '—'}</td>
-                      <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.docs.filter(d => d.ours != null).length}</td>
-                      <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.docs.filter(d => d.cpa != null).length}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3' }}>{fmt(r.vatOurs)}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3' }}>{fmt(r.vatCpa)}</td>
-                      <td className="px-3 py-2.5 font-bold whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3', color: r.diff === 0 ? STATUS.green.fg : STATUS.red.fg }}>{fmt(r.diff)}</td>
-                      <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #EEF0F3' }}>
-                        {r.open > 0
-                          ? <Pill {...STATUS.red}>לא תואם · {r.open}</Pill>
-                          : <Pill {...STATUS.green}>{r.had ? 'טופל' : 'תואם'}</Pill>}
-                      </td>
-                      <td className="px-3 py-2.5 text-xs font-bold whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3', color: 'var(--brand-primary)' }}>פירוט ←</td>
-                    </tr>
-                  ))}
-                  {shown.length === 0 && (
-                    <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-400">אין ספקים בסינון הזה</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-xs text-gray-500 mt-2">לחיצה על שורה פותחת את פירוט הפערים של הספק.</p>
-          </SectionCard>
         </div>
       ))}
+      {result && (
+      <SectionCard>
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-3">
+          <h3 className="font-extrabold text-gray-800">התאמה לפי ספק</h3>
+          <div className="flex gap-1.5 flex-wrap">
+            {([['bad', 'לא תואם', bad.length], ['ok', 'תואם', rows.length - bad.length], ['all', 'הכל', rows.length]] as const).map(([k, l, n]) => (
+              <button key={k} type="button" onClick={() => setFilter(k)}
+                className="text-sm rounded-full px-3 py-1.5"
+                style={filter === k
+                  ? { background: 'var(--brand-primary)', color: 'white', border: '1px solid var(--brand-primary)' }
+                  : { background: 'white', color: '#374151', border: '1px solid #D1D5DB' }}
+              >{l} · {n}</button>
+            ))}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+            <thead>
+              <tr className="text-xs text-gray-500 text-right">
+                {['ספק', 'ח.פ', 'מסמכים אצלנו', 'אצל הרו״ח', 'מע״מ אצלנו', 'מע״מ אצל הרו״ח', 'הפרש', 'מצב', ''].map(h =>
+                  <th key={h} className="font-semibold px-3 py-2 whitespace-nowrap" style={{ borderBottom: `1px solid ${HAIRLINE}` }}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map(r => (
+                <tr key={r.key} onClick={() => setOpenSup(r.key)} className="cursor-pointer hover:bg-gray-50"
+                  style={{ background: openSup === r.key ? '#FDF2F4' : undefined }}>
+                  <td className="px-3 py-2.5 font-bold" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.name}</td>
+                  <td className="px-3 py-2.5" dir="ltr" style={{ borderBottom: '1px solid #EEF0F3', textAlign: 'right' }}>{r.hp || '—'}</td>
+                  <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.docs.filter(d => d.ours != null).length}</td>
+                  <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.docs.filter(d => d.cpa != null).length}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3' }}>{fmt(r.vatOurs)}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3' }}>{fmt(r.vatCpa)}</td>
+                  <td className="px-3 py-2.5 font-bold whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3', color: r.diff === 0 ? STATUS.green.fg : STATUS.red.fg }}>{fmt(r.diff)}</td>
+                  <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #EEF0F3' }}>
+                    {r.open > 0
+                      ? <Pill {...STATUS.red}>לא תואם · {r.open}</Pill>
+                      : <Pill {...STATUS.green}>{r.had ? 'טופל' : 'תואם'}</Pill>}
+                  </td>
+                  <td className="px-3 py-2.5 text-xs font-bold whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3', color: 'var(--brand-primary)' }}>פירוט ←</td>
+                </tr>
+              ))}
+              {shown.length === 0 && (
+                <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-400">אין ספקים בסינון הזה</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">לחיצה על שורה פותחת את פירוט הפערים של הספק.</p>
+      </SectionCard>
+      )}
+
 
       {/* ── בדיקות קודמות ── */}
       <SectionCard title="בדיקות קודמות">

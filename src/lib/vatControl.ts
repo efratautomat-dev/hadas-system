@@ -251,7 +251,7 @@ export function reconcile(
 // one gap of each kind the month can show, so the result screen has something
 // to say. The visitor can download it, look at it, and upload it back.
 
-export function sampleCpaSheet(period: string, ourAll: OurDoc[]): Sheet {
+export function sampleCpaSheet(period: string, ourAll: OurDoc[], clean = false): Sheet {
   const ours = ourAll.filter(d => d.date.startsWith(period))
   const prev = ourAll.filter(d => d.date < `${period}-01`).sort((a, b) => b.date.localeCompare(a.date))[0]
   const H = VAT_COLUMNS
@@ -261,6 +261,8 @@ export function sampleCpaSheet(period: string, ourAll: OurDoc[]): Sheet {
     [H.net[0]]: r2(Math.abs(d.net)), [H.vat[0]]: r2(Math.abs(d.vat)), [H.type[0]]: d.vat < 0 ? 'זיכוי' : 'חשבונית',
   })
   const rows: Record<string, unknown>[] = []
+  // The "everything matches" sample: the month exactly as filed, credits included.
+  if (clean) return { headers: Object.values(H).map(c => c[0]), rows: ours.map(line) }
   ours.forEach((d, i) => {
     if (i === 1) return                                   // not reported
     if (d.vat < 0) return                                 // credit not offset
