@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Upload, Mail, FileSpreadsheet, CheckCircle2, AlertTriangle, X, Download, Eye } from 'lucide-react'
 import { SectionCard } from './ui/form'
 import { Button } from './ui/Button'
@@ -7,6 +7,7 @@ import { useSuppliers } from '../hooks/useSuppliers'
 import { saveOrShareFile, openExternal } from '../lib/native'
 import { STATUS } from '../theme/status'
 import { brand } from '../brand.config'
+import { useNarrow } from './useNarrow'
 import {
   GAP_LABEL, GAP_TODO, FIELD_LABEL, autoMap, readSheet, toCpaRows, reconcile, sampleCpaSheet,
   sheetToXlsx, buildReport, monthLabel, dmy,
@@ -84,6 +85,8 @@ export default function VatControlPanel() {
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [history, setHistory] = useState<HistoryRow[]>(() => load('vat.history', []))
   const [filter, setFilter] = useState<'bad' | 'ok' | 'all'>('bad')
+  const narrow = useNarrow()
+  const phone = useNarrow(640)
   const [openSup, setOpenSup] = useState<string | null>(null)
   const [report, setReport] = useState<null | 'summary' | 'gaps' | 'all'>(null)
   const [toast, setToast] = useState('')
@@ -337,7 +340,8 @@ export default function VatControlPanel() {
             <Stat label="בתיקיית הדרייב" value={result.ourDocs} />
             <Stat label="בקובץ הרו״ח" value={result.cpaRows} />
             <Stat label="ספקים תואמים" value={`${rows.length - bad.length} / ${rows.length}`} tone={STATUS.green.fg} />
-            <Stat label="מע״מ אצלנו / אצל הרו״ח" value={<span className="text-base">{fmt(vatOurs)} / {fmt(vatCpa)}</span>} />
+            <Stat label="מע״מ אצלנו" value={<span className="text-base">{fmt(vatOurs)}</span>} />
+            <Stat label="מע״מ אצל הרו״ח" value={<span className="text-base">{fmt(vatCpa)}</span>} />
           </div>
 
         </div>
@@ -361,7 +365,7 @@ export default function VatControlPanel() {
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
             <thead>
               <tr className="text-xs text-gray-500 text-right">
-                {['ספק', 'ח.פ', 'מסמכים אצלנו', 'אצל הרו״ח', 'מע״מ אצלנו', 'מע״מ אצל הרו״ח', 'הפרש', 'מצב', ''].map(h =>
+                {(narrow ? ['ספק', 'מע״מ אצלנו', 'מע״מ אצל הרו״ח', 'הפרש', 'מצב'] : ['ספק', 'ח.פ', 'מסמכים אצלנו', 'אצל הרו״ח', 'מע״מ אצלנו', 'מע״מ אצל הרו״ח', 'הפרש', 'מצב', '']).map(h =>
                   <th key={h} className="font-semibold px-3 py-2 whitespace-nowrap" style={{ borderBottom: `1px solid ${HAIRLINE}` }}>{h}</th>)}
               </tr>
             </thead>
@@ -369,10 +373,15 @@ export default function VatControlPanel() {
               {shown.map(r => (
                 <tr key={r.key} onClick={() => setOpenSup(r.key)} className="cursor-pointer hover:bg-gray-50"
                   style={{ background: openSup === r.key ? '#FDF2F4' : undefined }}>
-                  <td className="px-3 py-2.5 font-bold" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.name}</td>
-                  <td className="px-3 py-2.5" dir="ltr" style={{ borderBottom: '1px solid #EEF0F3', textAlign: 'right' }}>{r.hp || '—'}</td>
-                  <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.docs.filter(d => d.ours != null).length}</td>
-                  <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.docs.filter(d => d.cpa != null).length}</td>
+                  <td className="px-3 py-2.5 font-bold" style={{ borderBottom: '1px solid #EEF0F3' }}>
+                    {r.name}
+                    {narrow && r.hp && <div className="text-xs font-normal text-gray-500" dir="ltr" style={{ textAlign: 'right' }}>{r.hp}</div>}
+                  </td>
+                  {!narrow && <>
+                    <td className="px-3 py-2.5" dir="ltr" style={{ borderBottom: '1px solid #EEF0F3', textAlign: 'right' }}>{r.hp || '—'}</td>
+                    <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.docs.filter(d => d.ours != null).length}</td>
+                    <td className="px-3 py-2.5" style={{ borderBottom: '1px solid #EEF0F3' }}>{r.docs.filter(d => d.cpa != null).length}</td>
+                  </>}
                   <td className="px-3 py-2.5 whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3' }}>{fmt(r.vatOurs)}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3' }}>{fmt(r.vatCpa)}</td>
                   <td className="px-3 py-2.5 font-bold whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3', color: r.diff === 0 ? STATUS.green.fg : STATUS.red.fg }}>{fmt(r.diff)}</td>
@@ -381,11 +390,11 @@ export default function VatControlPanel() {
                       ? <Pill {...STATUS.red}>לא תואם · {r.open}</Pill>
                       : <Pill {...STATUS.green}>{r.had ? 'טופל' : 'תואם'}</Pill>}
                   </td>
-                  <td className="px-3 py-2.5 text-xs font-bold whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3', color: 'var(--brand-primary)' }}>פירוט ←</td>
+                  {!narrow && <td className="px-3 py-2.5 text-xs font-bold whitespace-nowrap" style={{ borderBottom: '1px solid #EEF0F3', color: 'var(--brand-primary)' }}>פירוט ←</td>}
                 </tr>
               ))}
               {shown.length === 0 && (
-                <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-400">אין ספקים בסינון הזה</td></tr>
+                <tr><td colSpan={narrow ? 5 : 9} className="px-3 py-6 text-center text-gray-400">אין ספקים בסינון הזה</td></tr>
               )}
             </tbody>
           </table>
@@ -450,24 +459,20 @@ export default function VatControlPanel() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead><tr className="text-xs text-gray-500 text-right">
-                    {['מס׳ מסמך', 'תאריך', 'אצלנו (מע״מ)', 'אצל הרו״ח (מע״מ)', 'תוצאה', ''].map(h => <th key={h} className="font-semibold px-2 py-2 whitespace-nowrap">{h}</th>)}
+                    {(phone ? ['מס׳ מסמך', 'אצלנו (מע״מ)', 'אצל הרו״ח (מע״מ)'] : ['מס׳ מסמך', 'תאריך', 'אצלנו (מע״מ)', 'אצל הרו״ח (מע״מ)', 'תוצאה', '']).map(h => <th key={h} className="font-semibold px-2 py-2 whitespace-nowrap">{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {cur.docs.map(d => {
                       const m = marks[markKey(cur.key, d)]
-                      return (
-                        <tr key={d.key} style={{ opacity: m ? 0.55 : 1 }}>
-                          <td className="px-2 py-2 font-semibold" dir="ltr" style={{ textAlign: 'right' }}>{d.number || '—'}</td>
-                          <td className="px-2 py-2 whitespace-nowrap">{dmy(d.date)}</td>
-                          <td className="px-2 py-2 whitespace-nowrap">{fmt(d.ours)}</td>
-                          <td className="px-2 py-2 whitespace-nowrap">{fmt(d.cpa)}</td>
-                          <td className="px-2 py-2">
+                      // On a phone the verdict and its buttons drop to a row of
+                      // their own under the figures — six columns do not fit.
+                      const verdict = (<>
                             {d.kind
                               ? <Pill {...KIND_COLOR[d.kind]}>{GAP_LABEL[d.kind]}{m ? ` · ${m === 'next' ? 'לחודש הבא' : 'טופל'}` : ''}</Pill>
                               : <Pill {...STATUS.green}>תואם</Pill>}
                             {d.note && <div className="text-xs text-gray-500 mt-1">{d.note}</div>}
-                          </td>
-                          <td className="px-2 py-2">
+                      </>)
+                      const actions = (
                             <div className="flex gap-1.5">
                               {d.link && <Button size="sm" variant="outline" onClick={() => void openExternal(d.link)}>מסמך</Button>}
                               {d.kind && (
@@ -478,7 +483,31 @@ export default function VatControlPanel() {
                                 })}>{m ? 'ביטול' : d.kind === 'month' ? 'לחודש הבא' : 'סמני טופל'}</Button>
                               )}
                             </div>
-                          </td>
+                      )
+                      if (phone) return (
+                        <Fragment key={d.key}>
+                          <tr style={{ opacity: m ? 0.55 : 1 }}>
+                            <td className="px-2 pt-2.5 font-semibold" dir="ltr" style={{ textAlign: 'right' }}>
+                              {d.number || '—'}<div className="text-xs font-normal text-gray-500">{dmy(d.date)}</div>
+                            </td>
+                            <td className="px-2 pt-2.5 whitespace-nowrap">{fmt(d.ours)}</td>
+                            <td className="px-2 pt-2.5 whitespace-nowrap">{fmt(d.cpa)}</td>
+                          </tr>
+                          <tr style={{ opacity: m ? 0.55 : 1, borderBottom: '1px solid #EEF0F3' }}>
+                            <td colSpan={3} className="px-2 pt-1.5 pb-2.5">
+                              <div className="flex items-center justify-between gap-2 flex-wrap"><div>{verdict}</div>{actions}</div>
+                            </td>
+                          </tr>
+                        </Fragment>
+                      )
+                      return (
+                        <tr key={d.key} style={{ opacity: m ? 0.55 : 1 }}>
+                          <td className="px-2 py-2 font-semibold" dir="ltr" style={{ textAlign: 'right' }}>{d.number || '—'}</td>
+                          <td className="px-2 py-2 whitespace-nowrap">{dmy(d.date)}</td>
+                          <td className="px-2 py-2 whitespace-nowrap">{fmt(d.ours)}</td>
+                          <td className="px-2 py-2 whitespace-nowrap">{fmt(d.cpa)}</td>
+                          <td className="px-2 py-2">{verdict}</td>
+                          <td className="px-2 py-2">{actions}</td>
                         </tr>
                       )
                     })}

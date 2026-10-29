@@ -13,6 +13,7 @@ import ArrivalChoice from '../pipeline/ArrivalChoice'
 import CustomerOrdersBook from '../pipeline/CustomerOrdersBook'
 import DeliveryNotePopup from './DeliveryNotePopup'
 import { useNoteMatching } from './useNoteMatching'
+import { useNarrow } from '../useNarrow'
 import type { ArrivalCandidate, Order } from '../../hooks/useOrders'
 
 // ── הזמנות וסחורה — one screen, three tabs (DEMO ONLY, 26.10.2026) ──────────
@@ -37,6 +38,7 @@ export default function OrdersHub({ userEmail, initialNoteId = null, onOpenInvoi
   const { data: suppliers } = useSuppliers()
   const { data: employees } = useEmployees()
   const [tab, setTab] = useState<Tab>('future')
+  const narrow = useNarrow()
   const [openNote, setOpenNote] = useState<string | null>(initialNoteId)
   const [newOrder, setNewOrder] = useState(false)
   const [intake, setIntake] = useState<null | { supplier?: { id: string; name: string }; adopt?: string }>(null)
@@ -91,7 +93,44 @@ export default function OrdersHub({ userEmail, initialNoteId = null, onOpenInvoi
         </div>
       </div>
 
-      {tab === 'future' && (
+      {tab === 'future' && narrow && (
+        <div className="space-y-2.5">
+          {future.map(o => {
+            const note = o.deliveryNoteId ? m.noteById.get(o.deliveryNoteId) : undefined
+            const hasGoods = !!note && note.stage !== 'awaiting_goods'
+            const chips = [...(o.customerName ? [o] : []), ...riders(o)]
+            return (
+              <div key={o.id} className="bg-white rounded-2xl border p-4" style={{ borderColor: HAIRLINE }}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-bold">{o.supplierName}</div>
+                  <StatusBadge status={o.status} />
+                </div>
+                <div className="text-sm mt-1.5">{o.description || '—'}</div>
+                <div className="text-xs text-gray-500 mt-1">הוזמן {o.date}{o.expectedDate ? ` · צפי ${o.expectedDate}` : ''}</div>
+                {chips.length > 0 && (
+                  <div className="flex gap-1 flex-wrap mt-2">
+                    {chips.map(c => (
+                      <button key={c.id} type="button" onClick={() => setTab('customers')}
+                        className="text-xs rounded-lg px-2 py-1" style={{ background: '#EFF6FF', color: '#1D4ED8' }}>
+                        {c.customerName}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2 flex-wrap mt-3">
+                  {!hasGoods && <Button onClick={() => void arrive(o)}>קליטת סחורה</Button>}
+                  <Button variant="outline" disabled={!hasGoods}
+                    title={hasGoods ? '' : 'הסחורה עוד לא הגיעה'}
+                    onClick={() => note && setOpenNote(note.id)}>תעודת משלוח</Button>
+                </div>
+              </div>
+            )
+          })}
+          {future.length === 0 && <div className="bg-white rounded-2xl border px-3 py-8 text-center text-gray-400" style={{ borderColor: HAIRLINE }}>אין הזמנות פתוחות</div>}
+        </div>
+      )}
+
+      {tab === 'future' && !narrow && (
         <div className="bg-white rounded-2xl border overflow-x-auto" style={{ borderColor: HAIRLINE }}>
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: 940 }}>
             <thead><tr className="text-xs text-gray-500 text-right">
@@ -139,7 +178,33 @@ export default function OrdersHub({ userEmail, initialNoteId = null, onOpenInvoi
         </div>
       )}
 
-      {tab === 'intake' && (
+      {tab === 'intake' && narrow && (
+        <div className="space-y-2.5">
+          {received.map(n => {
+            const o = orderOfNote(n.id)
+            return (
+              <div key={n.id} className="bg-white rounded-2xl border p-4 cursor-pointer" style={{ borderColor: HAIRLINE }}
+                onClick={() => setOpenNote(n.id)}>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-bold">{n.supplierName}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{n.date} · {intakeShort(n.intakeSource)} · {empName(n.employeeId)}</div>
+                  </div>
+                  <span className="font-bold underline text-sm whitespace-nowrap" style={{ color: 'var(--brand-primary)' }}>תעודה {n.noteNumber || ''}</span>
+                </div>
+                <div className="text-sm mt-2">
+                  <span className="text-gray-500">הזמנה: </span>
+                  {o ? (o.description || o.date) : <span className="text-gray-400">בלי הזמנה</span>}
+                </div>
+                {n.notes && <div className="text-sm text-gray-600 mt-1">{n.notes}</div>}
+              </div>
+            )
+          })}
+          {received.length === 0 && <div className="bg-white rounded-2xl border px-3 py-8 text-center text-gray-400" style={{ borderColor: HAIRLINE }}>עוד לא נקלטה סחורה</div>}
+        </div>
+      )}
+
+      {tab === 'intake' && !narrow && (
         <div className="bg-white rounded-2xl border overflow-x-auto" style={{ borderColor: HAIRLINE }}>
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: 820 }}>
             <thead><tr className="text-xs text-gray-500 text-right">

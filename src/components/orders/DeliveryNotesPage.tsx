@@ -4,6 +4,7 @@ import { intakeShort } from '../../lib/intakeSource'
 import NoteInvoiceCell from './NoteInvoiceCell'
 import DeliveryNotePopup from './DeliveryNotePopup'
 import { useNoteMatching } from './useNoteMatching'
+import { useNarrow } from '../useNarrow'
 
 // ── תעודות משלוח — its own page, like invoices (DEMO ONLY, 26.10.2026) ──────
 //
@@ -23,6 +24,7 @@ export default function DeliveryNotesPage({ initialNoteId = null, onOpenInvoice 
   const [filter, setFilter] = useState<Filter>('all')
   const [q, setQ] = useState('')
   const [openId, setOpenId] = useState<string | null>(initialNoteId)
+  const narrow = useNarrow()
 
   // A row exists once goods came in or a note was filed — an order's own
   // placeholder (still waiting for goods) is not a delivery note yet.
@@ -55,9 +57,39 @@ export default function DeliveryNotesPage({ initialNoteId = null, onOpenInvoice 
           ))}
         </div>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="חיפוש לפי ספק או מספר תעודה..."
-          className="rounded-xl border px-3 py-2 text-sm bg-white" style={{ borderColor: '#D1D5DB', minWidth: 240 }} />
+          className="rounded-xl border px-3 py-2 text-sm bg-white flex-1" style={{ borderColor: '#D1D5DB', minWidth: 200, maxWidth: 320 }} />
       </div>
 
+      {narrow ? (
+        <div className="space-y-2.5">
+          {shown.map(n => {
+            const o = orderOf(n.id)
+            return (
+              <div key={n.id} className="bg-white rounded-2xl border p-4 cursor-pointer" style={{ borderColor: HAIRLINE }}
+                onClick={() => setOpenId(n.id)}>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-bold">{n.supplierName}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{n.date} · {intakeShort(n.intakeSource)}</div>
+                  </div>
+                  <span className="font-bold underline text-sm whitespace-nowrap" style={{ color: 'var(--brand-primary)' }}>
+                    {n.noteNumber ? `תעודה ${n.noteNumber}` : 'ללא מספר'}
+                  </span>
+                </div>
+                <div className="text-sm mt-2">
+                  <span className="text-gray-500">הזמנה: </span>
+                  {o ? (o.description || o.date) : <span className="text-gray-400">בלי הזמנה</span>}
+                </div>
+                {n.notes && <div className="text-sm text-gray-600 mt-1">{n.notes}</div>}
+                <div className="mt-3 pt-3" style={{ borderTop: '1px solid #EEF0F3' }}>
+                  <NoteInvoiceCell note={n} m={m} onOpenInvoice={onOpenInvoice} compact />
+                </div>
+              </div>
+            )
+          })}
+          {shown.length === 0 && <div className="bg-white rounded-2xl border px-3 py-8 text-center text-gray-400" style={{ borderColor: HAIRLINE }}>אין תעודות בסינון הזה</div>}
+        </div>
+      ) : (
       <div className="bg-white rounded-2xl border overflow-x-auto" style={{ borderColor: HAIRLINE }}>
         <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: 900 }}>
           <thead>
@@ -91,6 +123,7 @@ export default function DeliveryNotesPage({ initialNoteId = null, onOpenInvoice 
           </tbody>
         </table>
       </div>
+      )}
 
       {openId && (
         <DeliveryNotePopup noteId={openId} m={m} orders={orders} onClose={() => setOpenId(null)} onOpenInvoice={onOpenInvoice} />
