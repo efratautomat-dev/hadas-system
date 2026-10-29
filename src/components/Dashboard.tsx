@@ -105,7 +105,7 @@ interface DashboardProps {
   onPageChange?:                  (page: string) => void
   onOpenInvoice?:                 (invoiceId: string) => void
   onOpenInvoiceDuplicate?:        (invoiceId: string) => void
-  onOpenInvoiceByGmailMessageId?: (gmailMessageId: string) => void
+  onOpenInvoiceByGmailMessageId?: (gmailMessageId: string, onNotFound?: () => void) => void
   onOpenSupplier?:                (supplierId: string) => void
   onOpenSupplierByName?:          (supplierName: string) => void
   onOpenReturn?:                  (returnId: string) => void

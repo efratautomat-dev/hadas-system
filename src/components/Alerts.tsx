@@ -375,8 +375,8 @@ export function resolveAlertDestination(
   handlers: {
     onOpenInvoice?:                 (id: string)   => void
     onOpenInvoiceDuplicate?:        (id: string)   => void
-    onOpenInvoiceByGmailMessageId?: (msgId: string) => void
-    onOpenSupplier?:                (id: string)   => void
+    onOpenInvoiceByGmailMessageId?: (msgId: string, onNotFound?: () => void) => void
+    onOpenSupplier?:               (id: string)   => void
     onOpenSupplierByName?:          (name: string) => void
     onOpenReturn?:                  (id: string)   => void
     onOpenStatement?:               (id: string)   => void
@@ -424,9 +424,27 @@ export function resolveAlertDestination(
     return
   }
 
+  // Same fallback as the card's button: on a device with nothing that opens mail,
+  // the link is copied rather than lost. The alerts screen stays put so the person
+  // can see which alert they were on.
+  const openSourceEmail = () => {
+    if (!messageLink) { handlers.onPageChange?.('alerts'); return }
+    void openEmail(messageLink, p.subject as string | undefined).then((how) => {
+      // window.alert: `alert` is the name of the alert row in this file.
+      if (how === 'gmail-app' || how === 'copied-subject') {
+        window.alert('נושא המייל הועתק.\nהדביקי אותו בחיפוש של Gmail כדי למצוא את ההודעה.')
+      } else if (how === 'copied-link') {
+        window.alert('אין במכשיר אפליקציה שפותחת את הקישור.\nהוא הועתק — אפשר להדביק אותו בטלפון או במחשב.')
+      }
+    })
+  }
+
   // Open the INVOICE detail so the owner can compare the source document against the
   // parsed data. Prefer a payload invoiceId, then resolve by gmail_message_id (the
-  // invoice row can be written after the alert), else fall back to the invoices list.
+  // invoice row can be written after the alert). When no row was ever saved — a
+  // failed link download or a failed extraction — the email is the only place the
+  // document is, so it opens THAT. It used to fall back to the invoices list, which
+  // dropped her on a screen unrelated to the alert she clicked (owner, 29.10.2026).
   //   • invoice_low_confidence → verify AI extraction         (07-ALERTS #7)
   //   • invoice_ingest_failed  → manual handling / re-queue   (07-ALERTS #1)
   //   • invoice_link_failed    → file IS in Drive; assign a supplier + complete details
@@ -438,8 +456,8 @@ export function resolveAlertDestination(
     t === 'extraction_failed'
   ) {
     if (invoiceId       && handlers.onOpenInvoice)                { handlers.onOpenInvoice(invoiceId);                 return }
-    if (gmailMessageId  && handlers.onOpenInvoiceByGmailMessageId){ handlers.onOpenInvoiceByGmailMessageId(gmailMessageId); return }
-    handlers.onPageChange?.('invoices')
+    if (gmailMessageId  && handlers.onOpenInvoiceByGmailMessageId){ handlers.onOpenInvoiceByGmailMessageId(gmailMessageId, openSourceEmail); return }
+    openSourceEmail()
     return
   }
 
@@ -458,21 +476,7 @@ export function resolveAlertDestination(
     t === 'return_no_file'         || t === 'delivery_note_ingest_failed' ||
     t === 'statement_ingest_failed'|| t === 'return_ingest_failed'
   ) {
-    if (messageLink) {
-      // Same fallback as the card's button: on a device with nothing that opens
-      // mail, the link is copied rather than lost. The alerts screen stays put so
-      // the person can see which alert they were on.
-      void openEmail(messageLink, p.subject as string | undefined).then((how) => {
-        // window.alert: `alert` is the name of the alert row in this file.
-        if (how === 'gmail-app' || how === 'copied-subject') {
-          window.alert('נושא המייל הועתק.\nהדביקי אותו בחיפוש של Gmail כדי למצוא את ההודעה.')
-        } else if (how === 'copied-link') {
-          window.alert('אין במכשיר אפליקציה שפותחת את הקישור.\nהוא הועתק — אפשר להדביק אותו בטלפון או במחשב.')
-        }
-      })
-      return
-    }
-    handlers.onPageChange?.('alerts')
+    openSourceEmail()
     return
   }
 
