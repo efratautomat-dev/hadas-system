@@ -127,6 +127,7 @@ export function emailOpenNote(how: EmailOpen): string {
  * does nothing at all, silently, so the click is handed to openExternal().
  */
 export function externalLinkProps(url: string) {
+  url = gmailWebLink(url)
   return {
     href: url,
     target: '_blank',
@@ -156,6 +157,7 @@ export function externalLinkProps(url: string) {
  * say so.
  */
 export async function openEmail(messageLink: string, subject?: string): Promise<EmailOpen> {
+  messageLink = gmailWebLink(messageLink)
   if (!isNative()) {
     window.open(messageLink, '_blank', 'noopener')
     return 'opened'
@@ -177,6 +179,17 @@ export async function openEmail(messageLink: string, subject?: string): Promise<
 
   if (messageLink && await openExternal(messageLink)) return 'opened'
   return subject ? 'copied-subject' : 'copied-link'
+}
+
+/**
+ * Repairs the links ingest stored between 19.10 and 29.10.2026:
+ * `mail/u/<address with %40>/#all/<id>` — Gmail answers that path with a 404.
+ * The same address in `?authuser=` opens the right mailbox. Any other link is
+ * returned untouched, so the older `u/0` rows keep working as they always did.
+ */
+function gmailWebLink(link: string): string {
+  const m = /^https:\/\/mail\.google\.com\/mail\/u\/([^/]*%40[^/]*)\/(#.*)?$/.exec(link)
+  return m ? `https://mail.google.com/mail/?authuser=${m[1]}${m[2] ?? ''}` : link
 }
 
 /**

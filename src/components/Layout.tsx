@@ -257,20 +257,21 @@ export default function Layout({ userEmail, onLogout }: LayoutProps) {
   // invoice row is inserted, so their payload only carries gmailMessageId.
   // Resolve to the saved invoice on demand and navigate to its detail page;
   // if not found, fall back to the invoices list.
-  const handleOpenInvoiceByGmailMessageId = async (msgId: string) => {
+  // `onNotFound` is the caller's own answer for "no invoice was saved" — from the
+  // alerts screen that is the source email. The full invoices list is only the
+  // last resort: it has nothing to do with the alert she clicked.
+  const handleOpenInvoiceByGmailMessageId = async (msgId: string, onNotFound?: () => void) => {
     const { data, error } = await supabase
       .from('invoices_v')
       .select('id')
       .eq('gmail_message_id', msgId)
       .limit(1)
-    if (error) {
-      console.error('[alert→invoice] supabase error — falling back to list:', error)
-      handlePageChange('invoices')
-      return
-    }
+    if (error) console.error('[alert→invoice] supabase error:', error)
     const id = data?.[0]?.id as string | undefined
     if (id) {
       pushNav({ page: 'invoices', invoiceSelectedId: id })
+    } else if (onNotFound) {
+      onNotFound()
     } else {
       handlePageChange('invoices')
     }

@@ -244,10 +244,17 @@ async function getIngestMailbox(token: string, log: Logger, msgId: string): Prom
  *  - Gmail's web UI opens a CONVERSATION by its thread id; a message id only
  *    works when it is the first message of the thread, so replies and forwards
  *    landed nowhere. Now it is the thread id, which always resolves.
+ *
+ * ⚠️ The address goes in `?authuser=`, NEVER in the path. The first version wrote
+ * `u/<encodeURIComponent(address)>/` and Gmail answers that `%40` with a 404 —
+ * every link written from 19.10 onwards was dead. In a query string `%40` is
+ * decoded as it should be. `openEmail` (src/lib/native.ts) rewrites the links
+ * already stored in that shape.
  */
 function buildGmailLink(apiMsgId: string, mailbox: string | null, threadId: string | undefined): string {
-  const account = mailbox ? encodeURIComponent(mailbox) : "0";
-  return `https://mail.google.com/mail/u/${account}/#all/${threadId || apiMsgId}`;
+  const id = threadId || apiMsgId;
+  if (!mailbox) return `https://mail.google.com/mail/u/0/#all/${id}`;
+  return `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailbox)}#all/${id}`;
 }
 
 interface GmailPart {
